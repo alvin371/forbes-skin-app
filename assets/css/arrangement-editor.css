@@ -1,0 +1,515 @@
+/**
+ * Arrangement Editor Styles
+ * Styles for the interactive node arrangement editor
+ */
+
+/* Main Editor Panel */
+.arrangement-editor {
+    background: white;
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+    margin: 20px 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+}
+
+.arrangement-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 16px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.arrangement-header h5 {
+    margin: 0;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.arrangement-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.arrangement-content {
+    padding: 0;
+}
+
+/* Tab Styles */
+.arrangement-tabs .nav-tabs {
+    border-bottom: 1px solid #dee2e6;
+    background: #f8f9fa;
+    margin-bottom: 0;
+}
+
+.arrangement-tabs .nav-link {
+    color: #6c757d;
+    font-weight: 500;
+    border: none;
+    border-bottom: 3px solid transparent;
+    background: transparent;
+}
+
+.arrangement-tabs .nav-link:hover {
+    border-color: transparent;
+    background: rgba(102, 126, 234, 0.1);
+    color: #667eea;
+}
+
+.arrangement-tabs .nav-link.active {
+    background: white;
+    color: #667eea;
+    border-bottom-color: #667eea;
+}
+
+.tab-content {
+    padding: 20px;
+    min-height: 300px;
+}
+
+/* Drag & Drop Panel */
+.drag-drop-controls {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 20px;
+    padding: 16px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    flex-wrap: wrap;
+}
+
+.drag-instructions {
+    padding: 12px;
+    background: #e7f3ff;
+    border: 1px solid #b3d9ff;
+    border-radius: 6px;
+    color: #0066cc;
+    font-size: 14px;
+}
+
+/* Edit Mode Visual Indicators */
+.edit-mode .node {
+    cursor: move !important;
+}
+
+.edit-mode .node:hover {
+    filter: brightness(1.1);
+    transform: scale(1.05);
+    transition: all 0.2s ease;
+}
+
+.node.dragging {
+    opacity: 0.7;
+    filter: brightness(1.2);
+    transform: scale(1.1);
+    z-index: 1000;
+}
+
+/* Drag Preview */
+.drag-preview {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(4px);
+}
+
+/* Drop Zones */
+.drop-zone {
+    fill: rgba(52, 196, 26, 0.2);
+    stroke: #34c426;
+    stroke-width: 2;
+    stroke-dasharray: 5, 5;
+    animation: dropZonePulse 2s infinite;
+}
+
+@keyframes dropZonePulse {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 0.7; }
+}
+
+.drop-highlight {
+    filter: brightness(1.2);
+    stroke: #34c426 !important;
+    stroke-width: 3px !important;
+}
+
+/* List Editor Panel */
+.list-editor-container {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.department-list-container {
+    margin-bottom: 30px;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.department-title {
+    background: linear-gradient(90deg, #667eea, #764ba2);
+    color: white;
+    padding: 12px 16px;
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.department-title .badge {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 12px;
+}
+
+/* Sortable Lists */
+.sortable-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    background: white;
+}
+
+.sortable-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid #f0f0f0;
+    background: white;
+    transition: all 0.2s ease;
+    cursor: move;
+}
+
+.sortable-item:hover {
+    background: #f8f9fa;
+    border-left: 4px solid #667eea;
+}
+
+.sortable-item:last-child {
+    border-bottom: none;
+}
+
+.sortable-item.ui-sortable-helper {
+    background: #e6f7ff;
+    border: 2px solid #1890ff;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3);
+    transform: rotate(2deg);
+}
+
+.sortable-placeholder {
+    background: #f0f9ff;
+    border: 2px dashed #91d5ff;
+    border-radius: 6px;
+    margin: 4px 0;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #1890ff;
+    font-style: italic;
+}
+
+.sortable-placeholder::before {
+    content: 'Drop here';
+    font-size: 14px;
+}
+
+.position-info {
+    flex: 1;
+}
+
+.position-name {
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 4px;
+}
+
+.position-details {
+    font-size: 12px;
+    color: #666;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.order-input {
+    width: 60px;
+    padding: 2px 6px;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    font-size: 12px;
+    text-align: center;
+}
+
+.order-input:focus {
+    border-color: #1890ff;
+    outline: none;
+    box-shadow: 0 0 4px rgba(24, 144, 255, 0.3);
+}
+
+.sortable-handle {
+    color: #999;
+    cursor: move;
+    padding: 8px;
+    margin: -8px;
+    transition: color 0.2s ease;
+}
+
+.sortable-handle:hover {
+    color: #667eea;
+}
+
+/* Templates Panel */
+.templates-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+    align-items: start;
+}
+
+.template-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+}
+
+.template-btn {
+    padding: 16px 12px;
+    text-align: center;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    background: white;
+    color: #495057;
+    transition: all 0.2s ease;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.template-btn:hover {
+    border-color: #667eea;
+    color: #667eea;
+    background: #f8f9ff;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+}
+
+.template-btn i {
+    display: block;
+    font-size: 24px;
+    margin-bottom: 8px;
+    color: #667eea;
+}
+
+.template-preview {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 16px;
+    min-height: 200px;
+}
+
+.template-preview h6 {
+    color: #495057;
+    font-weight: 600;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .arrangement-header {
+        flex-direction: column;
+        gap: 12px;
+        text-align: center;
+    }
+
+    .arrangement-actions {
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .drag-drop-controls {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .templates-container {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+
+    .template-options {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .position-details {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+}
+
+@media (max-width: 480px) {
+    .arrangement-actions .btn {
+        font-size: 11px;
+        padding: 4px 8px;
+    }
+
+    .sortable-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .sortable-handle {
+        align-self: flex-end;
+    }
+
+    .template-options {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Animation Classes */
+.arrangement-enter {
+    animation: slideInUp 0.3s ease-out;
+}
+
+.arrangement-exit {
+    animation: slideOutDown 0.3s ease-in;
+}
+
+@keyframes slideInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes slideOutDown {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+}
+
+/* Success/Error Messages */
+.arrangement-message {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 12px 20px;
+    border-radius: 6px;
+    color: white;
+    font-weight: 500;
+    z-index: 10000;
+    animation: messageSlide 0.3s ease-out;
+}
+
+.arrangement-message.success {
+    background: #52c41a;
+}
+
+.arrangement-message.error {
+    background: #ff4d4f;
+}
+
+@keyframes messageSlide {
+    from {
+        opacity: 0;
+        transform: translateX(100%);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Loading States */
+.arrangement-loading {
+    position: relative;
+    pointer-events: none;
+}
+
+.arrangement-loading::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: #666;
+}
+
+/* Grid Snap Indicators */
+.snap-grid {
+    pointer-events: none;
+    opacity: 0.1;
+}
+
+.snap-grid line {
+    stroke: #ccc;
+    stroke-width: 1;
+}
+
+/* Validation Indicators */
+.validation-error {
+    border: 2px solid #ff4d4f !important;
+    animation: validationShake 0.5s ease-in-out;
+}
+
+@keyframes validationShake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
+
+.validation-message {
+    background: #fff2f0;
+    border: 1px solid #ffccc7;
+    color: #ff4d4f;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-top: 8px;
+}
+
+/* Undo/Redo Button States */
+#undoArrangement:disabled,
+#redoArrangement:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#saveArrangement.btn-warning {
+    animation: saveGlow 2s infinite;
+}
+
+@keyframes saveGlow {
+    0%, 100% { box-shadow: 0 0 0 rgba(255, 193, 7, 0); }
+    50% { box-shadow: 0 0 8px rgba(255, 193, 7, 0.6); }
+}
