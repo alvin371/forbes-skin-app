@@ -1,0 +1,1095 @@
+/* Enhanced Profile Styling */
+.profile-card-enhanced {
+    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+    border: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-radius: 12px;
+}
+#reviewModal .review-content {
+    padding-top: 10px;
+}
+#reviewModal .review-image-container img {
+    border: 4px solid #f0f0f0;
+}
+
+/* keep numbers tight and nice */
+#main-quests-pager .page-link,
+#side-quests-pager .page-link { min-width: 40px; text-align: center; }
+
+.profile-stats-card {
+    background: linear-gradient(135deg, #f6ffed, #e6f7ff);
+    border: 1px solid #91d5ff;
+    border-radius: 8px;
+    transition: transform 0.3s ease;
+}
+
+.profile-stats-card:hover {
+    transform: translateY(-2px);
+}
+
+.quest-card-accessible {
+    transition: all 0.3s ease;
+}
+
+.quest-card-accessible:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(24, 144, 255, 0.2);
+}
+
+.quest-card-locked {
+    transition: all 0.3s ease;
+    cursor: not-allowed;
+}
+
+.quest-card-applied {
+    transition: all 0.3s ease;
+}
+
+.quest-card-applied:hover {
+    transform: translateY(-1px);
+}
+
+/* Level Progress Enhancement */
+.level-progress-container {
+    background: linear-gradient(135deg, #f0f0f0, #fafafa);
+    border-radius: 8px;
+    padding: 15px;
+    margin-top: 15px;
+}
+
+.level-progress-bar {
+    height: 10px;
+    border-radius: 5px;
+    overflow: hidden;
+    background-color: #f0f0f0;
+}
+
+.level-progress-fill {
+    height: 100%;
+    border-radius: 5px;
+    transition: width 0.8s ease;
+    background: linear-gradient(135deg, #52c41a, #73d13d);
+}
+
+/* Recent Activities Enhancement */
+.recent-activities-table {
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.recent-activities-table thead th {
+    background: linear-gradient(135deg, #fafafa, #f5f5f5);
+    border: none;
+    font-weight: 600;
+    color: rgba(0, 0, 0, 0.85);
+}
+
+.recent-activities-table tbody tr {
+    transition: background-color 0.3s ease;
+}
+
+/* Quill Rich Text Editor Styling */
+#hasil-editor-wrapper {
+    border: 2px solid #e8f4f8;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+    overflow: hidden;
+}
+
+#hasil-editor-wrapper:focus-within {
+    border-color: #1890ff;
+    box-shadow: 0 6px 20px rgba(24, 144, 255, 0.2);
+}
+
+.rich-editor-container {
+    min-height: 400px;
+}
+
+/* Quill Editor Customization */
+.quill-editor-content {
+    min-height: 350px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+}
+
+/* Quill Toolbar Customization */
+.ql-toolbar {
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%) !important;
+    border-bottom: 2px solid #e2e8f0 !important;
+    border-top: none !important;
+    border-left: none !important;
+    border-right: none !important;
+    padding: 12px 16px !important;
+}
+
+.ql-toolbar .ql-formats {
+    margin-right: 15px !important;
+}
+
+.ql-toolbar button {
+    border-radius: 6px !important;
+    padding: 6px 8px !important;
+    margin: 2px !important;
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%) !important;
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+    transition: all 0.25s ease !important;
+}
+
+.ql-toolbar button:hover {
+    background: linear-gradient(135deg, #1890ff 0%, #40a9ff 100%) !important;
+    border-color: #1890ff !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3) !important;
+}
+
+.ql-toolbar button:active,
+.ql-toolbar button.ql-active {
+    background: linear-gradient(135deg, #1890ff 0%, #0958d9 100%) !important;
+    color: white !important;
+    border-color: #0958d9 !important;
+    box-shadow: 0 3px 10px rgba(24, 144, 255, 0.4) !important;
+}
+
+.ql-toolbar button svg {
+    width: 16px !important;
+    height: 16px !important;
+}
+
+.ql-toolbar .ql-picker {
+    border-radius: 6px !important;
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%) !important;
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+    padding: 4px 8px !important;
+    margin: 2px !important;
+    transition: all 0.25s ease !important;
+}
+
+.ql-toolbar .ql-picker:hover {
+    background: linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%) !important;
+    border-color: #1890ff !important;
+    box-shadow: 0 2px 8px rgba(24, 144, 255, 0.2) !important;
+}
+
+.ql-toolbar .ql-picker-label {
+    border: none !important;
+    font-weight: 500 !important;
+    color: #475569 !important;
+}
+
+/* Quill Editor Content Area */
+.ql-container {
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: none !important;
+    font-size: 15px !important;
+    line-height: 1.7 !important;
+}
+
+.ql-editor {
+    padding: 20px !important;
+    min-height: 300px !important;
+    color: #1e293b !important;
+}
+
+.ql-editor.ql-blank::before {
+    color: #94a3b8 !important;
+    font-style: normal !important;
+    font-size: 15px !important;
+}
+
+/* Quill Content Styling */
+.ql-editor h1 {
+    font-size: 24px !important;
+    font-weight: 700 !important;
+    color: #1e293b !important;
+    margin: 24px 0 16px 0 !important;
+    line-height: 1.3 !important;
+}
+
+.ql-editor h2 {
+    font-size: 20px !important;
+    font-weight: 600 !important;
+    color: #334155 !important;
+    margin: 20px 0 12px 0 !important;
+    line-height: 1.4 !important;
+}
+
+.ql-editor h3 {
+    font-size: 18px !important;
+    font-weight: 600 !important;
+    color: #1890ff !important;
+    margin: 18px 0 10px 0 !important;
+    padding-bottom: 6px !important;
+    border-bottom: 2px solid #e6f7ff !important;
+}
+
+.ql-editor p {
+    margin: 8px 0 !important;
+    color: #475569 !important;
+}
+
+.ql-editor strong {
+    color: #1e293b !important;
+    font-weight: 600 !important;
+}
+
+.ql-editor em {
+    color: #64748b !important;
+}
+
+.ql-editor a {
+    color: #1890ff !important;
+    text-decoration: underline !important;
+}
+
+.ql-editor a:hover {
+    color: #40a9ff !important;
+}
+
+.ql-editor ul,
+.ql-editor ol {
+    padding-left: 24px !important;
+    margin: 12px 0 !important;
+}
+
+.ql-editor li {
+    margin: 6px 0 !important;
+    color: #475569 !important;
+}
+
+.ql-editor blockquote {
+    border-left: 4px solid #1890ff !important;
+    padding-left: 16px !important;
+    margin: 16px 0 !important;
+    color: #64748b !important;
+    font-style: italic !important;
+    background: #f8fafc !important;
+    border-radius: 0 6px 6px 0 !important;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+    .ql-toolbar {
+        padding: 8px 12px !important;
+    }
+
+    .ql-toolbar button {
+        padding: 4px 6px !important;
+        margin: 1px !important;
+    }
+
+    .ql-editor {
+        padding: 15px !important;
+        min-height: 250px !important;
+        font-size: 14px !important;
+    }
+}
+
+#hasil-editor {
+    min-height: 300px;
+    max-height: 500px;
+    padding: 16px;
+    font-size: 14px;
+    line-height: 1.6;
+    overflow-y: auto;
+    outline: none;
+    color: #262626;
+}
+
+/* TipTap Content Styling */
+#hasil-editor h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1890ff;
+    margin: 20px 0 12px 0;
+    padding-bottom: 6px;
+    border-bottom: 2px solid #e6f7ff;
+}
+
+#hasil-editor h4 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #262626;
+    margin: 16px 0 8px 0;
+}
+
+#hasil-editor p {
+    margin: 8px 0;
+    color: #595959;
+}
+
+#hasil-editor ul,
+#hasil-editor ol {
+    padding-left: 24px;
+    margin: 12px 0;
+}
+
+#hasil-editor li {
+    margin: 6px 0;
+    color: #595959;
+}
+
+#hasil-editor strong {
+    color: #262626;
+    font-weight: 600;
+}
+
+#hasil-editor em {
+    color: #8c8c8c;
+    font-style: italic;
+}
+
+#hasil-editor a {
+    color: #1890ff;
+    text-decoration: underline;
+}
+
+#hasil-editor a:hover {
+    color: #40a9ff;
+}
+
+#hasil-editor hr {
+    border: none;
+    height: 2px;
+    background: linear-gradient(90deg, #f0f0f0, #d9d9d9, #f0f0f0);
+    margin: 20px 0;
+    border-radius: 1px;
+}
+
+/* Review Modal Rich Text Display */
+.review-html-content {
+    background: white !important;
+    border: 1px solid #f0f0f0;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.7;
+    color: #262626;
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 20px !important;
+}
+
+.review-html-content h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1890ff;
+    margin: 20px 0 12px 0;
+    padding-bottom: 6px;
+    border-bottom: 2px solid #e6f7ff;
+    display: flex;
+    align-items: center;
+}
+
+.review-html-content h3:first-child {
+    margin-top: 0;
+}
+
+.review-html-content h4 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #262626;
+    margin: 16px 0 8px 0;
+}
+
+.review-html-content p {
+    margin: 10px 0;
+    color: #595959;
+}
+
+.review-html-content ul,
+.review-html-content ol {
+    padding-left: 24px;
+    margin: 12px 0;
+}
+
+.review-html-content li {
+    margin: 8px 0;
+    color: #595959;
+}
+
+.review-html-content li strong {
+    color: #262626;
+    font-weight: 600;
+}
+
+.review-html-content strong {
+    color: #262626;
+    font-weight: 600;
+}
+
+.review-html-content em {
+    color: #8c8c8c;
+    font-style: italic;
+}
+
+.review-html-content a {
+    color: #1890ff;
+    text-decoration: underline;
+}
+
+.review-html-content a:hover {
+    color: #40a9ff;
+}
+
+.review-html-content hr {
+    border: none;
+    height: 2px;
+    background: linear-gradient(90deg, #f0f0f0, #d9d9d9, #f0f0f0);
+    margin: 20px 0;
+    border-radius: 1px;
+}
+
+/* Responsive Design for Mobile */
+@media (max-width: 768px) {
+    .editor-toolbar {
+        flex-wrap: wrap;
+        padding: 6px 8px;
+    }
+
+    .editor-toolbar .btn {
+        padding: 3px 6px;
+        font-size: 11px;
+        margin: 2px;
+    }
+
+    #hasil-editor {
+        min-height: 250px;
+        padding: 12px;
+        font-size: 13px;
+    }
+
+    .review-html-content {
+        padding: 15px !important;
+        max-height: 300px;
+        font-size: 13px;
+    }
+
+    .review-html-content h3 {
+        font-size: 16px;
+        margin: 16px 0 10px 0;
+    }
+
+    .review-html-content h4 {
+        font-size: 14px;
+        margin: 14px 0 6px 0;
+    }
+}
+
+/* Editor Focus and Animation Effects */
+@keyframes editorFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+#hasil-editor-wrapper.editor-active {
+    animation: editorFadeIn 0.3s ease-out;
+}
+
+/* Placeholder Styling */
+#hasil-editor .ProseMirror p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: left;
+    color: #aaa;
+    pointer-events: none;
+    height: 0;
+}
+
+/* Beautiful Scrollbar for Editor */
+#hasil-editor::-webkit-scrollbar {
+    width: 6px;
+}
+
+#hasil-editor::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+#hasil-editor::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+#hasil-editor::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+.recent-activities-table tbody tr:hover {
+    background-color: #f8f9fa;
+}
+
+/* Badge Enhancements */
+.badge-enhanced {
+    font-size: 0.85rem;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-weight: 500;
+}
+
+.badge-primary-enhanced {
+    background: linear-gradient(135deg, #1890ff, #40a9ff);
+    color: white;
+    border: none;
+}
+
+.badge-success-enhanced {
+    background: linear-gradient(135deg, #52c41a, #73d13d);
+    color: white;
+    border: none;
+}
+
+.badge-warning-enhanced {
+    background: linear-gradient(135deg, #faad14, #ffc53d);
+    color: white;
+    border: none;
+}
+
+/* Animation for user profile image */
+.profile-image-container {
+    position: relative;
+    display: inline-block;
+}
+
+.profile-image-container:hover img {
+    transform: scale(1.05);
+    transition: transform 0.3s ease;
+}
+
+/* Card hover effects */
+.card-hover-effect {
+    transition: all 0.3s ease;
+}
+
+.card-hover-effect:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+/* Review Cards Styling */
+.review-item-card {
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    border: 1px solid rgba(0, 0, 0, 0.125);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.review-item-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+.card-img-wrapper {
+    position: relative;
+    height: 200px;
+    overflow: hidden;
+}
+
+.card-img-wrapper img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.3s ease;
+}
+
+.review-item-card:hover .card-img-wrapper img {
+    transform: scale(1.05);
+}
+
+.card-img-overlay-bottom {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+    padding: 1rem;
+    color: white;
+}
+
+.card-img-overlay-bottom h6 {
+    margin: 0;
+    font-weight: 600;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.card-img-overlay-bottom small {
+    opacity: 0.9;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.card-status-badge {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    z-index: 1;
+}
+
+.card-status-badge .badge {
+    font-size: 0.7rem;
+    padding: 0.4rem 0.7rem;
+    border-radius: 12px;
+    font-weight: 500;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Tab styling */
+.nav-tabs .nav-link {
+    color: rgba(0, 0, 0, 0.65);
+    border: none;
+    background: none;
+    padding: 12px 20px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.nav-tabs .nav-link:hover {
+    color: #1890ff;
+    background-color: rgba(24, 144, 255, 0.1);
+    border-radius: 6px;
+}
+
+.nav-tabs .nav-link.active {
+    color: #1890ff;
+    background-color: rgba(24, 144, 255, 0.1);
+    border-radius: 6px;
+    border: none;
+}
+
+.nav-tabs .nav-link .badge {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
+}
+
+/* Review grid responsive */
+@media (max-width: 1200px) {
+    .review-card .col-lg-3 {
+        flex: 0 0 33.333333%;
+        max-width: 33.333333%;
+    }
+}
+
+@media (max-width: 768px) {
+    .review-card .col-md-4 {
+        flex: 0 0 50%;
+        max-width: 50%;
+    }
+
+    .card-img-wrapper {
+        height: 180px;
+    }
+
+    .card-img-overlay-bottom {
+        padding: 0.75rem;
+    }
+
+    .card-img-overlay-bottom h6 {
+        font-size: 0.9rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .review-card .col-sm-6 {
+        flex: 0 0 100%;
+        max-width: 100%;
+    }
+
+    .card-img-wrapper {
+        height: 160px;
+    }
+}
+
+/* Button enhancements */
+.btn-enhanced {
+    border-radius: 6px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.btn-enhanced:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* Loading states */
+.loading-shimmer {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: -200% 0;
+    }
+
+    100% {
+        background-position: 200% 0;
+    }
+}
+
+/* Responsive enhancements */
+@media (max-width: 768px) {
+    .profile-stats-card {
+        margin-bottom: 1rem;
+    }
+
+    .quest-card-accessible,
+    .quest-card-locked,
+    .quest-card-applied {
+        margin-bottom: 1rem;
+    }
+}
+
+/* Community Reviews Page Specific Styling */
+.reviewer-meta-section {
+    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+    border-radius: 8px;
+    padding: 1rem;
+    border-left: 4px solid #1890ff;
+    margin-bottom: 1.5rem;
+}
+
+.reviewer-info {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.reviewer-info .text-primary {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.reviewer-info small {
+    color: #6c757d;
+    font-size: 0.8rem;
+}
+
+.reviewer-info i {
+    color: #1890ff;
+    font-size: 1rem;
+}
+
+/* Enhanced Review Cards for Community Page */
+.review-item-card {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.review-item-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+    border-color: #1890ff;
+}
+
+.card-img-wrapper {
+    position: relative;
+    height: 200px;
+    overflow: hidden;
+    background: #f8f9fa;
+}
+
+.card-img-wrapper img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.review-item-card:hover .card-img-wrapper img {
+    transform: scale(1.08);
+}
+
+.card-img-overlay-bottom {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+    padding: 1.25rem;
+    color: white;
+}
+
+.card-img-overlay-bottom h6 {
+    margin: 0;
+    font-weight: 600;
+    font-size: 1rem;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+    line-height: 1.3;
+}
+
+.card-img-overlay-bottom small {
+    opacity: 0.9;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+    font-size: 0.85rem;
+}
+
+.card-status-badge {
+    position: absolute;
+    top: 0.875rem;
+    right: 0.875rem;
+    z-index: 2;
+}
+
+.card-status-badge .badge {
+    font-size: 0.7rem;
+    padding: 0.45rem 0.75rem;
+    border-radius: 16px;
+    font-weight: 600;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
+    backdrop-filter: blur(4px);
+}
+
+/* Search and Filter Styling */
+.input-group .input-group-text {
+    background-color: #f8f9fa;
+    border-color: #dee2e6;
+    color: #6c757d;
+}
+
+.input-group .form-control:focus {
+    border-color: #1890ff;
+    box-shadow: 0 0 0 0.2rem rgba(24, 144, 255, 0.25);
+}
+
+.form-select:focus {
+    border-color: #1890ff;
+    box-shadow: 0 0 0 0.2rem rgba(24, 144, 255, 0.25);
+}
+
+/* Empty State Styling */
+.empty-state {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 3rem 1rem;
+}
+
+.empty-state i {
+    display: block;
+    margin-bottom: 1.5rem;
+    opacity: 0.6;
+}
+
+.empty-state h4 {
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: #495057;
+}
+
+.empty-state p {
+    font-size: 1rem;
+    line-height: 1.6;
+    color: #6c757d;
+}
+
+.empty-state .badge {
+    font-size: 0.95rem;
+    padding: 0.75rem 1.25rem;
+    border-radius: 20px;
+    font-weight: 500;
+    margin: 0 0.5rem;
+}
+
+/* Enhanced Modal for Community Reviews */
+#reviewModal .modal-content {
+    border-radius: 16px;
+    border: none;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+}
+
+#reviewModal .modal-header {
+    border-bottom: 1px solid #f0f0f0;
+    padding: 1.5rem;
+}
+
+#reviewModal .modal-body {
+    padding: 2rem;
+}
+
+#reviewModal .modal-footer {
+    border-top: 1px solid #f0f0f0;
+    padding: 1.25rem 1.5rem;
+}
+
+#reviewModal .reviewer-meta-section {
+    background: linear-gradient(135deg, #f0f8ff, #e6f7ff);
+    border: 1px solid #bae7ff;
+    border-left: 4px solid #1890ff;
+    border-radius: 12px;
+    padding: 1.25rem;
+}
+
+#reviewModal .reviewer-meta-section strong {
+    color: #1890ff;
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+#reviewModal .reviewer-meta-section .bi-person-circle {
+    color: #1890ff;
+    font-size: 1.5rem;
+}
+
+/* Review Content Display */
+.review-text-content .review-text,
+.review-text-content .review-html-content {
+    background: #fafafa;
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    line-height: 1.7;
+    color: #495057;
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 1.5rem !important;
+}
+
+.review-text-content h6 {
+    color: #495057;
+    font-weight: 600;
+    font-size: 1rem;
+    margin-bottom: 1rem;
+}
+
+.review-text-content h6 i {
+    color: #1890ff;
+}
+
+/* Responsive Design for Community Reviews */
+@media (max-width: 1200px) {
+    .review-item .col-lg-3 {
+        flex: 0 0 33.333333%;
+        max-width: 33.333333%;
+    }
+}
+
+@media (max-width: 992px) {
+    .reviewer-info {
+        text-align: center;
+        align-items: center;
+    }
+    
+    .view-icon {
+        text-align: center;
+        margin-top: 0.75rem;
+    }
+    
+    #reviewModal .modal-dialog {
+        margin: 1rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .review-item .col-md-4 {
+        flex: 0 0 50%;
+        max-width: 50%;
+    }
+
+    .card-img-wrapper {
+        height: 180px;
+    }
+
+    .card-img-overlay-bottom {
+        padding: 1rem;
+    }
+
+    .card-img-overlay-bottom h6 {
+        font-size: 0.9rem;
+    }
+    
+    .empty-state {
+        padding: 2rem 1rem;
+    }
+    
+    .empty-state .badge {
+        font-size: 0.85rem;
+        padding: 0.6rem 1rem;
+        margin: 0.25rem;
+        display: inline-block;
+    }
+    
+    #reviewModal .modal-body {
+        padding: 1.5rem;
+    }
+    
+    #reviewModal .reviewer-meta-section {
+        padding: 1rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .review-item .col-sm-6 {
+        flex: 0 0 100%;
+        max-width: 100%;
+    }
+
+    .card-img-wrapper {
+        height: 160px;
+    }
+    
+    .d-flex.gap-2 {
+        flex-direction: column;
+        gap: 0.5rem !important;
+    }
+    
+    .d-flex.gap-2 .btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* Animation for review cards loading */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.review-item {
+    animation: fadeInUp 0.6s ease-out;
+}
+
+.review-item:nth-child(2) { animation-delay: 0.1s; }
+.review-item:nth-child(3) { animation-delay: 0.2s; }
+.review-item:nth-child(4) { animation-delay: 0.3s; }
+
+/* Scrollbar styling for modal content */
+.review-text::-webkit-scrollbar,
+.review-html-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.review-text::-webkit-scrollbar-track,
+.review-html-content::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.review-text::-webkit-scrollbar-thumb,
+.review-html-content::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+.review-text::-webkit-scrollbar-thumb:hover,
+.review-html-content::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}

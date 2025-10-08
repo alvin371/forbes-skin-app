@@ -1,0 +1,677 @@
+<?php
+
+defined('BASEPATH') or exit('No direct script access allowed');
+
+require_once APPPATH . 'core/BaseController.php';
+class Endorse_campaign extends BaseController
+{
+    public function __construct()
+    {
+        parent::__construct();
+        $this->load->database();
+        $this->load->model('mymodel');
+        $this->load->library('template');
+
+        // Set public methods (no permission required)
+        $this->set_public_methods([]);
+
+        // Override method-to-action mapping if needed
+        $this->set_method_permissions([
+            'remove' => 'delete',
+            'action' => 'edit'
+        ]);
+    }
+
+
+    public function index()
+    {
+        // Load cache driver with APC adapter and file backup
+        $this->load->driver('cache', array('adapter' => 'apc', 'backup' => 'file'));
+
+        if (empty($_GET)) {
+            for ($i = 0; $i <= 0; $i++) {
+                $dt[$i] = 'false';
+            }
+            for ($i = 1; $i <= 6; $i++) {
+                $dt[$i] = 'false';
+            }
+            $dt[1] = 'true';
+            $_SESSION['checkbox'] = $dt;
+        }
+
+        if ($_GET['keyword_category']) {
+            $keyword_category = $_GET['keyword_category'];
+        } else {
+            $keyword_category = "Judul Campaign";
+        }
+
+        $data['keyword_category'] = $keyword_category;
+        $keyword = $_GET['keyword'];
+
+        if ($_GET['start_date']) {
+            $start_date = $_GET['start_date'];
+        } else {
+            $start_date = DATE("Y-m-01");
+            $start_date = DATE('Y-m-d', strtotime($today . " -1 years"));
+        }
+        if ($_GET['until_date']) {
+            $until_date = $_GET['until_date'];
+        } else {
+            $until_date = DATE('Y-m-d', strtotime($today . " +2 years"));
+        }
+
+
+        $data['start_date'] = $start_date;
+        $data['until_date'] = $until_date;
+        $data['brand'] = $brand;
+
+        $data['title'] = 'Endorse Campaign - ' . $this->template->title();
+
+        // Create cache key for marketplace
+        $marketplace_cache_key = 'endorse_campaign_marketplace';
+        $query = $this->cache->get($marketplace_cache_key);
+        if (!$query) {
+            $query = $this->mymodel->selectWithQuery("SELECT * FROM marketplace ORDER BY name ASC");
+            $this->cache->save($marketplace_cache_key, $query, 30); // Cache for 30 seconds
+        }
+        $data['marketplace'] = $query;
+
+        // Create cache key for brands
+        $brands_cache_key = 'endorse_campaign_brands_enabled';
+        $query = $this->cache->get($brands_cache_key);
+        if (!$query) {
+            $query = $this->mymodel->selectWithQuery("SELECT * FROM brand WHERE status = 'ENABLE' ORDER BY name ASC");
+            $this->cache->save($brands_cache_key, $query, 30); // Cache for 30 seconds
+        }
+        $data['brands'] = $query;
+
+
+        $qry = "";
+
+        $qry = " DATE(start_at) >= '$start_date'
+        AND DATE(start_at) <= '$until_date' ";
+
+        if ($brand) {
+            $qry .= " AND brand = '$brand' ";
+        }
+
+        if ($marketplace) {
+            $qry .= " AND marketplace = '$marketplace' ";
+        }
+
+        if ($keyword) {
+            if ($keyword_category == "Judul Campaign") {
+                $qry .= " AND title LIKE '%$keyword%' ";
+            } else if ($keyword_category == "SKU") {
+                $qry .= " AND sku LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Brand") {
+                $qry .= " AND brand LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Keterangan") {
+                $qry .= " AND endorse_campaign.desc LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Status") {
+                $qry .= " AND status = '$keyword' ";
+            }
+        }
+
+        $internal = $_GET['p'];
+        if ($internal == "internal") {
+            $qry .= " AND is_internal = '1' ";
+        } else {
+            $qry .= " AND is_internal = '0' ";
+        }
+
+
+        $query = $this->mymodel->selectWithQuery("SELECT COUNT(id) AS count
+        FROM endorse_campaign
+        WHERE $qry
+        ");
+
+        $data['page'] = CEIL($query[0]['count'] / 30);
+
+        $data['notif'] = '<p class="mb-1"><label class="text-notif">' . $this->template->separator_only($query[0]['count']) . ' data ditemukan!</label></p>';
+
+        $item = '';
+
+        $current_page = intval($_GET['page']);
+        if ($current_page <= 1) {
+            $current_page = 1;
+        }
+
+        $url = base_url() . '/endorse_campaign/' . $this->template->get_param();
+        $data['url'] = $this->template->get_param_without_keyword_category($url);
+        $data['param'] = $this->template->get_param();
+        $data['param_pagination'] = $this->template->get_param_without('page');
+        $data['pagination'] = $this->template->pagination($data['page'], $current_page, $data['param_pagination']);
+
+        $data['content'] = $this->load->view('endorse_campaign/all', $data, true);
+        $this->load->view('TemplateDashboard', $data);
+    }
+
+    public function item()
+    {
+
+
+        if ($_GET['keyword_category']) {
+            $keyword_category = $_GET['keyword_category'];
+        } else {
+            $keyword_category = "Judul Campaign";
+        }
+        $data['keyword_category'] = $keyword_category;
+        $keyword = $_GET['keyword'];
+
+        if ($_GET['start_date']) {
+            $start_date = $_GET['start_date'];
+        } else {
+            $start_date = DATE("Y-m-01");
+            $start_date = DATE('Y-m-d', strtotime($today . " -1 years"));
+        }
+        if ($_GET['until_date']) {
+            $until_date = $_GET['until_date'];
+        } else {
+            $until_date = DATE('Y-m-d', strtotime($today . " +2 years"));
+        }
+        $qry = "";
+
+        $qry = " DATE(start_at) >= '$start_date'
+        AND DATE(start_at) <= '$until_date' ";
+
+        if ($brand) {
+            $qry .= " AND brand = '$brand' ";
+        }
+
+        if ($marketplace) {
+            $qry .= " AND marketplace = '$marketplace' ";
+        }
+
+        if ($keyword) {
+            if ($keyword_category == "Judul Campaign") {
+                $qry .= " AND title LIKE '%$keyword%' ";
+            } else if ($keyword_category == "SKU") {
+                $qry .= " AND sku LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Brand") {
+                $qry .= " AND brand LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Keterangan") {
+                $qry .= " AND endorse_campaign.desc LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Status") {
+                $qry .= " AND status = '$keyword' ";
+            }
+        }
+        $internal = $_GET['p'];
+        if ($internal == "internal") {
+            $qry .= " AND is_internal = '1' ";
+        } else {
+            $qry .= " AND is_internal = '0' ";
+        }
+
+        $limit = 30;
+
+        $current_page = $_GET['page'];
+
+        if ($current_page <= 1) {
+            $offset = 0;
+        } else {
+            $offset = ($current_page - 1) * $limit;
+        }
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM endorse_campaign
+        WHERE $qry 
+        ORDER BY start_at DESC
+        LIMIT $offset, $limit
+        ");
+
+
+        $data['data'] = $query;
+
+        $data['start'] = $offset;
+        $this->load->view("endorse_campaign/item", $data);
+    }
+
+
+    public function edit()
+    {
+        // Load cache driver with APC adapter and file backup
+        $this->load->driver('cache', array('adapter' => 'apc', 'backup' => 'file'));
+        
+        $id = $_GET['id'];
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM endorse_campaign WHERE id = '$id'");
+
+        $data['data'] = $query[0];
+
+        // Create cache key for PIC users
+        $pic_cache_key = 'endorse_campaign_pic_users';
+        $pic_data = $this->cache->get($pic_cache_key);
+        if (!$pic_data) {
+            $pic_data = $this->mymodel->selectWithQuery("SELECT * FROM user WHERE role IN ('1', '2', '11') ORDER BY full_name ASC");
+            $this->cache->save($pic_cache_key, $pic_data, 30); // Cache for 30 seconds
+        }
+        $data['pic'] = $pic_data;
+
+        // Create cache key for SPV users
+        $spv_cache_key = 'endorse_campaign_spv_users';
+        $spv_data = $this->cache->get($spv_cache_key);
+        if (!$spv_data) {
+            $spv_data = $this->mymodel->selectWithQuery("SELECT * FROM user WHERE role IN ('1', '2', '11') ORDER BY full_name ASC");
+            $this->cache->save($spv_cache_key, $spv_data, 30); 
+        }
+        $data['spv'] = $spv_data;
+
+
+        // Create cache key for brands (all brands for edit)
+        $brands_cache_key = 'endorse_campaign_brands_all';
+        $brands_data = $this->cache->get($brands_cache_key);
+        if (!$brands_data) {
+            $brands_data = $this->mymodel->selectWithQuery("SELECT * FROM brand ORDER BY code ASC");
+            $this->cache->save($brands_cache_key, $brands_data, 30); // Cache for 30 seconds
+        }
+        $data['brand'] = $brands_data;
+
+        // Create cache key for products
+        $products_cache_key = 'endorse_campaign_products_active';
+        $products_data = $this->cache->get($products_cache_key);
+        if (!$products_data) {
+            $products_data = $this->mymodel->selectWithQuery("
+                SELECT id, name 
+                FROM product 
+                WHERE 
+                    is_operational = 0 
+                    AND status = 'Aktif' 
+                    AND (
+                        is_varian = 1 
+                        OR (is_varian = 0 AND (parent_id IS NULL OR parent_id = ''))
+                    )
+                ORDER BY name ASC
+            ");
+            $this->cache->save($products_cache_key, $products_data, 30); // Cache for 30 seconds
+        }
+        $data['produk'] = $products_data;
+        $this->load->view("endorse_campaign/edit", $data);
+    }
+
+    function update_endorse_parent($id_parent, $detail)
+    {
+        $id_campaign = $id_parent;
+        $user = $_SESSION['user'];
+
+        $v['id'] = $id_parent;
+        $today = DATE("Y-m-d");
+        $yesterday = DATE('Y-m-d', strtotime($today . " -1 days"));
+        $query = $this->mymodel->selectWithQuery("SELECT id
+        FROM endorse_campaign_logs
+        WHERE id_campaign = '$id_parent' AND date = '$today' ");
+        $query = $query[0];
+
+        $query_yesterday = $this->mymodel->selectWithQuery("SELECT *
+        FROM endorse_campaign_logs
+        WHERE id_campaign = '$id_parent' AND date < '$today' ORDER BY date DESC LIMIT 1 ");
+        $query_yesterday = $query_yesterday[0];
+
+        $item_detail = $this->mymodel->selectWithQuery("SELECT SUM(total_cost) as total_cost, COUNT(id) as count_endorse,
+        SUM(likes) as likes, SUM(comment) as comment, SUM(share_save) as share_save, SUM(views) as views, AVG(cpm) as cpm
+        FROM endorse
+        WHERE id_campaign = '$id_parent'  AND link_upload != ''
+        AND status = 'Aktif' ");
+        $item_detail = $item_detail[0];
+
+        $item = $this->mymodel->selectWithQuery("SELECT SUM(likes) as likes, SUM(comment) as comment, SUM(share_save) as share_save, SUM(views) as views, AVG(cpm) as cpm,
+        SUM(likes_after) as likes_after, SUM(comment_after) as comment_after, SUM(share_save_after) as share_save_after, SUM(views_after) as views_after, AVG(cpm_after) as cpm_after,
+        SUM(likes_before) as likes_before, SUM(comment_before) as comment_before, SUM(share_save_before) as share_save_before, SUM(views_before) as views_before, AVG(cpm_before) as cpm_before
+        FROM endorse_logs
+        WHERE id_campaign = '$id_parent';");
+        $dt = array();
+        $dt['id_campaign'] = $v['id'];
+        $dt['total_cost'] = doubleval($item_detail['total_cost']);
+        $dt['date'] = $today;
+        foreach ($item[0] as $k2 => $v2) {
+            $dt[$k2] = doubleval($v2);
+        }
+
+
+        $dtt = array();
+        foreach ($item_detail as $k3 => $v3) {
+            $dtt[$k3] = doubleval($v3);
+        }
+
+        $id_parent = $v['id'];
+
+        $summary = $this->mymodel->selectWithQuery("SELECT COUNT(id) as count
+        FROM endorse WHERE id_campaign = '$id_parent'  ");
+        $summary = $summary[0];
+        $dtt['count_endorse'] = intval($summary['count']);
+        $dt['ce_now'] = $dtt['count_endorse'];
+
+        $summary = $this->mymodel->selectWithQuery("SELECT COUNT(id) as count
+        FROM endorse WHERE id_campaign = '$id_parent' AND status = 'Aktif'  ");
+        $summary = $summary[0];
+        $dtt['count_endorse_active'] = intval($summary['count']);
+        $dt['ce_active_now'] = $dtt['count_endorse_active'];
+
+        $summary = $this->mymodel->selectWithQuery("SELECT COUNT(id) as count
+        FROM endorse WHERE id_campaign = '$id_parent' AND status = 'Aktif' 
+        AND link_upload != '' ");
+        $summary = $summary[0];
+        $dtt['count_endorse_processed'] = intval($summary['count']);
+        $dt['ce_processed_now'] = $dtt['count_endorse_processed'];
+
+
+        $summary = $this->mymodel->selectWithQuery("SELECT COUNT(DISTINCT influencer) as count
+        FROM endorse WHERE id_campaign = '$id_parent'  ");
+        $summary = $summary[0];
+        $dtt['count_influencer'] = intval($summary['count']);
+        $dt['ci_now'] = $dtt['count_influencer'];
+
+        $summary = $this->mymodel->selectWithQuery("SELECT COUNT(DISTINCT influencer) as count
+        FROM endorse WHERE id_campaign = '$id_parent' AND status = 'Aktif'  ");
+        $summary = $summary[0];
+        $dtt['count_influencer_active'] = intval($summary['count']);
+        $dt['ci_active_now'] = $dtt['count_influencer_active'];
+
+        $summary = $this->mymodel->selectWithQuery("SELECT COUNT(DISTINCT influencer) as count
+        FROM endorse WHERE id_campaign = '$id_parent' AND status = 'Aktif'  
+        AND link_upload != '' ");
+        $summary = $summary[0];
+        $dtt['count_influencer_processed'] = intval($summary['count']);
+        $dt['ci_processed_now'] = $dtt['count_influencer_processed'];
+
+        // print_r($query_yesterday);die;
+        $dt['ci_before'] =  $query_yesterday['ci_now'];
+        $dt['ci_active_before'] = $query_yesterday['ci_active_now'];
+        $dt['ci_processed_before'] = $query_yesterday['ci_processed_now'];
+
+        $dt['ce_before'] =  $query_yesterday['ce_now'];
+        $dt['ce_active_before'] = $query_yesterday['ce_active_now'];
+        $dt['ce_processed_before'] = $query_yesterday['ce_processed_now'];
+
+        $dt['ci_before'] =  $query_yesterday['ci_now'];
+        $dt['ci_active_before'] = $query_yesterday['ci_active_now'];
+        $dt['ci_processed_before'] = $query_yesterday['ci_processed_now'];
+        $dt['ce_before'] =  $query_yesterday['ce_now'];
+        $dt['ce_active_before'] = $query_yesterday['ce_active_now'];
+        $dt['ce_processed_before'] = $query_yesterday['ce_processed_now'];
+
+        $dt['ci_after'] =  $dt['ci_now'];
+        $dt['ci_active_after'] = $dt['ci_active_now'];
+        $dt['ci_processed_after'] = $dt['ci_processed_now'];
+        $dt['ce_after'] =  $dt['ce_now'];
+        $dt['ce_active_after'] = $dt['ce_active_now'];
+        $dt['ce_processed_after'] = $dt['ce_processed_now'];
+
+        $dt['ci_now'] =  $dt['ci_after'] - $dt['now_before'];
+        $dt['ci_active_now'] = $dt['ci_active_after'] - $dt['ci_active_before'];
+        $dt['ci_processed_now'] = $dt['ci_processed_after'] - $dt['ci_processed_before'];
+        $dt['ce_now'] =  $dt['ce_after'] - $dt['ce_before'];
+        $dt['ce_active_now'] = $dt['ce_active_after'] - $dt['ce_active_before'];
+        $dt['ce_processed_now'] = $dt['ce_processed_after'] - $dt['ce_processed_before'];
+
+        // $dt['is_cron'] = '1';
+        $dt_tmp = array();
+        foreach ($dt as $kt => $vt) {
+            $dt_tmp[$kt] = strval($vt);
+        }
+        $dt = $dt_tmp;
+        $dt['status'] = strval($detail['status']);
+
+        if ($query) {
+            $dt['updated_at'] = DATE("Y-m-d H:i:s");
+            $dt['updated_by'] = strval($user['id']);
+            $this->db->update('endorse_campaign_logs', $dt, array('id' => $query['id']));
+            // $id_parent = $query['id'];
+        } else {
+            $dt['created_at'] = DATE("Y-m-d H:i:s");
+            $dt['created_by'] = strval($user['id']);
+            $this->db->insert('endorse_campaign_logs', $dt);
+            // $id_parent = $this->db->insertID();
+        }
+
+        $dt_tmp = array();
+        foreach ($dtt as $kt => $vt) {
+            $dt_tmp[$kt] = strval($vt);
+        }
+        $dtt = $dt_tmp;
+
+        $dtt['updated_at'] = DATE("Y-m-d H:i:s");
+        $dtt['updated_by'] = strval($user['id']);
+
+        $cpm = 0;
+        $list = $this->mymodel->selectWithQuery("SELECT SUM(total_cost) as total_cost, SUM(views) as views,SUM(likes) as likes, SUM(share_save) as share_save, SUM(comment) as comment FROM endorse WHERE id_campaign = '$id_campaign'");
+        $list = $list[0];
+        if ($list['total_cost'] > 0 && $list['views'] > 0) {
+            $cpm =  $list['total_cost'] / $list['views'] * 1000;
+        }
+        $dtt['cpm'] = doubleval($cpm);
+        $dtt['views'] = doubleval($list['views']);
+        $dtt['comment'] = doubleval($list['comment']);
+        $dtt['likes'] = doubleval($list['likes']);
+        $dtt['share_save'] = doubleval($list['share_save']);
+
+        $ids = '';
+        $list_id = $this->mymodel->selectWithQuery("SELECT id FROM endorse
+        WHERE id_campaign = '$id_campaign'
+        AND link_upload != ''
+        ");
+        foreach ($list_id as $k => $v) {
+            $ids .= $v['id'] . ',';
+        }
+        $ids = substr($ids, 0, -1);
+        if ($ids) {
+            $list = $this->mymodel->selectWithQuery("SELECT SUM(likes) as likes, SUM(comment) as comment,SUM(share_save) as share_save, SUM(views) as views
+            FROM endorse_logs
+            WHERE id_endorse IN ($ids)
+            GROUP BY id_endorse
+            ORDER BY id DESC");
+            $list = $list[0];
+            // print_r($list);
+            // die;
+            if ($list['total_cost'] > 0 && $list['views'] > 0) {
+                $cpm =  $list['total_cost'] / $list['views'] * 1000;
+            }
+            $dtt['cpm'] = doubleval($cpm);
+            $dtt['views'] = doubleval($list['views']);
+            $dtt['comment'] = doubleval($list['comment']);
+            $dtt['likes'] = doubleval($list['likes']);
+            $dtt['share_save'] = doubleval($list['share_save']);
+        }
+
+
+        $this->db->update('endorse_campaign', $dtt, array('id' => $v['id']));
+    }
+
+    public function update()
+    {
+        $user = $_SESSION['user'];
+        $id = $_POST['id'];
+        $dt = $_POST['dt'];
+        $dt['updated_at'] = DATE("Y-m-d H:i:s");
+        $dt['updated_by'] = $user['id'];
+        
+        if (!isset($dt['is_internal'])) {
+            $existing = $this->db->get_where('endorse_campaign', ['id' => $id])->row_array();
+            $dt['is_internal'] = $existing['is_internal'];
+        }
+
+        if ($_FILES['file']['name']) {
+            $input = $this->validate([
+                'file' => [
+                    'uploaded[file]',
+                    'mime_in[file,image/jpg,image/jpeg,image/png]',
+                    'max_size[file,1024]',
+                ]
+            ]);
+
+            if (!$input) {
+                $msg = 'Pastikan tipe file .jpg, .jpeg atau .png!';
+                echo $this->template->alert_danger($msg);
+                die;
+            } else {
+                $img = $this->request->getFile('file');
+                $dir = str_replace('public/', '', FCPATH . 'assets/img/endorse_campaign/');
+                $img->move($dir);
+                $data = [
+                    'name' =>  $img->getName(),
+                    'type'  => $img->getClientMimeType()
+                ];
+                $currentFileName = $dir . $data['name'];
+                $newfile = $id . '.' . substr(strrchr($data['name'], "."), 1);
+                $newFileName = $dir . $newfile;
+                rename($currentFileName, $newFileName);
+                $dt['img'] = $newfile;
+            }
+        }
+
+        $dt_2['status_campaign'] = $dt['status'];
+        $this->db->update('endorse', $dt_2, array('id_campaign' => $id));
+
+        if ($this->db->update('endorse_campaign', $dt, array('id' => $id))) {
+            $id_campaign = $_POST['id_campaign'];
+            $id_parent = $id_campaign;
+            $detail = array();
+            $detail['status'] = $dt['status'];
+            $this->update_endorse_parent($id_parent, $detail);
+
+            if ($dt['brand'] != $_POST['brand']) {
+                $dtt = array();
+                $dtt['brand'] = $dt['brand'];
+                $this->db->update('endorse', $dtt, array('id_campaign' => $id_campaign));
+                $this->db->update('endorse_logs', $dtt, array('id_campaign' => $id_campaign));
+                $this->db->update('endorse_campaign_logs', $dtt, array('id_campaign' => $id_campaign));
+            }
+            $msg = 'Update data berhasil!';
+            echo $this->template->alert_success($msg);
+        } else {
+            $msg = 'Update data tidak berhasil!';
+            echo $this->template->alert_danger($msg);
+        }
+    }
+
+
+
+    public function create()
+    {
+        // Load cache driver with APC adapter and file backup
+        $this->load->driver('cache', array('adapter' => 'apc', 'backup' => 'file'));
+        
+        $data['data'] = array();
+
+        // Create cache key for PIC users (reuse from edit method)
+        $pic_cache_key = 'endorse_campaign_pic_users';
+        $pic_data = $this->cache->get($pic_cache_key);
+        if (!$pic_data) {
+            $pic_data = $this->mymodel->selectWithQuery("SELECT * FROM user WHERE role IN ('1', '2', '11') ORDER BY full_name ASC");
+            $this->cache->save($pic_cache_key, $pic_data, 30); // Cache for 30 seconds
+        }
+        $data['pic'] = $pic_data;
+
+        // Create cache key for SPV users
+        $spv_cache_key = 'endorse_campaign_spv_users';
+        $spv_data = $this->cache->get($spv_cache_key);
+        if (!$spv_data) {
+            $spv_data = $this->mymodel->selectWithQuery("SELECT * FROM user WHERE role IN ('1', '2', '11') ORDER BY full_name ASC");
+            $this->cache->save($spv_cache_key, $spv_data, 30); 
+        }
+        $data['spv'] = $spv_data;
+
+        // Create cache key for brands (reuse from edit method)
+        $brands_cache_key = 'endorse_campaign_brands_all';
+        $brands_data = $this->cache->get($brands_cache_key);
+        if (!$brands_data) {
+            $brands_data = $this->mymodel->selectWithQuery("SELECT * FROM brand ORDER BY code ASC");
+            $this->cache->save($brands_cache_key, $brands_data, 30); // Cache for 30 seconds
+        }
+        $data['brand'] = $brands_data;
+
+        // Create cache key for products (reuse from edit method)
+        $products_cache_key = 'endorse_campaign_products_active';
+        $products_data = $this->cache->get($products_cache_key);
+        if (!$products_data) {
+            $products_data = $this->mymodel->selectWithQuery("
+                SELECT id, name 
+                FROM product 
+                WHERE 
+                    is_operational = 0 
+                    AND status = 'Aktif' 
+                    AND (
+                        is_varian = 1 
+                        OR (is_varian = 0 AND (parent_id IS NULL OR parent_id = ''))
+                    )
+                ORDER BY name ASC
+            ");
+            $this->cache->save($products_cache_key, $products_data, 30); // Cache for 30 seconds
+        }
+        $data['produk'] = $products_data;
+
+        $data['user'] = $_SESSION['user'];
+
+        $this->load->view("endorse_campaign/create", $data);
+    }
+
+
+    public function store()
+    {
+        $user = $_SESSION['user'];
+        $id = $_POST['id'];
+        $dt = $_POST['dt'];
+        $dt['created_at'] = DATE("Y-m-d H:i:s");
+        $dt['created_by'] = $user['id'];
+
+        if ($_FILES['file']['name']) {
+            $input = $this->validate([
+                'file' => [
+                    'uploaded[file]',
+                    'mime_in[file,image/jpg,image/jpeg,image/png]',
+                    'max_size[file,1024]',
+                ]
+            ]);
+
+            if (!$input) {
+                $msg = 'Pastikan tipe file .jpg, .jpeg atau .png!';
+                echo $this->template->alert_danger($msg);
+                die;
+            } else {
+                $img = $this->request->getFile('file');
+                $dir = str_replace('public/', '', FCPATH . 'assets/img/endorse_campaign/');
+                $img->move($dir);
+                $data = [
+                    'name' =>  $img->getName(),
+                    'type'  => $img->getClientMimeType()
+                ];
+                $currentFileName = $dir . $data['name'];
+                $newfile = DATE('Ymdhis') . '.' . substr(strrchr($data['name'], "."), 1);
+                $newFileName = $dir . $newfile;
+                rename($currentFileName, $newFileName);
+                $dt['img'] = $newfile;
+            }
+        }
+        if ($this->db->insert('endorse_campaign', $dt)) {
+            $msg = 'Tambah data berhasil!';
+            echo $this->template->alert_success($msg);
+        } else {
+            $msg = 'Tambah data tidak berhasil!';
+            echo $this->template->alert_danger($msg);
+        }
+    }
+    public function remove()
+    {
+        $id = $_GET['id'];
+        $data['data']['id'] = $id;
+        $this->load->view("endorse_campaign/delete", $data);
+    }
+
+    public function delete()
+    {
+
+
+        $id = $_POST['id'];
+
+
+        if ($this->db->delete('endorse_campaign', array('id' => $id))) {
+            $this->db->delete('endorse', array('id_campaign' => $id));
+            $this->db->delete('endorse_campaign_logs', array('id_campaign' => $id));
+            $this->db->delete('endorse_logs', array('id_campaign' => $id));
+            $msg = 'Hapus data berhasil!';
+            echo $this->template->alert_success($msg);
+        } else {
+            $msg = 'Hapus data tidak berhasil!';
+            echo $this->template->alert_danger($msg);
+        }
+    }
+}

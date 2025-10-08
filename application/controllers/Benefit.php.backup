@@ -1,0 +1,232 @@
+<?php
+defined('BASEPATH') or exit('No direct script access allowed');
+
+class Benefit extends CI_Controller
+{
+    public function index()
+    {
+        $data['user'] = $_SESSION['user'];
+        
+        // Check if user has permission (only HR/Admin roles 1 and 2)
+        if (!in_array($data['user']['role'], array('1', '2'))) {
+            redirect(base_url() . 'dashboard');
+        }
+
+        $keyword_category = $_GET['keyword_category'] ?? "Tipe";
+        $keyword = $_GET['keyword'] ?? "";
+        
+        $data['keyword_category'] = $keyword_category;
+        $data['title'] = 'Benefit Management - ' . $this->template->title();
+
+        $qry = "1=1";
+        
+        if ($keyword) {
+            if ($keyword_category == "Tipe") {
+                $qry .= " AND type LIKE '%$keyword%'";
+            } else if ($keyword_category == "Deskripsi") {
+                $qry .= " AND description LIKE '%$keyword%'";
+            }
+        }
+
+        $query = $this->mymodel->selectWithQuery("SELECT COUNT(id) AS count FROM benefits WHERE $qry");
+        $data['page'] = CEIL($query[0]['count'] / 10);
+        $data['notif'] = '<p class="mb-1"><label class="text-notif">' . $this->template->separator_only($query[0]['count']) . ' data ditemukan!</label></p>';
+
+        $current_page = intval($_GET['page'] ?? 1);
+        if ($current_page <= 1) {
+            $current_page = 1;
+        }
+
+        $url = base_url() . '/benefit/' . $this->template->get_param();
+        $data['param'] = $this->template->get_param();
+        $data['param_pagination'] = $this->template->get_param_without('page');
+        $data['pagination'] = $this->template->pagination($data['page'], $current_page, $data['param_pagination']);
+
+        $data['content'] = $this->load->view("benefit/all", $data, true);
+        $this->load->view("TemplateDashboard", $data);
+    }
+
+    public function item()
+    {
+        $data['template'] = $this->template;
+        $keyword_category = $_GET['keyword_category'] ?? "Tipe";
+        $keyword = $_GET['keyword'] ?? "";
+        
+        $qry = "1=1";
+        
+        if ($keyword) {
+            if ($keyword_category == "Tipe") {
+                $qry .= " AND type LIKE '%$keyword%'";
+            } else if ($keyword_category == "Deskripsi") {
+                $qry .= " AND description LIKE '%$keyword%'";
+            }
+        }
+
+        $limit = 10;
+        $current_page = $_GET['page'] ?? 1;
+        
+        if ($current_page <= 1) {
+            $offset = 0;
+        } else {
+            $offset = ($current_page - 1) * $limit;
+        }
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM benefits WHERE $qry ORDER BY type ASC LIMIT $offset, $limit");
+        $data['data'] = $query;
+        $data['start'] = $offset;
+        
+        $this->load->view("benefit/item", $data);
+    }
+
+    public function create_page()
+    {
+        $data['user'] = $_SESSION['user'];
+        
+        if (!in_array($data['user']['role'], array('1', '2'))) {
+            redirect(base_url() . 'dashboard');
+        }
+
+        $data['data'] = array();
+        $data['title'] = 'Tambah Benefit - ' . $this->template->title();
+        $data['content'] = $this->load->view("benefit/create_page", $data, true);
+        $this->load->view("TemplateDashboard", $data);
+    }
+
+    public function store()
+    {
+        $user = $_SESSION['user'];
+        $dt = $_POST['dt'];
+
+        $type = $dt['type'];
+        
+        // Check if type already exists
+        $existing = $this->mymodel->selectWithQuery("SELECT id FROM benefits WHERE type = '$type'");
+        if ($existing) {
+            $msg = 'Tipe benefit sudah ada!';
+            echo $this->template->alert_danger($msg);
+            die;
+        }
+
+        if ($this->db->insert('benefits', $dt)) {
+            $msg = 'Tambah data berhasil!';
+            echo $this->template->alert_success($msg);
+        } else {
+            $msg = 'Tambah data tidak berhasil!';
+            echo $this->template->alert_danger($msg);
+        }
+    }
+
+    public function edit_page()
+    {
+        $data['user'] = $_SESSION['user'];
+        
+        if (!in_array($data['user']['role'], array('1', '2'))) {
+            redirect(base_url() . 'dashboard');
+        }
+
+        $id = $_GET['id'];
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM benefits WHERE id = '$id'");
+        
+        if (empty($query)) {
+            redirect(base_url() . 'benefit');
+        }
+
+        $data['data'] = $query[0];
+        $data['title'] = 'Edit Benefit - ' . $this->template->title();
+        $data['content'] = $this->load->view("benefit/edit_page", $data, true);
+        $this->load->view("TemplateDashboard", $data);
+    }
+
+    public function update()
+    {
+        $user = $_SESSION['user'];
+        $id = $_POST['id'];
+        $dt = $_POST['dt'];
+
+        $type = $dt['type'];
+        
+        // Check if type already exists for other records
+        $existing = $this->mymodel->selectWithQuery("SELECT id FROM benefits WHERE type = '$type' AND id != '$id'");
+        if ($existing) {
+            $msg = 'Tipe benefit sudah ada!';
+            echo $this->template->alert_danger($msg);
+            die;
+        }
+
+        if ($this->db->update('benefits', $dt, array('id' => $id))) {
+            $msg = 'Update data berhasil!';
+            echo $this->template->alert_success($msg);
+        } else {
+            $msg = 'Update data tidak berhasil!';
+            echo $this->template->alert_danger($msg);
+        }
+    }
+
+    public function detail()
+    {
+        $data['user'] = $_SESSION['user'];
+        
+        if (!in_array($data['user']['role'], array('1', '2'))) {
+            redirect(base_url() . 'dashboard');
+        }
+
+        $id = $_GET['id'];
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM benefits WHERE id = '$id'");
+        
+        if (empty($query)) {
+            redirect(base_url() . 'benefit');
+        }
+
+        $data['data'] = $query[0];
+        
+        // Get main quest submissions that use this benefit type
+        $benefit_type = $query[0]['type'];
+        $submissions = $this->mymodel->selectWithQuery("SELECT mqs.*, mq.title as quest_title, u.full_name 
+            FROM main_quest_submissions mqs 
+            LEFT JOIN main_quests mq ON mqs.quest_id = mq.id 
+            LEFT JOIN user_profile up ON mqs.user_profile_id = up.id 
+            LEFT JOIN user u ON up.user_id = u.id 
+            WHERE mqs.benefit_type = '$benefit_type' 
+            ORDER BY mqs.approved_at DESC");
+        $data['submissions'] = $submissions;
+        
+        $data['title'] = 'Detail Benefit - ' . $this->template->title();
+        $data['content'] = $this->load->view("benefit/detail_page", $data, true);
+        $this->load->view("TemplateDashboard", $data);
+    }
+
+    public function remove()
+    {
+        $id = $_GET['id'];
+        $data['data']['id'] = $id;
+        $this->load->view("benefit/delete", $data);
+    }
+
+    public function delete()
+    {
+        $user = $_SESSION['user'];
+        $id = $_POST['id'];
+
+        // Check if this benefit is being used by any references
+        // Note: Since we moved to text-based benefits, this check is less relevant
+        // but we can still check if the benefit type text is referenced anywhere
+        $benefit_data = $this->mymodel->selectWithQuery("SELECT type FROM benefits WHERE id = '$id'");
+        if (!empty($benefit_data)) {
+            $benefit_type = $benefit_data[0]['type'];
+            $submissions = $this->mymodel->selectWithQuery("SELECT COUNT(id) as count FROM main_quest_submissions WHERE benefit_type = '$benefit_type'");
+            if ($submissions[0]['count'] > 0) {
+                $msg = 'Benefit tidak dapat dihapus karena sedang digunakan oleh quest submissions!';
+                echo $this->template->alert_danger($msg);
+                die;
+            }
+        }
+
+        if ($this->db->delete('benefits', array('id' => $id))) {
+            $msg = 'Hapus data berhasil!';
+            echo $this->template->alert_success($msg);
+        } else {
+            $msg = 'Hapus data tidak berhasil!';
+            echo $this->template->alert_danger($msg);
+        }
+    }
+}

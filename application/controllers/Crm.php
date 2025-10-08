@@ -1,0 +1,1666 @@
+<?php
+
+// PhpSpreadsheet autoload commented out to prevent PHP version conflicts
+// Only load when specifically needed for Excel operations
+// require FCPATH . 'vendor/autoload.php';
+
+// use PhpOffice\PhpSpreadsheet\Spreadsheet;
+// use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+// use PhpOffice\PhpSpreadsheet\IOFactory;
+// use PhpOffice\PhpSpreadsheet\Style;
+// use PhpOffice\PhpSpreadsheet\Style\Alignment;
+// use PhpOffice\PhpSpreadsheet\Style\Fill;
+// use PhpOffice\PhpSpreadsheet\Style\Border;
+// use PhpOffice\PhpSpreadsheet\Style\Color;
+
+defined('BASEPATH') or exit('No direct script access allowed');
+
+require_once APPPATH . 'core/BaseController.php';
+
+class Crm extends BaseController
+{
+    public function __construct()
+    {
+        parent::__construct();
+        $this->load->database();
+        $this->load->model('mymodel');
+        $this->load->library('template');
+
+        // Set public methods (no permission required)
+        $this->set_public_methods([]);
+
+        // Override method-to-action mapping if needed
+        $this->set_method_permissions([
+            'remove' => 'delete',
+            'action' => 'edit',
+            'action_process' => 'edit',
+            'export' => 'view',
+            'update_customer_order' => 'edit'
+        ]);
+    }
+
+    function update_customer_order()
+    {
+        $id_customer = $_GET['id'];
+        $url = $this->template->endpoint_url() . 'api/customer/summary?id=' . $id_customer;
+        $curl = curl_init();
+
+        curl_setopt_array($curl, array(
+            CURLOPT_URL => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_ENCODING => '',
+            CURLOPT_MAXREDIRS => 10,
+            CURLOPT_TIMEOUT => 0,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST => 'GET',
+            CURLOPT_HTTPHEADER => array(
+                'Content-Type: application/json'
+            ),
+        ));
+
+        $response = curl_exec($curl);
+        // print_r($response);
+        $response = json_decode($response, true);
+        curl_close($curl);
+        echo $response['msg'];
+        // if ($response['status'] == true) {
+        //     $msg = 'Refresh data berhasil!';
+        //     echo $this->template->alert_success($msg);
+        // } else {
+        //     $msg = 'Refresh data tidak berhasil!';
+        //     echo $this->template->alert_danger($msg);
+        // }
+    }
+    function index()
+    {
+
+
+        if ($_GET['keyword_category']) {
+            $keyword_category = $_GET['keyword_category'];
+        } else {
+            $keyword_category = "Username";
+        }
+        $data['keyword_category'] = $keyword_category;
+        $keyword = $_GET['keyword'];
+
+        $data['title'] = 'CRM ' . $_GET['brand'] . ' - ' . $this->template->title();
+        if ($_GET['start_date']) {
+            $start_date = $_GET['start_date'];
+        } else {
+            $start_date = DATE('Y-m-d');
+            
+        }
+        if ($_GET['until_date']) {
+            $until_date = $_GET['until_date'];
+        } else {
+            $until_date = DATE('Y-m-d');
+        }
+        $keyword = $_GET['keyword'];
+        $brand = $_GET['brand'];
+
+        if (!in_array($brand, array("POME", "MG"))) {
+            redirect(base_url() . 'crm?brand=MG');
+        }
+
+        $marketplace = $_GET['marketplace'];
+        $cs = $_GET['cs'];
+
+        $data['start_date'] = $start_date;
+        $data['until_date'] = $until_date;
+        $data['brand'] = $brand;
+        $brand = $_GET['brand'];
+
+
+        $qry = "";
+        // $qry = " DATE(first_order) >= '$start_date'
+        // AND DATE(first_order) <= '$until_date' ";
+        $qry = " 1=1 ";
+
+        if ($marketplace) {
+            $qry .= " AND marketplace = '$marketplace' ";
+        }
+
+        $ids = $_GET['ids'];
+        $data['ids'] = $ids;
+        if ($ids) {
+            $qry .= " AND id  IN ($ids) ";
+        }
+
+
+        if ($brand) {
+            $qry .= " AND brand = '$brand' ";
+        }
+
+        if ($cs) {
+            $qry .= " AND cs = '$cs' ";
+        }
+
+        $keyword = $_GET['keyword'];
+        $keyword_category = $_GET['keyword_category'];
+
+        if ($keyword) {
+            if ($keyword_category == "Keterangan") {
+                $qry .= " AND customer.desc LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Gift") {
+                $qry .= " AND gift LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Progres") {
+                $qry .= " AND testimoni LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Username") {
+                $qry .= " AND (username LIKE '%$keyword%' OR full_name LIKE '%$keyword%') ";
+            } else if ($keyword_category == "Channel") {
+                $qry .= " AND marketplace LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Order ID") {
+                $qry .= " AND pesanan LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Produk") {
+                $qry .= " AND pesanan LIKE '%$keyword%' ";
+            }
+        }
+
+        $today = DATE("Y-m-d");
+        $sort = $_GET['sort'];
+
+        $order_by = 'ORDER BY created_at DESC';
+        if ($sort == "FU H+10") {
+            $qry .= " AND DATE(waktu_fu_perkembangan) != '' AND DATE(waktu_fu_perkembangan) <= '$today' ";
+            $order_by = 'ORDER BY DATE(waktu_fu_perkembangan) DESC';
+        } else if ($sort == "FU H-7") {
+            $qry .= " AND DATE(waktu_fu_ro) != '' AND DATE(waktu_fu_ro) <= '$today' ";
+            $order_by = 'ORDER BY waktu_fu_ro DESC';
+        } else if ($sort == "Tidak Repeat Order") {
+            $qry .= " AND DATE(first_order) = DATE(last_order) OR DATE(last_order) = '' ";
+            $order_by = 'ORDER BY first_order DESC';
+        } else if ($sort == "Tidak Repeat Order H+30") {
+            $today = date('Y-m-d', strtotime($today . " -30 days"));
+            $qry .= " AND DATE(last_order) <= '$today' ";
+            $order_by = 'ORDER BY last_order DESC';
+        } else if ($sort == "Tanggal Dibuat") {
+            $today = date('Y-m-d', strtotime($today . " -30 days"));
+            $qry .= " AND DATE(created_at) >= '$start_date' AND DATE(created_at) <= '$until_date' ";
+            $order_by = 'ORDER BY last_order DESC';
+        }
+
+        $dtf = $_GET['dtf'];
+        $data['dtf'] = $dtf;
+
+        foreach ($dtf as $k => $v) {
+            if ($v) {
+                $qry .= " AND $k LIKE '%$v%'";
+            }
+        }
+
+        $limit = 30;
+
+        $offset = intval($_GET['offset']);
+
+        $query = $this->mymodel->selectWithQuery("SELECT COUNT(id) as count FROM customer
+            WHERE $qry ");
+
+        if ($query[0]['count'] == 0) {
+            $qry_no_date = preg_replace(
+                "/AND DATE\(.*?\) >= '.*?' AND DATE\(.*?\) <= '.*?'/",
+                "",
+                $qry
+            );
+
+            $query = $this->mymodel->selectWithQuery("SELECT COUNT(id) as count FROM customer
+                WHERE $qry_no_date ");
+
+            $qry = $qry_no_date; 
+        }
+
+        $data['page'] = CEIL($query[0]['count'] / 30);
+        $data['notif'] = '<p class="mb-1"><label class="text-notif">' . $this->template->separator_only($query[0]['count']) . ' data ditemukan!</label></p>';
+
+
+        $item = '';
+
+        $current_page = intval($_GET['page']);
+        if ($current_page <= 1) {
+            $current_page = 1;
+        }
+
+        $url = base_url() . '/crm/' . $this->template->get_param();
+        $data['url'] = $this->template->get_param_without_keyword_category($url);
+        $data['param'] = $this->template->get_param();
+        $data['param_pagination'] = $this->template->get_param_without('page');
+        $data['pagination'] = $this->template->pagination($data['page'], $current_page, $data['param_pagination']);
+
+
+
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM product WHERE status = 'ENABLE' AND is_varian = 0
+        ORDER BY sku ASC
+        ");
+
+        $data['product'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM user 
+        WHERE role IN ('3')
+        ORDER BY code ASC
+        ");
+
+        $data['cs'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM product WHERE status = 'ENABLE' AND is_varian = 0
+        ORDER BY sku ASC
+        ");
+
+        $data['product'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM shipping ORDER BY name ASC");
+
+        $data['shipping'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM marketplace ORDER BY name ASC");
+
+        $data['marketplace'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM brand WHERE status = 'ENABLE' ORDER BY name ASC");
+
+        $data['brands'] = $query;
+
+        $data['start_date'] = $start_date;
+        $data['until_date'] = $until_date;
+        $data['brand'] = $brand;
+        $data['content'] = $this->load->view("crm/all", $data, true);
+        $this->load->view("TemplateDashboard", $data);
+    }
+
+    function detail()
+    {
+        $data['template'] = $this->template;
+        if ($_GET['keyword_category']) {
+            $keyword_category = $_GET['keyword_category'];
+        } else {
+            $keyword_category = "Order ID";
+        }
+        $data['keyword_category'] = $keyword_category;
+
+        $id = $_GET['id'];
+        $brand = $_GET['brand'];
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM customer
+        WHERE id = '$id'");
+
+        $data['customer'] = $query[0];
+        if (empty($data['customer'])) {
+            redirect(base_url() . 'crm');
+        }
+        $data['title'] = 'Detail CRM - ' . $this->template->title();
+        if ($_GET['start_date'] == "") {
+            $start_date = "2021-01-01";
+        } else {
+            $start_date = $_GET['start_date'];
+        }
+        if ($_GET['until_date'] == "") {
+            $until_date = DATE("Y-m-d");
+        } else {
+            $until_date = $_GET['until_date'];
+        }
+        $brand = $_GET['brand'];
+        $marketplace = $_GET['marketplace'];
+        $cs = $_GET['cs'];
+        $keyword = $_GET['keyword'];
+        $id = $_GET['id'];
+        $order_status = $_GET['order_status'];
+
+        $brand = $_GET['brand'];
+        $keyword = $_GET['keyword'];
+
+        $data['start_date'] = $start_date;
+        $data['until_date'] = $until_date;
+        $data['brand'] = $brand;
+
+        $qry = "";
+        $qry = " customer = '$id' AND DATE(date) >= '$start_date'
+        AND DATE(date) <= '$until_date' ";
+
+
+
+        // if ($brand) {
+        //     $qry .= " AND brand = '$brand' ";
+        // }
+        $ekspedisi = $_GET['ekspedisi'];
+        if ($ekspedisi) {
+            $qry .= " AND shipping = '$ekspedisi' ";
+        }
+
+        if ($marketplace) {
+            $qry .= " AND marketplace = '$marketplace' ";
+        }
+
+        if ($cs) {
+            $qry .= " AND cs = '$cs' ";
+        }
+
+        if ($order_status) {
+            if ($order_status == "WEBHOOK") {
+                $qry .= " AND is_webhook = 0 AND is_manual = 0";
+            } else if ($order_status == "ACTIVE") {
+                $qry .= " AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') ";
+            } else if ($order_status == "READY_TO_SHIP") {
+                $qry .= " AND order_status IN ('READY_TO_SHIP','PENDING') ";
+            } else if ($order_status == "UNPAID") {
+                $qry .= " AND payment_status = 'Unpaid' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED') ";
+            } else if ($order_status == "SETTLEMENT") {
+                $qry .= " AND dana_pencairan > 0 AND is_disbursement > 0 ";
+            } else if ($order_status == "CANCELLED") {
+                $qry .= " AND order_status IN ('CANCELLED','IN_CANCEL') ";
+            } else {
+                $qry .= " AND order_status = '$order_status' ";
+            }
+        }
+
+        if ($keyword) {
+            if ($keyword_category == "Order ID") {
+                $qry .= " AND order_id LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Username") {
+                $qry .= " AND c_username LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Username") {
+                $qry .= " AND customer_text LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Nomor Pelanggan") {
+                $qry .= " AND phone LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Nomor Resi") {
+                $qry .= " AND awb_number LIKE '%$keyword%' ";
+            }
+        }
+
+        $query_2 = $this->mymodel->selectWithQuery("SELECT COUNT(id) as count FROM testimoni
+        WHERE customer = '$id' ");
+
+        $data_2['page'] = CEIL($query_2[0]['count'] / 30);
+
+        $data['notif_2'] = '<p class="mb-1"><label class="text-notif">' . $this->template->separator_only($query_2[0]['count']) . ' data ditemukan!</label></p>';
+
+
+        $query = $this->mymodel->selectWithQuery("SELECT COUNT(id) as count FROM transaction
+        WHERE $qry AND type_sub = 'POS' ");
+
+        $data['page'] = CEIL($query[0]['count'] / 30);
+
+        $data['notif'] = '<p class="mb-1"><label class="text-notif">' . $this->template->separator_only($query[0]['count']) . ' data ditemukan!</label></p>';
+
+        $item = '';
+
+        $current_page = intval($_GET['page']);
+        if ($current_page <= 1) {
+            $current_page = 1;
+        }
+
+        $limit = 30;
+
+        $url = base_url() . '/crm/' . $this->template->get_param();
+        $data['url_1'] = $this->template->get_param_without_order_status($url);
+        $data['url_2'] = $this->template->get_param_without_keyword_category($url);
+        $data['param'] = $this->template->get_param();
+        $data['param_pagination'] = $this->template->get_param_without('page');
+        $data['pagination'] = $this->template->pagination($data['page'], $current_page, $data['param_pagination']);
+
+
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM product WHERE status = 'ENABLE' AND is_varian = 0
+        ORDER BY sku ASC
+        ");
+
+        $data['product'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM user WHERE role = '3' 
+        ORDER BY full_name ASC
+        ");
+
+        $data['cs'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM product WHERE status = 'ENABLE' AND is_varian = 0
+        ORDER BY sku ASC
+        ");
+
+        $data['product'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM shipping ORDER BY name ASC");
+
+        $data['shipping'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM marketplace ORDER BY name ASC");
+
+        $data['marketplace'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM brand WHERE status = 'ENABLE' ORDER BY name ASC");
+
+        $data['brands'] = $query;
+
+        $data['start_date'] = $start_date;
+        $data['until_date'] = $until_date;
+        $data['brand'] = $brand;
+        $data['content'] = $this->load->view("crm/detail", $data, true);
+        $this->load->view("TemplateDashboard", $data);
+    }
+
+    function item_transaction()
+    {
+        if ($_GET['start_date']) {
+            $start_date = $_GET['start_date'];
+        } else {
+            $start_date = '2021-01-01';
+        }
+        if ($_GET['until_date']) {
+            $until_date = $_GET['until_date'];
+        } else {
+            $until_date = DATE('Y-m-d');
+        }
+        $brand = $_GET['brand'];
+        $marketplace = $_GET['marketplace'];
+        $cs = $_GET['cs'];
+        $keyword = $_GET['keyword'];
+        $id = $_GET['id'];
+        $order_status = $_GET['order_status'];
+        $keyword_category = $_GET['keyword_category'];
+
+        $data['start_date'] = $start_date;
+        $data['until_date'] = $until_date;
+        $data['brand'] = $brand;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM user WHERE role = '3' 
+        ORDER BY full_name ASC
+        ");
+
+        $data['cs'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM product WHERE status = 'ENABLE' AND is_varian = 0
+        ORDER BY sku ASC
+        ");
+
+        $data['product'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM shipping ORDER BY name ASC");
+
+        $data['shipping'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM marketplace ORDER BY name ASC");
+
+        $data['marketplace'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM brand ORDER BY code ASC");
+
+        $data['brands'] = $query;
+
+        $qry = "";
+        $qry = " customer = '$id' AND DATE(date) >= '$start_date'
+        AND DATE(date) <= '$until_date' ";
+
+
+
+        if ($brand) {
+            $qry .= " AND brand = '$brand' ";
+        }
+        $ekspedisi = $_GET['ekspedisi'];
+        if ($ekspedisi) {
+            $qry .= " AND shipping = '$ekspedisi' ";
+        }
+
+        if ($marketplace) {
+            $qry .= " AND marketplace = '$marketplace' ";
+        }
+
+        if ($cs) {
+            $qry .= " AND cs = '$cs' ";
+        }
+
+        if ($order_status) {
+            if ($order_status == "WEBHOOK") {
+                $qry .= " AND is_webhook = 0 AND is_manual = 0";
+            } else if ($order_status == "ACTIVE") {
+                $qry .= " AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') ";
+            } else if ($order_status == "READY_TO_SHIP") {
+                $qry .= " AND order_status IN ('READY_TO_SHIP','PENDING') ";
+            } else if ($order_status == "UNPAID") {
+                $qry .= " AND payment_status = 'Unpaid' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED') ";
+            } else if ($order_status == "SETTLEMENT") {
+                $qry .= " AND dana_pencairan > 0 AND is_disbursement > 0 ";
+            } else if ($order_status == "CANCELLED") {
+                $qry .= " AND order_status IN ('CANCELLED','IN_CANCEL') ";
+            } else {
+                $qry .= " AND order_status = '$order_status' ";
+            }
+        }
+
+        if ($keyword) {
+            if ($keyword_category == "Order ID") {
+                $qry .= " AND order_id LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Username") {
+                $qry .= " AND c_username LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Username") {
+                $qry .= " AND customer_text LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Nomor Pelanggan") {
+                $qry .= " AND phone LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Nomor Resi") {
+                $qry .= " AND awb_number LIKE '%$keyword%' ";
+            }
+        }
+
+        $limit = 30;
+
+        $current_page = $_GET['page'];
+
+        if ($current_page <= 1) {
+            $offset = 0;
+        } else {
+            $offset = ($current_page - 1) * $limit;
+        }
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM transaction
+        WHERE $qry AND type_sub = 'POS' 
+        ORDER BY date DESC, id DESC
+        LIMIT $offset, $limit
+        ");
+
+
+        $data['data'] = $query;
+
+        $data['start'] = $offset;
+        $this->load->view("crm/item_transaction", $data);
+    }
+
+    function item()
+    {
+        $data['template'] = $this->template;
+        
+        $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-01');
+        $until_date = isset($_GET['until_date']) ? $_GET['until_date'] : date('Y-m-d');
+        $keyword = isset($_GET['keyword']) ? $_GET['keyword'] : '';
+        $brand = isset($_GET['brand']) ? $_GET['brand'] : '';
+        $marketplace = isset($_GET['marketplace']) ? $_GET['marketplace'] : '';
+        $cs = isset($_GET['cs']) ? $_GET['cs'] : '';
+        $ids = isset($_GET['ids']) ? $_GET['ids'] : '';
+        $keyword_category = isset($_GET['keyword_category']) ? $_GET['keyword_category'] : '';
+        $sort = isset($_GET['sort']) ? $_GET['sort'] : '';
+        $dtf = isset($_GET['dtf']) ? $_GET['dtf'] : array();
+        $current_page = isset($_GET['page']) ? $_GET['page'] : 1;
+
+        $data['start_date'] = $start_date;
+        $data['until_date'] = $until_date;
+        $data['brand'] = $brand;
+        $data['ids'] = $ids;
+        $data['dtf'] = $dtf;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM user WHERE role = '3' ORDER BY full_name ASC");
+        $data['cs'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM group_wa WHERE status = 'ENABLE' ORDER BY CAST(name AS SIGNED) ASC");
+        $data['group_wa'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM shipping ORDER BY name ASC");
+        $data['shipping'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM marketplace ORDER BY name ASC");
+        $data['marketplace'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM brand ORDER BY code ASC");
+        $data['brands'] = $query;
+
+        $qry = "1=1";
+        
+        if ($sort != "Tanggal Dibuat") {
+            $qry .= " AND DATE(first_order) >= '$start_date' AND DATE(first_order) <= '$until_date' ";
+        }
+
+        if ($marketplace) {
+            $qry .= " AND marketplace = '$marketplace' ";
+        }
+
+        if ($ids) {
+            $qry .= " AND id IN ($ids) ";
+        }
+
+        if ($brand) {
+            $qry .= " AND brand = '$brand' ";
+        }
+
+        if ($cs) {
+            $qry .= " AND cs = '$cs' ";
+        }
+
+        if ($keyword) {
+            if ($keyword_category == "Keterangan") {
+                $qry .= " AND customer.desc LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Gift") {
+                $qry .= " AND gift LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Progres") {
+                $qry .= " AND testimoni LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Username") {
+                $qry .= " AND (username LIKE '%$keyword%' OR full_name LIKE '%$keyword%') ";
+            } else if ($keyword_category == "Channel") {
+                $qry .= " AND marketplace LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Order ID") {
+                $qry .= " AND pesanan LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Produk") {
+                $qry .= " AND pesanan LIKE '%$keyword%' ";
+            }
+        }
+
+        $today = date("Y-m-d");
+        $order_by = 'ORDER BY created_at DESC';
+        
+        if ($sort == "FU H+10") {
+            $qry .= " AND DATE(waktu_fu_perkembangan) != '' AND DATE(waktu_fu_perkembangan) <= '$today' ";
+            $order_by = 'ORDER BY DATE(waktu_fu_perkembangan) DESC';
+        } else if ($sort == "FU H-7") {
+            $qry .= " AND DATE(waktu_fu_ro) != '' AND DATE(waktu_fu_ro) <= '$today' ";
+            $order_by = 'ORDER BY waktu_fu_ro DESC';
+        } else if ($sort == "Tidak Repeat Order") {
+            $qry .= " AND (DATE(first_order) = DATE(last_order) OR DATE(last_order) = '') ";
+            $order_by = 'ORDER BY first_order DESC';
+        } else if ($sort == "Tidak Repeat Order H+30") {
+            $today_minus_30 = date('Y-m-d', strtotime($today . " -30 days"));
+            $qry .= " AND DATE(last_order) <= '$today_minus_30' ";
+            $order_by = 'ORDER BY last_order DESC';
+        } else if ($sort == "Tanggal Dibuat") {
+            $qry .= " AND DATE(created_at) >= '$start_date' AND DATE(created_at) <= '$until_date' ";
+            $order_by = 'ORDER BY created_at DESC';
+        }
+
+        foreach ($dtf as $k => $v) {
+            if ($v) {
+                $qry .= " AND $k LIKE '%$v%'";
+            }
+        }
+
+        // Pagination
+        $limit = 30;
+        $offset = ($current_page <= 1) ? 0 : ($current_page - 1) * $limit;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM customer WHERE $qry $order_by LIMIT $offset, $limit");
+
+        if (count($query) == 0 ) {
+            $qry_no_date = "1=1";
+            
+            if ($marketplace) {
+                $qry_no_date .= " AND marketplace = '$marketplace' ";
+            }
+
+            if ($ids) {
+                $qry_no_date .= " AND id IN ($ids) ";
+            }
+
+            if ($brand) {
+                $qry_no_date .= " AND brand = '$brand' ";
+            }
+
+            if ($cs) {
+                $qry_no_date .= " AND cs = '$cs' ";
+            }
+
+            if ($keyword) {
+                if ($keyword_category == "Keterangan") {
+                    $qry_no_date .= " AND customer.desc LIKE '%$keyword%' ";
+                } else if ($keyword_category == "Gift") {
+                    $qry_no_date .= " AND gift LIKE '%$keyword%' ";
+                } else if ($keyword_category == "Progres") {
+                    $qry_no_date .= " AND testimoni LIKE '%$keyword%' ";
+                } else if ($keyword_category == "Username") {
+                    $qry_no_date .= " AND (username LIKE '%$keyword%' OR full_name LIKE '%$keyword%') ";
+                } else if ($keyword_category == "Channel") {
+                    $qry_no_date .= " AND marketplace LIKE '%$keyword%' ";
+                } else if ($keyword_category == "Order ID") {
+                    $qry_no_date .= " AND pesanan LIKE '%$keyword%' ";
+                } else if ($keyword_category == "Produk") {
+                    $qry_no_date .= " AND pesanan LIKE '%$keyword%' ";
+                }
+            }
+
+            if ($sort == "FU H+10") {
+                $qry_no_date .= " AND DATE(waktu_fu_perkembangan) != '' AND DATE(waktu_fu_perkembangan) <= '$today' ";
+            } else if ($sort == "FU H-7") {
+                $qry_no_date .= " AND DATE(waktu_fu_ro) != '' AND DATE(waktu_fu_ro) <= '$today' ";
+            } else if ($sort == "Tidak Repeat Order") {
+                $qry_no_date .= " AND (DATE(first_order) = DATE(last_order) OR DATE(last_order) = '') ";
+            } else if ($sort == "Tidak Repeat Order H+30") {
+                $today_minus_30 = date('Y-m-d', strtotime($today . " -30 days"));
+                $qry_no_date .= " AND DATE(last_order) <= '$today_minus_30' ";
+            }
+
+            foreach ($dtf as $k => $v) {
+                if ($v) {
+                    $qry_no_date .= " AND $k LIKE '%$v%'";
+                }
+            }
+
+            $query = $this->mymodel->selectWithQuery("SELECT * FROM customer WHERE $qry_no_date $order_by LIMIT $offset, $limit");
+            $data['no_date_filter'] = true; 
+        } else {
+            $data['no_date_filter'] = false;
+        }
+
+        $data['data'] = $query;
+        $data['start'] = $offset;
+        
+        $this->load->view("crm/item", $data);
+    }
+
+
+    function update_item()
+    {
+        $user = $_SESSION['user'];
+        $id = $_POST['id'];
+        $dt = $_POST['dt'];
+
+
+        if ($dt['first_trx']) {
+            $dt['first_trx'] = DATE("Y-m-d H:i:s", strtotime($dt['first_trx']));
+        }
+        // if($dt['join']){
+        //     $dt['join'] = DATE("Y-m-d H:i:s", strtotime($dt['join']));
+        // }
+        if ($dt['last_order']) {
+            $dt['last_order'] = DATE("Y-m-d H:i:s", strtotime($dt['last_order']));
+        }
+
+        $dt['updated_at'] = DATE("Y-m-d H:i:s");
+        $dt['updated_by'] = $user['id'];
+
+        if ($_POST['column'] == 'dt[first_order]') {
+            $dt['order_month'] = $this->template->month_format_indo($dt['first_order']);
+        }
+
+        if ($_POST['column'] == 'dt[join]') {
+            $dt['count_fu'] = 0;
+            $dt['last_fu_at'] = '';
+            $dt['count_fu_2'] = 0;
+            $dt['last_fu_2_at'] = '';
+        }
+        if (in_array($_POST['column'], array('dt[join]', 'dt[masa_join]'))) {
+            if ($dt['join'] && $dt['masa_join']) {
+                $dt['batas_join'] = date('Y-m-d', strtotime($dt['join'] . " +" . $dt['masa_join'] . " days"));
+                $dt['waktu_fu_ro'] = date('Y-m-d', strtotime($dt['batas_join'] . " -7 days"));
+                $dt['waktu_fu_perkembangan'] = date('Y-m-d', strtotime($dt['join'] . " +10 days"));
+            }
+        }
+
+
+        $this->db->update('customer', $dt, array('id' => $id));
+
+
+        if ($_POST['column'] == 'dt[grup]') {
+            $query = $this->mymodel->selectWithQuery("SELECT grup FROM customer WHERE id = '$id'");
+
+            $latest_group = $query[0]['grup'];
+
+            $grup = $latest_group;
+            if ($grup) {
+                $query = $this->mymodel->selectWithQuery("SELECT COUNT(id) as count FROM customer WHERE grup = '$grup'");
+
+                $query = $query[0];
+                $dte = array();
+                $dte['customer'] = $query['count'];
+                $model2 = $this->db->table('group_wa');
+                $model2->where('name', $grup);
+                $model2->update($dte);
+            }
+            $grup = $dt['grup'];
+            if ($grup) {
+                $query = $this->mymodel->selectWithQuery("SELECT COUNT(id) as count FROM customer WHERE grup = '$grup'");
+
+                $query = $query[0];
+                $dte = array();
+                $dte['customer'] = $query['count'];
+                $model3 = $this->db->table('group_wa');
+                $model3->where('name', $grup);
+                $model3->update($dte);
+            }
+        }
+        $msg = 'Update data berhasil!';;
+
+        $html = array();
+        $html['status'] = true;
+        $html['order_month'] = strval($dt['order_month']);
+        $html['batas_join'] = strval($dt['batas_join']);
+        $html['waktu_fu_ro'] = strval($dt['waktu_fu_ro']);
+        $html['waktu_fu_perkembangan'] = strval($dt['waktu_fu_perkembangan']);
+        $html['msg'] = $this->template->alert_success($msg);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode($html, true);
+    }
+
+    function edit()
+    {
+        $id = $_GET['id'];
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM customer WHERE id = '$id'");
+
+        $data['data'] = $query[0];
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM user ORDER BY full_name ASC");
+
+        $data['pic'] = $query;
+
+        $data['marketplace'] = $this->mymodel->selectWithQuery("SELECT *
+        FROM marketplace
+        ORDER BY name ASC");
+
+        $data['cs'] = $this->mymodel->selectWithQuery("SELECT *
+        FROM user
+        ORDER BY full_name ASC");
+
+
+
+        // $query = $this->mymodel->selectWithQuery("SELECT * FROM tag ORDER BY title ASC");
+        // 
+        // $data['tag'] = $query;
+
+        $this->load->view("crm/edit", $data);
+    }
+
+    function update()
+    {
+
+        $user = $_SESSION['user'];
+
+        $id = $_POST['id'];
+        $dt = $_POST['dt'];
+        $dt['updated_at'] = DATE("Y-m-d H:i:s");
+        $dt['updated_by'] = $user['id'];
+
+
+
+        $query = $this->mymodel->selectWithQuery("SELECT id FROM transaction WHERE customer = '$id' LIMIT 1");
+
+        $id_trx = $query[0]['id'];
+
+        if ($_FILES['file']['name']) {
+            $input = $this->validate([
+                'file' => [
+                    'uploaded[file]',
+                    'mime_in[file,image/jpg,image/jpeg,image/png]',
+                    'max_size[file,1024]',
+                ]
+            ]);
+
+            if (!$input) {
+                $msg = 'Pastikan tipe file .jpg, .jpeg atau .png!';
+                echo $this->template->alert_danger($msg);
+                die;
+            } else {
+                $img = $this->request->getFile('file');
+                $dir = str_replace('public/', '', FCPATH . 'assets/img/crm/');
+                $img->move($dir);
+                $data = [
+                    'name' =>  $img->getName(),
+                    'type'  => $img->getClientMimeType()
+                ];
+                $currentFileName = $dir . $data['name'];
+                $newfile = $id . '.' . substr(strrchr($data['name'], "."), 1);
+                $newFileName = $dir . $newfile;
+                rename($currentFileName, $newFileName);
+                $dt['img'] = $newfile;
+            }
+        }
+
+        if ($this->db->update('customer', $dt, array('id' => $id))) {
+            $msg = 'Update data berhasil!';
+            echo $this->template->alert_success($msg);
+        } else {
+            $msg = 'Update data tidak berhasil!';
+            echo $this->template->alert_danger($msg);
+        }
+    }
+
+    function create()
+    {
+
+        $user = $_SESSION['user'];
+
+        // $dt['first_order'] = DATE("Y-m-d H:i:s");
+        // $dt['order_month'] = $this->template->month_format_indo($dt['first_order']);
+        $dt['created_at'] = DATE("Y-m-d H:i:s");
+        $dt['created_by'] = $user['id'];
+        $dt['is_manual'] = 1;
+        $dt['brand'] = $_GET['brand'];
+        $dt['akun_type'] = 'Pelanggan';
+        $dt['status'] = 'Aktif';
+
+        if ($this->db->insert('customer', $dt)) {
+            $data['param'] = $this->template->get_param();
+            redirect(base_url() . 'crm?brand=' . $_GET['brand']);
+        }
+    }
+
+
+    function store()
+    {
+
+        $user = $_SESSION['user'];
+
+        $id = $_POST['id'];
+        $dt = $_POST['dt'];
+        $dt['created_at'] = DATE("Y-m-d H:i:s");
+        $dt['created_by'] = $user['id'];
+
+        if ($_FILES['file']['name']) {
+            $input = $this->validate([
+                'file' => [
+                    'uploaded[file]',
+                    'mime_in[file,image/jpg,image/jpeg,image/png]',
+                    'max_size[file,1024]',
+                ]
+            ]);
+
+            if (!$input) {
+                $msg = 'Pastikan tipe file .jpg, .jpeg atau .png!';
+                echo $this->template->alert_danger($msg);
+                die;
+            } else {
+                $img = $this->request->getFile('file');
+                $dir = str_replace('public/', '', FCPATH . 'assets/img/crm/');
+                $img->move($dir);
+                $data = [
+                    'name' =>  $img->getName(),
+                    'type'  => $img->getClientMimeType()
+                ];
+                $currentFileName = $dir . $data['name'];
+                $newfile = DATE('Ymdhis') . '.' . substr(strrchr($data['name'], "."), 1);
+                $newFileName = $dir . $newfile;
+                rename($currentFileName, $newFileName);
+                $dt['img'] = $newfile;
+            }
+        }
+
+
+        $model = $db->table('customer');
+
+        if ($model->insert($dt)) {
+            $msg = 'Tambah data berhasil!';
+            echo $this->template->alert_success($msg);
+        } else {
+            $msg = 'Tambah data tidak berhasil!';
+            echo $this->template->alert_danger($msg);
+        }
+    }
+
+    function sync()
+    {
+        $id = $_GET['id'];
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM customer WHERE id = '$id'");
+
+        $data['data'] = $query[0];
+        $this->load->view("crm/sync", $data);
+    }
+
+    function sync_process()
+    {
+
+
+        $id = $_POST['id'];
+
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM customer WHERE id = '$id'");
+
+        $v = $query[0];
+        $response = $this->template->get_social_media($v['type'], $v['url']);
+        $dt = array();
+        $dt['updated_at'] = DATE("Y-m-d H:i:s");
+        $dt['updated_by'] = $customer['id'];
+        if ($response['data']['like'] > 0) {
+            $dt['like'] = $response['data']['like'];
+            $dt['comment'] = $response['data']['comment'];
+            $dt['collect'] = $response['data']['collect'];
+            $dt['share'] = $response['data']['share'];
+            $dt['view'] = $response['data']['view'];
+            if ($v['cost'] > 0 && $dt['view'] > 0) {
+                $dt['cpm'] = $v['cost'] / $dt['view'] * 1000;
+            }
+        }
+
+        $model = $db->table('customer');
+        $model->where('id', $v['id']);
+        $model->update($dt);
+
+        if ($response['status'] == true) {
+            $msg = 'Sync data berhasil!';
+            echo $this->template->alert_success($msg);
+        } else {
+            if ($response) {
+                $msg = $response['msg'];
+            } else {
+                $msg = 'Data customer belum tersedia!';
+            }
+            echo $this->template->alert_danger($msg);
+        }
+    }
+
+    function fu()
+    {
+        $id = $_GET['id'];
+        $k = $_GET['k'];
+        $data['data']['id'] = $id;
+        $data['data']['k'] = $k;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM customer WHERE id = '$id'");
+
+        $data['data'] = $query[0];
+
+        $this->load->view("crm/fu", $data);
+    }
+
+    function fu_process()
+    {
+
+        header('Content-Type: application/json; charset=utf-8');
+
+
+        $id = $_POST['id'];
+
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM customer WHERE id = '$id'");
+
+        $data['data'] = $query[0];
+
+        if (strpos($data['data']['phone'], '*') !== false || empty($data['data']['phone'])) {
+            $msg = 'Pastikan nomor telepon benar!';
+            $html['status'] = false;
+            $html['url'] = 'https://api.whatsapp.com/send/?phone=' . $data['data']['phone'] . '&text=' . $text;
+            $html['msg'] = $this->template->alert_danger($msg);
+            echo json_encode($html, true);
+        } else {
+            $dt = array();
+            $dt['count_fu'] = intval($data['data']['count_fu']) + 1;
+            $dt['last_fu_at'] = DATE("Y-m-d");
+            // $dt['waktu_fu_perkembangan'] = date('Y-m-d', strtotime($data['data']['waktu_fu_perkembangan'] . " +10 days"));
+            $dt['waktu_fu_perkembangan'] = date('Y-m-d', strtotime(DATE("Y-m-d") . " +10 days"));
+
+            $this->db->update('customer', $dt, array('id' => $id));
+
+            $msg = 'FU H+10 perkembangan berhasil!';
+            $html = array();
+            if (substr($data['data']['phone'], 0, 1) === "0") {
+                $data['data']['phone'] = "62" . substr($data['data']['phone'], 1);
+            }
+            $text = $data['data']['full_name'] . ' FU H+10 Perkembangan ke ' . $dt['count_fu'];
+            $html['status'] = true;
+            $html['url'] = 'https://api.whatsapp.com/send/?phone=' . $data['data']['phone'] . '&text=' . $text;
+            $html['msg'] = $this->template->alert_success($msg);
+            echo json_encode($html, true);
+        }
+    }
+
+
+
+    function fu_2()
+    {
+        $id = $_GET['id'];
+        $k = $_GET['k'];
+        $data['data']['id'] = $id;
+        $data['data']['k'] = $k;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM customer WHERE id = '$id'");
+
+        $data['data'] = $query[0];
+
+        $this->load->view("crm/fu_2", $data);
+    }
+
+    function fu_2_process()
+    {
+
+        header('Content-Type: application/json; charset=utf-8');
+
+
+        $id = $_POST['id'];
+
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM customer WHERE id = '$id'");
+
+        $data['data'] = $query[0];
+
+        if (strpos($data['data']['phone'], '*') !== false || empty($data['data']['phone'])) {
+            $msg = 'Pastikan nomor telepon benar!';
+            $html['status'] = false;
+            $html['url'] = 'https://api.whatsapp.com/send/?phone=' . $data['data']['phone'] . '&text=' . $text;
+            $html['msg'] = $this->template->alert_danger($msg);
+            echo json_encode($html, true);
+        } else {
+            $dt = array();
+            $dt['count_fu_2'] = intval($data['data']['count_fu_2']) + 1;
+            $dt['last_fu_2_at'] = DATE("Y-m-d");
+
+
+            $this->db->update('customer', $dt, array('id' => $id));
+            $msg = 'FU H-7 berhasil!';
+            $html = array();
+            if (substr($data['data']['phone'], 0, 1) === "0") {
+                $data['data']['phone'] = "62" . substr($data['data']['phone'], 1);
+            }
+            $text = $data['data']['full_name'] . ' FU H-7';
+            $html['status'] = true;
+            $html['url'] = 'https://api.whatsapp.com/send/?phone=' . $data['data']['phone'] . '&text=' . $text;
+            $html['msg'] = $this->template->alert_success($msg);
+            echo json_encode($html, true);
+        }
+    }
+
+
+
+    function remove()
+    {
+        $id = $_GET['id'];
+        $data['data']['id'] = $id;
+        $this->load->view("crm/delete", $data);
+    }
+
+    function delete()
+    {
+
+
+
+        $id = $_POST['id'];
+
+        if ($this->db->delete('customer', array('id' => $id))) {
+            $msg = 'Hapus data berhasil!';
+            echo $this->template->alert_success($msg);
+        } else {
+            $msg = 'Hapus data tidak berhasil!';
+            echo $this->template->alert_danger($msg);
+        }
+    }
+
+    function action()
+    {
+
+        $id_selected_v2 = $_POST['id_selected_v2'];
+
+        $id_selected = $_POST['id_selected'];
+        if ($id_selected) {
+            $id = explode(',', $id_selected);
+        }
+
+        $is_manual = $_POST['is_manual'];
+        $marketplace = $_POST['marketplace'];
+        $brand = $_POST['brand'];
+        $order_id = $_POST['order_id'];
+        $code = $_GET['code'];
+        $data['data']['id'] = $id;
+        $data['data']['code'] = $code;
+        if ($code == "hapus_data") {
+            $data['question'] = "Apakah kamu yakin ingin menghapus data customer ini?";
+            $data['btn'] = "Hapus Data";
+        } else if ($code == "refresh_data") {
+            $data['question'] = "Apakah kamu yakin ingin merefresh data customer ini?";
+            $data['btn'] = "Refresh Data";
+        }
+        $this->load->view("crm/action", $data);
+    }
+
+    function action_process()
+    {
+        $code = $_POST['code'];
+        $user = $_SESSION['user'];
+
+        $id_selected = $_POST['id_selected'];
+        if ($id_selected) {
+            $id = explode(',', $id_selected);
+        }
+        $is_manual = $_POST['is_manual'];
+        $marketplace = $_POST['marketplace'];
+        $brand = $_POST['brand'];
+        $order_id = $_POST['order_id'];
+        if ($code == "hapus_data") {
+            foreach ($id as $k => $v) {
+                $list_id .= "'" . $v . "',";
+            }
+
+            $list_id = substr($list_id, 0, -1);
+
+
+            if ($list_id) {
+                $dt = array();
+                $model = $db->table('customer');
+                $model->where(" id IN ($list_id)");
+                $model->delete();
+                $msg = 'Hapus data berhasil!';
+                echo $this->template->alert_success($msg);
+            } else {
+                $msg = 'Pastikan kamu sudah memilih minimal 1 data!';
+                echo $this->template->alert_danger($msg);
+            }
+        } else if ($code == "refresh_data") {
+            foreach ($id as $k => $v) {
+                if ($v > 0) {
+                    $list_id .= "" . $v . ",";
+                }
+            }
+            $list_id = substr($list_id, 0, -1);
+            if ($list_id) {
+
+                $url = base_url() . '/influencer/sync-all-process?mode=refresh_data&ids=' . $list_id;
+                $curl = curl_init();
+
+                // echo $url;die;
+                // echo '<br>';
+
+                curl_setopt_array($curl, array(
+                    CURLOPT_URL => $url,
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_ENCODING => '',
+                    CURLOPT_MAXREDIRS => 10,
+                    CURLOPT_TIMEOUT => 0,
+                    CURLOPT_FOLLOWLOCATION => true,
+                    CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+                    CURLOPT_CUSTOMREQUEST => 'POST',
+                    CURLOPT_HTTPHEADER => array(
+                        'Content-Type: application/json'
+                    ),
+                ));
+
+                $response = curl_exec($curl);
+                echo $response;
+                die;
+                curl_close($curl);
+            } else {
+                $msg = 'Pastikan kamu sudah memilih minimal 1 data!';
+                echo $this->template->alert_danger($msg);
+            }
+        }
+    }
+
+
+    function download()
+    {
+        $data['template'] = $this->template;
+        if ($_GET['start_date']) {
+            $start_date = $_GET['start_date'];
+        } else {
+            $start_date = DATE('Y-m-d');
+            
+        }
+        if ($_GET['until_date']) {
+            $until_date = $_GET['until_date'];
+        } else {
+            $until_date = DATE('Y-m-d');
+        }
+        $keyword = $_GET['keyword'];
+        $brand = $_GET['brand'];
+        $marketplace = $_GET['marketplace'];
+        $cs = $_GET['cs'];
+        $brand = $_GET['brand'];
+
+        $data['start_date'] = $start_date;
+        $data['until_date'] = $until_date;
+        $data['brand'] = $brand;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM user WHERE role = '3' 
+        ORDER BY full_name ASC
+        ");
+
+        $data['cs'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM group_wa WHERE status = 'ENABLE'
+        ORDER BY CAST(name AS SIGNED) ASC
+        ");
+
+        $data['group_wa'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM shipping ORDER BY name ASC");
+
+        $data['shipping'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM marketplace ORDER BY name ASC");
+
+        $data['marketplace'] = $query;
+
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM brand ORDER BY code ASC");
+
+        $data['brands'] = $query;
+
+        $qry = "";
+        // $qry = " DATE(first_order) >= '$start_date'
+        // AND DATE(first_order) <= '$until_date' ";
+        $qry = " 1=1 ";
+
+
+        if ($marketplace) {
+            $qry .= " AND marketplace = '$marketplace' ";
+        }
+
+        $ids = $_GET['ids'];
+        $data['ids'] = $ids;
+        if ($ids) {
+            $qry .= " AND id  IN ($ids) ";
+        }
+
+
+        if ($brand) {
+            $qry .= " AND brand = '$brand' ";
+        }
+
+
+        if ($marketplace) {
+            $qry .= " AND marketplace = '$marketplace' ";
+        }
+
+        if ($cs) {
+            $qry .= " AND cs = '$cs' ";
+        }
+
+        $keyword = $_GET['keyword'];
+        $keyword_category = $_GET['keyword_category'];
+
+
+        if ($keyword) {
+            if ($keyword_category == "Keterangan") {
+                $qry .= " AND customer.desc LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Gift") {
+                $qry .= " AND gift LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Progres") {
+                $qry .= " AND testimoni LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Username") {
+                $qry .= " AND username LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Channel") {
+                $qry .= " AND marketplace LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Order ID") {
+                $qry .= " AND pesanan LIKE '%$keyword%' ";
+            } else if ($keyword_category == "Produk") {
+                $qry .= " AND pesanan LIKE '%$keyword%' ";
+            }
+        }
+
+        $today = DATE("Y-m-d");
+        $sort = $_GET['sort'];
+
+        $order_by = 'ORDER BY created_at DESC';
+        if ($sort == "FU H+10") {
+            $qry .= " AND DATE(waktu_fu_perkembangan) != '' AND DATE(waktu_fu_perkembangan) <= '$today' ";
+            $order_by = 'ORDER BY DATE(waktu_fu_perkembangan) DESC';
+        } else if ($sort == "FU H-7") {
+            $qry .= " AND DATE(waktu_fu_ro) != '' AND DATE(waktu_fu_ro) <= '$today' ";
+            $order_by = 'ORDER BY waktu_fu_ro DESC';
+        } else if ($sort == "Tidak Repeat Order") {
+            $qry .= " AND DATE(first_order) = DATE(last_order) OR DATE(last_order) = '' ";
+            $order_by = 'ORDER BY first_order DESC';
+        } else if ($sort == "Tidak Repeat Order H+30") {
+            $today = date('Y-m-d', strtotime($today . " -30 days"));
+            $qry .= " AND DATE(last_order) <= '$today' ";
+            $order_by = 'ORDER BY last_order DESC';
+        } else if ($sort == "Tanggal Dibuat") {
+            $today = date('Y-m-d', strtotime($today . " -30 days"));
+            $qry .= " AND DATE(created_at) >= '$start_date' AND DATE(created_at) <= '$until_date' ";
+            $order_by = 'ORDER BY last_order DESC';
+        }
+
+        $dtf = $_GET['dtf'];
+        $data['dtf'] = $dtf;
+
+        foreach ($dtf as $k => $v) {
+            if ($v) {
+                $qry .= " AND $k LIKE '%$v%'";
+            }
+        }
+
+        // echo $qry;die;
+        $limit = 30;
+
+        $current_page = $_GET['page'];
+
+        if ($current_page <= 1) {
+            $offset = 0;
+        } else {
+            $offset = ($current_page - 1) * $limit;
+        }
+
+        $query = $this->mymodel->selectWithQuery("
+        SELECT * FROM customer
+        WHERE $qry 
+        $order_by
+        ");
+
+        $data['header'] = array();
+
+        $header_1 = array(
+            "NO",
+            "CB/CL",
+            "TGL DIBUAT",
+            "TGL ORDER",
+            "BRAND",
+            "MARKETPLACE",
+            "TOKO",
+            "NAMA",
+            "NO HP",
+            "USERNAME",
+            "HISTORY PEMBELIAN",
+            "ALAMAT",
+        );
+
+        $body_1 = array(
+            "cb_cl",
+            "cb_cl",
+            "id_buyer",
+            "brand",
+            "marketplace",
+            "shop_name",
+            "full_name",
+            "phone",
+            "username",
+            "pesanan",
+            "address",
+        );
+
+        $this->spreadsheet = new Spreadsheet();
+
+        $this->spreadsheet->getProperties()
+            ->setCreator('KARYA STUDIO TEKNOLOGI DIGITAL')
+            ->setLastModifiedBy('KARYA STUDIO TEKNOLOGI DIGITAL')
+            ->setTitle('ORDER.' . $this->template->date_format($start_date) . '.' . $this->template->date_format($until_date))
+            ->setSubject('ORDER.' . $this->template->date_format($start_date) . '.' . $this->template->date_format($until_date))
+            ->setDescription('ORDER.' . $this->template->date_format($start_date) . '.' . $this->template->date_format($until_date))
+            ->setKeywords('ORDER.' . $this->template->date_format($start_date) . '.' . $this->template->date_format($until_date));
+
+
+
+        $style_col = array(
+            'font' => array('bold' => true),
+            'alignment' => array(
+                'horizontal' => Alignment::HORIZONTAL_CENTER,
+                'vertical' => Alignment::VERTICAL_CENTER
+            ),
+            'borders' => array(
+                'top' => array('style'  => Border::BORDER_THIN),
+                'right' => array('style'  => Border::BORDER_THIN),
+                'bottom' => array('style'  => Border::BORDER_THIN),
+                'left' => array('style'  => Border::BORDER_THIN)
+            ),
+            'fill' => array(
+                'type' => Fill::FILL_SOLID,
+                'color' => array('rgb' => 'aeb5bc')
+            ),
+        );
+
+        $style_row = array(
+            'alignment' => array(
+                'vertical' => Alignment::VERTICAL_CENTER
+            ),
+            'borders' => array(
+                'top' => array('style'  => Border::BORDER_THIN),
+                'right' => array('style'  => Border::BORDER_THIN),
+                'bottom' => array('style'  => Border::BORDER_THIN),
+                'left' => array('style'  => Border::BORDER_THIN)
+            )
+        );
+
+        $i = 0;
+        foreach ($header_1 as $kk => $v) {
+            $code = $this->template->get_name_from_number($i + 1) . '1';
+            $this->spreadsheet->setActiveSheetIndex(0)
+                ->setCellValue($code, $v);
+            $this->spreadsheet->getActiveSheet()->getStyle($code)->getFont()->setBold(true);
+            $this->spreadsheet->getActiveSheet()->getStyle($code)->getFill()
+                ->setFillType(Fill::FILL_SOLID)
+                ->getStartColor()->setARGB('dcdcdb');
+            $this->spreadsheet
+                ->getActiveSheet()
+                ->getStyle($code)
+                ->getBorders()
+                ->getOutline()
+                ->setBorderStyle(Border::BORDER_THIN);
+            $i++;
+        }
+        $column = 2;
+        foreach ($query as $k => $v) {
+            $index = 1;
+            print_r($v);
+            die;
+            $value = $k + 1;
+            $index_alpha = $this->template->get_name_from_number($index);
+            $this->spreadsheet->setActiveSheetIndex(0)->setCellValue($index_alpha . $column, $value);
+            $this->spreadsheet->getActiveSheet()
+                ->getStyle($index_alpha . $column)
+                ->getAlignment()
+                ->setWrapText(true)
+                ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+            $index++;
+
+            if ($v['cb_cl'] != "CL") {
+                $v['cb_cl'] = "CB";
+            }
+            $value = $v['cb_cl'];
+            $index_alpha = $this->template->get_name_from_number($index);
+            $this->spreadsheet->setActiveSheetIndex(0)->setCellValue($index_alpha . $column, $value);
+            $this->spreadsheet->getActiveSheet()
+                ->getStyle($index_alpha . $column)
+                ->getAlignment()
+                ->setWrapText(true)
+                ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+            $index++;
+
+            $value = $v['created_at'];
+            $index_alpha = $this->template->get_name_from_number($index);
+            $this->spreadsheet->setActiveSheetIndex(0)->setCellValue($index_alpha . $column, $value);
+            $this->spreadsheet->getActiveSheet()
+                ->getStyle($index_alpha . $column)
+                ->getAlignment()
+                ->setWrapText(true)
+                ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+            $index++;
+
+            $value = $v['last_order'];
+            $index_alpha = $this->template->get_name_from_number($index);
+            $this->spreadsheet->setActiveSheetIndex(0)->setCellValue($index_alpha . $column, $value);
+            $this->spreadsheet->getActiveSheet()
+                ->getStyle($index_alpha . $column)
+                ->getAlignment()
+                ->setWrapText(true)
+                ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+            $index++;
+
+            $value = $v['brand'];
+            $index_alpha = $this->template->get_name_from_number($index);
+            $this->spreadsheet->setActiveSheetIndex(0)->setCellValue($index_alpha . $column, $value);
+            $this->spreadsheet->getActiveSheet()
+                ->getStyle($index_alpha . $column)
+                ->getAlignment()
+                ->setWrapText(true)
+                ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+            $index++;
+
+            $value = $v['marketplace'];
+            $index_alpha = $this->template->get_name_from_number($index);
+            $this->spreadsheet->setActiveSheetIndex(0)->setCellValue($index_alpha . $column, $value);
+            $this->spreadsheet->getActiveSheet()
+                ->getStyle($index_alpha . $column)
+                ->getAlignment()
+                ->setWrapText(true)
+                ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+            $index++;
+
+            $value = $v['shop_name'];
+            $index_alpha = $this->template->get_name_from_number($index);
+            $this->spreadsheet->setActiveSheetIndex(0)->setCellValue($index_alpha . $column, $value);
+            $this->spreadsheet->getActiveSheet()
+                ->getStyle($index_alpha . $column)
+                ->getAlignment()
+                ->setWrapText(true)
+                ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+            $index++;
+
+            $value = $v['full_name'];
+            $index_alpha = $this->template->get_name_from_number($index);
+            $this->spreadsheet->setActiveSheetIndex(0)->setCellValue($index_alpha . $column, $value);
+            $this->spreadsheet->getActiveSheet()
+                ->getStyle($index_alpha . $column)
+                ->getAlignment()
+                ->setWrapText(true)
+                ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+            $index++;
+
+            $value = $v['phone'];
+            $index_alpha = $this->template->get_name_from_number($index);
+            $this->spreadsheet->setActiveSheetIndex(0)->setCellValue($index_alpha . $column, $value);
+            $this->spreadsheet->getActiveSheet()
+                ->getStyle($index_alpha . $column)
+                ->getAlignment()
+                ->setWrapText(true)
+                ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+            $index++;
+
+            $value = $v['username'];
+            $index_alpha = $this->template->get_name_from_number($index);
+            $this->spreadsheet->setActiveSheetIndex(0)->setCellValue($index_alpha . $column, $value);
+            $this->spreadsheet->getActiveSheet()
+                ->getStyle($index_alpha . $column)
+                ->getAlignment()
+                ->setWrapText(true)
+                ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+            $index++;
+
+            $pesanan = '';
+            foreach (json_decode($v['pesanan'], true) as $kk => $vv) {
+                $pesanan .= $vv['order_id'];
+                $pesanan .= '
+';
+                $pesanan .= DATE("d/m/Y", strtotime($vv['date']));
+                $pesanan .= '
+';
+                foreach ($vv['data'] as $kkk => $vvv) {
+                    $pesanan .=  $vvv['qty'] . ' x ' . $vvv['item_name'];
+                }
+                $pesanan .= '
+
+';
+            }
+
+
+            $value = $pesanan;
+            $index_alpha = $this->template->get_name_from_number($index);
+            $this->spreadsheet->setActiveSheetIndex(0)->setCellValue($index_alpha . $column, $value);
+            $this->spreadsheet->getActiveSheet()
+                ->getStyle($index_alpha . $column)
+                ->getAlignment()
+                ->setWrapText(true)
+                ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+            $index++;
+
+            $value = $v['address'];
+            $index_alpha = $this->template->get_name_from_number($index);
+            $this->spreadsheet->setActiveSheetIndex(0)->setCellValue($index_alpha . $column, $value);
+            $this->spreadsheet->getActiveSheet()
+                ->getStyle($index_alpha . $column)
+                ->getAlignment()
+                ->setWrapText(true)
+                ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+            $index++;
+
+            $column++;
+        }
+
+        $sheet = $this->spreadsheet->getActiveSheet();
+        foreach ($sheet->getColumnIterator() as $column) {
+            $sheet->getColumnDimension($column->getColumnIndex())->setAutoSize(true);
+        }
+
+        $writer = new Xlsx($this->spreadsheet);
+        $filename = 'crm-' . DATE("YmdHis") . '.xlsx';
+        $file_path = str_replace('public/', '', FCPATH . 'assets/webfile/excel/') . $filename;
+
+        $writer->save($file_path);
+
+        redirect(base_url() . 'assets/webfile/excel/' . $filename);
+    }
+}

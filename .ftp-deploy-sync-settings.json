@@ -1,0 +1,12 @@
+{
+  "username": "FTP_USERNAME",
+  "password": "FTP_PASSWORD",
+  "host": "FTP_SERVER",
+  "localRoot": "application",
+  "remoteRoot": "/",
+  "include": ["*", "**/*"],
+  "exclude": [],
+  "deleteRemoteFiles": false,
+  "protocol": "ftp",
+  "port": 21
+}

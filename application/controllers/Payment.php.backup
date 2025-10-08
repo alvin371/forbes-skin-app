@@ -1,0 +1,268 @@
+<?php
+
+defined('BASEPATH') or exit('No direct script access allowed');
+
+require_once APPPATH . 'core/BaseController.php';
+
+class Payment extends BaseController
+{
+    public function __construct()
+    {
+        parent::__construct();
+        $this->load->database();
+        $this->load->model('mymodel');
+        $this->load->library('template');
+
+        // Set public methods (no permission required)
+        $this->set_public_methods([]);
+
+        // Override method-to-action mapping if needed
+        $this->set_method_permissions([
+            'remove' => 'delete',
+            'action' => 'edit'
+        ]);
+    }
+
+
+    public function index()
+    {
+        $nama_creator = $this->input->get('nama_creator') ?? [];
+        $pic = $this->input->get('pic') ?? [];
+        $start_date = $this->input->get('start_date');
+        $until_date = $this->input->get('until_date');
+        
+        $start_date = $this->input->get('start_date');
+        $until_date = $this->input->get('until_date');
+        
+        if (empty($start_date)) {
+            $start_date = date('Y-m-d', strtotime('-31 days'));
+        }
+        
+        if (empty($until_date)) {
+            $until_date = date('Y-m-d');
+        }
+
+        $data['template'] = $this->template;
+        $data['title'] = 'Payment Influencer - ' . $this->template->title();
+
+        $endorse_status = $this->input->get('endorse_status');
+        $sql = "
+            SELECT 
+                e.link_mou, 
+                e.pic, 
+                e.tgl_tf, 
+                e.nama_creator, 
+                e.id_campaign, 
+                c.title, 
+                CONCAT(i.bank, ' - ', i.no_rekening) AS no_rekening,
+                i.pemilik_rekening,
+                SUM(e.total_cost) AS total_cost, 
+                e.status_endorse, 
+                e.`desc`, 
+                e.status_payment, 
+                e.nominal_dibayarkan, 
+                e.keterangan_payment, 
+                e.pengajuan_status_payment, 
+                e.nominal_pengajuan
+            FROM 
+                endorse e
+            INNER JOIN 
+                endorse_campaign c ON c.id = e.id_campaign
+            INNER JOIN 
+                influencer i ON i.id = e.influencer
+            WHERE 
+        ";
+
+        if (!empty($endorse_status)) {
+            $endorse_status_array = explode(',', $endorse_status); 
+            $escaped_status = array_map(function ($status) {
+                return "'" . $this->db->escape_str(trim($status)) . "'";
+            }, $endorse_status_array);
+            $sql .= "e.status_payment IN (" . implode(',', $escaped_status) . ")";
+        } else {
+            $sql .= "e.pengajuan_status_payment LIKE '%Pengajuan Payment%'";
+        }
+
+        if (!empty($nama_creator)) {
+            $nama_creator_str = "'" . implode("','", $nama_creator) . "'";
+            $sql .= " AND e.nama_creator IN ($nama_creator_str)";
+        }
+
+        if (!empty($pic)) {
+            $pic_conditions = [];
+            foreach ($pic as $p) {
+                if (!empty($p)) {
+                    $pic_conditions[] = "e.pic LIKE '{$p}%'";
+                }
+            }
+
+            if (!empty($pic_conditions)) {
+                $sql .= " AND (" . implode(" OR ", $pic_conditions) . ")";
+            }
+        }
+
+        if (!empty($endorse_status)) {
+            $sql .= " AND e.tgl_tf BETWEEN '$start_date' AND '$until_date'";
+        }
+
+        $sql .= " GROUP BY e.id_campaign, e.nama_creator ORDER BY e.tgl_tf DESC";
+
+        $data['payment_fee'] = $this->mymodel->selectWithQuery($sql);
+
+        $data['nama_creator'] = $this->mymodel->selectWithQuery("SELECT DISTINCT nama_creator FROM endorse WHERE status_payment != ''");
+        $data['pic'] = $this->mymodel->selectWithQuery("SELECT DISTINCT pic FROM endorse" . " WHERE status_payment != ''");
+
+        $view_path = 'endorse/payment_fee';
+        $data['content'] = $this->load->view("endorse/payment_fee", $data, true);
+        $this->load->view('TemplateDashboard', $data);
+    }
+
+
+    public function edit()
+    {
+        $nama_creator = $this->input->get('nama_creator');
+        $id_campaign = $this->input->get('id_campaign');
+
+        $sql = "
+                SELECT DISTINCT e.nama_creator, e.id_campaign, c.title, SUM(e.total_cost) AS total_cost,
+                    e.status_endorse, e.desc, e.tgl_tf, e.bukti_tf, e.link_telegram, e.pic, e.link_mou, e.status_payment, e.nominal_dibayarkan, 
+                    e.keterangan_payment, e.pengajuan_status_payment,
+                    e.nominal_pengajuan, e.nominal_dibayarkan, e.pengajuan_payment_logs
+                FROM endorse e
+                INNER JOIN endorse_campaign c ON c.id = e.id_campaign
+                WHERE e.nama_creator = '$nama_creator'
+                AND e.id_campaign = '$id_campaign' AND e.status_endorse NOT IN ('Review', 'Hold', 'Reject', 'Problem')
+                GROUP BY e.id_campaign, e.nama_creator, e.status_payment
+            ";
+        $data['campaign'] = $this->mymodel->selectWithQuery($sql)[0];
+
+        // $sql_influencer = "
+        //         SELECT * FROM influencer
+        //         WHERE username = '$nama_creator'
+        //     ";
+        // $data['influencer'] = $this->mymodel->selectWithQuery($sql_influencer)[0];
+
+        $sql_logs = "
+                SELECT 
+                    l.*,
+                    u.code,
+                    'payment' as log_type
+                FROM payment_logs l
+                INNER JOIN user u ON u.id = l.created_by             
+                WHERE l.nama_influencer = '$nama_creator'
+                AND l.id_campaign = '$id_campaign'";
+        $payment_logs = $this->mymodel->selectWithQuery($sql_logs);
+
+        $pengajuan_logs = [];
+        if (!empty($data['campaign']['pengajuan_payment_logs'])) {
+            $pengajuan_logs = json_decode($data['campaign']['pengajuan_payment_logs'], true);
+            foreach ($pengajuan_logs as &$log) {
+                $log['log_type'] = 'pengajuan';
+                $log['created_at'] = $log['created_at'];
+                $log['status_payment'] = $log['status'];
+                $log['nominal_dibayarkan'] = isset($log['nominal_pengajuan']) ? $log['nominal_pengajuan'] : 0;
+                $log['code'] = $log['created_by']; 
+            }
+        }
+
+        $all_logs = array_merge($payment_logs, $pengajuan_logs);
+
+        usort($all_logs, function($a, $b) {
+            return strtotime($b['created_at']) - strtotime($a['created_at']);
+        });
+
+        $data['all_logs'] = $all_logs;
+
+        $this->load->view("endorse/edit_payment", $data);
+    }
+
+
+    public function store()
+    {
+        $user = $_SESSION['user'];
+
+        $dt = $_POST['dt'];
+        $nama_creator = $dt['nama_creator'];
+        $status_payment = $dt['status_payment'];
+        $pengajuan_status_payment = $dt['pengajuan_status_payment'];
+        $id_campaign = $dt['id_campaign'];
+        $id_endorse = $dt['id'];
+        $link_telegram = $dt['link_telegram'];
+        $nominal_pengajuan = floatval($dt['nominal_pengajuan']);
+        $nominal_dibayarkan_sebelumnya = floatval($dt['nominal_dibayarkan']);
+        $nominal_dibayarkan = $nominal_pengajuan + $nominal_dibayarkan_sebelumnya;
+        $keterangan_payment = $dt['keterangan_payment'];
+
+
+        if (!empty($_FILES['file']['name'])) {
+            $dir  = "./assets/img/transfer/";
+            $config['upload_path']   = $dir;
+            $config['allowed_types'] = 'jpg|jpeg|png';
+            $config['overwrite']     = TRUE;
+            $config['file_name']     = DATE("Ymdhis");
+            $config['max_size']      = 2048;
+            $this->load->library('upload', $config);
+            if (!$this->upload->do_upload('file')) {
+                $error = $this->upload->display_errors();
+                echo $this->template->alert_danger($error);
+                die;
+            } else {
+                $file = $this->upload->data();
+                $dt['img'] = $file['file_name'];
+            }
+        }
+
+        $updated_at = DATE("Y-m-d H:i:s");
+        $updated_by = $user['id'];
+
+        $data = [
+            'status_payment' => $status_payment,
+            'link_telegram' => $link_telegram,
+            'pengajuan_status_payment' => NULL,
+            'bukti_tf' => $dt['img'],
+            'tgl_tf' => $dt['tgl_tf'],
+            'nominal_dibayarkan' => $nominal_dibayarkan,
+            'nominal_pengajuan' => 0,
+            'updated_at' => $updated_at,
+            'updated_by' => $updated_by,
+            'keterangan_payment' => $keterangan_payment,
+        ];
+
+        if (!empty($pengajuan_status_payment)) {
+            $this->db->where('nama_creator', $nama_creator);
+            $this->db->where('id_campaign', $id_campaign);
+            $this->db->like('pengajuan_status_payment', 'Pengajuan Payment', 'both');
+        } else {
+            $this->db->where('id', $id_endorse);
+        }
+
+        $result = $this->db->update('endorse', $data);
+
+        if ($result) {
+            $log_data = [
+                'id_endorse' => $id_endorse,
+                'id_campaign' => $id_campaign,
+                'nama_influencer' => $nama_creator,
+                'created_at' => $updated_at,
+                'updated_at' => $updated_at,
+                'created_by' => $updated_by,
+                'updated_by' => $updated_by,
+                'total_cost' => $dt['total_cost'] ?? 0,
+                'nominal_dibayarkan' => $dt['nominal_pengajuan'],
+                'bukti_tf' => $dt['img'],
+                'link_tele' => $link_telegram,
+                'status_payment' => $status_payment,
+            ];
+
+            $this->db->insert('payment_logs', $log_data);
+
+            $msg = 'Update data berhasil dan log direkam!';
+            echo $this->template->alert_success($msg);
+        } else {
+            $msg = 'Update data tidak berhasil!';
+            echo $this->template->alert_danger($msg);
+            echo "DB Error: " . $this->db->_error_message();
+        }
+    }
+}
+

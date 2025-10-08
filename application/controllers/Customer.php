@@ -1,0 +1,584 @@
+<?php
+
+defined('BASEPATH') or exit('No direct script access allowed');
+
+require_once APPPATH . 'core/BaseController.php';
+class Customer extends BaseController
+{
+    public function __construct()
+    {
+        parent::__construct();
+        $this->load->database();
+        $this->load->model('mymodel');
+        $this->load->library('template');
+
+        // Set public methods (no permission required)
+        $this->set_public_methods([]);
+
+        // Override method-to-action mapping if needed
+        $this->set_method_permissions([
+            'remove' => 'delete',
+            'action' => 'edit'
+        ]);
+    }
+
+
+    public function index()
+    {
+
+        $data['title'] = 'Customer - ' . $this->template->title();
+        if ($_GET['start_date']) {
+            $start_date = $_GET['start_date'];
+        } else {
+            $start_date = DATE('Y-m-01');
+        }
+        if ($_GET['until_date']) {
+            $until_date = $_GET['until_date'];
+        } else {
+            $until_date = DATE('Y-m-d');
+        }
+        $keyword = $_GET['keyword'];
+        $brand = $_GET['brand'];
+        $marketplace = $_GET['marketplace'];
+        $cs = $_GET['cs'];
+
+        $data['start_date'] = $start_date;
+        $data['until_date'] = $until_date;
+        $data['brand'] = $brand;
+        $brand = $_GET['brand'];
+
+        $qry = "";
+        $qry = " DATE(created_at) >= '$start_date'
+        AND DATE(created_at) <= '$until_date' ";
+
+        if ($keyword) {
+            $qry .= " AND (full_name LIKE '%$keyword%' OR phone LIKE '%$keyword%' OR username LIKE '%$keyword%') ";
+        }
+
+        if ($brand) {
+            $qry .= " AND brand = '$brand' ";
+        }
+
+        if ($marketplace) {
+            $qry .= " AND marketplace = '$marketplace' ";
+        }
+
+        if ($cs) {
+            $qry .= " AND id_2 = '$cs' ";
+        }
+
+
+        $qry = "";
+        $qry = " DATE(created_at) >= '$start_date'
+        AND DATE(created_at) <= '$until_date' ";
+
+        if ($keyword) {
+            $qry .= " AND (full_name LIKE '%$keyword%' OR phone LIKE '%$keyword%' OR username LIKE '%$keyword%') ";
+        }
+
+        if ($brand) {
+            $qry .= " AND brand = '$brand' ";
+        }
+
+        if ($marketplace) {
+            $qry .= " AND marketplace = '$marketplace' ";
+        }
+
+        if ($cs) {
+            $qry .= " AND id_2 = '$cs' ";
+        }
+
+        $limit = 30;
+
+        $offset = intval($_GET['offset']);
+
+        $query = $this->db->query("SELECT COUNT(id) as count FROM customer
+        WHERE $qry ");
+        $query = $query->getResultArray();
+        $data['page'] = CEIL($query[0]['count'] / 30);
+
+        $item = '';
+
+        $current_page = intval($_GET['page']);
+        if ($current_page <= 1) {
+            $current_page = 1;
+        }
+
+        $url = base_url() . '/customer?keyword=' . $_GET['keyword'] . '&brand=' . $_GET['brand'] . '&marketplace=' . $_GET['marketplace'] . '&cs=&start_date=' . $start_date . '&until_date=' . $until_date;
+
+        $data['pagination'] = $this->template->pagination($data['page'], $current_page, $url);
+
+
+        $query = $db->query("SELECT * FROM product WHERE status = 'ENABLE' AND is_varian = 0
+        ORDER BY sku ASC
+        ");
+        $query = $query->getResultArray();
+        $data['product'] = $query;
+
+        $query = $this->db->query("SELECT * FROM user WHERE role = '3' 
+        ORDER BY full_name ASC
+        ");
+        $query = $query->getResultArray();
+        $data['cs'] = $query;
+
+        $query = $this->db->query("SELECT * FROM product WHERE status = 'ENABLE' AND is_varian = 0
+        ORDER BY sku ASC
+        ");
+        $query = $query->getResultArray();
+        $data['product'] = $query;
+
+        $query = $this->db->query("SELECT * FROM shipping ORDER BY name ASC");
+        $query = $query->getResultArray();
+        $data['shipping'] = $query;
+
+        $query = $this->db->query("SELECT * FROM marketplace ORDER BY name ASC");
+        $query = $query->getResultArray();
+        $data['marketplace'] = $query;
+
+        $query = $db->query("SELECT * FROM brand WHERE status = 'ENABLE' ORDER BY name ASC");
+        $query = $query->getResultArray();
+        $data['brands'] = $query;
+
+        $data['start_date'] = $start_date;
+        $data['until_date'] = $until_date;
+        $data['brand'] = $brand;
+        $data['content'] = view("customer/all", $data);
+        return view("TemplateDashboard", $data);
+    }
+
+    public function item()
+    {
+        if ($_GET['start_date']) {
+            $start_date = $_GET['start_date'];
+        } else {
+            $start_date = DATE('Y-m-d');
+        }
+        if ($_GET['until_date']) {
+            $until_date = $_GET['until_date'];
+        } else {
+            $until_date = DATE('Y-m-d');
+        }
+        $keyword = $_GET['keyword'];
+        $brand = $_GET['brand'];
+        $marketplace = $_GET['marketplace'];
+        $cs = $_GET['cs'];
+
+        $data['start_date'] = $start_date;
+        $data['until_date'] = $until_date;
+        $data['brand'] = $brand;
+
+        $query = $this->db->query("SELECT * FROM user WHERE role = '3' 
+        ORDER BY full_name ASC
+        ");
+        $query = $query->getResultArray();
+        $data['cs'] = $query;
+
+        $query = $this->db->query("SELECT * FROM group_wa WHERE status = 'ENABLE'
+        ORDER BY CAST(name AS SIGNED) ASC
+        ");
+        $query = $query->getResultArray();
+        $data['group_wa'] = $query;
+
+        $query = $this->db->query("SELECT * FROM shipping ORDER BY name ASC");
+        $query = $query->getResultArray();
+        $data['shipping'] = $query;
+
+        $query = $this->db->query("SELECT * FROM marketplace ORDER BY name ASC");
+        $query = $query->getResultArray();
+        $data['marketplace'] = $query;
+
+        $query = $this->db->query("SELECT * FROM brand ORDER BY code ASC");
+        $query = $query->getResultArray();
+        $data['brands'] = $query;
+
+        $qry = "";
+        $qry = " DATE(created_at) >= '$start_date'
+        AND DATE(created_at) <= '$until_date' ";
+
+        if ($keyword) {
+            $qry .= " AND (full_name LIKE '%$keyword%' OR phone LIKE '%$keyword%' OR username LIKE '%$keyword%') ";
+        }
+
+        if ($brand) {
+            $qry .= " AND brand = '$brand' ";
+        }
+
+        if ($marketplace) {
+            $qry .= " AND marketplace = '$marketplace' ";
+        }
+
+        if ($cs) {
+            $qry .= " AND id_2 = '$cs' ";
+        }
+
+        $limit = 30;
+
+        $current_page = $_GET['page'];
+
+        if ($current_page <= 1) {
+            $offset = 0;
+        } else {
+            $offset = ($current_page - 1) * $limit;
+        }
+
+        $query = $this->db->query("
+        SELECT * FROM customer
+        WHERE $qry 
+        ORDER BY created_at DESC
+        LIMIT $offset, $limit
+        ");
+
+
+
+        $query = $query->getResultArray();
+        $data['data'] = $query;
+
+        $data['start'] = $offset;
+        return view("customer/item", $data);
+    }
+
+
+    public function update_item()
+    {
+        $user = $_SESSION['user'];
+        $id = $_POST['id'];
+        $dt = $_POST['dt'];
+
+
+        if ($dt['first_trx']) {
+            $dt['first_trx'] = DATE("Y-m-d H:i:s", strtotime($dt['first_trx']));
+        }
+        if ($dt['join']) {
+            $dt['join'] = DATE("Y-m-d H:i:s", strtotime($dt['join']));
+        }
+        if ($dt['last_order']) {
+            $dt['last_order'] = DATE("Y-m-d H:i:s", strtotime($dt['last_order']));
+        }
+
+        $dt['updated_at'] = DATE("Y-m-d H:i:s");
+        $dt['updated_by'] = $user['id'];
+
+
+        $db = \Config\Database::connect();
+        $model = $db->table('customer');
+        $model->where('id', $id);
+        $model->update($dt);
+
+
+        if ($_POST['column'] == 'dt[grup]') {
+            $query = $this->db->query("SELECT grup FROM customer WHERE id = '$id'");
+            $query = $query->getResultArray();
+            $latest_group = $query[0]['grup'];
+
+            $grup = $latest_group;
+            if ($grup) {
+                $query = $db->query("SELECT COUNT(id) as count FROM customer WHERE grup = '$grup'");
+                $query = $query->getResultArray();
+                $query = $query[0];
+                $dte = array();
+                $dte['customer'] = $query['count'];
+                $model2 = $this->db->table('group_wa');
+                $model2->where('name', $grup);
+                $model2->update($dte);
+            }
+            $grup = $dt['grup'];
+            if ($grup) {
+                $query = $db->query("SELECT COUNT(id) as count FROM customer WHERE grup = '$grup'");
+                $query = $query->getResultArray();
+                $query = $query[0];
+                $dte = array();
+                $dte['customer'] = $query['count'];
+                $model3 = $this->db->table('group_wa');
+                $model3->where('name', $grup);
+                $model3->update($dte);
+            }
+        }
+        $msg = 'Update data berhasil!';;
+
+        $html = array();
+        $html['status'] = true;
+        $html['msg'] = $this->template->alert_success($msg);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode($html, true);
+    }
+
+    public function edit()
+    {
+        $id = $_GET['id'];
+        $db = \Config\Database::connect();
+        $query = $db->query("SELECT * FROM customer WHERE id = '$id'");
+        $query = $query->getResultArray();
+        $data['data'] = $query[0];
+
+        $query = $db->query("SELECT * FROM user ORDER BY full_name ASC");
+        $query = $query->getResultArray();
+        $data['pic'] = $query;
+
+        $query = $db->query("SELECT * FROM brand ORDER BY name ASC");
+        $query = $query->getResultArray();
+        $data['brand'] = $query;
+
+        $query = $db->query("SELECT * FROM tag ORDER BY title ASC");
+        $query = $query->getResultArray();
+        $data['tag'] = $query;
+
+        return view("customer/edit", $data);
+    }
+
+    public function update()
+    {
+
+        $user = $_SESSION['user'];
+
+        $id = $_POST['id'];
+        $dt = $_POST['dt'];
+        $dt['updated_at'] = DATE("Y-m-d H:i:s");
+        $dt['updated_by'] = $user['id'];
+        $dt['service_str'] = DATE("Y-m-d H:i:s", strtotime($dt['service_str']));
+        $dt['service_exp'] = DATE("Y-m-d H:i:s", strtotime($dt['service_exp']));
+
+        $id_pic = $dt['pic'];
+        $db = \Config\Database::connect();
+        $query = $db->query("SELECT * FROM user WHERE id = '$id_pic'");
+        $query = $query->getResultArray();
+        $dt['pic_text'] = strval($query[0]['full_name']);
+
+        $db = \Config\Database::connect();
+
+        $query = $db->query("SELECT id FROM transaction WHERE customer = '$id' LIMIT 1");
+        $query = $query->getResultArray();
+        $id_trx = $query[0]['id'];
+
+        if (empty($id_trx)) {
+            $dtt = array(
+                'service_type' => '',
+                'service_status' => '',
+                'service_str' => '',
+                'service_exp' => '',
+                'count_trx' => '0',
+                'return' => '0',
+                'nominal' => '0',
+                'net_nominal' => '0',
+                'first_order' => '',
+                'last_order' => '',
+            );
+            foreach ($dtt as $k => $v) {
+                $dt[$k] = $v;
+            }
+        }
+
+        if ($_FILES['file']['name']) {
+            $input = $this->validate([
+                'file' => [
+                    'uploaded[file]',
+                    'mime_in[file,image/jpg,image/jpeg,image/png]',
+                    'max_size[file,1024]',
+                ]
+            ]);
+
+            if (!$input) {
+                $msg = 'Pastikan tipe file .jpg, .jpeg atau .png!';
+                echo $this->template->alert_danger($msg);
+                die;
+            } else {
+                $img = $this->request->getFile('file');
+                $dir = str_replace('public/', '', FCPATH . 'assets/img/customer/');
+                $img->move($dir);
+                $data = [
+                    'name' =>  $img->getName(),
+                    'type'  => $img->getClientMimeType()
+                ];
+                $currentFileName = $dir . $data['name'];
+                $newfile = $id . '.' . substr(strrchr($data['name'], "."), 1);
+                $newFileName = $dir . $newfile;
+                rename($currentFileName, $newFileName);
+                $dt['img'] = $newfile;
+            }
+        }
+        $db      = \Config\Database::connect();
+        $model = $db->table('customer');
+        $model->where('id', $id);
+
+        if ($model->update($dt)) {
+            $msg = 'Update data berhasil!';
+            echo $this->template->alert_success($msg);
+        } else {
+            $msg = 'Update data tidak berhasil!';
+            echo $this->template->alert_danger($msg);
+        }
+    }
+
+    public function create()
+    {
+
+        $user = $_SESSION['user'];
+
+        $dt['created_at'] = DATE("Y-m-d H:i:s");
+        $dt['created_by'] = $user['id'];
+        $dt['akun_type'] = 'Normal';
+        $dt['status'] = 'ENABLE';
+        $db      = \Config\Database::connect();
+        $model = $db->table('customer');
+        $model->insert($dt);
+
+        helper('url');
+        $url = current_url(true);
+        $parsedUrl = parse_url($url);
+        $queryString = isset($parsedUrl['query']) ? $parsedUrl['query'] : '';
+        parse_str($queryString, $queryParams);
+        $newUrl = '?' . http_build_query($queryParams);
+
+        return redirect()->to(site_url('customer' . $newUrl));
+
+
+        // $data['data'] = array();
+        // $db = \Config\Database::connect();
+        // $query = $db->query("SELECT * FROM user ORDER BY full_name ASC");
+        // $query = $query->getResultArray();
+        // $data['pic'] = $query;
+        // $query = $db->query("SELECT * FROM brand ORDER BY name ASC");
+        // $query = $query->getResultArray();
+        // $data['brand'] = $query;
+        // $query = $db->query("SELECT * FROM tag ORDER BY title ASC");
+        // $query = $query->getResultArray();
+        // $data['tag'] = $query;
+
+        // return view("customer/create", $data);
+    }
+
+
+    public function store()
+    {
+
+        $user = $_SESSION['user'];
+
+        $id = $_POST['id'];
+        $dt = $_POST['dt'];
+        $dt['created_at'] = DATE("Y-m-d H:i:s");
+        $dt['created_by'] = $user['id'];
+        $dt['service_str'] = DATE("Y-m-d H:i:s", strtotime($dt['service_str']));
+        $dt['service_exp'] = DATE("Y-m-d H:i:s", strtotime($dt['service_exp']));
+
+
+        $id_pic = $dt['pic'];
+        $db = \Config\Database::connect();
+        $query = $db->query("SELECT * FROM user WHERE id = '$id_pic'");
+        $query = $query->getResultArray();
+        $dt['pic_text'] = strval($query[0]['full_name']);
+
+        if ($_FILES['file']['name']) {
+            $input = $this->validate([
+                'file' => [
+                    'uploaded[file]',
+                    'mime_in[file,image/jpg,image/jpeg,image/png]',
+                    'max_size[file,1024]',
+                ]
+            ]);
+
+            if (!$input) {
+                $msg = 'Pastikan tipe file .jpg, .jpeg atau .png!';
+                echo $this->template->alert_danger($msg);
+                die;
+            } else {
+                $img = $this->request->getFile('file');
+                $dir = str_replace('public/', '', FCPATH . 'assets/img/customer/');
+                $img->move($dir);
+                $data = [
+                    'name' =>  $img->getName(),
+                    'type'  => $img->getClientMimeType()
+                ];
+                $currentFileName = $dir . $data['name'];
+                $newfile = DATE('Ymdhis') . '.' . substr(strrchr($data['name'], "."), 1);
+                $newFileName = $dir . $newfile;
+                rename($currentFileName, $newFileName);
+                $dt['img'] = $newfile;
+            }
+        }
+
+        $db      = \Config\Database::connect();
+        $model = $db->table('customer');
+
+        if ($model->insert($dt)) {
+            $msg = 'Tambah data berhasil!';
+            echo $this->template->alert_success($msg);
+        } else {
+            $msg = 'Tambah data tidak berhasil!';
+            echo $this->template->alert_danger($msg);
+        }
+    }
+
+    public function sync()
+    {
+        $id = $_GET['id'];
+        $db = \Config\Database::connect();
+        $query = $db->query("SELECT * FROM customer WHERE id = '$id'");
+        $query = $query->getResultArray();
+        $data['data'] = $query[0];
+        return view("customer/sync", $data);
+    }
+
+    public function sync_process()
+    {
+
+        $customer = $this->template->get_session('customer');
+        $id = $_POST['id'];
+
+        $db = \Config\Database::connect();
+        $query = $db->query("SELECT * FROM customer WHERE id = '$id'");
+        $query = $query->getResultArray();
+        $v = $query[0];
+        $response = $this->template->get_social_media($v['type'], $v['url']);
+        $dt = array();
+        $dt['updated_at'] = DATE("Y-m-d H:i:s");
+        $dt['updated_by'] = $customer['id'];
+        if ($response['data']['like'] > 0) {
+            $dt['like'] = $response['data']['like'];
+            $dt['comment'] = $response['data']['comment'];
+            $dt['collect'] = $response['data']['collect'];
+            $dt['share'] = $response['data']['share'];
+            $dt['view'] = $response['data']['view'];
+            if ($v['cost'] > 0 && $dt['view'] > 0) {
+                $dt['cpm'] = $v['cost'] / $dt['view'] * 1000;
+            }
+        }
+        $db      = \Config\Database::connect();
+        $model = $db->table('customer');
+        $model->where('id', $v['id']);
+        $model->update($dt);
+
+        if ($response['status'] == true) {
+            $msg = 'Sync data berhasil!';
+            echo $this->template->alert_success($msg);
+        } else {
+            if ($response) {
+                $msg = $response['msg'];
+            } else {
+                $msg = 'Data customer belum tersedia!';
+            }
+            echo $this->template->alert_danger($msg);
+        }
+    }
+
+    public function remove()
+    {
+        $id = $_GET['id'];
+        $data['data']['id'] = $id;
+        return view("customer/delete", $data);
+    }
+
+    public function delete()
+    {
+
+
+        $id = $_POST['id'];
+
+
+        if ($this->db->delete('customer', array('id' => $id))) {
+            $msg = 'Hapus data berhasil!';
+            echo $this->template->alert_success($msg);
+        } else {
+            $msg = 'Hapus data tidak berhasil!';
+            echo $this->template->alert_danger($msg);
+        }
+    }
+}

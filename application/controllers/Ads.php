@@ -1,0 +1,896 @@
+<?php
+
+defined('BASEPATH') or exit('No direct script access allowed');
+
+require_once APPPATH . 'core/BaseController.php';
+
+class Ads extends BaseController
+{
+    public function __construct()
+    {
+        parent::__construct();
+        $this->load->database();
+        $this->load->model('mymodel');
+        $this->load->library('template');
+
+        // Set public methods (no permission required)
+        $this->set_public_methods([]);
+
+        // Override method-to-action mapping if needed
+        $this->set_method_permissions([
+            'remove' => 'delete',
+            'action' => 'edit'
+        ]);
+    }
+
+
+    public function index()
+    {
+        $platform = $this->input->get('m') ?? 'shopee';
+
+        $data['checkbox'] = $_SESSION['checkbox_dashboard'] ?? [];
+        $data['checkbox_campaign'] = $_SESSION['checkbox_dashboard_campaign'] ?? [];
+        $data['title'] = 'Ads - ' . $this->template->title();
+
+        $url = base_url() . '/ads/' . $this->template->get_param();
+        $data['url'] = $this->template->get_param_without_keyword_category($url);
+        $data['url_2'] = $this->template->get_param_without('status');
+        $data['param'] = $this->template->get_param();
+
+        switch (strtolower($platform)) {
+            case 'meta':
+                $ids_account = $this->input->get('ids_account') ?? [];
+                $start_date = $this->input->get('start_date');
+                $until_date = $this->input->get('until_date');
+
+                $data['advertiser'] = $this->mymodel->selectWithQuery("
+                    SELECT DISTINCT 
+                        a.account_id AS id, 
+                        a.account_name AS title 
+                    FROM `ads_meta_account` a
+                    ORDER BY a.account_name ASC
+                ");
+
+                $sql_ads = "
+                    SELECT  
+                        CONCAT(MIN(a.date), ' - ', MAX(a.date)) AS date,
+                        a.account_id,
+                        b.account_name,
+                        a.campaign_name,
+                        SUM(a.spend) AS spend,
+                        SUM(a.spend_after_tax) AS spend_after_tax,
+                        SUM(a.impressions) AS impressions,
+                        SUM(a.clicks) AS clicks,
+                        ROUND(AVG(a.ctr), 2) AS ctr,
+                        SUM(a.purchases) AS purchases,
+                        SUM(a.add_to_cart) AS add_to_cart,
+                        ROUND(AVG(a.frequency), 2) AS frequency,
+                        SUM(a.reach) AS reach
+                    FROM meta_ads_data a
+                    INNER JOIN ads_meta_account b ON a.account_id = b.account_id
+                ";
+
+                $conditions = [];
+
+                if (!empty($ids_account)) {
+                    $ids_account_str = implode(",", $ids_account);
+                    $conditions[] = "a.account_id IN ($ids_account_str)";
+                }
+
+                if (!empty($start_date) && !empty($until_date)) {
+                    $conditions[] = "a.date BETWEEN '$start_date' AND '$until_date'";
+                } else {
+                    $date_today = date("Y-m-d");
+                    $conditions[] = "a.date = '$date_today'";
+                }
+
+                if (!empty($conditions)) {
+                    $sql_ads .= " WHERE " . implode(" AND ", $conditions);
+                }
+
+                $sql_ads .= "
+                    GROUP BY a.account_id, b.account_name, a.campaign_name
+                    ORDER BY a.date ASC
+                ";
+
+                $data['ads'] = $this->mymodel->selectWithQuery($sql_ads);
+
+
+                $sql_pivot = "
+                    SELECT 
+                        a.date,
+                        SUM(CASE WHEN a.spend_after_tax IS NOT NULL THEN a.spend_after_tax ELSE 0 END) AS total_spends,
+                        SUM(CASE WHEN a.add_to_cart IS NOT NULL THEN a.add_to_cart ELSE 0 END) AS total_add_to_cart,
+                        SUM(CASE WHEN a.purchases IS NOT NULL THEN a.purchases ELSE 0 END) AS total_purchases
+                    FROM `meta_ads_data` a
+                ";
+
+                if (!empty($ids_account)) {
+                    $ids_account_str = implode(",", $ids_account);
+                    $sql_pivot .= " WHERE a.account_id IN ($ids_account_str)";
+                }
+
+                if (!empty($start_date) && !empty($until_date)) {
+                    $sql_pivot .= (strpos($sql_pivot, 'WHERE') !== false)
+                        ? " AND a.date BETWEEN '$start_date' AND '$until_date'"
+                        : " WHERE a.date BETWEEN '$start_date' AND '$until_date'";
+                } elseif (empty($start_date) && empty($until_date)) {
+                    $sql_pivot .= (strpos($sql_pivot, 'WHERE') !== false)
+                        ? " AND a.date = CURDATE()"
+                        : " WHERE a.date = CURDATE()";
+                }
+
+                $sql_pivot .= " 
+                    GROUP BY a.date
+                    ORDER BY a.date;
+                ";
+
+                $data['pivot'] = $this->mymodel->selectWithQuery($sql_pivot);
+
+                $sql_week = "
+                    SELECT 
+                        CONCAT(
+                            DATE_FORMAT(MIN(date), '%d %b'),
+                            ' - ', 
+                            DATE_FORMAT(MAX(date), '%d %b')
+                        ) AS date_range,
+                        ROUND(AVG(frequency), 2) AS avg_frequency, 
+                        SUM(reach) AS total_reach,
+                        SUM(purchases) AS total_purchases,
+                        SUM(reach * frequency) AS total_impressions, -- Estimate impressions
+                        SUM(clicks) AS total_clicks,
+                        ROUND((SUM(clicks) / SUM(reach * frequency)) * 100, 2) AS ctr_percentage -- CTR estimation
+                    FROM 
+                        meta_ads_data a
+                ";
+
+                $sql_week .= "
+                    WHERE date BETWEEN CURDATE() - INTERVAL 7 DAY AND CURDATE()
+                ";
+
+                if (!empty($ids_account)) {
+                    $ids_account_str = implode(",", $ids_account);
+                    $sql_week .= " AND a.account_id IN ($ids_account_str)";
+                }
+
+                $data['this_week'] = $this->mymodel->selectWithQuery($sql_week);
+
+                $sql_last_week = "
+                    SELECT 
+                        CONCAT(
+                            DATE_FORMAT(MIN(date), '%d %b'),
+                            ' - ', 
+                            DATE_FORMAT(MAX(date), '%d %b')
+                        ) AS date_range,
+                        ROUND(AVG(frequency), 2) AS avg_frequency, 
+                        SUM(reach) AS total_reach,
+                        SUM(purchases) AS total_purchases,
+                        SUM(reach * frequency) AS total_impressions, -- Estimate impressions
+                        SUM(clicks) AS total_clicks,
+                        ROUND((SUM(clicks) / SUM(reach * frequency)) * 100, 2) AS ctr_percentage -- CTR estimation
+                    FROM 
+                        meta_ads_data a
+                    WHERE 
+                        date BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 7 DAY), INTERVAL 7 DAY) 
+                        AND DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+                ";
+
+                if (!empty($ids_account)) {
+                    $ids_account_str = implode(",", $ids_account);
+                    $sql_last_week .= " AND a.account_id IN ($ids_account_str)";
+                }
+
+                $data['last_week'] = $this->mymodel->selectWithQuery($sql_last_week);
+
+                $sql_campaign = "
+                    SELECT 
+                        CASE 
+                            WHEN campaign_name LIKE '%Collagen%' THEN 'Collagen'
+                            WHEN campaign_name LIKE '%Toner%' THEN 'Toner'
+                            WHEN campaign_name LIKE '%Misc%G%' THEN 'Miscella-G'
+                            WHEN campaign_name LIKE '%Misc%V%' THEN 'Miscella-V'
+                            ELSE 'Other'
+                        END AS keyword_group,
+                        CASE 
+                            WHEN campaign_name LIKE '%Collagen%' THEN 'assets/img/product/4.png'
+                            WHEN campaign_name LIKE '%Toner%' THEN 'assets/img/product/14.png'
+                            WHEN campaign_name LIKE '%Misc%G%' THEN 'assets/img/product/3.png'
+                            WHEN campaign_name LIKE '%Misc%V%' THEN 'assets/img/product/27.png'
+                            ELSE NULL
+                        END AS image,
+                        GROUP_CONCAT(DISTINCT advertiser_name ORDER BY advertiser_name ASC SEPARATOR ', ') AS advertiser_names,
+                        SUM(atc_qty) AS total_atc_qty,
+                        SUM(purchase) AS total_purchase,
+                        SUM(atc_idr) AS total_atc_idr,
+                        MAX(date) AS latest_date
+                    FROM (
+                        SELECT DISTINCT
+                            a.account_name AS advertiser_name,
+                            d.campaign_name,
+                            d.add_to_cart_qty AS atc_qty,
+                            d.purchases AS purchase,
+                            d.add_to_cart AS atc_idr,
+                            d.date
+                        FROM meta_ads_data d
+                        INNER JOIN ads_meta_account a
+                            ON d.account_id = a.account_id";
+
+                if (!empty($ids_account)) {
+                    $ids_account_str = implode(",", $ids_account);
+                    $sql_campaign .= " WHERE a.account_id IN ($ids_account_str)";
+                }
+
+                if (!empty($start_date) && !empty($until_date)) {
+                    $sql_campaign .= (strpos($sql_campaign, 'WHERE') !== false)
+                        ? " AND d.date BETWEEN '$start_date' AND '$until_date'"
+                        : " WHERE d.date BETWEEN '$start_date' AND '$until_date'";
+                } elseif (empty($start_date) && empty($until_date)) {
+                    $sql_campaign .= (strpos($sql_campaign, 'WHERE') !== false)
+                        ? " AND d.date = CURDATE()"
+                        : " WHERE d.date = CURDATE()";
+                }
+
+                $sql_campaign .= "
+                    ) AS subquery
+                    GROUP BY keyword_group, image
+                ";
+
+                $data['campaign'] = $this->mymodel->selectWithQuery($sql_campaign);
+
+                $query = $this->mymodel->selectWithQuery("SELECT * FROM config WHERE id = 'TAX'");
+                $data['tax'] = $query;
+
+                $view_path = 'dashboard/dashboard-meta';
+                break;
+
+
+            case 'lazada':
+                $ids_account = $this->input->get('ids_account') ?? [];
+                $start_date = $this->input->get('start_date');
+                $until_date = $this->input->get('until_date');
+
+                $data['campaign'] = $this->mymodel->selectWithQuery("
+                    SELECT DISTINCT 
+                        a.campaignId AS id, 
+                        a.campaignName AS title 
+                    FROM `lazada_ads_data` a
+                    ORDER BY a.campaignName ASC
+                ");
+
+
+                $sql_ads = "
+                    SELECT *
+                    FROM lazada_ads_data s
+                    INNER JOIN marketplace_config c ON s.shop_id = c.shop_id
+                ";
+
+                if (!empty($ids_campaign)) {
+                    $ids_campaign_str = implode(",", $ids_campaign);
+                    $sql_ads .= " WHERE s.account_id IN ($ids_campaign_str)";
+                }
+
+                if (
+                    !empty($start_date) && !empty($until_date)
+                ) {
+                    $sql_ads .= (strpos($sql_ads, 'WHERE') !== false)
+                        ? " AND s.date BETWEEN '$start_date' AND '$until_date'"
+                        : " WHERE s.date BETWEEN '$start_date' AND '$until_date'";
+                } elseif (empty($start_date) && empty($until_date)) {
+                    $sql_ads .= (strpos($sql_ads, 'WHERE') !== false)
+                        ? " AND s.date = CURDATE()"
+                        : " WHERE s.date = CURDATE()";
+                }
+
+                $sql_ads .= " ORDER BY s.date ASC";
+
+                $data['ads'] = $this->mymodel->selectWithQuery($sql_ads);
+
+
+                $sql_pivot = "
+                    SELECT 
+                        a.date,
+                        SUM(CASE WHEN a.spend IS NOT NULL THEN a.spend ELSE 0 END) AS total_spends,
+                        SUM(CASE WHEN a.storeA2c IS NOT NULL THEN a.storeA2c ELSE 0 END) AS total_add_to_cart,
+                        SUM(CASE WHEN a.productOrders IS NOT NULL THEN a.productOrders ELSE 0 END) AS total_purchases
+                    FROM `lazada_ads_data` a
+                ";
+
+                if (!empty($ids_campaign)) {
+                    $ids_campaign_str = implode(",", $ids_campaign);
+                    $sql_pivot .= " WHERE a.account_id IN ($ids_campaign_str)";
+                }
+
+                if (!empty($start_date) && !empty($until_date)) {
+                    $sql_pivot .= (strpos($sql_pivot, 'WHERE') !== false)
+                        ? " AND a.date BETWEEN '$start_date' AND '$until_date'"
+                        : " WHERE a.date BETWEEN '$start_date' AND '$until_date'";
+                } elseif (empty($start_date) && empty($until_date)) {
+                    $sql_pivot .= (strpos($sql_pivot, 'WHERE') !== false)
+                        ? " AND a.date = CURDATE()"
+                        : " WHERE a.date = CURDATE()";
+                }
+
+                $sql_pivot .= " 
+                    GROUP BY a.date
+                    ORDER BY a.date;
+                ";
+
+                $data['pivot'] = $this->mymodel->selectWithQuery($sql_pivot);
+                $view_path = 'dashboard/dashboard-lazada';
+                break;
+
+            case 'tiktok':
+                $ids_advertiser = $this->input->get('ids_advertiser') ?? [];
+                $start_date = $this->input->get('start_date');
+                $until_date = $this->input->get('until_date');
+
+                $sql_ads = "
+                SELECT 
+                    a.advertiser_id,
+                    a.advertiser_name, 
+                    CONCAT(MIN(a.date), ' - ', MAX(a.date)) AS date,
+                    SUM(a.spend) AS spend,
+                    SUM(a.spend_idr) AS spend_idr,
+                    SUM(a.spend_idr_after_tax) AS spend_idr_after_tax,
+                    SUM(a.tax) AS tax,
+                    SUM(a.total_onsite_shopping_value) AS total_onsite_shopping_value,
+                    SUM(a.total_onsite_on_web_cart_value) AS total_onsite_on_web_cart_value,
+                    a.currency,
+                    SUM(a.clicks) AS clicks,
+                    SUM(a.onsite_on_web_cart) AS onsite_on_web_cart,
+                    SUM(a.total_onsite_on_web_cart_value_idr) AS total_onsite_on_web_cart_value_idr,
+                    SUM(a.onsite_shopping) AS onsite_shopping,
+                    SUM(a.total_onsite_shopping_value_idr) AS total_onsite_shopping_value_idr,
+                    MAX(a.updated_at) AS updated_at,
+                    ROUND(AVG(a.onsite_shopping_roas), 2) AS onsite_shopping_roas,
+                    ROUND(AVG(a.frequency), 2) AS frequency,
+                    SUM(a.reach) AS reach
+                FROM `tiktok_ads_data` a
+            ";
+
+                $conditions = [];
+
+                if (!empty($ids_advertiser)) {
+                    $ids_advertiser_str = implode(",", $ids_advertiser);
+                    $conditions[] = "a.advertiser_id IN ($ids_advertiser_str)";
+                }
+
+                if (!empty($start_date) && !empty($until_date)) {
+                    $conditions[] = "a.date BETWEEN '$start_date' AND '$until_date'";
+                } else {
+                    $date_today = date("Y-m-d");
+                    $conditions[] = "a.date = '$date_today'";
+                }
+
+                if (!empty($conditions)) {
+                    $sql_ads .= " WHERE " . implode(" AND ", $conditions);
+                }
+
+                $sql_ads .= "
+                    GROUP BY a.advertiser_id, a.advertiser_name, a.currency
+                    ORDER BY spend_idr_after_tax DESC
+                ";
+
+
+                $data['ads'] = $this->mymodel->selectWithQuery($sql_ads);
+
+                $sql_spend = "
+                    SELECT
+                    SUM(spend_idr_after_tax) as spend_idr_after_tax,
+                    SUM(spend_idr) as spend_idr,
+                    advertiser_name
+                    FROM `advertiser_spend`
+                ";
+
+                if (!empty($start_date) && !empty($until_date)) {
+                    $sql_spend .= " WHERE date BETWEEN '$start_date' AND '$until_date'";
+                } else {
+                    $sql_spend .= " WHERE date = CURDATE()";
+                }
+
+                $sql_spend .= " AND spend_idr > 0 ";
+
+                if (!empty($ids_advertiser)) {
+                    $ids_advertiser_str = implode(",", $ids_advertiser);
+                    $sql_spend .= " AND advertiser_id IN ($ids_advertiser_str)";
+                }
+
+                $sql_spend .= " GROUP BY advertiser_name";
+
+                $data['spend'] = $this->mymodel->selectWithQuery($sql_spend);
+
+                $data['advertiser'] = $this->mymodel->selectWithQuery("
+                    SELECT DISTINCT 
+                        a.advertiser_id AS id, 
+                        a.advertiser_name AS title 
+                    FROM `tiktok_ads_data` a
+                    ORDER BY a.advertiser_name ASC
+                ");
+
+                $sql_pivot = "
+                    SELECT 
+                        a.date,
+                        SUM(CASE WHEN a.spend_idr_after_tax IS NOT NULL THEN a.spend_idr_after_tax ELSE 0 END) AS total_spend_idr,
+                        SUM(CASE WHEN a.total_onsite_on_web_cart_value_idr IS NOT NULL THEN a.total_onsite_on_web_cart_value_idr ELSE 0 END) AS total_onsite_on_web_cart_value_idr,
+                        SUM(CASE WHEN a.total_onsite_shopping_value_idr IS NOT NULL THEN a.total_onsite_shopping_value_idr ELSE 0 END) AS total_onsite_shopping_value_idr
+                    FROM `tiktok_ads_data` a
+                ";
+
+                if (!empty($ids_advertiser)) {
+                    $ids_advertiser_str = implode(",", $ids_advertiser);
+                    $sql_pivot .= " WHERE a.advertiser_id IN ($ids_advertiser_str)";
+                }
+
+                if (
+                    !empty($start_date) && !empty($until_date)
+                ) {
+                    $sql_pivot .= (strpos($sql_pivot, 'WHERE') !== false) ?
+                        " AND a.date BETWEEN '$start_date' AND '$until_date'" :
+                        " WHERE a.date BETWEEN '$start_date' AND '$until_date'";
+                } elseif (empty($start_date) && empty($until_date)) {
+                    $sql_pivot .= (strpos($sql_pivot, 'WHERE') !== false) ?
+                        " AND a.date = CURDATE()" :
+                        " WHERE a.date = CURDATE()";
+                }
+
+                $sql_pivot .= " 
+                    GROUP BY a.date
+                    ORDER BY a.date;
+                ";
+
+                $data['pivot'] = $this->mymodel->selectWithQuery($sql_pivot);
+
+                $sql_campaign = "
+                    SELECT 
+                        CASE 
+                            WHEN campaign_name LIKE '%Collagen%' THEN 'Collagen'
+                            WHEN campaign_name LIKE '%Toner%' THEN 'Toner'
+                            WHEN campaign_name LIKE '%Misc%G%' THEN 'Miscella-G'
+                            WHEN campaign_name LIKE '%Misc%V%' THEN 'Miscella-V'
+                            ELSE 'Other'
+                        END AS keyword_group,
+                        CASE 
+                            WHEN campaign_name LIKE '%Collagen%' THEN 'assets/img/product/4.png'
+                            WHEN campaign_name LIKE '%Toner%' THEN 'assets/img/product/14.png'
+                            WHEN campaign_name LIKE '%Misc%G%' THEN 'assets/img/product/3.png'
+                            WHEN campaign_name LIKE '%Misc%V%' THEN 'assets/img/product/27.png'
+                            ELSE NULL
+                        END AS image,
+                        GROUP_CONCAT(DISTINCT advertiser_name ORDER BY advertiser_name ASC SEPARATOR ', ') AS advertiser_names,
+                        SUM(atc_qty) AS total_atc_qty,
+                        SUM(purchase) AS total_purchase,
+                        SUM(atc_idr) AS total_atc_idr,
+                        MAX(date) AS latest_date
+                    FROM (
+                        SELECT DISTINCT
+                            advertiser_name,
+                            tiktok_campaign_data.campaign_name,
+                            tiktok_campaign_data.onsite_on_web_cart AS atc_qty,
+                            tiktok_campaign_data.onsite_shopping AS purchase,
+                            tiktok_campaign_data.total_onsite_on_web_cart_value_idr AS atc_idr,
+                            tiktok_campaign_data.date,
+                            tiktok_campaign_data.advertiser_id
+                        FROM `tiktok_campaign_data`
+                        INNER JOIN tiktok_ads_data 
+                            ON tiktok_ads_data.advertiser_id = tiktok_campaign_data.advertiser_id
+                        WHERE 1=1";
+
+                if (!empty($ids_advertiser)) {
+                    $ids_advertiser_str = implode(",", $ids_advertiser);
+                    $sql_campaign .= " AND tiktok_campaign_data.advertiser_id IN ($ids_advertiser_str)";
+                }
+
+                if (!empty($start_date) && !empty($until_date)) {
+                    $sql_campaign .= " AND tiktok_campaign_data.date BETWEEN '$start_date' AND '$until_date'";
+                } else {
+                    $sql_campaign .= " AND tiktok_campaign_data.date = CURDATE()";
+                }
+
+                $sql_campaign .= "
+                    ) AS subquery
+                    GROUP BY keyword_group, image
+                ";
+
+                $data['campaign'] = $this->mymodel->selectWithQuery($sql_campaign);
+
+                $sql_week = "
+                    SELECT 
+                        CONCAT(
+                            DATE_FORMAT(MIN(date), '%d %b'),
+                            ' - ', 
+                            DATE_FORMAT(MAX(date), '%d %b')
+                        ) AS date_range,
+                        ROUND(AVG(frequency), 2) AS avg_frequency, 
+                        SUM(reach) AS total_reach,
+                        SUM(total_onsite_shopping_value_idr) AS total_purchases,
+                        SUM(reach * frequency) AS total_impressions, -- Estimate impressions
+                        SUM(clicks) AS total_clicks,
+                        ROUND((SUM(clicks) / SUM(reach * frequency)) * 100, 2) AS ctr_percentage -- CTR estimation
+                    FROM 
+                        tiktok_ads_data a
+                ";
+
+                $sql_week .= "
+                    WHERE date BETWEEN CURDATE() - INTERVAL 7 DAY AND CURDATE()
+                ";
+
+                if (!empty($ids_account)) {
+                    $ids_account_str = implode(",", $ids_account);
+                    $sql_week .= " AND a.account_id IN ($ids_account_str)";
+                }
+
+                $data['this_week'] = $this->mymodel->selectWithQuery($sql_week);
+
+                $sql_last_week = "
+                    SELECT 
+                        CONCAT(
+                            DATE_FORMAT(MIN(date), '%d %b'),
+                            ' - ', 
+                            DATE_FORMAT(MAX(date), '%d %b')
+                        ) AS date_range,
+                        ROUND(AVG(frequency), 2) AS avg_frequency, 
+                        SUM(reach) AS total_reach,
+                        SUM(total_onsite_shopping_value_idr) AS total_purchases,
+                        SUM(reach * frequency) AS total_impressions, -- Estimate impressions
+                        SUM(clicks) AS total_clicks,
+                        ROUND((SUM(clicks) / SUM(reach * frequency)) * 100, 2) AS ctr_percentage -- CTR estimation
+                    FROM 
+                        tiktok_ads_data a
+                    WHERE 
+                        date BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 7 DAY), INTERVAL 7 DAY) 
+                        AND DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+                ";
+
+                if (!empty($ids_account)) {
+                    $ids_account_str = implode(",", $ids_account);
+                    $sql_last_week .= " AND a.account_id IN ($ids_account_str)";
+                }
+
+                $data['last_week'] = $this->mymodel->selectWithQuery($sql_last_week);
+
+                $view_path = 'dashboard/dashboard-tiktok';
+                break;
+
+
+
+            case 'shopee':
+                $ids_account = $this->input->get('ids_account') ?? [];
+                $start_date = $this->input->get('start_date');
+                $until_date = $this->input->get('until_date');
+                $data['advertiser'] = $this->mymodel->selectWithQuery("
+                    SELECT DISTINCT 
+                        c.shop_id AS id, 
+                        c.shop_name AS title 
+                    FROM shopee_ads_data s
+                    INNER JOIN marketplace_config c ON s.shop_id = c.shop_id
+                    ORDER BY c.shop_name ASC
+                ");
+
+                $sql_ads = "
+                    SELECT 
+                        CONCAT(MIN(s.date), ' - ', MAX(s.date)) AS date,
+                        c.shop_name,
+                        c.shop_id,
+                        SUM(s.impression) AS impression,
+                        SUM(s.clicks) AS clicks,
+                        ROUND(AVG(s.ctr), 2) AS ctr,
+                        SUM(s.broad_order) AS broad_order,
+                        SUM(s.broad_conversions) AS broad_conversions,
+                        SUM(s.broad_item_sold) AS broad_item_sold,
+                        SUM(s.broad_gmv) AS broad_gmv,
+                        ROUND(AVG(s.broad_roas), 2) AS broad_roas,
+                        SUM(s.expense) AS expense,
+                        SUM(s.expense_after_tax) AS expense_after_tax,
+                        SUM(s.tax) AS tax
+                    FROM shopee_ads_data s
+                    INNER JOIN marketplace_config c ON s.shop_id = c.shop_id
+                ";
+
+                $conditions = [];
+
+                if (!empty($ids_account)) {
+                    $ids_account_str = implode(",", $ids_account);
+                    $conditions[] = "s.shop_id IN ($ids_account_str)";
+                }
+
+                if (!empty($start_date) && !empty($until_date)) {
+                    $conditions[] = "s.date BETWEEN '$start_date' AND '$until_date'";
+                } else {
+                    $date_today = date("Y-m-d");
+                    $conditions[] = "s.date = '$date_today'";
+                }
+
+                if (!empty($conditions)) {
+                    $sql_ads .= " WHERE " . implode(" AND ", $conditions);
+                }
+
+                $sql_ads .= "
+                    GROUP BY c.shop_name, c.shop_id
+                    ORDER BY MIN(s.date) DESC
+                ";
+
+
+                $data['ads'] = $this->mymodel->selectWithQuery($sql_ads);
+
+                $sql_pivot = "
+                    SELECT 
+                        a.date,
+                        SUM(CASE WHEN a.expense_after_tax IS NOT NULL THEN a.expense_after_tax ELSE 0 END) AS total_spends,
+                        SUM(CASE WHEN a.broad_order IS NOT NULL THEN a.broad_order ELSE 0 END) AS total_orders,
+                        SUM(CASE WHEN a.broad_gmv IS NOT NULL THEN a.broad_gmv ELSE 0 END) AS total_gmv
+                    FROM `shopee_ads_data` a
+                    INNER JOIN marketplace_config c ON a.shop_id = c.shop_id
+                ";
+
+                if (!empty($ids_account)) {
+                    $ids_account_str = implode(",", $ids_account);
+                    $sql_pivot .= " WHERE a.shop_id IN ($ids_account_str)";
+                }
+
+                if (
+                    !empty($start_date) && !empty($until_date)
+                ) {
+                    $sql_pivot .= (strpos($sql_pivot, 'WHERE') !== false) ? " AND a.date BETWEEN '$start_date' AND '$until_date'" : " WHERE a.date BETWEEN '$start_date' AND '$until_date'";
+                } elseif (empty($start_date) && empty($until_date)) {
+                    $sql_pivot .= (strpos($sql_pivot, 'WHERE') !== false) ? " AND a.date = CURDATE()" : " WHERE a.date = CURDATE()";
+                }
+
+                $sql_pivot .= " 
+                    GROUP BY a.date
+                    ORDER BY a.date;
+                ";
+
+                $data['pivot'] = $this->mymodel->selectWithQuery($sql_pivot);
+
+                $sql_week = "
+                    SELECT 
+                        SUM(expense_after_tax) AS total_spend,
+                        SUM(broad_order) AS total_purchase,
+                        SUM(broad_gmv) AS total_gmv,
+                        SUM(broad_roas) AS total_roas,
+                        date
+                    FROM `shopee_ads_data`
+                    WHERE date BETWEEN CURDATE() - INTERVAL 10 DAY AND CURDATE()
+                ";
+
+                if (!empty($ids_account)) {
+                    $ids_account_str = implode(",", $ids_account);
+                    $sql_week .= " AND shop_id IN ($ids_account_str)";
+                }
+
+                $sql_week .= " 
+                    GROUP BY date
+                    ORDER BY date;
+                ";
+
+                $data['week'] = $this->mymodel->selectWithQuery($sql_week);
+
+                $view_path = 'dashboard/dashboard-shopee';
+                break;
+
+            case 'overview':
+                $today = date('Y-m-d');
+                $start_date = $this->input->get('start_date');
+                $until_date = $this->input->get('until_date');
+                $brand_filter = $this->input->get('brand');
+
+                if (empty($start_date)) {
+                    $start_date = date('Y-m-d', strtotime("$today -6 days"));
+                }
+                if (empty($until_date)) {
+                    $until_date = $today;
+                }
+
+                $brand_condition = "";
+                if (!empty($brand_filter)) {
+                    $brand_condition = "AND transaction.brand = " . $this->db->escape($brand_filter);
+                }
+
+                $firstLetter = str_split($brand_filter)[0];
+
+                $shopee_brand = "";
+                if (!empty($brand_filter)) {
+                    $shopee_brand = "AND shop_name LIKE '$firstLetter%'";
+                }
+
+                $tiktok_brand = "";
+                if (!empty($brand_filter)) {
+                    $tiktok_brand = "AND advertiser_name LIKE '$firstLetter%'";
+                }
+
+                $meta_brand = "";
+                if ($firstLetter == "P" && $firstLetter == "") {
+                    $meta_brand = "AND account_name LIKE 'c%'";
+                    $meta_brand = "OR account_name LIKE 'p%'";
+                } else if ($firstLetter == "M") {
+                    $meta_brand = "AND account_name LIKE 'm%'";
+                }
+
+                $sql_pivot = "
+                    SELECT 
+                        DATE_FORMAT(dates.date, '%d-%m-%Y') AS date,
+                        COALESCE(shopee.expense, 0) AS shopee_spend,
+                        COALESCE(meta.spend, 0) AS meta_spend,
+                        COALESCE(tiktok.spend_idr, 0) AS tiktok_spend,
+                        COALESCE(shopee.expense, 0) + COALESCE(meta.spend, 0) + COALESCE(tiktok.spend_idr, 0) +  COALESCE(gmv.spend_idr_after_tax, 0) AS total_spend,
+                        COALESCE(shopee.purchase_qty, 0) + COALESCE(meta.purchase_qty, 0) + COALESCE(tiktok.purchase_qty, 0) AS purchase_qty,
+                        COALESCE(shopee.purchase_idr, 0) 
+                            + COALESCE(meta.purchase_idr, 0) 
+                            + COALESCE(tiktok.purchase_idr, 0) AS purchase_idr,
+                        COALESCE(ROUND(
+                            (COALESCE(shopee.purchase_idr, 0) 
+                            + COALESCE(meta.purchase_idr, 0) 
+                            + COALESCE(tiktok.purchase_idr, 0)) / (COALESCE(shopee.purchase_qty, 0) 
+                            + COALESCE(meta.purchase_qty, 0) 
+                            + COALESCE(tiktok.purchase_qty, 0)), 
+                            0
+                        ),0) AS avg_penjualan,
+                        COALESCE((
+                            SELECT SUM(omset_kotor - diskon_penjual)
+                            FROM transaction
+                            WHERE DATE(transaction.date) = dates.date
+                            AND transaction.order_status NOT IN ('RETURN', 'REFUND', 'CANCELLED', 'IN_CANCELLED', 'UNPAID')
+                            AND transaction.type_sub = 'POS'
+                            $brand_condition
+                        ), 0) AS result,
+                        CASE 
+                            WHEN COALESCE((
+                                SELECT SUM(omset_kotor - diskon_penjual)
+                                FROM transaction
+                                WHERE DATE(transaction.date) = dates.date
+                                AND transaction.order_status NOT IN ('RETURN', 'REFUND', 'CANCELLED', 'IN_CANCELLED', 'UNPAID')
+                                AND transaction.type_sub = 'POS'
+                                $brand_condition
+                            ), 0) = 0 THEN 0
+                            ELSE ROUND(
+                                (COALESCE(shopee.expense, 0) + COALESCE(meta.spend, 0) + COALESCE(tiktok.spend_idr, 0)) /
+                                COALESCE((
+                                    SELECT SUM(omset_kotor - diskon_penjual)
+                                    FROM transaction
+                                    WHERE DATE(transaction.date) = dates.date
+                                    AND transaction.order_status NOT IN ('RETURN', 'REFUND', 'CANCELLED', 'IN_CANCELLED', 'UNPAID')
+                                    AND transaction.type_sub = 'POS'
+                                    $brand_condition
+                                ), 0) * 100, 2)
+                        END AS ratio,
+                        COALESCE(gmv.spend_idr_after_tax, 0) AS tiktok_gmv
+                    FROM 
+                        (
+                            SELECT DISTINCT DATE(date) AS date FROM shopee_ads_data
+                            UNION
+                            SELECT DISTINCT DATE(date) AS date FROM meta_ads_data
+                            UNION
+                            SELECT DISTINCT DATE(date) AS date FROM tiktok_ads_data
+                            UNION
+                            SELECT DISTINCT DATE(date) AS date FROM transaction
+                            UNION
+                            SELECT DISTINCT DATE(date) AS date FROM advertiser_spend
+                        ) AS dates
+                    LEFT JOIN (
+                        SELECT DATE(date) AS date, SUM(expense_after_tax) AS expense, SUM(broad_item_sold) AS purchase_qty, SUM(broad_gmv) AS purchase_idr
+                        FROM shopee_ads_data
+                        INNER JOIN marketplace_config ON marketplace_config.shop_id = shopee_ads_data.shop_id
+                        WHERE DATE(date) BETWEEN ? AND ?
+                        $shopee_brand
+                        GROUP BY DATE(date)
+                    ) AS shopee ON shopee.date = dates.date
+                    LEFT JOIN (
+                        SELECT DATE(date) AS date, SUM(spend_after_tax) AS spend, SUM(purchase_qty) AS purchase_qty, SUM(purchases) AS purchase_idr
+                        FROM meta_ads_data
+                        INNER JOIN ads_meta_account ON meta_ads_data.account_id = ads_meta_account.account_id
+                        WHERE DATE(date) BETWEEN ? AND ?
+                        $meta_brand
+                        GROUP BY DATE(date)
+                    ) AS meta ON meta.date = dates.date
+                    LEFT JOIN (
+                        SELECT DATE(date) AS date, SUM(spend_idr_after_tax) AS spend_idr, SUM(onsite_shopping) AS purchase_qty, SUM(total_onsite_shopping_value_idr) AS purchase_idr
+                        FROM tiktok_ads_data
+                        WHERE DATE(date) BETWEEN ? AND ?
+                        $tiktok_brand
+                        GROUP BY DATE(date)
+                    ) AS tiktok ON tiktok.date = dates.date
+                    LEFT JOIN (
+                        SELECT DATE(date) AS date, SUM(spend_idr_after_tax) AS spend_idr_after_tax
+                        FROM advertiser_spend
+                        WHERE DATE(date) BETWEEN ? AND ?
+                        $tiktok_brand
+                        GROUP BY DATE(date)
+                    ) AS gmv ON gmv.date = dates.date
+                    WHERE dates.date BETWEEN ? AND ?
+                    GROUP BY dates.date
+                    ORDER BY dates.date DESC;
+                ";
+
+                $params = [$start_date, $until_date, $start_date, $until_date, $start_date, $until_date, $start_date, $until_date, $start_date, $until_date];
+
+                $data['pivot'] = $this->db->query($sql_pivot, $params)->result_array();
+
+                $sql_spend = "
+                    SELECT
+                    SUM(spend_idr) as spend_idr,
+                    SUM(spend_idr_after_tax) as spend_idr_after_tax,
+                    DATE(date) as date,
+                    advertiser_name
+                    FROM `advertiser_spend`
+                ";
+                if (!empty($start_date) && !empty($until_date)) {
+                    $sql_spend .= " WHERE date BETWEEN '$start_date' AND '$until_date'";
+                } else {
+                    $sql_spend .= " WHERE date = CURDATE()";
+                }
+
+                $sql_spend .= $tiktok_brand;
+
+                if (!empty($ids_advertiser)) {
+                    $ids_advertiser_str = implode(",", $ids_advertiser);
+                    $sql_spend .= " AND advertiser_id IN ($ids_advertiser_str)";
+                }
+
+                $sql_spend .= " GROUP BY advertiser_name, date";
+
+                $data['spend'] = $this->mymodel->selectWithQuery($sql_spend);
+
+                $query = $this->mymodel->selectWithQuery("SELECT * FROM brand WHERE status = 'ENABLE' ORDER BY name ASC");
+                $data['brands'] = $query;
+
+                $query = $this->mymodel->selectWithQuery("SELECT * FROM config WHERE id = 'TAX'");
+                $data['tax'] = $query;
+                $view_path = 'dashboard/dashboard-overview';
+
+                break;
+        }
+
+        $data['content'] = $this->load->view($view_path, $data, true);
+
+        $this->load->view('TemplateDashboard', $data);
+    }
+
+    public function update_pajak()
+    {
+        $user = $_SESSION['user'];
+
+        $dt = $_POST['dt'];
+        $pajak = $dt['pajak'] / 100;
+        $tanggal_mulai_berlaku = $dt['tanggal_mulai_berlaku'];
+
+        $updated_at = date("Y-m-d H:i:s");
+        $updated_by = $user['id'];
+
+        $data = [
+            'tax' => $pajak,
+            'updated_at' => $updated_at,
+            'updated_by' => $updated_by
+        ];
+
+        $this->db->where('id', 'TAX');
+        $result = $this->db->update('config', $data);
+
+        if ($result) {
+            $this->db->set('tax', "{$pajak}", false);
+            $this->db->set('spend_after_tax', "spend * {$pajak}", false);
+            $this->db->where('date >=', $tanggal_mulai_berlaku);
+            $this->db->where('date <=', date("Y-m-d"));
+            $this->db->update('meta_ads_data');
+
+            $this->db->set('tax', "0.12", false);
+            $this->db->set('spend_idr_after_tax', "spend_idr + (spend_idr * {$pajak})", false);
+            $this->db->where('date >=', $tanggal_mulai_berlaku);
+            $this->db->where('date <=', date("Y-m-d"));
+            $this->db->update('tiktok_ads_data');
+
+            $this->db->set('tax', "{$pajak}", false);
+            $this->db->set('expense_after_tax', "expense * {$pajak}", false);
+            $this->db->where('date >=', $tanggal_mulai_berlaku);
+            $this->db->where('date <=', date("Y-m-d"));
+            $this->db->update('shopee_ads_data');
+
+            $msg = 'Update data berhasil!';
+            echo $this->template->alert_success($msg);
+            redirect(base_url('ads?m=overview'));
+        } else {
+            $msg = 'Update data tidak berhasil!';
+            echo $this->template->alert_danger($msg);
+            redirect(base_url('ads?m=overview'));
+        }
+    }
+}
