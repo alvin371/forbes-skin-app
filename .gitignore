@@ -1,17 +1,5 @@
-/.DS_Store
-/.htaccess
-/Archive 7.zip
-/assets
 /composer.json
 /composer.lock
-/index.php
-/license.txt
-/node_modules
-/package-lock.json
-/package.json
-/readme.rst
-/system
-/vendor
 
 # Environment files - keep credentials secure
 /.env

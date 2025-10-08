@@ -1,0 +1,457 @@
+/**
+ * Career Tree Visualization CSS
+ * Bootstrap 5 compatible styling for D3.js career tree component
+ * 
+ * @author Claude Code
+ * @version 1.0.0
+ */
+
+/* Main container styles */
+.career-tree-container {
+    position: relative;
+    width: 100%;
+    min-height: 600px;
+    background: #fafafa;
+    border: 1px solid #e8e8e8;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.career-tree-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    cursor: grab;
+}
+
+.career-tree-svg:active {
+    cursor: grabbing;
+}
+
+/* Loading indicator */
+.loading-indicator {
+    color: #666;
+    font-size: 14px;
+}
+
+/* Control buttons */
+.career-tree-controls {
+    display: flex;
+    gap: 2px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 6px;
+    padding: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(10px);
+}
+
+.career-tree-controls .btn {
+    border: none;
+    background: transparent;
+    color: #666;
+    transition: all 0.2s ease;
+    min-width: 32px;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.career-tree-controls .btn:hover {
+    background: #1890ff;
+    color: white;
+    transform: translateY(-1px);
+}
+
+.career-tree-controls .btn:active {
+    transform: translateY(0);
+}
+
+/* Node styles */
+.career-tree-container .node {
+    transition: all 0.3s ease;
+}
+
+.career-tree-container .node:hover {
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
+}
+
+.career-tree-container .node.selected circle {
+    stroke: #ff4d4f !important;
+    stroke-width: 4px !important;
+    filter: drop-shadow(0 0 10px rgba(255, 77, 79, 0.5));
+}
+
+.career-tree-container .node text {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-weight: 500;
+    fill: #333;
+    text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8);
+}
+
+.career-tree-container .node circle {
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+    transition: all 0.3s ease;
+}
+
+/* Node level colors */
+.career-tree-container .node.junior circle {
+    fill: #52c41a;
+}
+
+.career-tree-container .node.intermediate circle {
+    fill: #1890ff;
+}
+
+.career-tree-container .node.senior circle {
+    fill: #722ed1;
+}
+
+.career-tree-container .node.executive circle {
+    fill: #fa8c16;
+}
+
+.career-tree-container .node.leadership circle {
+    fill: #eb2f96;
+}
+
+/* Badge styles */
+.career-tree-container .employee-badge {
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+}
+
+.career-tree-container .employee-count {
+    font-weight: 600;
+    text-shadow: none;
+}
+
+.career-tree-container .leadership-badge {
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.3));
+}
+
+/* Link styles */
+.career-tree-container .link {
+    fill: none;
+    stroke: #ccc;
+    stroke-width: 2;
+    transition: all 0.3s ease;
+}
+
+.career-tree-container .link:hover {
+    stroke: #1890ff;
+    stroke-width: 3;
+}
+
+.career-tree-container .link.highlighted {
+    stroke: #1890ff;
+    stroke-width: 3;
+    filter: drop-shadow(0 0 4px rgba(24, 144, 255, 0.3));
+}
+
+/* Tooltip styles */
+.career-tree-tooltip {
+    max-width: 300px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.4;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.career-tree-tooltip .tooltip-header {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.career-tree-tooltip .tooltip-body {
+    font-size: 12px;
+}
+
+.career-tree-tooltip .tooltip-body > div {
+    margin: 4px 0;
+}
+
+/* Widget container styles */
+.career-tree-widget {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    margin-bottom: 24px;
+}
+
+.career-tree-widget-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.career-tree-widget-header h5 {
+    margin: 0;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.career-tree-widget-content {
+    padding: 20px;
+}
+
+.career-tree-widget-actions {
+    padding: 12px 20px;
+    background: #f8f9fa;
+    border-top: 1px solid #e9ecef;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+/* Profile widget specific styles */
+.career-tree-profile-widget {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.career-tree-profile-content {
+    position: relative;
+    z-index: 2;
+}
+
+.career-tree-profile-current {
+    display: flex;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.career-tree-profile-icon {
+    width: 48px;
+    height: 48px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+    font-size: 20px;
+}
+
+.career-tree-profile-info h4 {
+    margin: 0 0 4px 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.career-tree-profile-meta {
+    font-size: 14px;
+    opacity: 0.9;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .career-tree-container {
+        min-height: 400px;
+    }
+    
+    .career-tree-controls {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        flex-direction: column;
+        z-index: 1002;
+    }
+    
+    .career-tree-widget-content {
+        padding: 12px;
+    }
+    
+    .career-tree-profile-widget {
+        padding: 16px;
+    }
+    
+    .career-tree-profile-current {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .career-tree-profile-icon {
+        margin-right: 0;
+        margin-bottom: 8px;
+    }
+}
+
+@media (max-width: 480px) {
+    .career-tree-container {
+        min-height: 300px;
+    }
+    
+    .career-tree-tooltip {
+        max-width: 250px;
+        font-size: 11px;
+    }
+    
+    .career-tree-container .node text {
+        font-size: 10px;
+    }
+    
+    .career-tree-widget-actions {
+        flex-direction: column;
+    }
+}
+
+/* Animation styles */
+@keyframes fadeInScale {
+    0% {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(24, 144, 255, 0.7);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(24, 144, 255, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(24, 144, 255, 0);
+    }
+}
+
+.career-tree-widget {
+    animation: fadeInScale 0.5s ease-out;
+}
+
+.career-tree-container .node.selected circle {
+    animation: pulse 2s infinite;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .career-tree-container {
+        background: white;
+        border: 2px solid black;
+    }
+    
+    .career-tree-svg {
+        background: white;
+    }
+    
+    .career-tree-container .node text {
+        fill: black;
+        text-shadow: none;
+        font-weight: 600;
+    }
+    
+    .career-tree-container .link {
+        stroke: black;
+        stroke-width: 2;
+    }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .career-tree-container .node,
+    .career-tree-container .link,
+    .career-tree-tooltip,
+    .career-tree-controls .btn {
+        transition: none;
+    }
+    
+    .career-tree-widget {
+        animation: none;
+    }
+    
+    .career-tree-container .node.selected circle {
+        animation: none;
+    }
+}
+
+/* Print styles */
+@media print {
+    .career-tree-controls {
+        display: none;
+    }
+    
+    .career-tree-tooltip {
+        display: none;
+    }
+    
+    .career-tree-container {
+        border: 1px solid black;
+        background: white;
+    }
+    
+    .career-tree-svg {
+        background: white;
+    }
+}
+
+/* Focus styles for accessibility */
+.career-tree-container .node:focus-visible {
+    outline: 3px solid #1890ff;
+    outline-offset: 2px;
+}
+
+.career-tree-controls .btn:focus-visible {
+    outline: 2px solid #1890ff;
+    outline-offset: 2px;
+}
+
+/* Dark theme support (if implemented) */
+@media (prefers-color-scheme: dark) {
+    .career-tree-container {
+        background: #1a1a1a;
+        border-color: #333;
+    }
+    
+    .career-tree-svg {
+        background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
+    }
+    
+    .career-tree-container .node text {
+        fill: #e6e6e6;
+        text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+    }
+    
+    .career-tree-container .link {
+        stroke: #666;
+    }
+    
+    .career-tree-tooltip {
+        background: rgba(30, 30, 30, 0.95);
+        border-color: #666;
+    }
+    
+    .career-tree-controls {
+        background: rgba(30, 30, 30, 0.95);
+    }
+    
+    .career-tree-controls .btn {
+        color: #ccc;
+    }
+    
+    .career-tree-widget {
+        background: #1a1a1a;
+        border-color: #333;
+    }
+    
+    .career-tree-widget-actions {
+        background: #2a2a2a;
+        border-color: #333;
+    }
+}
