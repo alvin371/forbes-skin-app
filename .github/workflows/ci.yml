@@ -6,9 +6,6 @@ on:
       - develop
       - main
 
-env:
-  DOCKER_IMAGE: gilangp/forbes-app:develop
-
 jobs:
   build:
     name: Build Docker Image
