@@ -1,0 +1,34 @@
+---
+- name: Deployment to srv
+  hosts: cntbo_forbes
+  remote_user: forbes
+  gather_facts: no
+  vars:
+    working_directory: "/home/forbes/artifact/forbes-skin"
+    stack_name: "forbes"
+    container_version: "{{ lookup('env', 'GITHUB_SHA') | regex_replace('^(.{8}).*$', '\\1') }}"
+    container_image: "gilangp/forbes-app:develop{{ container_version }}"
+
+  tasks:
+  - name: update app docker image
+    ansible.builtin.shell: |
+      docker service update {{ stack_name }}_app \
+        --image {{ container_image }} \
+        --with-registry-auth
+
+ # - name: waiting nextjs-app ready
+ #   ansible.builtin.uri:
+ #     url: 
+ #     validate_certs: no
+ #   register: result
+ #   until: "result.status == 200"
+ #   retries: 60
+ #   delay: 10
+
+  - name: delete old image
+    community.docker.docker_prune:
+      containers: true
+      images: true
+      images_filters:
+        dangling: false
+    ignore_errors: True
