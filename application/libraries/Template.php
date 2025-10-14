@@ -319,10 +319,13 @@ class Template
 
     function getDataFromFirstEndpoint($username)
     {
-        $url = "https://tiktok-scraper-api4.p.rapidapi.com/api/v1/user/info?unique_id=$username";
+        $rapidapi_host = env('RAPIDAPI_HOST', 'tiktok-scraper-api4.p.rapidapi.com');
+        $rapidapi_key = env('RAPIDAPI_KEY', '');
+
+        $url = "https://{$rapidapi_host}/api/v1/user/info?unique_id=$username";
         $headers = [
-            "X-RapidAPI-Host:  tiktok-scraper-api4.p.rapidapi.com",
-            "X-RapidAPI-Key: c0132c2445mshed67628a85d605bp1d63c3jsn85aa268b1064"
+            "X-RapidAPI-Host: {$rapidapi_host}",
+            "X-RapidAPI-Key: {$rapidapi_key}"
         ];
 
         return $this->curlRequest($url, $headers);
@@ -330,10 +333,13 @@ class Template
 
     function getDataFromSecondEndpoint($username)
     {
-        $url = "https://tiktok-scraper-api4.p.rapidapi.com/api/v1/search/users?keyword=$username";
+        $rapidapi_host = env('RAPIDAPI_HOST', 'tiktok-scraper-api4.p.rapidapi.com');
+        $rapidapi_key = env('RAPIDAPI_KEY', '');
+
+        $url = "https://{$rapidapi_host}/api/v1/search/users?keyword=$username";
         $headers = [
-            "X-RapidAPI-Host:  tiktok-scraper-api4.p.rapidapi.com",
-            "X-RapidAPI-Key: c0132c2445mshed67628a85d605bp1d63c3jsn85aa268b1064"
+            "X-RapidAPI-Host: {$rapidapi_host}",
+            "X-RapidAPI-Key: {$rapidapi_key}"
         ];
 
         return $this->curlRequest($url, $headers);
@@ -548,9 +554,12 @@ class Template
             //     $response["data"] = array();
             // }
         } else if ($type == "Tiktok") {
+            $rapidapi_host = env('RAPIDAPI_HOST', 'tiktok-scraper-api4.p.rapidapi.com');
+            $rapidapi_key = env('RAPIDAPI_KEY', '');
+
             $curl = curl_init();
             curl_setopt_array($curl, [
-                CURLOPT_URL => "https://tiktok-scraper-api4.p.rapidapi.com/api/v1/user/posts?sec_uid=" . urlencode($account_id) . "&count=10",
+                CURLOPT_URL => "https://{$rapidapi_host}/api/v1/user/posts?sec_uid=" . urlencode($account_id) . "&count=10",
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_ENCODING => "",
                 CURLOPT_MAXREDIRS => 10,
@@ -558,8 +567,8 @@ class Template
                 CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
                 CURLOPT_CUSTOMREQUEST => "GET",
                 CURLOPT_HTTPHEADER => [
-                    "X-RapidAPI-Host: tiktok-scraper-api4.p.rapidapi.com",
-                    "X-RapidAPI-Key: c0132c2445mshed67628a85d605bp1d63c3jsn85aa268b1064",
+                    "X-RapidAPI-Host: {$rapidapi_host}",
+                    "X-RapidAPI-Key: {$rapidapi_key}",
                     "Accept: application/json"
                 ],
             ]);
@@ -653,10 +662,14 @@ class Template
                         $parts = explode('/photo/', $url);
                         $parts = explode('?', end($parts));
                         $content_id = $parts[0];
+
+                        $rapidapi_host = env('RAPIDAPI_HOST', 'tiktok-scraper-api4.p.rapidapi.com');
+                        $rapidapi_key = env('RAPIDAPI_KEY', '');
+
                         $curl = curl_init();
 
                         curl_setopt_array($curl, [
-                            CURLOPT_URL => "https://tiktok-scraper-api4.p.rapidapi.com/api/v1/post/info?video_id=$content_id",
+                            CURLOPT_URL => "https://{$rapidapi_host}/api/v1/post/info?video_id=$content_id",
                             CURLOPT_RETURNTRANSFER => true,
                             CURLOPT_ENCODING => "",
                             CURLOPT_MAXREDIRS => 10,
@@ -664,8 +677,8 @@ class Template
                             CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
                             CURLOPT_CUSTOMREQUEST => "GET",
                             CURLOPT_HTTPHEADER => [
-                                "X-RapidAPI-Host: tiktok-scraper-api4.p.rapidapi.com",
-                                "X-RapidAPI-Key: c0132c2445mshed67628a85d605bp1d63c3jsn85aa268b1064"
+                                "X-RapidAPI-Host: {$rapidapi_host}",
+                                "X-RapidAPI-Key: {$rapidapi_key}"
                             ],
                         ]);
 

@@ -1,5 +1,8 @@
 <?php
 
+
+// Load custom env helper BEFORE Composer autoloader to prevent illuminate/support conflicts
+require_once __DIR__ . '/../../application/helpers/env_helper.php';
 // PhpSpreadsheet autoload commented out to prevent PHP version conflicts
 // Only load when specifically needed for Excel operations
 require 'vendor/autoload.php';

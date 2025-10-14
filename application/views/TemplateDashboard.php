@@ -566,7 +566,7 @@ if (!$_SESSION['is_login']) {
     $can_view_expense = $CI->permission->check_permission($user_id, 'expense', 'view');
     
     // Marketing Category - show if user has access to any marketing module
-    $can_view_marketing = $CI->permission->check_permission($user_id, 'overview', 'view') ||
+    $can_view_marketing = $CI->permission->check_permission($user_id, 'marketing', 'view') ||
                          $CI->permission->check_permission($user_id, 'ads_tiktok', 'view') ||
                          $CI->permission->check_permission($user_id, 'ads_meta', 'view') ||
                          $CI->permission->check_permission($user_id, 'ads_shopee', 'view') ||
@@ -577,9 +577,9 @@ if (!$_SESSION['is_login']) {
                          $CI->permission->check_permission($user_id, 'calendar', 'view') ||
                          $CI->permission->check_permission($user_id, 'payment', 'view') ||
                          $CI->permission->check_permission($user_id, 'codeboost', 'view');
-    
+
     // Marketing Sub-modules
-    $can_view_overview = $CI->permission->check_permission($user_id, 'overview', 'view');
+    $can_view_overview = $CI->permission->check_permission($user_id, 'marketing', 'view');
     $can_view_advertiser = $CI->permission->check_permission($user_id, 'ads_tiktok', 'view') ||
                           $CI->permission->check_permission($user_id, 'ads_meta', 'view') ||
                           $CI->permission->check_permission($user_id, 'ads_shopee', 'view') ||
@@ -625,7 +625,7 @@ if (!$_SESSION['is_login']) {
         'expense' => $CI->permission->check_permission($user_id, 'expense', 'view'),
         
         // Marketing
-        'overview' => $CI->permission->check_permission($user_id, 'overview', 'view'),
+        'overview' => $CI->permission->check_permission($user_id, 'marketing', 'view'),
         'ads_tiktok' => $CI->permission->check_permission($user_id, 'ads_tiktok', 'view'),
         'ads_meta' => $CI->permission->check_permission($user_id, 'ads_meta', 'view'),
         'ads_shopee' => $CI->permission->check_permission($user_id, 'ads_shopee', 'view'),

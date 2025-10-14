@@ -587,8 +587,7 @@ $current_tax = $tax[0]['tax'];
                                         Ratio
                                     </td>
                                     <?php foreach ($pivot as $row) {
-                                        $ratio = $row['result'] !== 0 ? ($row['total_spend'] / $row['result']) * 100 : 0;
-                                        echo "<td>" . number_format($ratio, 2, ',', '.') . "%</td>";
+                                        echo "<td>" . number_format($row['ratio'], 2, ',', '.') . "%</td>";
                                     } ?>
                                 </tr>
                                 <tr class="data-row" data-type="Penjualan">

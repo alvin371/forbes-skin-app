@@ -1,5 +1,8 @@
 <?php
 
+// Load custom env helper BEFORE Composer autoloader to prevent illuminate/support conflicts
+require_once __DIR__ . '/../../application/helpers/env_helper.php';
+
 require 'vendor/autoload.php';
 
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -20,7 +23,8 @@ class Api extends CI_Controller
     function __construct()
     {
         parent::__construct();
-        $this->app_secret_tiktok = '3fff1b4badfeb0f59385f6a34cc2377fd3d7425a';
+        $this->load->helper('env');
+        $this->app_secret_tiktok = env('TIKTOK_APP_SECRET', '');
     }
 
     function sync()
@@ -6378,5 +6382,46 @@ class Api extends CI_Controller
 
         $this->db->update('customer', $dtt, array('id' => $id_customer));
         return $dt;
+    }
+
+    function cronjob_update_customer()
+    {
+        $success_count = 0;
+        $failed_count = 0;
+
+        // Get customers that need updating (those with transactions but outdated summary data)
+        // Limit to 50 customers per run to avoid timeout
+        $customers = $this->mymodel->selectWithQuery("
+            SELECT DISTINCT c.id, c.full_name, c.updated_at
+            FROM customer c
+            INNER JOIN transaction t ON t.customer = c.id
+            WHERE c.updated_at < DATE_SUB(NOW(), INTERVAL 1 DAY)
+            OR c.pesanan IS NULL
+            OR c.pesanan = ''
+            ORDER BY c.updated_at ASC
+            LIMIT 50
+        ");
+
+        foreach ($customers as $customer) {
+            try {
+                $id_customer = $customer['id'];
+
+                // Call the customer_summary_v2 function to update customer data
+                $this->customer_summary_v2($id_customer);
+
+                $success_count++;
+            } catch (Exception $e) {
+                $failed_count++;
+                // Log error if needed
+                log_message('error', 'Failed to update customer ' . $customer['id'] . ': ' . $e->getMessage());
+            }
+        }
+
+        // Return the formatted response
+        $response = "[CRON] Customer Scrape Update - Success: $success_count | Failed: $failed_count";
+
+        header('Content-Type: text/plain; charset=utf-8');
+        echo $response;
+        die;
     }
 }
