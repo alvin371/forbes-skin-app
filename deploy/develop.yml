@@ -1,13 +1,14 @@
 ---
 - name: Deployment to srv
-  hosts: cntbo_montera
-  remote_user: montera
+
+  hosts: cntbo_forbes
+  remote_user: forbes
   gather_facts: no
   vars:
-    working_directory: "/home/montera/artifact/montera-app"
-    stack_name: "montera"
+    working_directory: "/home/forbes/artifact/forbes-skin"
+    stack_name: "forbes"
     container_version: "{{ lookup('env', 'GITHUB_SHA') | regex_replace('^(.{8}).*$', '\\1') }}"
-    container_image: "gilangp/montera-app:develop{{ container_version }}"
+    container_image: "gilangp/forbes-app:develop{{ container_version }}"
 
   tasks:
   - name: update app docker image
