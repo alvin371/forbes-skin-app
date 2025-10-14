@@ -1026,6 +1026,7 @@ if (!$_SESSION['is_login']) {
           </div>
         <?php endif; ?>
 
+        <!-- HR MANAGEMENT - Not being used yet
         <?php if ($can_view_hr_management): ?>
           <a class="item-menu fw-bold <?= $menu_hr_management ? '' : 'collapsed' ?> d-flex align-items-center justify-content-between"
             data-bs-toggle="collapse"
@@ -1076,6 +1077,7 @@ if (!$_SESSION['is_login']) {
             <?php endif; ?>
           </div>
         <?php endif; ?>
+        -->
 
         <?php if ($can_view_akun): ?>
           <a class="item-menu fw-bold <?= $menu_akun ? '' : 'collapsed' ?> d-flex align-items-center justify-content-between"
