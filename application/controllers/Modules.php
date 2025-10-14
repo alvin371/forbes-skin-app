@@ -61,21 +61,23 @@ class Modules extends BaseController
         );
 
         $qry = "1=1";
-        
+
         if ($keyword) {
+            $keyword_safe = $this->db->escape_str($keyword);
             if ($keyword_category == "Name") {
-                $qry .= " AND (m.name LIKE '%$keyword%' OR m.display_name LIKE '%$keyword%')";
+                $qry .= " AND (m.name LIKE '%$keyword_safe%' OR m.display_name LIKE '%$keyword_safe%')";
             } else if ($keyword_category == "Controller") {
-                $qry .= " AND m.controller LIKE '%$keyword%'";
+                $qry .= " AND m.controller LIKE '%$keyword_safe%'";
             }
         }
-        
-        if ($status_filter) {
-            $qry .= " AND m.is_active = '$status_filter'";
+
+        if ($status_filter !== '') {
+            $status_filter_safe = $this->db->escape_str($status_filter);
+            $qry .= " AND m.is_active = '$status_filter_safe'";
         }
 
-        $query = $this->mymodel->selectWithQuery("SELECT COUNT(m.id) AS count 
-            FROM modules m 
+        $query = $this->mymodel->selectWithQuery("SELECT COUNT(m.id) AS count
+            FROM modules m
             WHERE $qry");
         $data['page'] = CEIL($query[0]['count'] / 10);
         $data['notif'] = '<p class="mb-1"><label class="text-notif">' . $this->template->separator_only($query[0]['count']) . ' data ditemukan!</label></p>';
@@ -96,58 +98,78 @@ class Modules extends BaseController
 
     public function item()
     {
+        // Validate session
+        if (!isset($_SESSION['user']) || !isset($_SESSION['user']['id'])) {
+            $this->output
+                ->set_status_header(401)
+                ->set_content_type('text/html')
+                ->set_output('<tr><td colspan="10" class="text-center text-danger">Session expired. Please login again.</td></tr>');
+            return;
+        }
+
         $data['template'] = $this->template;
         $user_id = $_SESSION['user']['id'];
-        
+
         // Pass permission data to view
         $data['can_create'] = in_array($_SESSION['user']['role'], array('1'));
         $data['can_edit'] = in_array($_SESSION['user']['role'], array('1'));
         $data['can_delete'] = in_array($_SESSION['user']['role'], array('1'));
-        
+
         $keyword_category = $_GET['keyword_category'] ?? "Name";
         $keyword = $_GET['keyword'] ?? "";
         $status_filter = $_GET['status_filter'] ?? "";
         $category_filter = $_GET['category_filter'] ?? "";
-        
+
         $qry = "1=1";
-        
+
         if ($keyword) {
+            $keyword_safe = $this->db->escape_str($keyword);
             if ($keyword_category == "Name") {
-                $qry .= " AND (m.name LIKE '%$keyword%' OR m.display_name LIKE '%$keyword%')";
+                $qry .= " AND (m.name LIKE '%$keyword_safe%' OR m.display_name LIKE '%$keyword_safe%')";
             } else if ($keyword_category == "Controller") {
-                $qry .= " AND m.controller LIKE '%$keyword%'";
+                $qry .= " AND m.controller LIKE '%$keyword_safe%'";
             }
         }
-        
-        if ($status_filter) {
-            $qry .= " AND m.is_active = '$status_filter'";
+
+        if ($status_filter !== '') {
+            $status_filter_safe = $this->db->escape_str($status_filter);
+            $qry .= " AND m.is_active = '$status_filter_safe'";
         }
 
         $limit = 10;
-        $current_page = $_GET['page'] ?? 1;
-        
+        $current_page = intval($_GET['page'] ?? 1);
+
         if ($current_page <= 1) {
             $offset = 0;
         } else {
             $offset = ($current_page - 1) * $limit;
         }
 
-        $query = $this->mymodel->selectWithQuery("SELECT m.*, 
-            parent.display_name as parent_name,
-            COUNT(child.id) as children_count,
-            (SELECT COUNT(*) FROM role_permissions rp WHERE rp.module_id = m.id) as permission_count
-            FROM modules m 
-            LEFT JOIN modules parent ON m.parent_id = parent.id
-            LEFT JOIN modules child ON m.id = child.parent_id
-            WHERE $qry 
-            GROUP BY m.id, m.name, m.display_name, m.controller, m.icon, 
-                     m.parent_id, m.sort_order, m.is_active, parent.display_name
-            ORDER BY m.sort_order ASC, m.display_name ASC 
-            LIMIT $offset, $limit");
-        $data['data'] = $query;
-        $data['start'] = $offset;
-        
-        $this->load->view("modules/item", $data);
+        try {
+            $query = $this->mymodel->selectWithQuery("SELECT m.id, m.name, m.display_name, m.controller, m.icon,
+                m.parent_id, m.sort_order, m.is_active, m.created_at, m.updated_at,
+                parent.display_name as parent_name,
+                COUNT(DISTINCT child.id) as children_count,
+                (SELECT COUNT(*) FROM role_permissions rp WHERE rp.module_id = m.id) as permission_count
+                FROM modules m
+                LEFT JOIN modules parent ON m.parent_id = parent.id
+                LEFT JOIN modules child ON m.id = child.parent_id
+                WHERE $qry
+                GROUP BY m.id, m.name, m.display_name, m.controller, m.icon,
+                         m.parent_id, m.sort_order, m.is_active, m.created_at, m.updated_at, parent.display_name
+                ORDER BY m.sort_order ASC, m.display_name ASC
+                LIMIT $offset, $limit");
+            $data['data'] = $query;
+            $data['start'] = $offset;
+
+            $this->load->view("modules/item", $data);
+        } catch (Exception $e) {
+            log_message('error', 'Modules::item() - Database error: ' . $e->getMessage());
+            $this->output
+                ->set_status_header(500)
+                ->set_content_type('text/html')
+                ->set_output('<tr><td colspan="10" class="text-center text-danger">Database error. Please try again later.</td></tr>');
+        }
     }
 
     public function create_page()

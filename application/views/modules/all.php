@@ -232,7 +232,7 @@
     function loadModuleData() {
         $.ajax({
             type: 'GET',
-            url: "<?= base_url() ?>/modules/item<?= $param ?>",
+            url: "<?= base_url('modules/item') ?><?= $param ?>",
             beforeSend: function() {
                 $('#modules-tbody').html('<tr><td colspan="10" class="text-center"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></td></tr>');
             },
@@ -241,6 +241,8 @@
             },
             error: function(xhr, status, error) {
                 console.error('Error loading data:', error);
+                console.error('Status:', status);
+                console.error('Response:', xhr.responseText);
                 $('#modules-tbody').html('<tr><td colspan="10" class="text-center text-danger">Error loading data. Please try again.</td></tr>');
             }
         });
