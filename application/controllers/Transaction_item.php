@@ -328,9 +328,9 @@ class Transaction_item extends CI_Controller
         }
 
 
-        $query = $this->mymodel->selectWithQuery("SELECT sku as id, CONCAT(parent_name,' - ',name,' - ',sku) as opt FROM product_variant_3rd
+        $query = $this->mymodel->selectWithQuery("SELECT sku as id, CONCAT(ANY_VALUE(parent_name),' - ',ANY_VALUE(name),' - ',sku) as opt FROM product_variant_3rd
         GROUP BY sku
-        ORDER BY parent_name ASC,name ASC
+        ORDER BY ANY_VALUE(parent_name) ASC,ANY_VALUE(name) ASC
         ");
 
         $data['product'] = $query;

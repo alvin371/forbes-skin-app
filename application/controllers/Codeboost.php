@@ -1,5 +1,8 @@
 <?php
 
+
+// Load custom env helper BEFORE Composer autoloader to prevent illuminate/support conflicts
+require_once __DIR__ . '/../../application/helpers/env_helper.php';
 require 'vendor/autoload.php';
 
 use PhpOffice\PhpSpreadsheet\Spreadsheet;

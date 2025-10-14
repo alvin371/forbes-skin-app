@@ -182,7 +182,6 @@ class Overview extends CI_Controller
                         GROUP BY DATE(date)
                     ) AS gmv ON gmv.date = dates.date
                     WHERE dates.date BETWEEN ? AND ?
-                    GROUP BY dates.date
                     ORDER BY dates.date ASC;
                 ";
 

@@ -1,6 +1,9 @@
 <?php
 defined('BASEPATH') OR exit('No direct script access allowed');
 
+// Load custom env helper BEFORE Composer autoloader to prevent illuminate/support conflicts
+require_once __DIR__ . '/../../application/helpers/env_helper.php';
+
 require 'vendor/autoload.php';
 
 require_once APPPATH . 'core/BaseController.php';

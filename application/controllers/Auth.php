@@ -210,12 +210,50 @@ class Auth extends CI_Controller
 
     public function get_redirect_url()
     {
-        if (isset($_SESSION['login_redirect_url'])) {
+        // Ensure we're working with the session properly
+        if (session_status() == PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        // Debug logging
+        $debug = array(
+            'session_id' => session_id(),
+            'is_login' => isset($_SESSION['is_login']) ? $_SESSION['is_login'] : 'not set',
+            'has_redirect_url' => isset($_SESSION['login_redirect_url']),
+            'redirect_url' => isset($_SESSION['login_redirect_url']) ? $_SESSION['login_redirect_url'] : 'not set',
+            'base_url' => base_url()
+        );
+
+        if (isset($_SESSION['login_redirect_url']) && !empty($_SESSION['login_redirect_url'])) {
             $url = $_SESSION['login_redirect_url'];
             unset($_SESSION['login_redirect_url']); // Clear it after use
-            echo json_encode(['url' => $url]);
+
+            // Log success
+            error_log('Redirect URL found: ' . $url);
+
+            echo json_encode([
+                'url' => $url,
+                'success' => true,
+                'debug' => $debug
+            ]);
         } else {
-            echo json_encode(['url' => base_url()]);
+            // Fallback to base URL
+            $fallback_url = base_url();
+
+            // If base_url is empty or just a slash, construct a proper URL
+            if (empty($fallback_url) || $fallback_url == '/') {
+                $fallback_url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http")
+                    . "://" . $_SERVER['HTTP_HOST'] . "/";
+            }
+
+            // Log warning
+            error_log('No redirect URL in session, using fallback: ' . $fallback_url);
+
+            echo json_encode([
+                'url' => $fallback_url,
+                'success' => true,
+                'debug' => $debug
+            ]);
         }
     }
 

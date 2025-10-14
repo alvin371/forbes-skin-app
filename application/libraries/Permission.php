@@ -217,9 +217,9 @@ class Permission
     }
 
     /**
-     * Fallback permission check when tables don't exist
-     * Uses the existing role-based system
-     * 
+     * Fallback permission check when view doesn't exist
+     * Queries role_permissions directly via user_roles
+     *
      * @param int $user_id User ID
      * @param string $module_name Module name
      * @param string $action Permission action
@@ -227,30 +227,72 @@ class Permission
      */
     private function fallback_permission_check($user_id, $module_name, $action)
     {
-        // Get user data - avoid prepared statements that might be causing issues
-        $user = $this->CI->mymodel->selectWithQuery("
-            SELECT role FROM user WHERE id = $user_id LIMIT 1
-        ");
-        
-        if (empty($user)) {
+        try {
+            // Query user permissions through role_permissions table
+            $result = $this->CI->mymodel->selectWithQuery("
+                SELECT MAX(rp.can_{$action}) as has_permission
+                FROM user u
+                INNER JOIN user_roles ur ON u.id = ur.user_id
+                INNER JOIN roles r ON ur.role_id = r.id AND r.is_active = 1
+                INNER JOIN role_permissions rp ON r.id = rp.role_id
+                INNER JOIN modules m ON rp.module_id = m.id AND m.is_active = 1
+                WHERE u.id = $user_id
+                AND m.name = '$module_name'
+                GROUP BY u.id, m.name
+            ");
+
+            if (!empty($result) && isset($result[0]['has_permission'])) {
+                return $result[0]['has_permission'] == 1;
+            }
+
+            // If no specific permission found, check if user has admin role
+            $user_roles = $this->CI->mymodel->selectWithQuery("
+                SELECT r.name, r.level
+                FROM user_roles ur
+                INNER JOIN roles r ON ur.role_id = r.id
+                WHERE ur.user_id = $user_id AND r.is_active = 1
+            ");
+
+            // Super admin and admin roles get full access
+            foreach ($user_roles as $role) {
+                if (in_array(strtolower($role['name']), ['super_admin', 'admin'])) {
+                    return true;
+                }
+            }
+
+            // Basic modules everyone can view
+            $basic_modules = ['dashboard', 'profile', 'home'];
+            if (in_array($module_name, $basic_modules) && $action === 'view') {
+                return true;
+            }
+
+            return false;
+
+        } catch (Exception $e) {
+            // Last resort: use old role-based system
+            $user = $this->CI->mymodel->selectWithQuery("
+                SELECT role FROM user WHERE id = $user_id LIMIT 1
+            ");
+
+            if (empty($user)) {
+                return false;
+            }
+
+            $role = $user[0]['role'];
+
+            // Legacy role IDs: HR/Admin roles (1, 2, 7) get full access
+            if (in_array($role, ['1', '2', '7'])) {
+                return true;
+            }
+
+            // Basic modules everyone can view
+            $basic_modules = ['dashboard', 'profile', 'quest'];
+            if (in_array($module_name, $basic_modules) && $action === 'view') {
+                return true;
+            }
+
             return false;
         }
-        
-        $role = $user[0]['role'];
-        
-        // HR/Admin roles (1, 2, 7) get full access
-        if (in_array($role, ['1', '2', '7'])) {
-            return true;
-        }
-        
-        // Basic modules everyone can view
-        $basic_modules = ['dashboard', 'profile', 'quest'];
-        if (in_array($module_name, $basic_modules) && $action === 'view') {
-            return true;
-        }
-        
-        // Deny everything else until proper permissions are set up
-        return false;
     }
 
     /**

@@ -1,5 +1,6 @@
 ---
 - name: Deployment to srv
+
   hosts: cntbo_forbes
   remote_user: forbes
   gather_facts: no

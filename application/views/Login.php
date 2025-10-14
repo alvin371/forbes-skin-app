@@ -104,12 +104,22 @@
               type: "GET",
               dataType: "json",
               success: function(redirectResponse) {
-                console.log("Redirect to:", redirectResponse.url);
-                window.location.href = redirectResponse.url;
+                console.log("Redirect response:", redirectResponse);
+                console.log("Redirecting to:", redirectResponse.url);
+
+                // Ensure we have a valid URL
+                if (redirectResponse.url && redirectResponse.url !== '') {
+                  window.location.href = redirectResponse.url;
+                } else {
+                  console.error("Empty redirect URL, using base URL");
+                  window.location.href = "<?= base_url() ?>";
+                }
               },
-              error: function() {
+              error: function(xhr, status, error) {
+                console.error("Redirect URL fetch failed:", error);
+                console.log("Falling back to base URL");
                 // Fallback to homepage if redirect URL fetch fails
-                window.location.href = "";
+                window.location.href = "<?= base_url() ?>";
               }
             });
             $(".btn-send").removeClass("disabled").html('Masuk Sekarang').attr('disabled', false);

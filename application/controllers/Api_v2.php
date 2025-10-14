@@ -1,5 +1,8 @@
 <?php
 
+// Load custom env helper BEFORE Composer autoloader to prevent illuminate/support conflicts
+require_once __DIR__ . '/../../application/helpers/env_helper.php';
+
 require 'vendor/autoload.php';
 
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -20,14 +23,23 @@ class Api_v2 extends CI_Controller
     function __construct()
     {
         parent::__construct();
-        $this->app_key_tiktok = '6bt244hb693b0';
-        $this->app_secret_tiktok = '3fff1b4badfeb0f59385f6a34cc2377fd3d7425a';
-        $this->app_key_lazada = '128067';
-        $this->app_secret_lazada = '3HXnltTtHmEqK50hNMnt8MkCur4WTsod';
-        $this->partner_id_shopee = '2007315';
-        $this->partner_key_shopee = '6a53474c517262526c7252416c79446d794a59736b7766747461644b6762636f';
-        $this->app_id_meta = 1847305712461596;
-        $this->app_secret_meta = '1f88cc6b855a1418cfb2ee8b6ef14d8a';
+        $this->load->helper('env');
+
+        // TikTok Shop API credentials
+        $this->app_key_tiktok = env('TIKTOK_APP_KEY', '');
+        $this->app_secret_tiktok = env('TIKTOK_APP_SECRET', '');
+
+        // Lazada API credentials
+        $this->app_key_lazada = env('LAZADA_APP_KEY', '');
+        $this->app_secret_lazada = env('LAZADA_APP_SECRET', '');
+
+        // Shopee API credentials
+        $this->partner_id_shopee = env('SHOPEE_PARTNER_ID', '');
+        $this->partner_key_shopee = env('SHOPEE_PARTNER_KEY', '');
+
+        // Meta/Facebook API credentials
+        $this->app_id_meta = env('META_APP_ID', '');
+        $this->app_secret_meta = env('META_APP_SECRET', '');
     }
 
     public function index()
@@ -2845,11 +2857,11 @@ class Api_v2 extends CI_Controller
             LIMIT 30
             ");
         if (empty($data)) {
-            $data = $this->mymodel->selectWithQuery("SELECT id,marketplace,order_id,shop_id
+            $data = $this->mymodel->selectWithQuery("SELECT MIN(id) as id, marketplace, order_id, shop_id
             FROM webhook
             WHERE order_id != '' AND order_date = ''
-            GROUP BY order_id
-            ORDER BY id DESC
+            GROUP BY order_id, marketplace, shop_id
+            ORDER BY MIN(id) DESC
             LIMIT 30
             ");
             $mode = "webhook";
@@ -4038,6 +4050,128 @@ class Api_v2 extends CI_Controller
         $html['status'] = true;
         $html['data'] = array();
         $html['msg'] = count($list) . " data influencer yg di sync <= $todayy berhasil diperbarui";
+        echo json_encode($html, true);
+        die;
+    }
+
+    function cronjob_influencer_dummy()
+    {
+        $user = isset($_SESSION['user']) ? $_SESSION['user'] : null;
+
+        $mode = isset($_GET['mode']) ? strval($_GET['mode']) : '';
+
+        $target = DATE("Y-m-d 01:00:00");
+        $now = DATE("Y-m-d H:i:s");
+
+        if ($mode != 'true') {
+            if ($now >= $target) {
+                // SKIP - proceed with execution
+            } else {
+                header('Content-Type: application/json; charset=utf-8');
+                $html = array();
+                $html['status'] = false;
+                $html['data'] = array();
+                $html['msg'] = "Influencer dummy cronjob will be processed at " . $target . "!";
+                echo json_encode($html, true);
+                die;
+            }
+        }
+
+        $today = DATE("Y-m-d");
+        $sync_date = DATE('Y-m-d', strtotime($today . " -7 days"));
+
+        // Get influencer_dummy records that need syncing
+        $list = $this->mymodel->selectWithQuery("SELECT * FROM influencer_dummy WHERE status = 'Aktif' AND (DATE(sync_at) <= '$sync_date' OR sync_at IS NULL) AND url != '' LIMIT 10");
+
+        $processed = 0;
+        foreach ($list as $kl => $vl) {
+            $id = $vl['id'];
+            $query = $vl;
+            $url = $query['url'];
+            $type = $query['type'] ? $query['type'] : 'Tiktok';
+            $ratecard = is_numeric($query['ratecard']) ? $query['ratecard'] : 0;
+
+            // Get account ID and basic stats
+            $response = $this->template->get_account_id($type, $url);
+
+            if ($response['status'] == false) {
+                continue;
+            }
+
+            $dt = array();
+            $dt['updated_at'] = DATE("Y-m-d H:i:s");
+            if ($user) {
+                $dt['updated_by'] = strval($user['id']);
+            }
+            $dt['account_id'] = $response['data']['account_id'];
+            $dt['img'] = $response['data']['img'];
+            $dt['follower'] = $response['data']['follower'];
+            $dt['media_count'] = $response['data']['media_count'];
+
+            $this->db->update('influencer_dummy', $dt, array('id' => $id));
+
+            // Get post list data
+            if ($type == "Tiktok") {
+                preg_match('/@([a-zA-Z0-9._]+)/', $url, $matches);
+                $username = $matches[1] ?? '';
+                if (empty($username)) {
+                    continue;
+                }
+                $response = $this->template->get_post_list($type, $dt['account_id']);
+            } else {
+                $response = $this->template->get_post_list($type, $dt['account_id']);
+            }
+
+            if ($response['status'] == false) {
+                continue;
+            }
+
+            $like = $comment = $collect = $share = $view = 0;
+            $i = 0;
+
+            foreach ($response['data'] as $k => $v) {
+                $like += $v['like'];
+                $comment += $v['comment'];
+                $collect += $v['collect'];
+                $share += $v['share'];
+                $view += $v['view'];
+                if ($i >= 10) {
+                    break;
+                }
+                $i++;
+            }
+
+            $avg_view = $i ? $view / $i : 0;
+            $avg_interaksi = $i ? ($like + $comment + $collect + $share) / $i : 0;
+            $er = ($avg_view > 0) ? ($avg_interaksi / $avg_view * 100) : 0;
+            $cpm = ($ratecard > 0 && $avg_view > 0) ? ($ratecard / $avg_view * 1000) : 0;
+
+            $dt_2 = array();
+            $dt_2['sync_at'] = DATE("Y-m-d H:i:s");
+            $dt_2['updated_at'] = DATE("Y-m-d H:i:s");
+            if ($user) {
+                $dt_2['updated_by'] = strval($user['id']);
+            }
+            $dt_2['frequency_2'] = $i;
+            $dt_2['view_2'] = $view;
+            $dt_2['like_2'] = $like;
+            $dt_2['collect_2'] = $collect;
+            $dt_2['share_2'] = $share;
+            $dt_2['comment_2'] = $comment;
+            $dt_2['avg_view_2'] = $avg_view;
+            $dt_2['avg_interaksi_2'] = $avg_interaksi;
+            $dt_2['er'] = $er;
+            $dt_2['cpm_2'] = $cpm;
+
+            $this->db->update('influencer_dummy', $dt_2, array('id' => $id));
+            $processed++;
+        }
+
+        header('Content-Type: application/json; charset=utf-8');
+        $html = array();
+        $html['status'] = true;
+        $html['data'] = array();
+        $html['msg'] = $processed . " data influencer dummy yg di sync <= $sync_date berhasil diperbarui";
         echo json_encode($html, true);
         die;
     }

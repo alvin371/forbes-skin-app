@@ -76,6 +76,8 @@ $route['api/marketplace/order/download'] = 'Api_v2/marketplace_order_download';
 $route['api/cronjob/endorse-campaign'] = 'Api_v2/cronjob_endorse_campaign';
 $route['api/cronjob/endorse'] = 'Api_v2/cronjob_endorse';
 $route['api/cronjob/influencer'] = 'Api_v2/cronjob_influencer';
+$route['api/cronjob/influencer-dummy'] = 'Api_v2/cronjob_influencer_dummy';
+$route['cronjob/update-customer'] = 'Api/cronjob_update_customer';
 
 $route['api/webhook'] = 'Api_v2/webhook';
 $route['api/customer/summary'] = 'Api_v2/customer_summary';
