@@ -473,7 +473,7 @@ class Marketplace_account extends CI_Controller
 
         $type = $_GET['type'];
         if ($type == "TIKTOK") {
-            $url = "https://services.tiktokshop.com/open/authorize?service_id=7346761498458113797";
+            $url = "https://services.tiktokshop.com/open/authorize?service_id=7561255294774282004";
             redirect($url);
         } else  if ($type == "LAZADA") {
 
