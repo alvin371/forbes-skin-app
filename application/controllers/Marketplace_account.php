@@ -1,8 +1,15 @@
 <?php
 
 defined('BASEPATH') or exit('No direct script access allowed');
+require_once __DIR__ . '/../../application/helpers/env_helper.php';
 class Marketplace_account extends CI_Controller
 {
+    function __construct()
+    {
+        parent::__construct();
+        $this->load->helper('env');
+        $this->tiktok_service_id = env('TIKTOK_SERVICE_ID', '');
+    }
     public function index()
     {
         if ($_GET['keyword_category']) {
@@ -473,7 +480,8 @@ class Marketplace_account extends CI_Controller
 
         $type = $_GET['type'];
         if ($type == "TIKTOK") {
-            $url = "https://services.tiktokshop.com/open/authorize?service_id=7561255294774282004";
+            $service_id = $this->tiktok_service_id;
+            $url = "https://services.tiktokshop.com/open/authorize?service_id=$service_id";
             redirect($url);
         } else  if ($type == "LAZADA") {
 
