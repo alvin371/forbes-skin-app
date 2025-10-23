@@ -1177,18 +1177,14 @@ class Endorse extends BaseController
         $data['current_page'] = $current_page;
 
         $query = $this->mymodel->selectWithQuery("
-            SELECT 
-                e.*, 
+            SELECT
+                e.*,
                 (e.likes + e.comment + e.share_save) AS engagement,
-                i.contact, 
-                i.tipe_kontak 
-            FROM 
+                i.contact,
+                i.tipe_kontak
+            FROM
                 (SELECT DISTINCT * FROM endorse WHERE id_campaign = '$id_campaign' $qry) AS e
-            LEFT JOIN (
-                SELECT username, contact, tipe_kontak 
-                FROM influencer 
-                GROUP BY username
-            ) AS i ON e.nama_creator = i.username
+            LEFT JOIN influencer AS i ON e.nama_creator = i.username
             ORDER BY $sort_column $sort_order
             LIMIT $offset, $limit
         ");
