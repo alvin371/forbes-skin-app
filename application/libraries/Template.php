@@ -439,12 +439,14 @@ class Template
                     $follower_count = $resp1['data'][0]['follower_count'] ?? null;
                     $uid = $resp1['data'][0]['uid'] ?? null;
                     $avatar_urls = $resp1['data'][0]['avatar_larger']['url_list'][0] ?? null;
+                    $nickname = $resp1['data'][0]['nickname'] ?? null;
 
                     $data = [
                         "account_id" => strval($uid),
                         "follower" => intval($follower_count),
                         "media_count" => intval($visible_videos_count),
                         "img" => $avatar_urls,
+                        "full_name" => $nickname,
                         "source" => "first_endpoint"
                     ];
 
@@ -464,15 +466,17 @@ class Template
 
                     $uid = $userData['sec_uid'] ?? null;
                     $follower_count = $userData['follower_count'] ?? null;
-                    $visible_videos_count = $userData['video_count'] ?? null; 
+                    $visible_videos_count = $userData['video_count'] ?? null;
                     $avatar_urls = $userData['avatar_thumb']['url_list'][0] ?? null;
                     $unique_id = $userData['unique_id'] ?? null;
+                    $nickname = $userData['nickname'] ?? null;
 
                     $data = [
                         "account_id"   => strval($uid),
                         "follower"     => intval($follower_count),
                         "media_count"  => intval($visible_videos_count),
                         "img"          => $avatar_urls,
+                        "full_name"    => $nickname,
                     ];
 
                     return [

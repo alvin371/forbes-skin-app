@@ -124,6 +124,21 @@ class Influencer_dummy extends CI_Controller {
         if ($this->db->affected_rows() > 0 || isset($id)) {
             $saved_data = $this->db->where('id', $id)->get('influencer_dummy')->row_array();
 
+            // Extract username from URL (same pattern as update_field method)
+            if (!empty($saved_data['url'])) {
+                if (preg_match('/@([a-zA-Z0-9_.]+)/', $saved_data['url'], $matches)) {
+                    $extracted_username = $matches[1];
+                    $this->db->where('id', $id)->update('influencer_dummy', [
+                        'username' => $extracted_username,
+                        'updated_at' => date('Y-m-d H:i:s'),
+                        'updated_by' => $this->session->userdata('user')['id'] ?? 0
+                    ]);
+
+                    // Update saved_data with new username
+                    $saved_data['username'] = $extracted_username;
+                }
+            }
+
             // Auto-sync engagement data if URL is provided and auto_fetch is enabled
             $should_auto_sync = ($auto_fetch === 'true' || $auto_fetch === true);
             if ($should_auto_sync && !empty($saved_data['url'])) {
@@ -184,6 +199,16 @@ class Influencer_dummy extends CI_Controller {
                 'follower' => $response['data']['follower'],
                 'media_count' => $response['data']['media_count']
             ];
+
+            // Extract full_name from API response if available
+            if (isset($response['data']['full_name'])) {
+                $update1['full_name'] = $response['data']['full_name'];
+            } elseif (isset($response['data']['nickname'])) {
+                $update1['full_name'] = $response['data']['nickname'];
+            } elseif (isset($response['data']['display_name'])) {
+                $update1['full_name'] = $response['data']['display_name'];
+            }
+
             $this->db->update('influencer_dummy', $update1, ['id' => $id]);
 
             // Get post list
