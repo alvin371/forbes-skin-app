@@ -627,6 +627,24 @@ class Influencer_dummy extends CI_Controller {
         }
     }
 
+    public function add_form()
+    {
+        $page = !empty($_GET['p']) ? $_GET['p'] : "Tiktok";
+        $platform = ucfirst($page);
+
+        $data['platform'] = $platform;
+        $data['brands'] = $this->db->select('code')->get('brand')->result();
+        $data['pics'] = $this->db
+            ->select('full_name')
+            ->where_in('role', [1, 2, 11])
+            ->where('id !=', 1)
+            ->get('user')
+            ->result();
+        $data['niches'] = $this->mymodel->selectWithQuery("SELECT DISTINCT niche FROM niche");
+
+        $this->load->view('influencer_dummy/add_form', $data);
+    }
+
     public function edit_niche()
     {
         $data['niches'] = $this->db->order_by('niche', 'ASC')->get('niche')->result();

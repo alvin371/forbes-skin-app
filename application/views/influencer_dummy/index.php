@@ -1342,19 +1342,174 @@ $(document).ready(function() {
     const niches = <?= json_encode($niches) ?>;
 
     $('#addRow').click(function() {
-        let type = '<?= $page ?>';
-        type = type.charAt(0).toUpperCase() + type.slice(1);
-        
-        $.post('<?= site_url("influencer_dummy/save") ?>', { type: type }, function(res) {
-            if (res.status === 'success') {
-                location.reload();
-            } else {
-                Swal.fire('Error', 'Gagal menambahkan data baru', 'error');
-            }
-        }, 'json');
+        let page = '<?= $page ?>';
+        showModal('Tambah Influencer Baru', '<?= site_url("influencer_dummy/add_form") ?>?p=' + page, true);
     });
 
+    // Function to add new row to table (called from add_form.php)
+    window.addNewRowToTable = function(data) {
+        const brands = <?= json_encode($brands) ?>;
+        const pics = <?= json_encode($pics) ?>;
+        const niches = <?= json_encode($niches) ?>;
 
+        // Build niche options
+        let nicheOptions = '';
+        niches.forEach(function(item) {
+            const selected = data.niche === item.niche ? 'selected' : '';
+            nicheOptions += `<option value="${item.niche}" ${selected}>${item.niche}</option>`;
+        });
+
+        // Build brand options
+        let brandOptions = '';
+        brands.forEach(function(brand) {
+            const selected = data.brand === brand.code ? 'selected' : '';
+            brandOptions += `<option value="${brand.code}" ${selected}>${brand.code}</option>`;
+        });
+
+        // Build pic options
+        let picOptions = '';
+        pics.forEach(function(pic) {
+            const selected = data.pic === pic.full_name ? 'selected' : '';
+            picOptions += `<option value="${pic.full_name}" ${selected}>${pic.full_name}</option>`;
+        });
+
+        // Extract username from URL
+        let displayText = data.url || '';
+        let fullUrl = data.url || '';
+        if (fullUrl) {
+            if (fullUrl.match(/@[\w.\-]+/)) {
+                displayText = fullUrl.match(/@[\w.\-]+/)[0];
+            } else {
+                const parsed = fullUrl.split('/').filter(s => s).pop();
+                if (parsed) displayText = '@' + parsed;
+            }
+        }
+
+        // Format contact URL
+        let contactUrl = data.contact || '';
+        if (contactUrl && !contactUrl.match(/^https?:\/\//)) {
+            contactUrl = 'https://' + contactUrl.replace(/^\/+/, '');
+        }
+
+        // Format ratecard
+        const ratecard = data.ratecard || 0;
+        const ratecardFormatted = parseInt(ratecard).toLocaleString('id-ID');
+
+        // Build new row HTML
+        const newRowHtml = `
+            <tr data-id="${data.id}" class="new-row">
+                <td>
+                    <div class="checkbox-wrapper-13 d-inline">
+                        <input class="checkItem" type="checkbox" value="${data.id}" data-id="${data.id}" name="list_id" form="form-action">
+                    </div>
+                </td>
+                <td class="editable select" data-field="niche">
+                    <span class="view-mode">${data.niche || ''}</span>
+                    <div class="edit-mode">
+                        <select class="editable-select">${nicheOptions}</select>
+                    </div>
+                </td>
+                <td class="editable" data-field="url" data-follower="0">
+                    <a class="view-mode" href="${fullUrl}" target="_blank">${displayText}</a>
+                    <div class="edit-mode">
+                        <input type="text" class="editable-input" value="${data.url || ''}">
+                    </div>
+                    <span class="loading"></span>
+                    <div class="engagement-followers">
+                        <p class="mb-1 text-black">0</p>
+                    </div>
+                </td>
+                <td class="editable select" data-field="brand">
+                    <span class="view-mode">${data.brand || ''}</span>
+                    <div class="edit-mode">
+                        <select class="editable-select">${brandOptions}</select>
+                    </div>
+                </td>
+                <td class="editable select" data-field="pic">
+                    <span class="view-mode">${data.pic || ''}</span>
+                    <div class="edit-mode">
+                        <select class="editable-select">${picOptions}</select>
+                    </div>
+                </td>
+                <td class="editable" data-field="contact">
+                    <a class="view-mode" href="${contactUrl}" target="_blank">${data.contact || ''}</a>
+                    <div class="edit-mode">
+                        <input type="text" class="editable-input" value="${data.contact || ''}">
+                    </div>
+                </td>
+                <td class="editable select" data-field="type">
+                    <span class="view-mode">${data.type || ''}</span>
+                    <div class="edit-mode">
+                        <select class="editable-select">
+                            <option value="Tiktok" ${data.type === 'Tiktok' ? 'selected' : ''}>Tiktok</option>
+                            <option value="Instagram" ${data.type === 'Instagram' ? 'selected' : ''}>Instagram</option>
+                            <option value="YouTube" ${data.type === 'YouTube' ? 'selected' : ''}>YouTube</option>
+                        </select>
+                    </div>
+                </td>
+                <td class="text-start engagement-cell">
+                    <div class="engagement-content">
+                        <p class="mb-1 text-black fw-bold">CPM : 0</p>
+                        <p class="mb-1 text-black fw-bold">Avg View : 0</p>
+                        <p class="mb-1 text-black">ER : 0</p>
+                    </div>
+                </td>
+                <td class="editable" data-field="ratecard" data-ratecard="${ratecard}">
+                    <span class="view-mode">${ratecardFormatted}</span>
+                    <div class="edit-mode">
+                        <input type="text" class="editable-input ratecard-input" value="${ratecard}">
+                    </div>
+                </td>
+                <td class="editable" data-field="desc">
+                    <span class="view-mode">
+                        <span class="text-wrapper">${data.desc || ''}</span>
+                    </span>
+                    <div class="edit-mode">
+                        <input type="text" class="editable-input desc-input" value="${data.desc || ''}">
+                    </div>
+                </td>
+                <td class="text-end">
+                    <div class="dropdown">
+                        <button class="border-0 bg-transparent p-0" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-ellipsis-v"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li>
+                                <a class="dropdown-item delete-row" href="#">
+                                    <i class="fas fa-trash text-danger me-2"></i> Hapus
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item generate-row" href="#">
+                                    <i class="fas fa-random text-primary me-2"></i> Generate
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </td>
+            </tr>
+        `;
+
+        // Add row to DataTable
+        const newRow = table.row.add($(newRowHtml)).draw(false);
+
+        // Show success notification
+        Swal.fire({
+            icon: 'success',
+            title: 'Berhasil',
+            text: 'Data influencer berhasil ditambahkan!',
+            showConfirmButton: false,
+            timer: 1500
+        });
+
+        // Remove new-row class after 5 seconds
+        setTimeout(function() {
+            $(newRow.node()).removeClass('new-row');
+        }, 5000);
+
+        // Update checkboxes
+        updateCheckboxes();
+    };
 
     $('#influencerTable tbody').on('click', '.editable:not(.editing)', function() {
         const cell = $(this);
