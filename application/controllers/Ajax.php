@@ -230,18 +230,17 @@ class Ajax extends CI_Controller
 		// ===== Query data endorse untuk summary & list ids =====
 		if ($is_dashboard != 'true') {
 			$query   = $this->mymodel->selectWithQuery("SELECT endorse.id, endorse.total_cost FROM endorse WHERE 1=1 $filters_common $filters_date_on_endorse AND endorse.id_campaign = '$id_campaign'");
-			$query_2 = $this->mymodel->selectWithQuery("SELECT endorse.id FROM endorse WHERE 1=1 $filters_common $filters_date_on_endorse AND endorse.id_campaign = '$id_campaign' GROUP BY endorse.influencer");
+			$query_2 = $this->mymodel->selectWithQuery("SELECT COUNT(DISTINCT endorse.influencer) as count FROM endorse WHERE 1=1 $filters_common $filters_date_on_endorse AND endorse.id_campaign = '$id_campaign'");
 			$q_fyp   = $this->mymodel->selectWithQuery("SELECT COUNT(endorse.id) as result FROM endorse WHERE 1=1 $filters_common $filters_date_on_endorse AND endorse.id_campaign = '$id_campaign' AND endorse.is_fyp = 1");
 		} else {
 			$query   = $this->mymodel->selectWithQuery("SELECT endorse.id, endorse.total_cost FROM endorse WHERE 1=1 $filters_common $filters_date_on_endorse");
-			$query_2 = $this->mymodel->selectWithQuery("SELECT endorse.id FROM endorse WHERE 1=1 $filters_common $filters_date_on_endorse GROUP BY endorse.influencer");
+			$query_2 = $this->mymodel->selectWithQuery("SELECT COUNT(DISTINCT endorse.influencer) as count FROM endorse WHERE 1=1 $filters_common $filters_date_on_endorse");
 			$q_fyp   = $this->mymodel->selectWithQuery("SELECT COUNT(endorse.id) as result FROM endorse WHERE 1=1 $filters_common $filters_date_on_endorse AND endorse.is_fyp = 1");
 		}
 		$endorse_fyp = $q_fyp ? $q_fyp[0]['result'] : 0;
 
-		$influencer = 0;
-		foreach ($query_2 as $row) $influencer++;
-
+		$influencer = $query_2[0]['count'] ?? 0;
+	
 		$endorse   = 0;
 		$total_cost_from_endorse = 0;
 		$list_ids = '';
