@@ -585,9 +585,14 @@
         <div class="card-header">
             <div class="d-flex justify-content-between align-items-center">
                 <h5 class="mb-6" style="color: rgba(0, 0, 0, 0.85);">INFLUENCER LISTING - <?= strtoupper($page) ?? 'TIKTOK' ?></h5>
-                <button id="addRow" class="btn btn-primary">
-                    <i class="bi bi-plus me-1"></i> Tambah Baru
-                </button>
+                <div class="d-flex gap-2">
+                    <button id="refreshAllVisible" class="btn btn-primary" title="Refresh semua data yang terlihat">
+                        <i class="bi bi-arrow-clockwise me-1"></i> Refresh All
+                    </button>
+                    <button id="addRow" class="btn btn-primary">
+                        <i class="bi bi-plus me-1"></i> Tambah Baru
+                    </button>
+                </div>
             </div>
         </div>
         <div class="card-body">
@@ -846,6 +851,11 @@
                                         <i class="fas fa-ellipsis-v"></i>
                                     </button>
                                     <ul class="dropdown-menu dropdown-menu-end">
+                                        <li>
+                                            <a class="dropdown-item refresh-row" href="#">
+                                                <i class="bi bi-arrow-clockwise text-info me-2"></i> Refresh
+                                            </a>
+                                        </li>
                                         <li>
                                             <a class="dropdown-item delete-row" href="#">
                                                 <i class="fas fa-trash text-danger me-2"></i> Hapus
@@ -1348,6 +1358,11 @@ $(document).ready(function() {
 
     // Function to add new row to table (called from add_form.php)
     window.addNewRowToTable = function(data) {
+        // Debug: Log the received data
+        console.log('addNewRowToTable called with data:', data);
+        console.log('Data ID:', data.id);
+        console.log('Auto-fetch preference:', data.auto_fetch);
+
         const brands = <?= json_encode($brands) ?>;
         const pics = <?= json_encode($pics) ?>;
         const niches = <?= json_encode($niches) ?>;
@@ -1409,14 +1424,14 @@ $(document).ready(function() {
                         <select class="editable-select">${nicheOptions}</select>
                     </div>
                 </td>
-                <td class="editable" data-field="url" data-follower="0">
+                <td class="editable" data-field="url" data-follower="${data.follower || 0}">
                     <a class="view-mode" href="${fullUrl}" target="_blank">${displayText}</a>
                     <div class="edit-mode">
                         <input type="text" class="editable-input" value="${data.url || ''}">
                     </div>
                     <span class="loading"></span>
                     <div class="engagement-followers">
-                        <p class="mb-1 text-black">0</p>
+                        <p class="mb-1 text-black">${(data.follower || 0).toLocaleString('id-ID')}</p>
                     </div>
                 </td>
                 <td class="editable select" data-field="brand">
@@ -1449,9 +1464,9 @@ $(document).ready(function() {
                 </td>
                 <td class="text-start engagement-cell">
                     <div class="engagement-content">
-                        <p class="mb-1 text-black fw-bold">CPM : 0</p>
-                        <p class="mb-1 text-black fw-bold">Avg View : 0</p>
-                        <p class="mb-1 text-black">ER : 0</p>
+                        <p class="mb-1 text-black fw-bold">CPM : ${formatNumber(data.cpm_2 || 0)}</p>
+                        <p class="mb-1 text-black fw-bold">Avg View : ${formatNumber(data.avg_view_2 || 0)}</p>
+                        <p class="mb-1 text-black">ER : ${formatNumber(data.er || 0)}</p>
                     </div>
                 </td>
                 <td class="editable" data-field="ratecard" data-ratecard="${ratecard}">
@@ -1475,6 +1490,11 @@ $(document).ready(function() {
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end">
                             <li>
+                                <a class="dropdown-item refresh-row" href="#">
+                                    <i class="bi bi-arrow-clockwise text-info me-2"></i> Refresh
+                                </a>
+                            </li>
+                            <li>
                                 <a class="dropdown-item delete-row" href="#">
                                     <i class="fas fa-trash text-danger me-2"></i> Hapus
                                 </a>
@@ -1493,6 +1513,10 @@ $(document).ready(function() {
         // Add row to DataTable
         const newRow = table.row.add($(newRowHtml)).draw(false);
 
+        // Ensure data-id attribute is set on the row node
+        $(newRow.node()).attr('data-id', data.id);
+        console.log('Row added to DataTable. Node data-id:', $(newRow.node()).attr('data-id'));
+
         // Show success notification
         Swal.fire({
             icon: 'success',
@@ -1509,6 +1533,16 @@ $(document).ready(function() {
 
         // Update checkboxes
         updateCheckboxes();
+
+        // Note: Auto-sync is now handled server-side in save() method
+        // The data returned already includes engagement metrics if auto_fetch was enabled
+        console.log('Row added with data:', data);
+        console.log('Engagement metrics already synced:', {
+            cpm: data.cpm_2,
+            avg_view: data.avg_view_2,
+            er: data.er,
+            follower: data.follower
+        });
     };
 
     $('#influencerTable tbody').on('click', '.editable:not(.editing)', function() {
@@ -1555,13 +1589,28 @@ $(document).ready(function() {
     });
 
     function syncInfluencerData(id) {
+        console.log('syncInfluencerData called with ID:', id);
+
         const row = $(`tr[data-id="${id}"]`);
+        console.log('Found row:', row.length);
+
+        if (row.length === 0) {
+            console.error('Row not found for ID:', id);
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: 'Baris data tidak ditemukan (ID: ' + id + ')',
+                showConfirmButton: true
+            });
+            return;
+        }
+
         const urlCell = row.find('td[data-field="url"]');
         const input = urlCell.find('.editable-input');
         const engagementCell = row.find('.engagement-cell');
         const engagementContent = engagementCell.find('.engagement-content');
         const engagementFollower = engagementCell.find('.engagement-follower');
-        
+
         engagementContent.hide();
         engagementCell.append('<div class="engagement-loading"></div>');
         input.prop('disabled', true).addClass('loading');
@@ -1572,9 +1621,11 @@ $(document).ready(function() {
             data: { id: id },
             dataType: 'json',
             success: function(response) {
+                console.log('Sync response:', response);
+
                 if (response.status === 'success') {
                     urlCell.attr('data-follower', response.data.follower || 0);
-                    
+
                     engagementContent.html(`
                         <p class="mb-1 text-black fw-bold">CPM : ${formatNumber(response.data.cpm)}</p>
                         <p class="mb-1 text-black fw-bold">Avg View : ${formatNumber(response.data.avg_view)}</p>
@@ -1594,13 +1645,40 @@ $(document).ready(function() {
                         const usernameCell = row.find('td[data-field="username"] .view-mode');
                         usernameCell.text(response.data.username);
                     }
+
+                    // Show success toast
+                    Swal.fire({
+                        toast: true,
+                        position: 'top-end',
+                        icon: 'success',
+                        title: 'Data engagement berhasil diperbarui!',
+                        showConfirmButton: false,
+                        timer: 2000
+                    });
+                } else {
+                    console.error('Sync failed:', response);
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Gagal Refresh',
+                        text: response.message || 'Terjadi kesalahan saat mengambil data',
+                        showConfirmButton: true
+                    });
                 }
+            },
+            error: function(xhr, status, error) {
+                console.error('Sync AJAX error:', {xhr, status, error});
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: 'Gagal menghubungi server: ' + error,
+                    showConfirmButton: true
+                });
             },
             complete: function() {
                 engagementCell.find('.engagement-loading').remove();
                 engagementContent.show();
                 input.prop('disabled', false).removeClass('loading');
-                table.row(row).invalidate().draw();
+                table.row(row).invalidate().draw(false);
             }
         });
     }
@@ -1732,13 +1810,196 @@ $(document).ready(function() {
             pic: [],
             niche: []
         };
-        
+
         $('#minView, #maxView').val('');
         $('.pic-checkbox, .niche-checkbox').prop('checked', false);
-        
+
         table.draw();
-        
+
         $('tr.new-row').removeClass('new-row');
+    });
+
+    // Bulk refresh all visible rows
+    $('#refreshAllVisible').click(function() {
+        const visibleRows = table.rows({ page: 'current' }).nodes();
+        const visibleIds = [];
+
+        $(visibleRows).each(function() {
+            const id = $(this).data('id');
+            if (id) {
+                visibleIds.push(id);
+            }
+        });
+
+        if (visibleIds.length === 0) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'Tidak ada data',
+                text: 'Tidak ada data yang dapat direfresh',
+                showConfirmButton: true
+            });
+            return;
+        }
+
+        Swal.fire({
+            title: 'Refresh Data',
+            text: `Apakah Anda yakin ingin merefresh ${visibleIds.length} data yang terlihat?`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Ya, Refresh',
+            cancelButtonText: 'Batal',
+            reverseButtons: true,
+            customClass: {
+                confirmButton: 'btn btn-primary me-2',
+                cancelButton: 'btn btn-secondary'
+            }
+        }).then((result) => {
+            if (result.isConfirmed) {
+                let completed = 0;
+                let failed = 0;
+                const total = visibleIds.length;
+
+                // Disable button during refresh
+                $('#refreshAllVisible').prop('disabled', true).html('<div class="spinner-border spinner-border-sm me-1" role="status"><span class="visually-hidden">Loading...</span></div> Refreshing...');
+
+                // Show progress toast
+                const Toast = Swal.mixin({
+                    toast: true,
+                    position: 'top-end',
+                    showConfirmButton: false,
+                    timer: 3000,
+                    timerProgressBar: true
+                });
+
+                // Process each ID sequentially
+                const processNext = (index) => {
+                    if (index >= visibleIds.length) {
+                        // All done
+                        $('#refreshAllVisible').prop('disabled', false).html('<i class="bi bi-arrow-clockwise me-1"></i> Refresh All');
+
+                        Swal.fire({
+                            icon: failed > 0 ? 'warning' : 'success',
+                            title: 'Refresh Selesai',
+                            html: `<p>Berhasil: ${completed} data</p>${failed > 0 ? `<p>Gagal: ${failed} data</p>` : ''}`,
+                            showConfirmButton: true
+                        });
+                        return;
+                    }
+
+                    const currentId = visibleIds[index];
+
+                    // Update progress
+                    Toast.fire({
+                        icon: 'info',
+                        title: `Refreshing ${index + 1} of ${total}...`
+                    });
+
+                    // Call sync function
+                    const row = $(`tr[data-id="${currentId}"]`);
+                    const urlCell = row.find('td[data-field="url"]');
+                    const engagementCell = row.find('.engagement-cell');
+                    const engagementContent = engagementCell.find('.engagement-content');
+
+                    engagementContent.hide();
+                    engagementCell.append('<div class="engagement-loading"></div>');
+
+                    $.ajax({
+                        url: '<?= site_url("influencer_dummy/sync_external_process") ?>',
+                        type: 'POST',
+                        data: { id: currentId },
+                        dataType: 'json',
+                        success: function(response) {
+                            if (response.status === 'success') {
+                                urlCell.attr('data-follower', response.data.follower || 0);
+
+                                engagementContent.html(`
+                                    <p class="mb-1 text-black fw-bold">CPM : ${formatNumber(response.data.cpm)}</p>
+                                    <p class="mb-1 text-black fw-bold">Avg View : ${formatNumber(response.data.avg_view)}</p>
+                                    <p class="mb-1 text-black">ER : ${formatNumber(response.data.er)}</p>
+                                `);
+
+                                const usernameFollower = row.find('td[data-field="url"] .engagement-followers p');
+                                usernameFollower.text(`${response.data.follower?.toLocaleString('id-ID') || '0'}`);
+
+                                if (response.data.ratecard) {
+                                    const ratecardCell = row.find('td[data-field="ratecard"] .view-mode');
+                                    ratecardCell.text(formatNumber(response.data.ratecard.toString()));
+                                }
+
+                                completed++;
+                            } else {
+                                failed++;
+                            }
+                        },
+                        error: function() {
+                            failed++;
+                        },
+                        complete: function() {
+                            engagementCell.find('.engagement-loading').remove();
+                            engagementContent.show();
+                            table.row(row).invalidate().draw(false);
+
+                            // Process next after a short delay to avoid overwhelming the API
+                            setTimeout(() => processNext(index + 1), 500);
+                        }
+                    });
+                };
+
+                // Start processing
+                processNext(0);
+            }
+        });
+    });
+
+    // Individual row refresh
+    $('#influencerTable tbody').on('click', '.refresh-row', function(e) {
+        e.preventDefault();
+        const row = $(this).closest('tr');
+        const id = row.data('id');
+
+        console.log('Refresh button clicked');
+        console.log('Row element:', row);
+        console.log('Row data-id attribute:', row.attr('data-id'));
+        console.log('Row .data("id"):', id);
+
+        if (!id) {
+            console.error('ID not found on row. Row HTML:', row.html());
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                html: 'ID tidak ditemukan pada baris ini.<br>Data-ID: ' + (row.attr('data-id') || 'undefined'),
+                showConfirmButton: true
+            });
+            return;
+        }
+
+        Swal.fire({
+            title: 'Refresh Data',
+            text: 'Apakah Anda yakin ingin merefresh data influencer ini?',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Ya, Refresh',
+            cancelButtonText: 'Batal',
+            reverseButtons: true,
+            customClass: {
+                confirmButton: 'btn btn-primary me-2',
+                cancelButton: 'btn btn-secondary'
+            }
+        }).then((result) => {
+            if (result.isConfirmed) {
+                console.log('Starting refresh for ID:', id);
+                syncInfluencerData(id);
+
+                Swal.fire({
+                    toast: true,
+                    position: 'top-end',
+                    icon: 'info',
+                    title: 'Refreshing data...',
+                    showConfirmButton: false,
+                    timer: 2000
+                });
+            }
+        });
     });
 
 });

@@ -142,6 +142,24 @@
         </div>
     </div>
 
+    <div class="row">
+        <div class="col-md-12">
+            <div class="form-group">
+                <div class="form-check" style="padding: 12px; background-color: #f6ffed; border-left: 3px solid #52c41a; border-radius: 2px;">
+                    <input class="form-check-input" type="checkbox" id="auto_fetch" name="auto_fetch" checked>
+                    <label class="form-check-label" for="auto_fetch" style="color: rgba(0, 0, 0, 0.85);">
+                        <i class="bi bi-lightning-charge-fill text-success me-1"></i>
+                        <strong>Ambil data engagement otomatis</strong>
+                        <br>
+                        <small style="color: rgba(0, 0, 0, 0.65); margin-left: 20px;">
+                            Secara otomatis mengambil follower, CPM, avg view, dan ER dari TikTok/Instagram setelah menyimpan data
+                        </small>
+                    </label>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
         <button type="submit" class="btn btn-primary btn-submit">
@@ -172,10 +190,18 @@ $(document).ready(function() {
             if (field.name === 'ratecard') {
                 // Remove formatting from ratecard
                 data[field.name] = field.value.replace(/\./g, '');
+            } else if (field.name === 'auto_fetch') {
+                // Store checkbox value
+                data[field.name] = true;
             } else {
                 data[field.name] = field.value;
             }
         });
+
+        // If checkbox is unchecked, it won't be in formData, so check explicitly
+        if (!$('#auto_fetch').is(':checked')) {
+            data['auto_fetch'] = false;
+        }
 
         $.ajax({
             type: 'POST',
@@ -183,16 +209,26 @@ $(document).ready(function() {
             data: data,
             dataType: 'json',
             beforeSend: function() {
-                $('.btn-submit').prop('disabled', true).html('<div class="spinner-border spinner-border-sm me-1" role="status"><span class="visually-hidden">Loading...</span></div> Menyimpan...');
+                let loadingMsg = 'Menyimpan...';
+                if (data.auto_fetch && $('#url').val()) {
+                    loadingMsg = 'Menyimpan & mengambil data engagement...';
+                }
+                $('.btn-submit').prop('disabled', true).html('<div class="spinner-border spinner-border-sm me-1" role="status"><span class="visually-hidden">Loading...</span></div> ' + loadingMsg);
                 $('.form-message').slideUp().html('');
             },
             success: function(response) {
                 if (response.status === 'success') {
                     // Show success message
-                    $('.form-message').html('<div class="alert alert-success">Data berhasil ditambahkan!</div>').slideDown();
+                    let successMsg = 'Data berhasil ditambahkan!';
+                    if (data.auto_fetch && data.url && response.data.follower > 0) {
+                        successMsg += ' Data engagement berhasil diambil!';
+                    }
+                    $('.form-message').html('<div class="alert alert-success">' + successMsg + '</div>').slideDown();
 
                     // Call parent function to add row to table
                     if (typeof window.addNewRowToTable === 'function') {
+                        // Pass auto_fetch preference to the function
+                        response.data.auto_fetch = data.auto_fetch;
                         window.addNewRowToTable(response.data);
                     }
 

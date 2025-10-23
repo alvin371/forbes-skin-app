@@ -89,6 +89,7 @@ class Influencer_dummy extends CI_Controller {
     public function save() {
         $data = $this->input->post();
         $type = $this->input->post('type');
+        $auto_fetch = $this->input->post('auto_fetch'); // Get auto_fetch preference
 
         if (empty($data)) {
             $data = [
@@ -102,12 +103,15 @@ class Influencer_dummy extends CI_Controller {
                 'status_reach' => 'Belum Reachout',
             ];
         }
-    
+
+        // Remove auto_fetch field - it's only for frontend logic, not for database
+        unset($data['auto_fetch']);
+
         $data['created_at'] = date('Y-m-d H:i:s');
         $data['updated_at'] = date('Y-m-d H:i:s');
         $data['created_by'] = $this->session->userdata('user')['id'] ?? 0;
         $data['updated_by'] = $this->session->userdata('user')['id'] ?? 0;
-    
+
         if (empty($data['id'])) {
             $this->db->insert('influencer_dummy', $data);
             $id = $this->db->insert_id();
@@ -116,9 +120,20 @@ class Influencer_dummy extends CI_Controller {
             unset($data['id']);
             $this->db->where('id', $id)->update('influencer_dummy', $data);
         }
-    
+
         if ($this->db->affected_rows() > 0 || isset($id)) {
-            $saved_data = $this->db->where('id', $id)->get('influencer_dummy')->row();
+            $saved_data = $this->db->where('id', $id)->get('influencer_dummy')->row_array();
+
+            // Auto-sync engagement data if URL is provided and auto_fetch is enabled
+            $should_auto_sync = ($auto_fetch === 'true' || $auto_fetch === true);
+            if ($should_auto_sync && !empty($saved_data['url'])) {
+                $engagement_data = $this->_sync_engagement_data($id);
+                if ($engagement_data && $engagement_data['status'] === 'success') {
+                    // Refresh saved_data to get updated engagement metrics
+                    $saved_data = $this->db->where('id', $id)->get('influencer_dummy')->row_array();
+                }
+            }
+
             echo json_encode([
                 'status' => 'success',
                 'data' => $saved_data
@@ -128,6 +143,111 @@ class Influencer_dummy extends CI_Controller {
                 'status' => 'error',
                 'message' => 'Gagal menyimpan data'
             ]);
+        }
+    }
+
+    /**
+     * Internal method to sync engagement data from external APIs
+     * Extracted from sync_external_process for reusability
+     *
+     * @param int $id The influencer_dummy record ID
+     * @return array Status and data from sync operation
+     */
+    private function _sync_engagement_data($id)
+    {
+        try {
+            $query = $this->mymodel->selectWithQuery("SELECT * FROM influencer_dummy WHERE id = '$id'");
+
+            if (!$query || count($query) === 0) {
+                return ['status' => 'error', 'message' => 'Data tidak ditemukan!'];
+            }
+
+            $data = $query[0];
+            $url = $data['url'];
+            $type = $data['type'] ? $data['type'] : 'Tiktok';
+            $ratecard = $data['ratecard'];
+
+            $user = $this->session->userdata('user');
+
+            // Get account ID and basic info
+            $response = $this->template->get_account_id($type, $url);
+
+            if (!$response['status']) {
+                return ['status' => 'error', 'message' => 'Gagal mengambil account ID.'];
+            }
+
+            $update1 = [
+                'updated_at' => date("Y-m-d H:i:s"),
+                'updated_by' => strval($user['id']),
+                'account_id' => $response['data']['account_id'],
+                'img' => $response['data']['img'],
+                'follower' => $response['data']['follower'],
+                'media_count' => $response['data']['media_count']
+            ];
+            $this->db->update('influencer_dummy', $update1, ['id' => $id]);
+
+            // Get post list
+            if ($type === "Tiktok") {
+                preg_match('/@([a-zA-Z0-9._]+)/', $url, $matches);
+                $username = $matches[1] ?? '';
+                $response = $this->template->get_post_list($type, $update1['account_id']);
+            } else {
+                $response = $this->template->get_post_list($type, $update1['account_id']);
+            }
+
+            if (!$response['status']) {
+                return ['status' => 'error', 'message' => 'Gagal mengambil data postingan.'];
+            }
+
+            // Calculate engagement metrics
+            $like = $comment = $collect = $share = $view = 0;
+            $i = 0;
+
+            foreach ($response['data'] as $post) {
+                $like += $post['like'];
+                $comment += $post['comment'];
+                $collect += $post['collect'];
+                $share += $post['share'];
+                $view += $post['view'];
+                $i++;
+                if ($i >= 10) break;
+            }
+
+            $avg_view = $i ? $view / $i : 0;
+            $avg_interaksi = $i ? ($like + $comment + $collect + $share) / $i : 0;
+            $er = ($avg_view > 0) ? ($avg_interaksi / $avg_view * 100) : 0;
+
+            $update2 = [
+                'sync_at' => date("Y-m-d H:i:s"),
+                'updated_at' => date("Y-m-d H:i:s"),
+                'updated_by' => strval($user['id']),
+                'frequency_2' => $i,
+                'view_2' => $view,
+                'like_2' => $like,
+                'collect_2' => $collect,
+                'share_2' => $share,
+                'comment_2' => $comment,
+                'avg_view_2' => $avg_view,
+                'avg_interaksi_2' => $avg_interaksi,
+                'er' => $er,
+                'cpm_2' => ($ratecard > 0 && $avg_view > 0) ? ($ratecard / $avg_view * 1000) : 0
+            ];
+
+            $this->db->update('influencer_dummy', $update2, ['id' => $id]);
+
+            return [
+                'status' => 'success',
+                'message' => 'Sync data berhasil!',
+                'data' => [
+                    'follower' => $update1['follower'],
+                    'cpm' => $update2['cpm_2'],
+                    'er' => $update2['er'],
+                    'avg_view' => $update2['avg_view_2'],
+                    'ratecard' => $ratecard
+                ]
+            ];
+        } catch (Exception $e) {
+            return ['status' => 'error', 'message' => 'Exception: ' . $e->getMessage()];
         }
     }
     
