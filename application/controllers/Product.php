@@ -581,7 +581,7 @@ class Product extends BaseController
 
     public function update()
     {
-        $$user = $_SESSION['user'];
+        $user = $_SESSION['user'];
         $id = $_POST['id'];
         $variants = isset($_POST['variants']) ? $_POST['variants'] : [];
         
@@ -729,9 +729,24 @@ class Product extends BaseController
 
     public function create()
     {
-        $data['data'] = array();
+        $data['data'] = array(
+            'id' => '',
+            'name' => '',
+            'sku' => '',
+            'brand' => '',
+            'weight' => 0,
+            'price_buy' => 0,
+            'price_normal' => 0,
+            'price_reseller' => 0,
+            'price_distributor' => 0,
+            'desc' => '',
+            'img' => '',
+            'is_gift' => 0,
+            'is_varian' => 0,
+            'is_operational' => isset($_GET['p']) && $_GET['p'] == 'operasional' ? 1 : 0
+        );
 
-        $query = $this->mymodel->selectWithQuery("SELECT * FROM brand ORDER BY name aSC");
+        $query = $this->mymodel->selectWithQuery("SELECT * FROM brand ORDER BY name ASC");
 
         $data['brand'] = $query;
 
@@ -745,33 +760,39 @@ class Product extends BaseController
         $id = $_POST['id'];
         $dt = $_POST['dt'];
         $variants = isset($_POST['variants']) ? $_POST['variants'] : [];
-        
+
         $dt['created_at'] = DATE("Y-m-d H:i:s");
         $dt['created_by'] = $user['id'];
         $dt['sub_name'] = strtoupper($dt['name']);
-        $dt['is_varian'] = isset($dt['is_varian']) ? 1 : 0;
-        
+        // Fix: Check the actual value, not just if it's set
+        $dt['is_varian'] = (isset($dt['is_varian']) && $dt['is_varian'] == '1') ? 1 : 0;
+
         if (!empty($_FILES['file']['name'])) {
             $dt['img'] = $this->uploadProductImage('file');
         }
-        
+
         $this->db->trans_begin();
-        
+
         try {
             if ($id) {
                 $dt['updated_at'] = DATE("Y-m-d H:i:s");
                 $dt['updated_by'] = $user['id'];
                 $this->db->where('id', $id)->update('product', $dt);
                 $product_id = $id;
-                
+
                 $this->db->where('parent_id', $product_id)->delete('product');
             } else {
                 $this->db->insert('product', $dt);
                 $product_id = $this->db->insert_id();
             }
-            
+
             if ($dt['is_varian'] && !empty($variants)) {
                 foreach ($variants as $index => $variant) {
+                    // Skip empty variants (validate that essential fields are filled)
+                    if (empty($variant['name']) || empty($variant['sku'])) {
+                        continue;
+                    }
+
                     $variant_data = [
                         'parent_id' => $product_id,
                         'brand' => $dt['brand'],
@@ -791,7 +812,7 @@ class Product extends BaseController
                         'created_by' => $user['id'],
                         'status' => 'Aktif'
                     ];
-                    
+
                     $fileKey = 'variant_img_' . $index;
 
                     if (!empty($_FILES[$fileKey]['name'])) {
@@ -800,7 +821,7 @@ class Product extends BaseController
                         $variant_data['img'] = $variant['existing_img'];
                     }
 
-                    
+
                     $this->db->insert('product', $variant_data);
                 }
             }
@@ -820,19 +841,25 @@ class Product extends BaseController
 
     private function uploadProductImage($fieldName)
     {
-        $dir = "./assets/img/product/";
+        $dir = FCPATH . 'assets/img/product/';
+
+        // Create directory if it doesn't exist
+        if (!is_dir($dir)) {
+            mkdir($dir, 0777, true);
+        }
+
         $config['upload_path'] = $dir;
         $config['allowed_types'] = 'jpg|jpeg|png';
         $config['max_size'] = 2048; // 2MB
         $config['file_name'] = 'product_' . DATE("YmdHis");
         $config['overwrite'] = true;
-        
+
         $this->load->library('upload', $config);
-        
+
         if (!$this->upload->do_upload($fieldName)) {
             throw new Exception($this->upload->display_errors());
         }
-        
+
         return $this->upload->data('file_name');
     }
 
