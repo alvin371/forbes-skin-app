@@ -47,14 +47,18 @@
             <div id="regular-product-form" style="display: <?= $data['is_varian'] ? 'none' : 'block' ?>;">
                 <div class="form-group">
                     <label for="">Berat (gr)</label>
-                    <input type="number" class="form-control" name="dt[weight]" 
+                    <input type="number" class="form-control" name="dt[weight]"
                         value="<?= $data['weight'] ?>" <?= $data['is_varian'] ? 'disabled' : '' ?> required>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="">HPP</label>
-                    <input type="text" class="form-control format-price" name="dt[price_buy]" 
-                        value="<?= number_format($data['price_buy'], 0, ',', '.') ?>" <?= $data['is_varian'] ? 'disabled' : '' ?> required>
+                    <div class="input-group">
+                        <span class="input-group-text">Rp</span>
+                        <input type="text" class="form-control format-price text-end" name="dt[price_buy]"
+                            value="<?= $data['price_buy'] > 0 ? number_format($data['price_buy'], 0, ',', '.') : '' ?>"
+                            <?= $data['is_varian'] ? 'disabled' : '' ?> required placeholder="0">
+                    </div>
                 </div>
             </div>
         </div>
@@ -66,18 +70,30 @@
                     <label>Harga</label>
                     <div class="price-input-group mb-2">
                         <label class="price-label">Pelanggan</label>
-                        <input type="text" class="form-control format-price" name="dt[price_normal]" 
-                            value="<?= number_format($data['price_normal'], 0, ',', '.') ?>" <?= $data['is_varian'] ? 'disabled' : '' ?> required>
+                        <div class="input-group">
+                            <span class="input-group-text">Rp</span>
+                            <input type="text" class="form-control format-price text-end" name="dt[price_normal]"
+                                value="<?= $data['price_normal'] > 0 ? number_format($data['price_normal'], 0, ',', '.') : '' ?>"
+                                <?= $data['is_varian'] ? 'disabled' : '' ?> required placeholder="0">
+                        </div>
                     </div>
                     <div class="price-input-group mb-2">
                         <label class="price-label">Reseller</label>
-                        <input type="text" class="form-control format-price" name="dt[price_reseller]" 
-                            value="<?= number_format($data['price_reseller'], 0, ',', '.') ?>" <?= $data['is_varian'] ? 'disabled' : '' ?> required>
+                        <div class="input-group">
+                            <span class="input-group-text">Rp</span>
+                            <input type="text" class="form-control format-price text-end" name="dt[price_reseller]"
+                                value="<?= $data['price_reseller'] > 0 ? number_format($data['price_reseller'], 0, ',', '.') : '' ?>"
+                                <?= $data['is_varian'] ? 'disabled' : '' ?> required placeholder="0">
+                        </div>
                     </div>
                     <div class="price-input-group">
                         <label class="price-label">Distributor</label>
-                        <input type="text" class="form-control format-price" name="dt[price_distributor]" 
-                            value="<?= number_format($data['price_distributor'], 0, ',', '.') ?>" <?= $data['is_varian'] ? 'disabled' : '' ?> required>
+                        <div class="input-group">
+                            <span class="input-group-text">Rp</span>
+                            <input type="text" class="form-control format-price text-end" name="dt[price_distributor]"
+                                value="<?= $data['price_distributor'] > 0 ? number_format($data['price_distributor'], 0, ',', '.') : '' ?>"
+                                <?= $data['is_varian'] ? 'disabled' : '' ?> required placeholder="0">
+                        </div>
                     </div>
                 </div>
             </div>
@@ -137,25 +153,37 @@
                                 <input type="number" class="form-control text-end" name="variants[0][weight]" required>
                             </td>
                             <td>
-                                <input type="text" class="form-control text-end format-price" name="variants[0][price_buy]" required>
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text">Rp</span>
+                                    <input type="text" class="form-control text-end format-price" name="variants[0][price_buy]" required placeholder="0">
+                                </div>
                             </td>
                             <td>
                                 <div class="dropdown">
                                     <button class="btn btn-light w-100 dropdown-toggle text-start text-truncate" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                                         Isi Harga Varian
                                     </button>
-                                    <div class="dropdown-menu p-3" style="min-width: 250px;">
+                                    <div class="dropdown-menu p-3" style="min-width: 280px;">
                                         <div class="price-input-group mb-2">
                                             <label class="price-label">Pelanggan</label>
-                                            <input type="text" class="form-control format-price" name="variants[0][price_normal]" required>
+                                            <div class="input-group">
+                                                <span class="input-group-text">Rp</span>
+                                                <input type="text" class="form-control format-price text-end" name="variants[0][price_normal]" required placeholder="0">
+                                            </div>
                                         </div>
                                         <div class="price-input-group mb-2">
                                             <label class="price-label">Reseller</label>
-                                            <input type="text" class="form-control format-price" name="variants[0][price_reseller]" required>
+                                            <div class="input-group">
+                                                <span class="input-group-text">Rp</span>
+                                                <input type="text" class="form-control format-price text-end" name="variants[0][price_reseller]" required placeholder="0">
+                                            </div>
                                         </div>
                                         <div class="price-input-group">
                                             <label class="price-label">Distributor</label>
-                                            <input type="text" class="form-control format-price" name="variants[0][price_distributor]" required>
+                                            <div class="input-group">
+                                                <span class="input-group-text">Rp</span>
+                                                <input type="text" class="form-control format-price text-end" name="variants[0][price_distributor]" required placeholder="0">
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -194,15 +222,26 @@
     
     function toggleVarianForm(checkbox) {
         const isVarian = checkbox.checked;
-        
+
         document.getElementById('varian-form').style.display = isVarian ? 'block' : 'none';
         document.getElementById('regular-product-form').style.display = isVarian ? 'none' : 'block';
         document.getElementById('regular-price-form').style.display = isVarian ? 'none' : 'block';
-        
+
+        // Toggle required for regular product inputs
         const regularInputs = document.querySelectorAll('#regular-product-form input, #regular-price-form input');
         regularInputs.forEach(input => {
             input.disabled = isVarian;
             input.required = !isVarian;
+        });
+
+        // Toggle required for variant inputs
+        const variantInputs = document.querySelectorAll('#varian-form input[required], #varian-form input[type="text"], #varian-form input[type="number"]');
+        variantInputs.forEach(input => {
+            if (isVarian) {
+                input.setAttribute('required', 'required');
+            } else {
+                input.removeAttribute('required');
+            }
         });
     }
     
@@ -222,31 +261,43 @@
                 <input type="number" class="form-control text-end" name="variants[${varianIndex}][weight]" required>
             </td>
             <td>
-                <input type="text" class="form-control text-end format-price" name="variants[${varianIndex}][price_buy]" required>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text">Rp</span>
+                    <input type="text" class="form-control text-end format-price" name="variants[${varianIndex}][price_buy]" required placeholder="0">
+                </div>
             </td>
             <td>
                 <div class="dropdown">
                     <button class="btn btn-light w-100 dropdown-toggle text-start text-truncate" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                         Isi Harga Varian
                     </button>
-                    <div class="dropdown-menu p-3" style="min-width: 250px;">
+                    <div class="dropdown-menu p-3" style="min-width: 280px;">
                         <div class="price-input-group mb-2">
                             <label class="price-label">Pelanggan</label>
-                            <input type="text" class="form-control format-price" name="variants[${varianIndex}][price_normal]" required>
+                            <div class="input-group">
+                                <span class="input-group-text">Rp</span>
+                                <input type="text" class="form-control format-price text-end" name="variants[${varianIndex}][price_normal]" required placeholder="0">
+                            </div>
                         </div>
                         <div class="price-input-group mb-2">
                             <label class="price-label">Reseller</label>
-                            <input type="text" class="form-control format-price" name="variants[${varianIndex}][price_reseller]" required>
+                            <div class="input-group">
+                                <span class="input-group-text">Rp</span>
+                                <input type="text" class="form-control format-price text-end" name="variants[${varianIndex}][price_reseller]" required placeholder="0">
+                            </div>
                         </div>
                         <div class="price-input-group">
                             <label class="price-label">Distributor</label>
-                            <input type="text" class="form-control format-price" name="variants[${varianIndex}][price_distributor]" required>
+                            <div class="input-group">
+                                <span class="input-group-text">Rp</span>
+                                <input type="text" class="form-control format-price text-end" name="variants[${varianIndex}][price_distributor]" required placeholder="0">
+                            </div>
                         </div>
                     </div>
                 </div>
             </td>
             <td>
-                <input type="file" class="form-control form-control-sm" 
+                <input type="file" class="form-control form-control-sm"
                     name="variant_img_${varianIndex}" accept="image/*">
                 <small class="text-muted">Max 2MB</small>
             </td>
@@ -308,26 +359,37 @@
     }
 
     $(document).ready(function() {
+        console.log('Create product form loaded');
         inisialisasiFormatHarga();
-        
+
         // Inisialisasi dropdown Bootstrap
         $('.dropdown-toggle').dropdown();
+
+        // Initialize form state based on varian checkbox
+        const varianCheckbox = document.getElementById('varian_switch');
+        if (varianCheckbox) {
+            toggleVarianForm(varianCheckbox);
+        }
     });
 
-    $("#form-modal").submit(function() {
+    $("#form-modal").submit(function(e) {
+        e.preventDefault();
+        console.log('Form submit triggered');
+
         var form = $(this);
+
+        // Hapus format ribuan SEBELUM membuat FormData
+        $('.format-price').each(function() {
+            this.value = this.value.replace(/\./g, '');
+        });
+
         var mydata = new FormData(this);
-        
+
         if ($('#varian_switch').is(':checked')) {
             mydata.set('dt[is_varian]', '1');
         } else {
             mydata.set('dt[is_varian]', '0');
         }
-
-        // Hapus format ribuan sebelum submit
-        $('.format-price').each(function() {
-            this.value = this.value.replace(/\./g, '');
-        });
 
         $.ajax({
             type: "POST",
@@ -378,30 +440,51 @@
         border-radius: 4px;
         margin-bottom: 20px;
     }
-    
+
     .table thead th {
         position: -webkit-sticky;
         position: sticky;
         top: 0;
         z-index: 10;
     }
-    
+
     input[type="number"]::-webkit-inner-spin-button,
     input[type="number"]::-webkit-outer-spin-button {
         opacity: 1;
     }
-    
+
     .btn-sm {
         padding: 0.25rem 0.5rem;
         font-size: 0.875rem;
         line-height: 1.5;
     }
-    
+
     .dropdown-menu {
         z-index: 1050;
     }
-    
+
     .text-end {
         text-align: right !important;
+    }
+
+    /* IDR Currency Styling */
+    .input-group-text {
+        background-color: #f8f9fa;
+        border: 1px solid #ced4da;
+        color: #495057;
+        font-weight: 500;
+        font-size: 0.875rem;
+        min-width: 45px;
+        justify-content: center;
+    }
+
+    .input-group-sm .input-group-text {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+
+    .format-price {
+        font-family: 'Courier New', monospace;
+        letter-spacing: 0.5px;
     }
 </style>
