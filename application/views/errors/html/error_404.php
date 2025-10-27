@@ -402,7 +402,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
                 <a href="<?php echo base_url(); ?>profile" class="btn-link">
                     <i class="bi bi-person-circle"></i> My Profile
                 </a>
-                <a href="mailto:support@bhskinsystem.com" class="btn-link">
+                <a href="mailto:support@acnenosystem.com" class="btn-link">
                     <i class="bi bi-envelope"></i> Contact Support
                 </a>
             </div>

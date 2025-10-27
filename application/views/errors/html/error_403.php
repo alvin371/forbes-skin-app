@@ -547,7 +547,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
                     <i class="bi bi-speedometer2"></i>
                     Go to Dashboard
                 </a>
-                <a href="mailto:admin@bhskinsystem.com?subject=Access Request&body=Hi, I need access to a restricted page. My current role is: <?php echo $_SESSION['user']['role'] ?? 'Unknown'; ?>" class="btn-custom btn-warning">
+                <a href="mailto:admin@acnenosystem.com?subject=Access Request&body=Hi, I need access to a restricted page. My current role is: <?php echo $_SESSION['user']['role'] ?? 'Unknown'; ?>" class="btn-custom btn-warning">
                     <i class="bi bi-envelope"></i>
                     Request Access
                 </a>
@@ -562,7 +562,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
                 <a href="<?php echo base_url(); ?>quest" class="btn-link">
                     <i class="bi bi-trophy"></i> My Quests
                 </a>
-                <a href="mailto:support@bhskinsystem.com" class="btn-link">
+                <a href="mailto:support@acnenosystem.com" class="btn-link">
                     <i class="bi bi-headset"></i> Contact Support
                 </a>
             </div>

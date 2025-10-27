@@ -25,7 +25,7 @@ if ($_SESSION['is_login']) {
   if ($data[0]['img']) {
     $img = base_url() . '/assets/webfile/home/' . $data[0]['img'];
   } else {
-    $img = base_url() . '/assets/img/logo.png';
+    $img = base_url() . '/assets/img/acneno-logo.png';
   }
   $img = base_url() . '/assets/img/fav.png';
   ?>

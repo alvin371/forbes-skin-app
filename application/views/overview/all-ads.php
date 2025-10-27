@@ -93,7 +93,7 @@ $current_tax = $tax[0]['tax'];
         <div class="col-lg-12 mb-3">
             <div class="row">
                 <div class="col-md-12">
-                    <h3 class="text-primary fw-500">DASHBOARD OVERVIEW BHSKIN</h3>
+                    <h3 class="text-primary fw-500">DASHBOARD OVERVIEW ACNENO SYSTEM</h3>
                 </div>
             </div>
         </div>

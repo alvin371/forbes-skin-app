@@ -94,8 +94,8 @@
         <div style="position: relative; width: 100px; height: 100px;">
             <div class="spinner-border" role="status" style="width: 100px; height: 100px;">
             </div>
-    
-            <img src="<?= base_url() . '/assets/img/logo.png'; ?>" alt="Logo" class="spinner-logo" style="
+
+            <img src="<?= base_url() . '/assets/img/acneno-logo.png'; ?>" alt="Logo" class="spinner-logo" style="
                 position: absolute;
                 top: 50%;
                 left: 50%;

@@ -86,7 +86,7 @@ if ($_GET['type'] == "Yearly") {
 
             <div class="row">
                 <div class="col-md-12">
-                    <h3 class="text-primary fw-500">DASHBOARD INFLUENCER BHSKIN</h3>
+                    <h3 class="text-primary fw-500">DASHBOARD INFLUENCER ACNENO SYSTEM</h3>
                 </div>
             </div>
             <?php $this->load->view('dashboard/menu') ?>

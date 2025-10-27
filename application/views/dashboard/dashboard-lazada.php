@@ -31,7 +31,7 @@ if ($_GET['until_date'] == "") {
         <div class="col-lg-12 mb-1">
             <div class="row">
                 <div class="col-md-12 mb-2">
-                    <h3 class="text-primary fw-600">DASHBOARD LAZADA ADS BHSKIN</h3>
+                    <h3 class="text-primary fw-600">DASHBOARD LAZADA ADS ACNENO SYSTEM</h3>
                 </div>
             </div>
             <div class="col">

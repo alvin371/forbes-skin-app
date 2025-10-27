@@ -17,7 +17,7 @@ class Api extends BaseController
         $html = array();
         $html['status'] = true;
         $html['data'] = $dt;
-        $html['msg'] = "Bhskin REST API access has been successful!";
+        $html['msg'] = "Acneno System REST API access has been successful!";
 		echo json_encode($html, true);
     }
 
@@ -2073,7 +2073,7 @@ $price_total_hpp += (doubleval($json[$product['id']]['qty']) * doubleval($json[$
                 $html = array();
                 $html['status'] = false;
                 $html['data'] = $filter;
-                $html['msg'] = "Bhskin influencer cronjob will be processed at ".$target."!";
+                $html['msg'] = "Acneno System influencer cronjob will be processed at ".$target."!";
                 echo json_encode($html, true);
                 die;
             }
@@ -2220,7 +2220,7 @@ $price_total_hpp += (doubleval($json[$product['id']]['qty']) * doubleval($json[$
                 $html = array();
                 $html['status'] = false;
                 $html['data'] = $filter;
-                $html['msg'] = "Bhskin influencer cronjob will be processed at ".$target."!";
+                $html['msg'] = "Acneno System influencer cronjob will be processed at ".$target."!";
                 echo json_encode($html, true);
                 die;
             }
@@ -2573,7 +2573,7 @@ $price_total_hpp += (doubleval($json[$product['id']]['qty']) * doubleval($json[$
                 $html = array();
                 $html['status'] = false;
                 $html['data'] = $filter;
-                $html['msg'] = "Bhskin endorse campaign cronjob will be processed at ".$target."!";
+                $html['msg'] = "Acneno System endorse campaign cronjob will be processed at ".$target."!";
                 echo json_encode($html, true);
                 die;
             }
@@ -3195,7 +3195,7 @@ $price_total_hpp += (doubleval($json[$product['id']]['qty']) * doubleval($json[$
         $html = array();
         $html['status'] = true;
         $html['data'] = $dtt;
-        $html['msg'] = "Bhskin webhook live access has been successful!";
+        $html['msg'] = "Acneno System webhook live access has been successful!";
         echo json_encode($html, true);
         die;
     }
@@ -3247,7 +3247,7 @@ $price_total_hpp += (doubleval($json[$product['id']]['qty']) * doubleval($json[$
         $html = array();
         $html['status'] = true;
         $html['data'] = $dt;
-        $html['msg'] = "Bhskin webhook test access has been successful!";
+        $html['msg'] = "Acneno System webhook test access has been successful!";
         echo json_encode($html, true);
     }
     public function auth_marketplace_lazada(){
@@ -3264,7 +3264,7 @@ $price_total_hpp += (doubleval($json[$product['id']]['qty']) * doubleval($json[$
         $config = $config[0];
         $config = json_decode($config['val'],true);
         $cliend_id = $config['client_id'];
-        $url = 'https://app.bhskin.co.id/api/auth/lazada';
+        $url = 'https://app.acnenosystem.com/api/auth/lazada';
 
         if($brand=="MG"){
             $url = 'https://auth.lazada.com/oauth/authorize?response_type=code&force_auth=true&redirect_uri='.$url.'&client_id='.$config['app_key'];

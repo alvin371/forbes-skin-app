@@ -160,7 +160,7 @@ class Googlemou extends BaseController
     //     $tglIndo    = $this->_format_tanggal_id(date('Y-m-d'));
 
     //     $repl = [
-    //         'brand'                       => $campaign['brand_name'] ?? 'BHSKIN',
+    //         'brand'                       => $campaign['brand_name'] ?? 'ACNENO SYSTEM',
     //         'pic'                         => $picName,
     //         'full_name'                   => $inf['full_name'] ?? $inf['name'] ?? $nama_creator,
     //         'alamat'                      => $inf['address'] ?? '-',
@@ -361,7 +361,7 @@ class Googlemou extends BaseController
         } else if ($brand_raw == 'POME') {
             $brand = 'POME';
         } else {
-            $brand = 'BHSKIN';
+            $brand = 'ACNENO SYSTEM';
         }
 
         // === BUILD SOW ===
@@ -674,7 +674,7 @@ class Googlemou extends BaseController
                 'label'        => '465/ssl',
                 'protocol'     => 'smtp',
                 'smtp_host'    => env('SMTP_HOST', 'smtp.hostinger.com'),
-                'smtp_user'    => env('SMTP_USER', 'mou@bhskin.co.id'),
+                'smtp_user'    => env('SMTP_USER', 'mou@acnenosystem.com'),
                 'smtp_pass'    => env('SMTP_PASS', ''),
                 'smtp_port'    => env('SMTP_PORT_SSL', 465),
                 'smtp_crypto'  => 'ssl',
@@ -690,7 +690,7 @@ class Googlemou extends BaseController
                 'label'        => '587/tls',
                 'protocol'     => 'smtp',
                 'smtp_host'    => env('SMTP_HOST', 'smtp.hostinger.com'),
-                'smtp_user'    => env('SMTP_USER', 'mou@bhskin.co.id'),
+                'smtp_user'    => env('SMTP_USER', 'mou@acnenosystem.com'),
                 'smtp_pass'    => env('SMTP_PASS', ''),
                 'smtp_port'    => env('SMTP_PORT_TLS', 587),
                 'smtp_crypto'  => 'tls',
@@ -711,17 +711,17 @@ class Googlemou extends BaseController
             $this->email->set_crlf("\r\n");
 
             $this->email->clear(true);
-            $this->email->from(env('SMTP_USER', 'mou@bhskin.co.id'), 'BH Skin - MoU System'); 
+            $this->email->from(env('SMTP_USER', 'mou@acnenosystem.com'), 'Acneno System - MoU System'); 
             $this->email->to($email);
             $this->email->subject('MoU Kerja Sama - '.$inf['full_name']);
 
             $linkView = $doc_url ?: $pdf_url;
             $body = "Halo kak {$inf['full_name']},\n\n"
-                . "Terlampir dokumen MoU kerja sama dengan BHSKIN untuk dapat ditinjau.\n"
+                . "Terlampir dokumen MoU kerja sama dengan ACNENO SYSTEM untuk dapat ditinjau.\n"
                 . "Silakan dibaca kembali, dan hubungi kami jika ada hal yang ingin ditanyakan.\n\n"
                 . "Terima kasih atas kerja samanya.\n\n"
                 . "Salam,\n"
-                . "Tim BHSKIN";
+                . "Tim ACNENO SYSTEM";
             $this->email->message($body);
 
 

@@ -409,7 +409,7 @@ class Marketplace_account extends CI_Controller
         if ($dt['channel'] == "tiktok") {
         } else if ($dt['channel'] == "shopee") {
         } else {
-            $url = 'https://app.bhskin.co.id/api/auth/lazada';
+            $url = 'https://app.acnenosystem.com/api/auth/lazada';
             // $url = base_url() . 'api/auth/lazada';
             $url = 'https://auth.lazada.com/oauth/authorize?response_type=code&force_auth=true&redirect_uri=' . $url . '&client_id=' . $app_key;
             return redirect($url);
@@ -490,7 +490,7 @@ class Marketplace_account extends CI_Controller
 
             $app_key = $this->app_key_lazada;
             $redirectUrl = base_url() . 'api/marketplace/callback/lazada';
-            $redirectUrl = 'https://app.bhskin.co.id/api/marketplace/callback/lazada';
+            $redirectUrl = 'https://app.acnenosystem.com/api/marketplace/callback/lazada';
 
             $url = 'https://auth.lazada.com/oauth/authorize?response_type=code&force_auth=true&redirect_uri=' . $redirectUrl . '&client_id=' . $app_key;
             redirect($url);

@@ -124,7 +124,7 @@ if (!$_SESSION['is_login']) {
   if ($data[0]['img']) {
     $img = base_url() . '/assets/webfile/home/' . $data[0]['img'];
   } else {
-    $img = base_url() . '/assets/img/logo.png';
+    $img = base_url() . '/assets/img/acneno-logo.png';
   }
   $img = base_url() . '/assets/img/fav.png';
   ?>
@@ -539,7 +539,7 @@ if (!$_SESSION['is_login']) {
         <?php if ($can_view_dashboard): ?>
           <a href="<?= base_url() ?>">
         <?php endif; ?>
-            <img src="<?= base_url() ?>assets/img/logo-sidebar-v5.png" alt="Logo" style="width:214px;padding-left:10px" />
+            <img src="<?= base_url() ?>assets/img/acneno-logo.png" alt="Logo" style="width:214px;padding-left:10px" />
         <?php if ($can_view_dashboard): ?>
           </a>
         <?php endif; ?>

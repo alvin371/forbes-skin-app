@@ -4,7 +4,7 @@
 <div class="fullscreen-container">
   <div class="login-container text-start">
     <div class="login-logo">
-      <img src="<?= base_url() ?>/assets/img/logo.png" style="height:100px; width: 100px; margin-top: -20px;" alt="" class="">
+      <img src="<?= base_url() ?>/assets/img/acneno-logo.png" style="height:100px; width: 100px; margin-top: -20px;" alt="" class="">
     </div>
     <h4 class="text-white text-center mb-3" style="margin-top: -10px;">Create Account</h4>
     <form action="<?= base_url() ?>/auth/signup-process" id="signupForm" method="POST" class="text-white">

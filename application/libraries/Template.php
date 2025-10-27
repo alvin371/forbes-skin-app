@@ -6,7 +6,7 @@ class Template
 
     function endpoint_url()
     {
-        // return 'https://endpoint.bhskin.co.id/';
+        // return 'https://endpoint.acnenosystem.com/';
         return base_url();
     }
 
@@ -803,7 +803,7 @@ class Template
 
     function title()
     {
-        return 'Bhskin App';
+        return 'Acneno System';
     }
 
     function hex($i)
