@@ -7062,8 +7062,6 @@ gradient_5.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 			INNER JOIN (
 				SELECT
 					a.product,
-					a.brand,
-					a.marketplace,
 					SUM(a.qty_in) AS qty_in,
 					SUM(a.qty_in_pos) AS qty_in_pos,
 					SUM(a.qty_out) AS qty_out,
