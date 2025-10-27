@@ -90,7 +90,7 @@
         let scanTimeout;
         
         function playBeepSound() {
-            const beepSound = new Audio('https://app.bhskin.co.id/assets/webfile/store-scanner-beep-90395.mp3');
+            const beepSound = new Audio('https://app.acnenosystem.com/assets/webfile/store-scanner-beep-90395.mp3');
             beepSound.play().catch(e => console.log("Gagal memainkan suara:", e));
         }
     

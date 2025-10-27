@@ -15,7 +15,7 @@ $memcached_host = 'localhost';
 $memcached_port = '11211';
 
 // Check if we're on the production/staging server
-if (isset($_SERVER['HTTP_HOST']) && strpos($_SERVER['HTTP_HOST'], 'bhskin.co.id') !== false) {
+if (isset($_SERVER['HTTP_HOST']) && strpos($_SERVER['HTTP_HOST'], 'acnenosystem.com') !== false) {
     // Production/staging server - use localhost
     $memcached_host = 'localhost';
 } elseif (isset($_SERVER['SERVER_NAME']) && $_SERVER['SERVER_NAME'] === 'localhost') {

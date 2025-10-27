@@ -3277,7 +3277,7 @@ class Endorse extends BaseController
 
     //     // === MAPPING DATA UNTUK REPLACE (sesuai format ${variable}) ===
     //     $replacements = [
-    //         'brand'                         => $campaign['brand_name'] ?? 'BHSKIN',
+    //         'brand'                         => $campaign['brand_name'] ?? 'ACNENO SYSTEM',
     //         'pic'                           => $picName,
     //         'full_name'                     => $inf['full_name'] ?? $inf['name'] ?? $nama_creator,
     //         'alamat'                        => $inf['address'] ?? '-',
@@ -3591,7 +3591,7 @@ class Endorse extends BaseController
     //     }
 
     //     $this->email->clear(TRUE);
-    //     $this->email->from('mou@bhskin.co.id', 'BH Skin - MoU System');
+    //     $this->email->from('mou@acnenosystem.com', 'Acneno System - MoU System');
     //     $this->email->to($email);
     //     $this->email->subject('MoU Kerja Sama - '.$inf['full_name']);
     //     $this->email->message("Halo {$inf['full_name']},\n\nBerikut terlampir MoU kerja sama.\n\nTerima kasih.");

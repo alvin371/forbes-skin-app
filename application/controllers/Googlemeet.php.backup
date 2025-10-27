@@ -98,7 +98,7 @@ class Googlemeet extends CI_Controller {
         $calendar = new Google_Service_Calendar($this->client);
 
         $event = new Google_Service_Calendar_Event([
-            'summary' => 'Interview - BHSKIN',
+            'summary' => 'Interview - ACNENO SYSTEM',
             'start' => ['dateTime' => $startTime, 'timeZone' => 'Asia/Jakarta'],
             'end' => ['dateTime' => $endTime, 'timeZone' => 'Asia/Jakarta'],
             'conferenceData' => [

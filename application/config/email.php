@@ -3,7 +3,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 $config['protocol']    = 'smtp';
 $config['smtp_host']   = 'smtp.hostinger.com';
-$config['smtp_user']   = 'mou@bhskin.co.id';
+$config['smtp_user']   = 'mou@acnenosystem.com';
 $config['smtp_pass']   = 'P~2c*8#tg5';  
 $config['smtp_port']   = 465;                
 $config['smtp_crypto'] = 'ssl';            
