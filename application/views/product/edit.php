@@ -1,5 +1,5 @@
 <div class="form-message"></div>
-<form action="<?= base_url() ?>/product/update" method="POST" id="form-modal" enctype="multipart/form-data">
+<form action="<?= base_url() ?>product/update" method="POST" id="form-modal" enctype="multipart/form-data">
     <input type="hidden" name="id" value="<?= $data['id'] ?>">
     <input type="hidden" name="dt[is_operational]" value="<?= $data['is_operational'] ?>">
     
@@ -47,17 +47,17 @@
             <div id="regular-product-form" style="display: <?= $data['is_varian'] ? 'none' : 'block' ?>;">
                 <div class="form-group">
                     <label for="">Berat (gr)</label>
-                    <input type="number" class="form-control" name="dt[weight]"
-                        value="<?= $data['weight'] ?>" <?= $data['is_varian'] ? 'disabled' : '' ?> required>
+                    <input type="number" class="form-control regular-input" name="dt[weight]"
+                        value="<?= $data['weight'] ?>" required>
                 </div>
 
                 <div class="form-group">
                     <label for="">HPP</label>
                     <div class="input-group">
                         <span class="input-group-text">Rp</span>
-                        <input type="text" class="form-control format-price text-end" name="dt[price_buy]"
+                        <input type="text" class="form-control format-price text-end regular-input" name="dt[price_buy]"
                             value="<?= $data['price_buy'] > 0 ? number_format($data['price_buy'], 0, ',', '.') : '' ?>"
-                            <?= $data['is_varian'] ? 'disabled' : '' ?> required placeholder="0">
+                            required placeholder="0">
                     </div>
                 </div>
             </div>
@@ -72,27 +72,27 @@
                         <label class="price-label">Pelanggan</label>
                         <div class="input-group">
                             <span class="input-group-text">Rp</span>
-                            <input type="text" class="form-control format-price text-end" name="dt[price_normal]"
+                            <input type="text" class="form-control format-price text-end regular-input" name="dt[price_normal]"
                                 value="<?= $data['price_normal'] > 0 ? number_format($data['price_normal'], 0, ',', '.') : '' ?>"
-                                <?= $data['is_varian'] ? 'disabled' : '' ?> required placeholder="0">
+                                required placeholder="0">
                         </div>
                     </div>
                     <div class="price-input-group mb-2">
                         <label class="price-label">Reseller</label>
                         <div class="input-group">
                             <span class="input-group-text">Rp</span>
-                            <input type="text" class="form-control format-price text-end" name="dt[price_reseller]"
+                            <input type="text" class="form-control format-price text-end regular-input" name="dt[price_reseller]"
                                 value="<?= $data['price_reseller'] > 0 ? number_format($data['price_reseller'], 0, ',', '.') : '' ?>"
-                                <?= $data['is_varian'] ? 'disabled' : '' ?> required placeholder="0">
+                                required placeholder="0">
                         </div>
                     </div>
                     <div class="price-input-group">
                         <label class="price-label">Distributor</label>
                         <div class="input-group">
                             <span class="input-group-text">Rp</span>
-                            <input type="text" class="form-control format-price text-end" name="dt[price_distributor]"
+                            <input type="text" class="form-control format-price text-end regular-input" name="dt[price_distributor]"
                                 value="<?= $data['price_distributor'] > 0 ? number_format($data['price_distributor'], 0, ',', '.') : '' ?>"
-                                <?= $data['is_varian'] ? 'disabled' : '' ?> required placeholder="0">
+                                required placeholder="0">
                         </div>
                     </div>
                 </div>
@@ -297,15 +297,31 @@
     
     function toggleVarianForm(checkbox) {
         const isVarian = checkbox.checked;
-        
+
         document.getElementById('varian-form').style.display = isVarian ? 'block' : 'none';
         document.getElementById('regular-product-form').style.display = isVarian ? 'none' : 'block';
         document.getElementById('regular-price-form').style.display = isVarian ? 'none' : 'block';
-        
-        const regularInputs = document.querySelectorAll('#regular-product-form input, #regular-price-form input');
+
+        // Handle regular product inputs
+        const regularInputs = document.querySelectorAll('.regular-input');
         regularInputs.forEach(input => {
-            input.disabled = isVarian;
-            input.required = !isVarian;
+            if (isVarian) {
+                input.setAttribute('data-original-value', input.value);
+                input.value = '';
+                input.required = false;
+            } else {
+                const originalValue = input.getAttribute('data-original-value');
+                if (originalValue) {
+                    input.value = originalValue;
+                }
+                input.required = true;
+            }
+        });
+
+        // Handle variant inputs - toggle required attribute based on visibility
+        const variantInputs = document.querySelectorAll('#varian-form input[required]');
+        variantInputs.forEach(input => {
+            input.required = isVarian;
         });
     }
     
@@ -437,41 +453,71 @@
 
     $(document).ready(function () {
         inisialisasiFormatHarga();
+
+        // Initialize form based on current variant state
+        const isVarian = $('#varian_switch').is(':checked');
+        if (!isVarian) {
+            // Remove required from variant inputs if not a variant product
+            $('#varian-form input[required]').each(function() {
+                $(this).prop('required', false);
+            });
+        } else {
+            // Remove required from regular inputs if it's a variant product
+            $('.regular-input').each(function() {
+                $(this).prop('required', false);
+            });
+        }
     });
 
-    $("#form-modal").submit(function() {
-        var form = $(this);
+    $("#form-modal").submit(function(e) {
+        e.preventDefault();
+        console.log('Form submit triggered');
 
-        // Hapus format ribuan SEBELUM membuat FormData
-        const selector = 'input[name*="price"], input[name*="price_buy"]';
-        form.find(selector).each(function () {
-            this.value = this.value.replace(/\./g, '');
+        var form = $(this);
+        var formAction = form.attr("action");
+        console.log('Form action URL:', formAction);
+
+        // Hapus format ribuan dari SEMUA input harga
+        const priceInputs = form.find('.format-price, input[name*="[price"]');
+        console.log('Found price inputs:', priceInputs.length);
+
+        priceInputs.each(function () {
+            var originalValue = this.value;
+            this.value = this.value.replace(/\./g, '').replace(/,/g, '');
+            console.log('Cleaned price:', originalValue, '->', this.value);
         });
 
         var mydata = new FormData(this);
 
+        // Set variant flag explicitly
         if ($('#varian_switch').is(':checked')) {
             mydata.set('dt[is_varian]', '1');
+            console.log('Product is variant');
         } else {
             mydata.set('dt[is_varian]', '0');
+            console.log('Product is regular');
         }
+
+        console.log('Sending AJAX request...');
 
         $.ajax({
             type: "POST",
-            url: form.attr("action"),
+            url: formAction,
             data: mydata,
             cache: false,
             contentType: false,
             processData: false,
             beforeSend: function() {
+                console.log('AJAX beforeSend');
                 $(".btn-send").addClass("disabled").html('<i class="fa fa-spinner fa-spin"></i> Menyimpan...').attr('disabled', true);
                 form.find(".form-message").slideUp().html("");
             },
             success: function(response, textStatus, xhr) {
+                console.log('AJAX success:', response);
                 if (response.indexOf("success") != -1) {
                     $(".form-message").hide().html(response).slideDown("fast");
                     setTimeout(function() {
-                        window.location.href = "<?= base_url() ?>/product";
+                        window.location.href = "<?= base_url() ?>product";
                     }, 2000);
                 } else {
                     $(".form-message").hide().html(response).slideDown("fast");
@@ -479,8 +525,12 @@
                 }
             },
             error: function(xhr, textStatus, errorThrown) {
+                console.error('AJAX error:', textStatus, errorThrown);
+                console.error('Response:', xhr.responseText);
                 $(".btn-send").removeClass("disabled").html('Simpan Perubahan').attr('disabled', false);
-                $(".form-message").hide().html(xhr.responseText).slideDown("fast");
+
+                var errorMsg = xhr.responseText || 'Terjadi kesalahan pada server. Silakan coba lagi.';
+                $(".form-message").hide().html('<div class="alert alert-danger">' + errorMsg + '</div>').slideDown("fast");
             }
         });
 

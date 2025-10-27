@@ -588,6 +588,21 @@ class Product extends BaseController
         $current_product = $this->db->get_where('product', ['id' => $id])->row_array();
         
         $dt = $_POST['dt'];
+
+        // Clean price fields from formatting
+        if (isset($dt['price_buy'])) {
+            $dt['price_buy'] = str_replace(['.', ','], '', $dt['price_buy']);
+        }
+        if (isset($dt['price_normal'])) {
+            $dt['price_normal'] = str_replace(['.', ','], '', $dt['price_normal']);
+        }
+        if (isset($dt['price_reseller'])) {
+            $dt['price_reseller'] = str_replace(['.', ','], '', $dt['price_reseller']);
+        }
+        if (isset($dt['price_distributor'])) {
+            $dt['price_distributor'] = str_replace(['.', ','], '', $dt['price_distributor']);
+        }
+
         $dt['updated_at'] = DATE("Y-m-d H:i:s");
         $dt['updated_by'] = $user['id'];
         $dt['sub_name'] = strtoupper($dt['name']);
@@ -596,6 +611,19 @@ class Product extends BaseController
             $dt['is_varian'] = $current_product['is_varian'];
         }
 
+        // Handle image removal
+        if (isset($_POST['remove_main_image']) && $_POST['remove_main_image'] == 'on') {
+            $dt['img'] = '';
+            // Delete the old image file if it exists
+            if (!empty($current_product['img'])) {
+                $old_img_path = FCPATH . 'assets/img/product/' . $current_product['img'];
+                if (file_exists($old_img_path)) {
+                    @unlink($old_img_path);
+                }
+            }
+        }
+
+        // Handle new image upload
         if (!empty($_FILES['file']['name'])) {
             $dir = "./assets/img/product/";
             $config['upload_path'] = $dir;
@@ -603,7 +631,7 @@ class Product extends BaseController
             $config['overwrite'] = TRUE;
             $config['file_name'] = $id;
             $config['max_size'] = 2048;
-            
+
             $this->load->library('upload', $config);
             if (!$this->upload->do_upload('file')) {
                 $error = $this->upload->display_errors();
@@ -638,10 +666,10 @@ class Product extends BaseController
                         'sku' => $variant['sku'],
                         'name' => $variant['name'],
                         'sub_name' => strtoupper($variant['name']),
-                        'price_buy' => $variant['price_buy'],
-                        'price_normal' => $variant['price_normal'],
-                        'price_reseller' => $variant['price_reseller'],
-                        'price_distributor' => $variant['price_distributor'],
+                        'price_buy' => str_replace(['.', ','], '', $variant['price_buy']),
+                        'price_normal' => str_replace(['.', ','], '', $variant['price_normal']),
+                        'price_reseller' => str_replace(['.', ','], '', $variant['price_reseller']),
+                        'price_distributor' => str_replace(['.', ','], '', $variant['price_distributor']),
                         'weight' => $variant['weight'],
                         'is_gift' => $dt['is_gift'],
                         'is_operational' => $dt['is_operational'],
@@ -650,15 +678,30 @@ class Product extends BaseController
                         'updated_by' => $user['id'],
                         'status' => 'Aktif'
                     ];
-                    
+
+                    // Handle variant image removal
+                    if (isset($variant['remove_img']) && $variant['remove_img'] == 'on') {
+                        $variant_data['img'] = '';
+                        // Delete old image if exists
+                        if (!empty($variant['id'])) {
+                            $existing_variant = $this->db->get_where('product', ['id' => $variant['id']])->row_array();
+                            if (!empty($existing_variant['img'])) {
+                                $old_img_path = FCPATH . 'assets/img/product/' . $existing_variant['img'];
+                                if (file_exists($old_img_path)) {
+                                    @unlink($old_img_path);
+                                }
+                            }
+                        }
+                    }
+
                     $fileKey = 'variant_img_' . $index;
-                    
+
                     if (!empty($_FILES[$fileKey]['name'])) {
                         $variant_data['img'] = $this->uploadVariantImage($fileKey, $variant['id'] ?? null);
-                    } elseif (!empty($variant['existing_img'])) {
+                    } elseif (!empty($variant['existing_img']) && !isset($variant['remove_img'])) {
                         $variant_data['img'] = $variant['existing_img'];
                     }
-                    
+
                     if (!empty($variant['id'])) {
                         $this->db->update('product', $variant_data, array('id' => $variant['id']));
                     } else {
