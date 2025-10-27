@@ -93,7 +93,11 @@ class Calendar extends BaseController
 
                 // Check status_endorse instead of posting_at
                 if (in_array('rencana_at', $calendar_filters) && !empty($event['rencana_at'])) {
-                    if ($event['status_endorse'] != 'Posted Content') { // Check if status is not Posted Content
+                    // Show in Rencana Upload: all statuses except Posted Content, OR specifically Pengiriman Produk/Barang Dikirim
+                    $is_rencana = ($event['status_endorse'] != 'Posted Content') ||
+                                  in_array($event['status_endorse'], ['Pengiriman Produk', 'Barang Dikirim']);
+
+                    if ($is_rencana) { // Check if status is not Posted Content or is product shipping
                         foreach ($names as $name) {
                             if (!empty($name)) {
                                 $formatted_events[] = [
