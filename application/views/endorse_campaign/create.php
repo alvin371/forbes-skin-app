@@ -20,7 +20,7 @@
     }
 </style>
 
-<form action="<?= base_url() ?>/endorse-campaign/store" method="POST" id="form-modal">
+<form action="<?= base_url() ?>/endorse-campaign/store" method="POST" id="form-modal" enctype="multipart/form-data">
     <input type="hidden" name="id" value="<?= $data['id'] ?>">
     <input type="hidden" name="id_campaign" value="<?= $data['id'] ?>">
 
@@ -132,6 +132,19 @@
             <label>Deskripsi</label>
             <textarea class="form-control" name="dt[desc]" style="min-height:160px!important"><?= $data['desc'] ?></textarea>
         </div>
+
+        <div class="col-md-12 mb-3">
+            <label>Media (Photo/Video)</label>
+            <small class="text-muted d-block mb-2">Upload gambar (JPG, PNG, max 2MB) atau video (MP4, MOV, max 10MB)</small>
+            <input type="file" class="form-control" id="media_file" name="media_file" accept="image/jpeg,image/jpg,image/png,video/mp4,video/quicktime">
+            <div id="media_preview" class="mt-3" style="display:none;">
+                <img id="image_preview" src="" alt="Image Preview" style="max-width: 300px; max-height: 300px; display:none;">
+                <video id="video_preview" controls style="max-width: 400px; max-height: 300px; display:none;">
+                    <source src="" type="">
+                    Your browser does not support the video tag.
+                </video>
+            </div>
+        </div>
     </div>
 
     <div class="col-12 mt-3">
@@ -169,6 +182,41 @@
         document.getElementById('budget').value = value;
         if (value.length > 0) value = parseInt(value).toLocaleString('id-ID');
         this.value = value;
+    });
+
+    // Media file preview
+    document.getElementById('media_file').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (file) {
+            const fileType = file.type;
+            const previewContainer = document.getElementById('media_preview');
+            const imagePreview = document.getElementById('image_preview');
+            const videoPreview = document.getElementById('video_preview');
+
+            // Hide both previews first
+            imagePreview.style.display = 'none';
+            videoPreview.style.display = 'none';
+
+            if (fileType.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    imagePreview.src = e.target.result;
+                    imagePreview.style.display = 'block';
+                    previewContainer.style.display = 'block';
+                }
+                reader.readAsDataURL(file);
+            } else if (fileType.startsWith('video/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    videoPreview.querySelector('source').src = e.target.result;
+                    videoPreview.querySelector('source').type = fileType;
+                    videoPreview.load();
+                    videoPreview.style.display = 'block';
+                    previewContainer.style.display = 'block';
+                }
+                reader.readAsDataURL(file);
+            }
+        }
     });
 
     $("#form-modal").submit(function () {

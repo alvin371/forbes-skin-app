@@ -1,3 +1,6 @@
+<!-- Google reCAPTCHA v3 Script -->
+<script src="https://www.google.com/recaptcha/api.js?render=<?= env('RECAPTCHA_SITE_KEY') ?>"></script>
+
 <div class="fullscreen-container">
   <div class="login-container text-start">
     <div class="login-logo">
@@ -323,42 +326,52 @@
   document.getElementById('username').addEventListener('input', updateSubmitButton);
   document.getElementById('email').addEventListener('input', updateSubmitButton);
 
-  // Form submission
-  $("#signupForm").submit(function() {
+  // Form submission with reCAPTCHA v3
+  $("#signupForm").submit(function(e) {
+    e.preventDefault();
     var form = $(this);
-    var mydata = new FormData(this);
-    
-    $.ajax({
-      type: "POST",
-      url: form.attr("action"),
-      data: mydata,
-      cache: false,
-      contentType: false,
-      processData: false,
-      beforeSend: function() {
-        $(".btn-send").addClass("disabled").html('<div class="loading-ellipsis"><div></div><div></div><div></div><div></div></div>').attr('disabled', true);
-        form.find(".form-message").slideUp().html("");
-      },
-      success: function(response, textStatus, xhr) {
-        var str = response;
-        console.log(str);
-        if (str.indexOf("success") != -1) {
-          $(".form-message").hide().html(response).slideDown("fast");
-          setTimeout(function() {
-            window.location.href = "<?= base_url() ?>auth/login";
-          }, 2500);
-        } else {
-          $(".form-message").hide().html(response).slideDown("fast");
-          $(".btn-send").removeClass("disabled").html('Create Account').attr('disabled', false);
-          updateSubmitButton(); // Re-enable based on validation
-        }
-      },
-      error: function(xhr, textStatus, errorThrown) {
-        $(".btn-send").removeClass("disabled").html('Create Account').attr('disabled', false);
-        $(".form-message").hide().html('<div class="alert alert-danger">An error occurred. Please try again.</div>').slideDown("fast");
-        updateSubmitButton(); // Re-enable based on validation
-      }
+
+    // Execute reCAPTCHA v3
+    grecaptcha.ready(function() {
+      grecaptcha.execute('<?= env('RECAPTCHA_SITE_KEY') ?>', {action: 'signup'}).then(function(token) {
+        // Create FormData and add reCAPTCHA token
+        var mydata = new FormData(form[0]);
+        mydata.append('g-recaptcha-response', token);
+
+        $.ajax({
+          type: "POST",
+          url: form.attr("action"),
+          data: mydata,
+          cache: false,
+          contentType: false,
+          processData: false,
+          beforeSend: function() {
+            $(".btn-send").addClass("disabled").html('<div class="loading-ellipsis"><div></div><div></div><div></div><div></div></div>').attr('disabled', true);
+            form.find(".form-message").slideUp().html("");
+          },
+          success: function(response, textStatus, xhr) {
+            var str = response;
+            console.log(str);
+            if (str.indexOf("success") != -1) {
+              $(".form-message").hide().html(response).slideDown("fast");
+              setTimeout(function() {
+                window.location.href = "<?= base_url() ?>auth/login";
+              }, 2500);
+            } else {
+              $(".form-message").hide().html(response).slideDown("fast");
+              $(".btn-send").removeClass("disabled").html('Create Account').attr('disabled', false);
+              updateSubmitButton(); // Re-enable based on validation
+            }
+          },
+          error: function(xhr, textStatus, errorThrown) {
+            $(".btn-send").removeClass("disabled").html('Create Account').attr('disabled', false);
+            $(".form-message").hide().html('<div class="alert alert-danger">An error occurred. Please try again.</div>').slideDown("fast");
+            updateSubmitButton(); // Re-enable based on validation
+          }
+        });
+      });
     });
+
     return false;
   });
 

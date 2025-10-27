@@ -130,14 +130,39 @@
             <textarea class="form-control" name="dt[desc]" style="min-height:160px!important"><?= $data['desc'] ?></textarea>
         </div>
 
-        <!-- Uncomment this section if image upload is needed -->
-        <!-- <div class="col-md-12 mb-3">
-            <label>Image</label>
-            <?php if ($data['img']) { ?>
-                <a href="<?= base_url() ?>/assets/img/stock/<?= $data['img'] . '?token=' . DATE("Ymdhis", strtotime($data['updated_at'])) ?>" target="_blank"><i>Open Image</i></a>
+        <div class="col-md-12 mb-3">
+            <label>Media (Photo/Video)</label>
+            <small class="text-muted d-block mb-2">Upload gambar (JPG, PNG, max 2MB) atau video (MP4, MOV, max 10MB)</small>
+
+            <?php if (!empty($data['media_file'])) { ?>
+                <div class="mb-2">
+                    <strong>Media saat ini:</strong>
+                    <?php if ($data['media_type'] == 'image') { ?>
+                        <a href="<?= base_url() ?>assets/img/endorse_campaign/<?= $data['media_file'] ?>?token=<?= DATE("Ymdhis", strtotime($data['updated_at'] ?? 'now')) ?>" target="_blank">
+                            <img src="<?= base_url() ?>assets/img/endorse_campaign/<?= $data['media_file'] ?>?token=<?= DATE("Ymdhis", strtotime($data['updated_at'] ?? 'now')) ?>" alt="Current Media" style="max-width: 200px; max-height: 150px; display:block; margin-top:10px;">
+                        </a>
+                    <?php } elseif ($data['media_type'] == 'video') { ?>
+                        <video controls style="max-width: 300px; max-height: 200px; display:block; margin-top:10px;">
+                            <source src="<?= base_url() ?>assets/img/endorse_campaign/<?= $data['media_file'] ?>?token=<?= DATE("Ymdhis", strtotime($data['updated_at'] ?? 'now')) ?>" type="video/<?= pathinfo($data['media_file'], PATHINFO_EXTENSION) == 'mov' ? 'quicktime' : 'mp4' ?>">
+                            Your browser does not support the video tag.
+                        </video>
+                    <?php } ?>
+                    <small class="text-muted"><?= $data['media_file'] ?></small>
+                </div>
             <?php } ?>
-            <input type="file" class="form-control" name="file" accept="image/png, image/jpeg, image/jpg">
-        </div> -->
+
+            <input type="file" class="form-control" id="media_file" name="media_file" accept="image/jpeg,image/jpg,image/png,video/mp4,video/quicktime">
+            <small class="text-muted">Biarkan kosong jika tidak ingin mengubah media</small>
+
+            <div id="media_preview" class="mt-3" style="display:none;">
+                <strong>Preview baru:</strong>
+                <img id="image_preview" src="" alt="Image Preview" style="max-width: 300px; max-height: 300px; display:none; margin-top:10px;">
+                <video id="video_preview" controls style="max-width: 400px; max-height: 300px; display:none; margin-top:10px;">
+                    <source src="" type="">
+                    Your browser does not support the video tag.
+                </video>
+            </div>
+        </div>
 
         <div class="col-md-12 mt-3">
             <button type="submit" class="btn btn-primary btn-send">Simpan Data</button>
@@ -178,6 +203,41 @@
                 input.value = parseInt(rawValue).toLocaleString('id-ID');
             }
         }
+
+        // Media file preview
+        document.getElementById('media_file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const fileType = file.type;
+                const previewContainer = document.getElementById('media_preview');
+                const imagePreview = document.getElementById('image_preview');
+                const videoPreview = document.getElementById('video_preview');
+
+                // Hide both previews first
+                imagePreview.style.display = 'none';
+                videoPreview.style.display = 'none';
+
+                if (fileType.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        imagePreview.src = e.target.result;
+                        imagePreview.style.display = 'block';
+                        previewContainer.style.display = 'block';
+                    }
+                    reader.readAsDataURL(file);
+                } else if (fileType.startsWith('video/')) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        videoPreview.querySelector('source').src = e.target.result;
+                        videoPreview.querySelector('source').type = fileType;
+                        videoPreview.load();
+                        videoPreview.style.display = 'block';
+                        previewContainer.style.display = 'block';
+                    }
+                    reader.readAsDataURL(file);
+                }
+            }
+        });
 
         $("#form-modal").submit(function() {
             var form = $(this);

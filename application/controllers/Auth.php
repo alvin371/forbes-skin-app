@@ -259,12 +259,71 @@ class Auth extends CI_Controller
 
     public function signup_process()
     {
+        // Google reCAPTCHA v3 Verification
+        $recaptcha_token = isset($_POST['g-recaptcha-response']) ? $_POST['g-recaptcha-response'] : '';
+
+        if (empty($recaptcha_token)) {
+            $msg = 'Please complete the security verification!';
+            echo $this->template->alert_danger($msg);
+            return;
+        }
+
+        // Verify reCAPTCHA token with Google
+        $recaptcha_secret = env('RECAPTCHA_SECRET_KEY');
+        $recaptcha_url = 'https://www.google.com/recaptcha/api/siteverify';
+
+        $recaptcha_data = array(
+            'secret' => $recaptcha_secret,
+            'response' => $recaptcha_token,
+            'remoteip' => $_SERVER['REMOTE_ADDR']
+        );
+
+        $recaptcha_options = array(
+            'http' => array(
+                'method' => 'POST',
+                'header' => 'Content-Type: application/x-www-form-urlencoded',
+                'content' => http_build_query($recaptcha_data)
+            )
+        );
+
+        $recaptcha_context = stream_context_create($recaptcha_options);
+        $recaptcha_response = file_get_contents($recaptcha_url, false, $recaptcha_context);
+        $recaptcha_result = json_decode($recaptcha_response, true);
+
+        // Check reCAPTCHA verification result
+        if (!$recaptcha_result['success']) {
+            log_message('error', 'reCAPTCHA verification failed: ' . json_encode($recaptcha_result));
+            $msg = 'Security verification failed. Please try again!';
+            echo $this->template->alert_danger($msg);
+            return;
+        }
+
+        // Check reCAPTCHA score (v3 returns a score between 0.0 and 1.0)
+        // Score >= 0.5 is generally considered human
+        if (!isset($recaptcha_result['score']) || $recaptcha_result['score'] < 0.5) {
+            log_message('warning', 'reCAPTCHA score too low: ' . ($recaptcha_result['score'] ?? 'N/A') . ' for IP: ' . $_SERVER['REMOTE_ADDR']);
+            $msg = 'Your request appears suspicious. Please try again or contact support if you believe this is an error.';
+            echo $this->template->alert_danger($msg);
+            return;
+        }
+
+        // Check if action matches
+        if (!isset($recaptcha_result['action']) || $recaptcha_result['action'] !== 'signup') {
+            log_message('error', 'reCAPTCHA action mismatch: ' . ($recaptcha_result['action'] ?? 'N/A'));
+            $msg = 'Security verification failed. Please try again!';
+            echo $this->template->alert_danger($msg);
+            return;
+        }
+
+        // Log successful reCAPTCHA verification
+        log_message('info', 'reCAPTCHA verification successful - Score: ' . $recaptcha_result['score'] . ' for IP: ' . $_SERVER['REMOTE_ADDR']);
+
         $full_name = trim($_POST['full_name']);
         $username = trim($_POST['username']);
         $email = trim($_POST['email']);
         $password = $_POST['password'];
         $confirm_password = $_POST['confirm_password'];
-        
+
         // Validation
         if (empty($full_name)) {
             $msg = 'Full name is required!';
