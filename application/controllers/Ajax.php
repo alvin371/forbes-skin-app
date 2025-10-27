@@ -3025,6 +3025,7 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 		}
 		$campaign = $_GET['campaign'];
 		$platform = $_GET['platform'];
+		$endorse_status = $_GET['endorse_status'];
 		$qry = "";
 		if ($code == "1") {
 			$total_1 = 0;
@@ -3036,6 +3037,13 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 			}
 			if ($platform) {
 				$qry .= " AND platform = '$platform' ";
+			}
+			if ($endorse_status) {
+				$statusArray = explode(',', $endorse_status);
+				$statusText = '';
+				foreach ($statusArray as $v) $statusText .= "'" . $this->db->escape_str($v) . "',";
+				$statusText = rtrim($statusText, ',');
+				if ($statusText) $qry .= " AND status_endorse IN ($statusText) ";
 			}
 			$query = $this->mymodel->selectWithQuery("SELECT nama_creator as username, influencer as id, platform, COUNT(id) as count
 			FROM endorse
@@ -3049,52 +3057,42 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 			");
 
 			$arr = array();
-			$arr[] = "1. Review";
-			$arr[] = "2. Hold";
-			$arr[] = "3. Acc";
-			$arr[] = "4. DP";
-			$arr[] = "5. FP";
-			$arr[] = "6. Barang<br>Dikirim";
-			$arr[] = "7. Draft<br>Content";
-			$arr[] = "8. Posted<br>Content";
-			$arr[] = "9. Reject";
+			$arr[] = "Review";
+			$arr[] = "ACC";
+			$arr[] = "Pengiriman<br>Produk";
+			$arr[] = "Brief<br>Content";
+			$arr[] = "Draft<br>Content";
+			$arr[] = "Posted<br>Content";
+			$arr[] = "Rejected";
 
 			foreach ($list as $k => $v) {
 				$i = 0;
-				if ($v['status_endorse'] == "1. Review") {
+				if ($v['status_endorse'] == "Review") {
 					$i = 0;
 					$total[$v['id']][$i] = $total[$v['id']][$i] + 1;
 					$total_summary[$i] = $total_summary[$i] + 1;
-				} else if ($v['status_endorse'] == "2. Hold") {
+				} else if ($v['status_endorse'] == "ACC") {
 					$i = 1;
 					$total[$v['id']][$i] = $total[$v['id']][$i] + 1;
 					$total_summary[$i] = $total_summary[$i] + 1;
-				} else if ($v['status_endorse'] == "3. Acc") {
+				} else if ($v['status_endorse'] == "Pengiriman Produk") {
 					$i = 2;
 					$total[$v['id']][$i] = $total[$v['id']][$i] + 1;
 					$total_summary[$i] = $total_summary[$i] + 1;
-				} else if ($v['status_endorse'] == "4. DP") {
+				} else if ($v['status_endorse'] == "Brief Content") {
 					$i = 3;
 					$total[$v['id']][$i] = $total[$v['id']][$i] + 1;
 					$total_summary[$i] = $total_summary[$i] + 1;
-				} else if ($v['status_endorse'] == "5. FP") {
+				} else if ($v['status_endorse'] == "Draft Content") {
 					$i = 4;
 					$total[$v['id']][$i] = $total[$v['id']][$i] + 1;
 					$total_summary[$i] = $total_summary[$i] + 1;
-				} else if ($v['status_endorse'] == "6. Barang Dikirim") {
+				} else if ($v['status_endorse'] == "Posted Content") {
 					$i = 5;
 					$total[$v['id']][$i] = $total[$v['id']][$i] + 1;
 					$total_summary[$i] = $total_summary[$i] + 1;
-				} else if ($v['status_endorse'] == "7. Draft Content") {
+				} else if ($v['status_endorse'] == "Rejected") {
 					$i = 6;
-					$total[$v['id']][$i] = $total[$v['id']][$i] + 1;
-					$total_summary[$i] = $total_summary[$i] + 1;
-				} else if ($v['status_endorse'] == "8. Posted Content") {
-					$i = 7;
-					$total[$v['id']][$i] = $total[$v['id']][$i] + 1;
-					$total_summary[$i] = $total_summary[$i] + 1;
-				} else if ($v['status_endorse'] == "9. Reject") {
-					$i = 8;
 					$total[$v['id']][$i] = $total[$v['id']][$i] + 1;
 					$total_summary[$i] = $total_summary[$i] + 1;
 				}
