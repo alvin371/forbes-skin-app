@@ -105,6 +105,56 @@ if ($_GET['type'] == "Yearly") {
                 <input type="hidden" name="t" value="influencer">
                 <div class="row">
 
+                    <div class="col-md-12">
+                        <?php
+                        $arr = array();
+                        $arr[] = "Semua Status Endorse";
+                        $arr[] = "Review";
+                        $arr[] = "ACC";
+                        $arr[] = "Pengiriman Produk";
+                        $arr[] = "Brief Content";
+                        $arr[] = "Draft Content";
+                        $arr[] = "Posted Content";
+                        $arr[] = "Rejected";
+
+                        $url = base_url() . 'overview?t=influencer&campaign=' . $_GET['campaign'] . '&platform=' . $_GET['platform'] . '&start_date=' . $start_date . '&until_date=' . $until_date;
+
+                        foreach ($arr as $k => $val) {
+                            $class = "btn-default";
+                            $class_2 = "dot";
+
+                            $value = $val;
+                            if ($k == 0) {
+                                $value = '';
+                            }
+                            $status = isset($_GET['endorse_status']) ? $_GET['endorse_status'] : '';
+
+                            $statusArray = $status ? explode(',', $status) : [];
+
+                            if (($key = array_search($value, $statusArray)) !== false) {
+                                unset($statusArray[$key]);
+                                $class = "btn-default-selected";
+                                $class_2 = "dot-active";
+                            } else {
+                                $statusArray[] = $value;
+                            }
+
+                            $status = implode(',', $statusArray);
+
+                            if ($k == 0) {
+                                $status = '';
+                            }
+
+                            if ($k == 0 && $_GET['endorse_status'] == "") {
+                                $class_2 = "dot-active";
+                                $class = "btn-default-selected";
+                            }
+
+                        ?>
+                            <a href="<?= $url ?>&endorse_status=<?= $status ?>" class="btn <?= $class ?> mb-2 me-2"><span class="<?= $class_2 ?>"></span> <?= $val ?></a>
+                        <?php }  ?>
+                    </div>
+
                     <div class="col-md-6">
                         <div class="row">
                             <div class="col-md-4">
@@ -189,7 +239,7 @@ if ($_GET['type'] == "Yearly") {
                 <script>
                     $.ajax({
                         dataType: "json",
-                        url: '<?= base_url() ?>ajax/get-report-influencer?code=1&platform=<?= $_GET['platform'] ?>&campaign=<?= $_GET['campaign'] ?>&type=<?= $type ?>&start_date=<?= $start_date ?>&until_date=<?= $until_date ?>&start_year=<?= $start_year ?>&until_year=<?= $until_year ?>&start_month=<?= $start_month ?>&until_month=<?= $until_month ?>&start_week=<?= $start_week ?>&until_week=<?= $until_week ?>',
+                        url: '<?= base_url() ?>ajax/get-report-influencer?code=1&platform=<?= $_GET['platform'] ?>&campaign=<?= $_GET['campaign'] ?>&endorse_status=<?= $_GET['endorse_status'] ?>&type=<?= $type ?>&start_date=<?= $start_date ?>&until_date=<?= $until_date ?>&start_year=<?= $start_year ?>&until_year=<?= $until_year ?>&start_month=<?= $start_month ?>&until_month=<?= $until_month ?>&start_week=<?= $start_week ?>&until_week=<?= $until_week ?>',
                         success: function(html) {
                             $("#influencer-1").html(html.html);
                         }
