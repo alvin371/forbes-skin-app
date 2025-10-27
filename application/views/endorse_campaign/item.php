@@ -44,6 +44,22 @@ foreach ($data as $v) {
                 <p class="mb-1 text-black">PIC : <?= $v['pic'] ?></p>
                 <p class="mb-1 text-black">Produk : <?= $v['product_text'] ? $v['product_text'] : '-' ?></p>
                 <p class="mb-1 text-black">Keterangan : <?= $v['desc'] ?></p>
+
+                <?php if (!empty($v['media_file']) && !empty($v['media_type'])) { ?>
+                    <div class="mt-2">
+                        <strong>Media:</strong>
+                        <?php if ($v['media_type'] == 'image') { ?>
+                            <a href="<?= base_url() ?>assets/img/endorse_campaign/<?= $v['media_file'] ?>" target="_blank">
+                                <img src="<?= base_url() ?>assets/img/endorse_campaign/<?= $v['media_file'] ?>" alt="Campaign Media" style="max-width: 150px; max-height: 100px; display:block; margin-top:5px; border-radius:5px;">
+                            </a>
+                        <?php } elseif ($v['media_type'] == 'video') { ?>
+                            <video controls style="max-width: 200px; max-height: 120px; display:block; margin-top:5px; border-radius:5px;">
+                                <source src="<?= base_url() ?>assets/img/endorse_campaign/<?= $v['media_file'] ?>" type="video/<?= pathinfo($v['media_file'], PATHINFO_EXTENSION) == 'mov' ? 'quicktime' : 'mp4' ?>">
+                                Your browser does not support the video tag.
+                            </video>
+                        <?php } ?>
+                    </div>
+                <?php } ?>
             </div>
             <div class="col-lg-4 text-lg-end text-start">
                 <a href="#!" onclick="remove('<?= $v['id'] ?>')" class="btn btn-delete  mt-0 mb-2"><i class="bi bi-trash fs-16"></i> Delete Data</a>

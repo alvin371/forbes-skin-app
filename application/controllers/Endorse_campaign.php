@@ -483,38 +483,77 @@ class Endorse_campaign extends BaseController
         $dt = $_POST['dt'];
         $dt['updated_at'] = DATE("Y-m-d H:i:s");
         $dt['updated_by'] = $user['id'];
-        
+
         if (!isset($dt['is_internal'])) {
             $existing = $this->db->get_where('endorse_campaign', ['id' => $id])->row_array();
             $dt['is_internal'] = $existing['is_internal'];
         }
 
-        if ($_FILES['file']['name']) {
-            $input = $this->validate([
-                'file' => [
-                    'uploaded[file]',
-                    'mime_in[file,image/jpg,image/jpeg,image/png]',
-                    'max_size[file,1024]',
-                ]
-            ]);
+        // Handle media file upload (images and videos)
+        if (!empty($_FILES['media_file']['name'])) {
+            $upload_dir = FCPATH . 'assets/img/endorse_campaign/';
 
-            if (!$input) {
-                $msg = 'Pastikan tipe file .jpg, .jpeg atau .png!';
+            // Create directory if it doesn't exist
+            if (!is_dir($upload_dir)) {
+                mkdir($upload_dir, 0755, true);
+            }
+
+            // Get existing file to delete later
+            $existing = $this->db->get_where('endorse_campaign', ['id' => $id])->row_array();
+            $old_file = $existing['media_file'] ?? null;
+
+            $file_tmp = $_FILES['media_file']['tmp_name'];
+            $file_name = $_FILES['media_file']['name'];
+            $file_size = $_FILES['media_file']['size'];
+            $file_type = $_FILES['media_file']['type'];
+            $file_ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
+
+            // Validate file type
+            $allowed_image_ext = array('jpg', 'jpeg', 'png');
+            $allowed_video_ext = array('mp4', 'mov');
+            $all_allowed_ext = array_merge($allowed_image_ext, $allowed_video_ext);
+
+            if (!in_array($file_ext, $all_allowed_ext)) {
+                $msg = 'Tipe file tidak valid! Hanya JPG, PNG, MP4, atau MOV yang diperbolehkan.';
                 echo $this->template->alert_danger($msg);
                 die;
+            }
+
+            // Validate file size
+            if (in_array($file_ext, $allowed_image_ext)) {
+                // Images: max 2MB
+                if ($file_size > 2097152) {
+                    $msg = 'Ukuran file gambar terlalu besar! Maksimal 2MB.';
+                    echo $this->template->alert_danger($msg);
+                    die;
+                }
+                $dt['media_type'] = 'image';
             } else {
-                $img = $this->request->getFile('file');
-                $dir = str_replace('public/', '', FCPATH . 'assets/img/endorse_campaign/');
-                $img->move($dir);
-                $data = [
-                    'name' =>  $img->getName(),
-                    'type'  => $img->getClientMimeType()
-                ];
-                $currentFileName = $dir . $data['name'];
-                $newfile = $id . '.' . substr(strrchr($data['name'], "."), 1);
-                $newFileName = $dir . $newfile;
-                rename($currentFileName, $newFileName);
-                $dt['img'] = $newfile;
+                // Videos: max 10MB
+                if ($file_size > 10485760) {
+                    $msg = 'Ukuran file video terlalu besar! Maksimal 10MB.';
+                    echo $this->template->alert_danger($msg);
+                    die;
+                }
+                $dt['media_type'] = 'video';
+            }
+
+            // Generate unique filename
+            $new_filename = 'campaign_' . $id . '_' . DATE('Ymdhis') . '.' . $file_ext;
+            $upload_path = $upload_dir . $new_filename;
+
+            // Upload file
+            if (move_uploaded_file($file_tmp, $upload_path)) {
+                $dt['media_file'] = $new_filename;
+
+                // Delete old file if it exists
+                if ($old_file && file_exists($upload_dir . $old_file)) {
+                    unlink($upload_dir . $old_file);
+                }
+            } else {
+                $msg = 'Gagal mengupload file!';
+                echo $this->template->alert_danger($msg);
+                die;
             }
         }
 
@@ -613,34 +652,65 @@ class Endorse_campaign extends BaseController
         $dt['created_at'] = DATE("Y-m-d H:i:s");
         $dt['created_by'] = $user['id'];
 
-        if ($_FILES['file']['name']) {
-            $input = $this->validate([
-                'file' => [
-                    'uploaded[file]',
-                    'mime_in[file,image/jpg,image/jpeg,image/png]',
-                    'max_size[file,1024]',
-                ]
-            ]);
+        // Handle media file upload (images and videos)
+        if (!empty($_FILES['media_file']['name'])) {
+            $upload_dir = FCPATH . 'assets/img/endorse_campaign/';
 
-            if (!$input) {
-                $msg = 'Pastikan tipe file .jpg, .jpeg atau .png!';
+            // Create directory if it doesn't exist
+            if (!is_dir($upload_dir)) {
+                mkdir($upload_dir, 0755, true);
+            }
+
+            $file_tmp = $_FILES['media_file']['tmp_name'];
+            $file_name = $_FILES['media_file']['name'];
+            $file_size = $_FILES['media_file']['size'];
+            $file_type = $_FILES['media_file']['type'];
+            $file_ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
+
+            // Validate file type
+            $allowed_image_ext = array('jpg', 'jpeg', 'png');
+            $allowed_video_ext = array('mp4', 'mov');
+            $all_allowed_ext = array_merge($allowed_image_ext, $allowed_video_ext);
+
+            if (!in_array($file_ext, $all_allowed_ext)) {
+                $msg = 'Tipe file tidak valid! Hanya JPG, PNG, MP4, atau MOV yang diperbolehkan.';
                 echo $this->template->alert_danger($msg);
                 die;
+            }
+
+            // Validate file size
+            if (in_array($file_ext, $allowed_image_ext)) {
+                // Images: max 2MB
+                if ($file_size > 2097152) {
+                    $msg = 'Ukuran file gambar terlalu besar! Maksimal 2MB.';
+                    echo $this->template->alert_danger($msg);
+                    die;
+                }
+                $dt['media_type'] = 'image';
             } else {
-                $img = $this->request->getFile('file');
-                $dir = str_replace('public/', '', FCPATH . 'assets/img/endorse_campaign/');
-                $img->move($dir);
-                $data = [
-                    'name' =>  $img->getName(),
-                    'type'  => $img->getClientMimeType()
-                ];
-                $currentFileName = $dir . $data['name'];
-                $newfile = DATE('Ymdhis') . '.' . substr(strrchr($data['name'], "."), 1);
-                $newFileName = $dir . $newfile;
-                rename($currentFileName, $newFileName);
-                $dt['img'] = $newfile;
+                // Videos: max 10MB
+                if ($file_size > 10485760) {
+                    $msg = 'Ukuran file video terlalu besar! Maksimal 10MB.';
+                    echo $this->template->alert_danger($msg);
+                    die;
+                }
+                $dt['media_type'] = 'video';
+            }
+
+            // Generate unique filename
+            $new_filename = 'campaign_' . DATE('Ymdhis') . '_' . uniqid() . '.' . $file_ext;
+            $upload_path = $upload_dir . $new_filename;
+
+            // Upload file
+            if (move_uploaded_file($file_tmp, $upload_path)) {
+                $dt['media_file'] = $new_filename;
+            } else {
+                $msg = 'Gagal mengupload file!';
+                echo $this->template->alert_danger($msg);
+                die;
             }
         }
+
         if ($this->db->insert('endorse_campaign', $dt)) {
             $msg = 'Tambah data berhasil!';
             echo $this->template->alert_success($msg);
