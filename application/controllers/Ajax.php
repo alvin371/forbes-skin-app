@@ -3037,10 +3037,10 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 			if ($platform) {
 				$qry .= " AND platform = '$platform' ";
 			}
-			$query = $this->mymodel->selectWithQuery("SELECT nama_creator as username, influencer as id,platform, COUNT(id) as count
-			FROM endorse 
+			$query = $this->mymodel->selectWithQuery("SELECT nama_creator as username, influencer as id, platform, COUNT(id) as count
+			FROM endorse
 			WHERE 1=1 $qry
-			GROUP BY influencer
+			GROUP BY influencer, nama_creator, platform
 			ORDER BY count DESC
 			");
 			$list = $this->mymodel->selectWithQuery("SELECT influencer as id,status_endorse

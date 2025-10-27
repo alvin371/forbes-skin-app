@@ -614,7 +614,31 @@ if ($view == 'table') {
     ?>
     <div class="card mb-3" style="padding-bottom:0px">
         <div class="row">
-            <div class="col-lg-4">
+            <!-- Featured Media Section -->
+            <?php if (!empty($v['media_attachment'])): ?>
+                <div class="col-lg-3 col-md-4 mb-3 mb-lg-0" style="position:relative;">
+                    <?php
+                    $file_ext = strtolower(pathinfo($v['media_attachment'], PATHINFO_EXTENSION));
+                    if (in_array($file_ext, ['jpg', 'jpeg', 'png'])):
+                    ?>
+                        <a href="<?= base_url('assets/img/endorse/' . $v['media_attachment']) ?>" target="_blank" style="display:block; height:100%; min-height:200px;">
+                            <img src="<?= base_url('assets/img/endorse/' . $v['media_attachment']) ?>"
+                                 alt="Media"
+                                 style="width:100%; height:100%; min-height:200px; object-fit:cover; border-radius:10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        </a>
+                    <?php elseif (in_array($file_ext, ['mp4', 'mov', 'avi'])): ?>
+                        <a href="<?= base_url('assets/img/endorse/' . $v['media_attachment']) ?>" target="_blank" style="display:block; height:100%; min-height:200px; background:#f0f0f0; border-radius:10px; position:relative;">
+                            <div style="display:flex; align-items:center; justify-content:center; height:100%; min-height:200px; flex-direction:column;">
+                                <i class="bi bi-play-circle" style="font-size:60px; color:#6c757d; margin-bottom:10px;"></i>
+                                <p style="margin:0; color:#6c757d; font-size:14px; font-weight:600;">Click to view video</p>
+                            </div>
+                        </a>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
+
+            <!-- Creator Info Section -->
+            <div class="<?= !empty($v['media_attachment']) ? 'col-lg-3 col-md-4' : 'col-lg-4' ?>">
                 <a class="mb-1 text-blue fw-700 fs-16 a-none" href="<?= base_url() ?>endorse/detail?id=<?= $v['id'] ?>">#<?= $display_k ?></a>
                 <p class="mb-1 text-black fw-700 fs-16"><?= $v['nama_creator'] ?> <i class="bi bi-eye text-blue" id="eye-card-<?= $v['nama_creator'] ?>"></i></p>
 
@@ -622,7 +646,17 @@ if ($view == 'table') {
                     <?= $v['img_creator_1'] ?>
                     <?= $v['img_creator_2'] ?>
                 </div>
+
                 <p class="mb-1 text-black">PIC : <?= $v['pic'] ?></p>
+
+                <?php if (!empty($v['category_kol'])): ?>
+                    <p class="mb-1">
+                        <span class="badge" style="background-color:#9b59b6; color:white; padding: 4px 8px; font-size: 11px;">
+                            <i class="bi bi-tag-fill"></i> <?= htmlspecialchars($v['category_kol']) ?>
+                        </span>
+                    </p>
+                <?php endif; ?>
+
                 <div class="d-flex align-items-center" style="gap: 5px; margin-top:6px!important;">
                     <p class="mb-0 br-10 fs-12 text-white" style="background-color:<?= $bg ?>!important; color:<?= $clr ?>!important; padding: 5px 10px;">
                         <?= strtoupper(strtolower($v['status_endorse'])) ?>
@@ -639,12 +673,14 @@ if ($view == 'table') {
                     <?php endif; ?>
                 </div>
             </div>
-            <div class="col-md-4 mt-lg-5 mt-0">
+            <!-- Stats Section -->
+            <div class="<?= !empty($v['media_attachment']) ? 'col-lg-3 col-md-4' : 'col-md-4' ?> mt-lg-5 mt-0">
                 <p class="mb-1 text-black fw-600">CPM : <?= separator_only($creator['cpm_2']) ?></p>
                 <p class="mb-1 text-black">AVG Interaksi : <?= separator_only($creator['avg_interaksi_2']) ?></p>
                 <p class="mb-1 text-black">AVG View : <?= separator_only($creator['avg_view_2']) ?></p>
             </div>
-            <div class="col-lg-4 text-lg-end text-start">
+            <!-- Action Buttons Section -->
+            <div class="<?= !empty($v['media_attachment']) ? 'col-lg-3' : 'col-lg-4' ?> text-lg-end text-start">
                 <?php if (!in_array($v['status_payment'], ['DP','FP'], true)) : ?>
                 <a href="#!" onclick="remove('<?= $v['id'] ?>')" class="btn btn-delete mt-0 mb-2"><i class="bi bi-trash fs-16"></i> Delete Data</a>
                 <?php endif; ?>

@@ -55,9 +55,9 @@
     <div class="row">
         <div class="col-md-6">
             <div class="form-group">
-                <label for="niche">Niche</label>
+                <label for="niche">Category KOL</label>
                 <select class="form-select" id="niche" name="niche">
-                    <option value="">Pilih Niche</option>
+                    <option value="">Pilih Category KOL</option>
                     <?php foreach ($niches as $item): ?>
                         <option value="<?= htmlspecialchars($item['niche']) ?>">
                             <?= htmlspecialchars($item['niche']) ?>

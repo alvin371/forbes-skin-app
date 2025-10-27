@@ -77,13 +77,13 @@
 		</div>
 
 		<div class="col-md-6 mb-3">
-			<label>Niche</label>
+			<label>Category KOL</label>
 			<select class="form-control" name="dt[niche]">
+				<option value="">Pilih Category KOL</option>
 				<?php
-				$arr = ["Fashion", "Couple", "Bumil Busui", "Foodies", "Entertainment", "Expert", "Gym / Diet", "Beauty Reviewer", "Random"];
-				foreach ($arr as $v2) {
-					$selected = ($data['niche'] == $v2) ? 'selected' : '';
-					echo "<option $selected value=\"$v2\">$v2</option>";
+				foreach ($niche as $v2) {
+					$selected = ($data['niche'] == $v2['niche']) ? 'selected' : '';
+					echo "<option $selected value=\"{$v2['niche']}\">{$v2['niche']}</option>";
 				}
 				?>
 			</select>

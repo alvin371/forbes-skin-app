@@ -724,10 +724,10 @@ class Profile extends BaseController
 
             // Get user's monthly ranking
             $monthly_rank = $this->mymodel->selectWithQuery("
-                SELECT COUNT(*) + 1 as rank
+                SELECT COUNT(*) + 1 as `rank`
                 FROM user_side_quest_stats usqs
-                WHERE (usqs.monthly_points_earned + COALESCE(usqs.milestone_bonus_points, 0)) > 
-                      (SELECT (monthly_points_earned + COALESCE(milestone_bonus_points, 0)) 
+                WHERE (usqs.monthly_points_earned + COALESCE(usqs.milestone_bonus_points, 0)) >
+                      (SELECT (monthly_points_earned + COALESCE(milestone_bonus_points, 0))
                        FROM user_side_quest_stats WHERE user_profile_id = '$profile_id')
                 AND usqs.current_month = DATE_FORMAT(NOW(), '%Y-%m')
             ");
@@ -735,10 +735,10 @@ class Profile extends BaseController
 
             // Get user's all-time ranking
             $alltime_rank = $this->mymodel->selectWithQuery("
-                SELECT COUNT(*) + 1 as rank
+                SELECT COUNT(*) + 1 as `rank`
                 FROM user_side_quest_stats usqs
-                WHERE (usqs.total_points_earned + COALESCE(usqs.milestone_bonus_points, 0)) > 
-                      (SELECT (total_points_earned + COALESCE(milestone_bonus_points, 0)) 
+                WHERE (usqs.total_points_earned + COALESCE(usqs.milestone_bonus_points, 0)) >
+                      (SELECT (total_points_earned + COALESCE(milestone_bonus_points, 0))
                        FROM user_side_quest_stats WHERE user_profile_id = '$profile_id')
             ");
             $stats['alltime_rank'] = !empty($alltime_rank) ? $alltime_rank[0]['rank'] : 1;

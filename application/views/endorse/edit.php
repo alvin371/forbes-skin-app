@@ -91,7 +91,7 @@
 		100% { transform: translate(24px, 0); }
 	}
 </style>
-<form action="<?= base_url() ?>/endorse/update" method="POST" id="form-modal">
+<form action="<?= base_url() ?>/endorse/update" method="POST" id="form-modal" enctype="multipart/form-data">
 	<input type="hidden" name="id" value="<?= $data['id'] ?>">
 	<input type="hidden" name="id_campaign" value="<?= $data['id_campaign'] ?>">
 	<input type="hidden" name="status_endorse_existing" value="<?= $data['status_endorse'] ?>">
@@ -285,6 +285,43 @@
 		<div class="col-md-6">
 			<label for="">Kode Ads</label>
 			<input type="text" class="form-control" name="dt[kode_ads]" value="<?= $data['kode_ads'] ?>">
+		</div>
+
+		<div class="col-md-6">
+			<label for="">Category KOL</label>
+			<select class="form-control" name="dt[category_kol]">
+				<option value="">Pilih Category KOL</option>
+				<?php
+				$current_category = isset($data['category_kol']) ? trim($data['category_kol']) : '';
+				foreach ($niche as $v2) {
+					$niche_value = trim($v2['niche']);
+					$selected = ($current_category === $niche_value) ? 'selected' : '';
+					echo "<option $selected value=\"{$niche_value}\">{$niche_value}</option>";
+				}
+				?>
+			</select>
+		</div>
+
+		<div class="col-md-6">
+			<label for="">Upload Media (Image/Video)</label>
+			<input type="file" class="form-control" name="media_attachment" accept="image/*,video/*">
+			<small class="form-text text-muted">Format: JPG, PNG, MP4, MOV, AVI (Max: 10MB)</small>
+			<?php if (!empty($data['media_attachment'])): ?>
+				<div class="mt-2">
+					<small>Current file: <strong><?= $data['media_attachment'] ?></strong></small>
+					<br>
+					<?php
+					$file_ext = strtolower(pathinfo($data['media_attachment'], PATHINFO_EXTENSION));
+					if (in_array($file_ext, ['jpg', 'jpeg', 'png'])):
+					?>
+						<img src="<?= base_url('assets/img/endorse/' . $data['media_attachment']) ?>" alt="Media" style="max-width: 200px; margin-top: 5px;" class="img-thumbnail">
+					<?php elseif (in_array($file_ext, ['mp4', 'mov', 'avi'])): ?>
+						<video controls style="max-width: 200px; margin-top: 5px;">
+							<source src="<?= base_url('assets/img/endorse/' . $data['media_attachment']) ?>" type="video/<?= $file_ext ?>">
+						</video>
+					<?php endif; ?>
+				</div>
+			<?php endif; ?>
 		</div>
 
 		<div class="col-md-6">
