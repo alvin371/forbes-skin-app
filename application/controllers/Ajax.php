@@ -337,11 +337,17 @@ class Ajax extends CI_Controller
 			$val_3 = 0; // engagement kumulatif
 			$val_4 = 0; // cost kumulatif
 			$val_5 = 0; // endorse kumulatif
+			$val_likes = 0; // likes individual
+			$val_comment = 0; // comment individual
+			$val_share_save = 0; // share_save individual
 
 			foreach ($list as $v) {
 				if ($v['opt'] == $v2) {
 					$val_1 = intval($v['views']);
-					$val_3 = intval($v['likes']) + intval($v['comment']) + intval($v['share_save']);
+					$val_likes = intval($v['likes']);
+					$val_comment = intval($v['comment']);
+					$val_share_save = intval($v['share_save']);
+					$val_3 = $val_likes + $val_comment + $val_share_save;
 					$val_4 = floatval($v['cost']);
 					$val_5 = intval($v['endorse']);
 					if ($val_4 > 0 && $val_1 > 0) $val_2 = ($val_4 / $val_1) * 1000;
@@ -356,7 +362,10 @@ class Ajax extends CI_Controller
 				'val_2'    => round($val_2, 2),
 				'val_3'    => round($val_3, 2),
 				'val_4'    => round($val_4, 2),
-				'val_5'    => round($val_5, 2)
+				'val_5'    => round($val_5, 2),
+				'val_likes' => round($val_likes, 2),
+				'val_comment' => round($val_comment, 2),
+				'val_share_save' => round($val_share_save, 2)
 			);
 		}
 
@@ -374,11 +383,17 @@ class Ajax extends CI_Controller
 		$baseline_eng   = 0;
 		$baseline_cost  = 0;
 		$baseline_end   = 0;
+		$baseline_likes = 0;
+		$baseline_comment = 0;
+		$baseline_share_save = 0;
 
 		if ($checkbox[0] == 'true') {
 			$sql_base = "
-				SELECT 
+				SELECT
 					SUM(endorse_logs.views_after)                                        AS views,
+					SUM(endorse_logs.likes_after)                                        AS likes,
+					SUM(endorse_logs.comment_after)                                      AS comment,
+					SUM(endorse_logs.share_save_after)                                   AS share_save,
 					SUM(endorse_logs.likes_after + endorse_logs.comment_after + endorse_logs.share_save_after) AS engagement,
 					SUM(endorse_logs.total_cost)                                         AS cost,
 					COUNT(endorse_logs.id)                                               AS endorse,
@@ -395,6 +410,9 @@ class Ajax extends CI_Controller
 			$base = $this->mymodel->selectWithQuery($sql_base);
 			if (!empty($base)) {
 				$baseline_views = (int)$base[0]['views'];
+				$baseline_likes = (int)$base[0]['likes'];
+				$baseline_comment = (int)$base[0]['comment'];
+				$baseline_share_save = (int)$base[0]['share_save'];
 				$baseline_eng   = (int)$base[0]['engagement'];
 				$baseline_cost  = (float)$base[0]['cost'];
 				$baseline_end   = (int)$base[0]['endorse'];
@@ -406,12 +424,18 @@ class Ajax extends CI_Controller
 		$prev_engagement = ($checkbox[0] == 'true') ? $baseline_eng   : 0;
 		$prev_cost       = ($checkbox[0] == 'true') ? $baseline_cost  : 0;
 		$prev_endorse    = ($checkbox[0] == 'true') ? $baseline_end   : 0;
+		$prev_likes      = ($checkbox[0] == 'true') ? $baseline_likes : 0;
+		$prev_comment    = ($checkbox[0] == 'true') ? $baseline_comment : 0;
+		$prev_share_save = ($checkbox[0] == 'true') ? $baseline_share_save : 0;
 
 		// ===== Akumulator delta untuk summary Daily =====
 		$sum_delta_views = 0;
 		$sum_delta_eng   = 0;
 		$sum_delta_cost  = 0;
 		$sum_delta_end   = 0;
+		$sum_delta_likes = 0;
+		$sum_delta_comment = 0;
+		$sum_delta_share_save = 0;
 
 		$today = date('Y-m-d');
 
@@ -430,12 +454,18 @@ class Ajax extends CI_Controller
 				$current_engagement = $v['val_3'];
 				$current_cost       = $v['val_4'];
 				$current_endorse    = $v['val_5'];
+				$current_likes      = $v['val_likes'];
+				$current_comment    = $v['val_comment'];
+				$current_share_save = $v['val_share_save'];
 
 				// Tampilkan selisih views apa adanya (termasuk minus)
 				$v['val_1'] = ($current_views - $prev_views);
 				$v['val_3'] = ($current_engagement - $prev_engagement);
 				$v['val_4'] = ($current_cost       - $prev_cost);
 				$v['val_5'] = ($current_endorse    - $prev_endorse);
+				$v['val_likes'] = ($current_likes - $prev_likes);
+				$v['val_comment'] = ($current_comment - $prev_comment);
+				$v['val_share_save'] = ($current_share_save - $prev_share_save);
 
 				if ($v['val_4'] > 0 && $v['val_1'] > 0) {
 					$v['val_2'] = ($v['val_4'] / $v['val_1']) * 1000;
@@ -448,18 +478,27 @@ class Ajax extends CI_Controller
 				$sum_delta_eng   += $v['val_3'];
 				$sum_delta_cost  += $v['val_4'];
 				$sum_delta_end   += $v['val_5'];
+				$sum_delta_likes += $v['val_likes'];
+				$sum_delta_comment += $v['val_comment'];
+				$sum_delta_share_save += $v['val_share_save'];
 
 				// Update prev_* untuk iterasi berikut
 				$prev_views      = $current_views;
 				$prev_engagement = $current_engagement;
 				$prev_cost       = $current_cost;
 				$prev_endorse    = $current_endorse;
+				$prev_likes      = $current_likes;
+				$prev_comment    = $current_comment;
+				$prev_share_save = $current_share_save;
 			} else {
 				// Mode kumulatif
 				$prev_views      = $v['val_1'];
 				$prev_engagement = $v['val_3'];
 				$prev_cost       = $v['val_4'];
 				$prev_endorse    = $v['val_5'];
+				$prev_likes      = $v['val_likes'];
+				$prev_comment    = $v['val_comment'];
+				$prev_share_save = $v['val_share_save'];
 			}
 
 			// === NEW: Jika mode SELISIH aktif dan tanggal > hari ini → paksa semua nilai = 0 ===
@@ -469,6 +508,9 @@ class Ajax extends CI_Controller
 				$v['val_3'] = 0;  // engagement
 				$v['val_4'] = 0;  // cost
 				$v['val_5'] = 0;  // endorse count
+				$v['val_likes'] = 0;  // likes
+				$v['val_comment'] = 0;  // comment
+				$v['val_share_save'] = 0;  // share_save
 			}
 
 			// Build label & tabel
@@ -525,6 +567,7 @@ class Ajax extends CI_Controller
 
 		// ===== Hitung summary (fallback ke hari terakhir yang ada datanya) =====
 		$views = 0; $cpm = 0; $engagement = 0; $cost = 0; $endorse_cnt = 0;
+		$likes = 0; $comment = 0; $share_save = 0;
 
 		if (!empty($arr_new)) {
 			if ($checkbox[0] == 'false') {
@@ -533,6 +576,9 @@ class Ajax extends CI_Controller
 				$views       = (float)$last_day_data['val_1'];
 				$engagement  = (float)$last_day_data['val_3'];
 				$endorse_cnt = (float)$last_day_data['val_5'];
+				$likes       = (float)$last_day_data['val_likes'];
+				$comment     = (float)$last_day_data['val_comment'];
+				$share_save  = (float)$last_day_data['val_share_save'];
 
 				// === NEW: cost & cpm summary pakai SUM(endorse.total_cost)
 				$cost = $total_cost_from_endorse;
@@ -544,6 +590,9 @@ class Ajax extends CI_Controller
 				$views       = (float)$ref['val_1'] - (float)$baseline_views;
 				$engagement  = (float)$ref['val_3'] - (float)$baseline_eng;
 				$endorse_cnt = (float)$ref['val_5'] - (float)$baseline_end;
+				$likes       = (float)$ref['val_likes'] - (float)$baseline_likes;
+				$comment     = (float)$ref['val_comment'] - (float)$baseline_comment;
+				$share_save  = (float)$ref['val_share_save'] - (float)$baseline_share_save;
 
 				// === NEW: pada mode selisih, summary cost tetap total dari endorse
 				$cost = $total_cost_from_endorse;
@@ -554,8 +603,12 @@ class Ajax extends CI_Controller
 
 		$html['summary']['query']        = $this->db->last_query();
 		$html['summary']['views']        = $this->template->separator_only($views);
+		$html['summary']['view']         = $this->template->separator_only($views); // alias for JS compatibility
 		$html['summary']['cpm']          = $this->template->separator_only($cpm);
 		$html['summary']['engagement']   = $this->template->separator_only($engagement);
+		$html['summary']['likes']        = $this->template->separator_only($likes);
+		$html['summary']['comment']      = $this->template->separator_only($comment);
+		$html['summary']['share']        = $this->template->separator_only($share_save);
 		$html['summary']['cost']         = $this->template->separator_only($cost);
 		$html['summary']['endorse']      = $this->template->separator_only($endorse_fyp) . '/' . $this->template->separator_only($endorse);
 		$html['summary']['influencer']   = $this->template->separator_only($influencer);
