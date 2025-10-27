@@ -1808,19 +1808,19 @@ class Endorse extends BaseController
         }
 
         $data['product_all'] = $this->mymodel->selectWithQuery("
-            SELECT id, name 
-            FROM product 
-            WHERE 
-                is_operational = 0 
-                AND status = 'Aktif' 
+            SELECT id, name
+            FROM product
+            WHERE
+                is_operational = 0
+                AND status = 'Aktif'
                 AND (
-                    is_varian = 1 
+                    is_varian = 1
                     OR (is_varian = 0 AND (parent_id IS NULL OR parent_id = ''))
                 )
             ORDER BY name ASC
         ");
 
-
+        $data['niche'] = $this->mymodel->selectWithQuery("SELECT DISTINCT niche FROM niche ORDER BY niche ASC");
 
         $query = $this->mymodel->selectWithQuery("SELECT * FROM brand ORDER BY name ASC");
 
@@ -1898,6 +1898,33 @@ class Endorse extends BaseController
                 $newFileName = $dir . $newfile;
                 rename($currentFileName, $newFileName);
                 $dt['img'] = $newfile;
+            }
+        }
+
+        // Handle media_attachment upload (image/video)
+        if (isset($_FILES['media_attachment']) && $_FILES['media_attachment']['name']) {
+            $upload_path = FCPATH . 'assets/img/endorse/';
+
+            // Ensure directory exists
+            if (!is_dir($upload_path)) {
+                mkdir($upload_path, 0755, true);
+            }
+
+            $config['upload_path'] = $upload_path;
+            $config['allowed_types'] = 'jpg|jpeg|png|mp4|mov|avi';
+            $config['max_size'] = 10240; // 10MB
+            $config['file_name'] = DATE('Ymdhis') . '_media_' . $id;
+            $config['overwrite'] = FALSE;
+
+            $this->load->library('upload', $config);
+
+            if ($this->upload->do_upload('media_attachment')) {
+                $upload_data = $this->upload->data();
+                $dt['media_attachment'] = $upload_data['file_name'];
+            } else {
+                $msg = 'Upload media gagal: ' . $this->upload->display_errors('', '');
+                echo $this->template->alert_danger($msg);
+                die;
             }
         }
 
@@ -2176,19 +2203,19 @@ class Endorse extends BaseController
         }
 
         $data['product_all'] = $this->mymodel->selectWithQuery("
-            SELECT id, name 
-            FROM product 
-            WHERE 
-                is_operational = 0 
-                AND status = 'Aktif' 
+            SELECT id, name
+            FROM product
+            WHERE
+                is_operational = 0
+                AND status = 'Aktif'
                 AND (
-                    is_varian = 1 
+                    is_varian = 1
                     OR (is_varian = 0 AND (parent_id IS NULL OR parent_id = ''))
                 )
             ORDER BY name ASC
         ");
 
-
+        $data['niche'] = $this->mymodel->selectWithQuery("SELECT DISTINCT niche FROM niche ORDER BY niche ASC");
 
         $this->load->view("endorse/create", $data);
     }
@@ -2299,6 +2326,33 @@ class Endorse extends BaseController
                 $newFileName = $dir . $newfile;
                 rename($currentFileName, $newFileName);
                 $dt['img'] = $newfile;
+            }
+        }
+
+        // Handle media_attachment upload (image/video)
+        if (isset($_FILES['media_attachment']) && $_FILES['media_attachment']['name']) {
+            $upload_path = FCPATH . 'assets/img/endorse/';
+
+            // Ensure directory exists
+            if (!is_dir($upload_path)) {
+                mkdir($upload_path, 0755, true);
+            }
+
+            $config['upload_path'] = $upload_path;
+            $config['allowed_types'] = 'jpg|jpeg|png|mp4|mov|avi';
+            $config['max_size'] = 10240; // 10MB
+            $config['file_name'] = DATE('Ymdhis') . '_media';
+            $config['overwrite'] = FALSE;
+
+            $this->load->library('upload', $config);
+
+            if ($this->upload->do_upload('media_attachment')) {
+                $upload_data = $this->upload->data();
+                $dt['media_attachment'] = $upload_data['file_name'];
+            } else {
+                $msg = 'Upload media gagal: ' . $this->upload->display_errors('', '');
+                echo $this->template->alert_danger($msg);
+                die;
             }
         }
 

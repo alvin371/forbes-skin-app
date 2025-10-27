@@ -9,13 +9,13 @@
     
     <form action="<?= site_url('influencer_dummy/save_niche') ?>" method="post">
         <div class="mb-3">
-            <input type="text" class="form-control" id="niche" name="niche" placeholder="Tambah Niche Baru" required>
+            <input type="text" class="form-control" id="niche" name="niche" placeholder="Tambah Category KOL Baru" required>
         </div>
         <button type="submit" class="btn btn-primary">Simpan</button>
     </form>
     
     <div class="mt-4">
-        <h5>List Niche</h5>
+        <h5>List Category KOL</h5>
         <div class="d-flex flex-wrap gap-2 mt-3" id="niches-list">
             <?php foreach ($niches as $niche): ?>
                 <div class="p-2 bg-primary text-white rounded-2 d-flex align-items-center niche-item" data-niche="<?= htmlspecialchars($niche->niche) ?>">

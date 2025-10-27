@@ -274,6 +274,8 @@ class Influencer extends BaseController
 
         $data['pic']   = $this->mymodel->selectWithQuery("SELECT * FROM `user` ORDER BY full_name ASC");
 
+        $data['niche'] = $this->mymodel->selectWithQuery("SELECT DISTINCT niche FROM niche ORDER BY niche ASC");
+
         $this->load->view("influencer/edit", $data);
     }
 
@@ -335,6 +337,9 @@ class Influencer extends BaseController
         $query = $this->mymodel->selectWithQuery("SELECT * FROM brand ORDER BY name ASC");
 
         $data['brand'] = $query;
+
+        $data['niche'] = $this->mymodel->selectWithQuery("SELECT DISTINCT niche FROM niche ORDER BY niche ASC");
+
         $data['user'] = $_SESSION['user'];
 
         $this->load->view("influencer/create", $data);
