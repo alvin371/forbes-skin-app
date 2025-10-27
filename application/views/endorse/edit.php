@@ -118,7 +118,7 @@
 			<label for="">Status Endorse</label>
 			<select type="text" class="form-control" name="dt[status_endorse]">
 				<?php
-				$arr = array("Review", "Hold", "Acc", "Draft Content", "Posted Content", "Reject", "Problem");
+				$arr = array("Review", "ACC", "Pengiriman Produk", "Brief Content", "Draft Content", "Posted Content", "Rejected");
 				foreach ($arr as $v2) {
 					$text = $data['status_endorse'] == $v2 ? 'selected' : '';
 					echo "<option $text value='$v2'>$v2</option>";

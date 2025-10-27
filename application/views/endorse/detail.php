@@ -155,10 +155,10 @@ if ($v['link_upload']) {
 }
 $bg = '#000';
 $clr = '#FFF';
-if (in_array($v['status_endorse'], array('6. Posted Content'))) {
+if (in_array($v['status_endorse'], array('Posted Content'))) {
     $bg = '#4caf50';
     $clr = '#FFF';
-} else if (in_array($v['status_endorse'], array('3. Acc & Payment'))) {
+} else if (in_array($v['status_endorse'], array('ACC'))) {
     $bg = '#3475b5';
     $clr = '#FFF';
 }
