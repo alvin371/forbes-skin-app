@@ -270,7 +270,7 @@ if ($_GET['type'] == "Yearly") {
                     </div>
 
                     <div class="col-md-10">
-                        <select class="form-control select2" name="ids_campaign[]" id="campaign" multiple="multiple">
+                        <select class="form-control select2" name="ids_campaign[]" id="campaign" multiple="multiple" data-placeholder="Pilih Campaign...">
                             <?php
                             $ids = $_GET['ids_campaign'];
                             if (empty($ids)) {
@@ -287,6 +287,63 @@ if ($_GET['type'] == "Yearly") {
                             endforeach; ?>
                         </select>
                     </div>
+                    <!-- Additional filters: PIC (per content), Product, Endorsement Category -->
+                    <div class="col-md-12 mt-2">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <select class="form-control select2" name="pic[]" id="pic" multiple="multiple" data-placeholder="Pilih PIC...">
+                                    <?php
+                                    $selected_pics = $_GET['pic'] ?? [];
+                                    if (!is_array($selected_pics)) { $selected_pics = [$selected_pics]; }
+                                    foreach (($pic_options ?? []) as $opt) :
+                                        $val = is_array($opt) ? ($opt['name'] ?? '') : ($opt->name ?? '');
+                                        if ($val === '') continue;
+                                        $sel = in_array($val, $selected_pics) ? 'selected' : '';
+                                    ?>
+                                        <option <?= $sel ?> value="<?= htmlspecialchars($val, ENT_QUOTES) ?>"><?= htmlspecialchars($val) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <select class="form-control select2" name="product[]" id="product" multiple="multiple" data-placeholder="Pilih Produk...">
+                                    <?php
+                                    $selected_products = $_GET['product'] ?? [];
+                                    if (!is_array($selected_products)) { $selected_products = [$selected_products]; }
+                                    foreach (($product_options ?? []) as $opt) :
+                                        $pid = is_array($opt) ? ($opt['id'] ?? '') : ($opt->id ?? '');
+                                        $pname = is_array($opt) ? ($opt['name'] ?? '') : ($opt->name ?? '');
+                                        if ($pid === '' || $pname === '') continue;
+                                        $sel = in_array((string)$pid, array_map('strval', $selected_products)) ? 'selected' : '';
+                                    ?>
+                                        <option <?= $sel ?> value="<?= htmlspecialchars($pid, ENT_QUOTES) ?>"><?= htmlspecialchars($pname) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <select class="form-control" name="endorse_category" id="endorse_category" title="Pilih Kategori Endorse">
+                                    <?php
+                                    $endorse_category = $_GET['endorse_category'] ?? '';
+                                    $categories = [
+                                        '' => 'Semua Kategori Endorse',
+                                        'internal' => 'Internal',
+                                        'external' => 'External',
+                                    ];
+                                    foreach ($categories as $k => $v) {
+                                        $sel = ($endorse_category === $k) ? 'selected' : '';
+                                        echo '<option ' . $sel . ' value="' . htmlspecialchars($k, ENT_QUOTES) . '">' . htmlspecialchars($v) . '</option>';
+                                    }
+                                    ?>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <script>
+                        $(function(){
+                            try { $('#campaign').select2({ placeholder: $('#campaign').data('placeholder') || 'Pilih Campaign...', allowClear: true }); } catch(e) {}
+                            try { $('#pic').select2({ placeholder: $('#pic').data('placeholder') || 'Pilih PIC...', allowClear: true }); } catch(e) {}
+                            try { $('#product').select2({ placeholder: $('#product').data('placeholder') || 'Pilih Produk...', allowClear: true }); } catch(e) {}
+                        });
+                    </script>
                     <div class="row">
                         <div class="col-md-5">
                             <div class="row">

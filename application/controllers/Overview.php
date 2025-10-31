@@ -46,6 +46,19 @@ class Overview extends CI_Controller
             $data['campaign'] = $this->mymodel->selectWithQuery("SELECT *
             FROM endorse_campaign
             ORDER BY title ASC");
+
+            // Provide PIC and Product filter options for KOL overview
+            $data['pic_options'] = $this->mymodel->selectWithQuery(
+                "SELECT DISTINCT pic AS name FROM endorse WHERE pic IS NOT NULL AND pic != '' ORDER BY pic ASC"
+            );
+            $data['product_options'] = $this->mymodel->selectWithQuery(
+                "SELECT DISTINCT p.id AS id, p.name AS name 
+                 FROM endorse e 
+                 INNER JOIN product p ON p.id = e.product 
+                 WHERE e.product IS NOT NULL AND e.product != '' 
+                 ORDER BY p.name ASC"
+            );
+
             $data['content'] = $this->load->view('overview/all-kol', $data, true);
         } else if ($_GET['t'] == "influencer") {
             $data['campaign'] = $this->mymodel->selectWithQuery("

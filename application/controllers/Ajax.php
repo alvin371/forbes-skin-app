@@ -130,10 +130,11 @@ class Ajax extends CI_Controller
 		$detail = $this->mymodel->selectWithQuery("SELECT * FROM endorse_campaign WHERE id = '$id_campaign'");
 		$detail = $detail ? $detail[0] : null;
 
-		$keyword_category = $_GET['keyword_category'] ? $_GET['keyword_category'] : "Nama Creator";
-		$keyword = $_GET['keyword'];
+        $keyword_category = $_GET['keyword_category'] ? $_GET['keyword_category'] : "Nama Creator";
+        $keyword = $_GET['keyword'];
 
-		$filters_common = "";
+        $filters_common = "";
+        $need_join_campaign = false; // whether we must join endorse_campaign
 
 		if ($brand) {
 			$filters_common .= " AND endorse.brand = '$brand' ";
@@ -175,11 +176,43 @@ class Ajax extends CI_Controller
 			if ($text) $filters_common .= " AND endorse.status_payment IN ($text) ";
 		}
 
-		// Platform
-		$platform = $_GET['platform'];
-		if ($platform) {
-			$filters_common .= " AND endorse.platform = '$platform' ";
-		}
+        // Platform
+        $platform = $_GET['platform'];
+        if ($platform) {
+            $filters_common .= " AND endorse.platform = '$platform' ";
+        }
+
+        // PIC per content (multi)
+        $pic = $this->input->get('pic');
+        if (!empty($pic)) {
+            if (!is_array($pic)) { $pic = [$pic]; }
+            $pic = array_filter($pic, function($v){ return $v !== '' && $v !== null; });
+            if (!empty($pic)) {
+                $pic_list = "'" . implode("','", array_map(function($v){ return str_replace("'", "''", $v); }, $pic)) . "'";
+                $filters_common .= " AND endorse.pic IN ($pic_list) ";
+            }
+        }
+
+        // Product (multi)
+        $product = $this->input->get('product');
+        if (!empty($product)) {
+            if (!is_array($product)) { $product = [$product]; }
+            $product = array_filter($product, function($v){ return $v !== '' && $v !== null; });
+            if (!empty($product)) {
+                $product_list = "'" . implode("','", array_map(function($v){ return str_replace("'", "''", $v); }, $product)) . "'";
+                $filters_common .= " AND endorse.product IN ($product_list) ";
+            }
+        }
+
+        // Endorsement category (internal/external)
+        $endorse_category = $this->input->get('endorse_category');
+        if ($endorse_category === 'internal') {
+            $filters_common .= " AND endorse_campaign.is_internal = 1 ";
+            $need_join_campaign = true;
+        } else if ($endorse_category === 'external') {
+            $filters_common .= " AND endorse_campaign.is_internal = 0 ";
+            $need_join_campaign = true;
+        }
 
 		// Keyword
 		if ($keyword) {
@@ -228,15 +261,19 @@ class Ajax extends CI_Controller
 		$qry_common_for_logs = $filters_common . $filters_date_on_endorse;
 
 		// ===== Query data endorse untuk summary & list ids =====
-		if ($is_dashboard != 'true') {
-			$query   = $this->mymodel->selectWithQuery("SELECT endorse.id, endorse.total_cost FROM endorse WHERE 1=1 $filters_common $filters_date_on_endorse AND endorse.id_campaign = '$id_campaign'");
-			$query_2 = $this->mymodel->selectWithQuery("SELECT COUNT(DISTINCT endorse.influencer) as count FROM endorse WHERE 1=1 $filters_common $filters_date_on_endorse AND endorse.id_campaign = '$id_campaign'");
-			$q_fyp   = $this->mymodel->selectWithQuery("SELECT COUNT(endorse.id) as result FROM endorse WHERE 1=1 $filters_common $filters_date_on_endorse AND endorse.id_campaign = '$id_campaign' AND endorse.is_fyp = 1");
-		} else {
-			$query   = $this->mymodel->selectWithQuery("SELECT endorse.id, endorse.total_cost FROM endorse WHERE 1=1 $filters_common $filters_date_on_endorse");
-			$query_2 = $this->mymodel->selectWithQuery("SELECT COUNT(DISTINCT endorse.influencer) as count FROM endorse WHERE 1=1 $filters_common $filters_date_on_endorse");
-			$q_fyp   = $this->mymodel->selectWithQuery("SELECT COUNT(endorse.id) as result FROM endorse WHERE 1=1 $filters_common $filters_date_on_endorse AND endorse.is_fyp = 1");
-		}
+        $base_from_endorse = " FROM endorse ";
+        if ($need_join_campaign) {
+            $base_from_endorse .= " INNER JOIN endorse_campaign ON endorse_campaign.id = endorse.id_campaign ";
+        }
+        if ($is_dashboard != 'true') {
+            $query   = $this->mymodel->selectWithQuery("SELECT endorse.id, endorse.total_cost " . $base_from_endorse . " WHERE 1=1 $filters_common $filters_date_on_endorse AND endorse.id_campaign = '$id_campaign'");
+            $query_2 = $this->mymodel->selectWithQuery("SELECT COUNT(DISTINCT endorse.influencer) as count " . $base_from_endorse . " WHERE 1=1 $filters_common $filters_date_on_endorse AND endorse.id_campaign = '$id_campaign'");
+            $q_fyp   = $this->mymodel->selectWithQuery("SELECT COUNT(endorse.id) as result " . $base_from_endorse . " WHERE 1=1 $filters_common $filters_date_on_endorse AND endorse.id_campaign = '$id_campaign' AND endorse.is_fyp = 1");
+        } else {
+            $query   = $this->mymodel->selectWithQuery("SELECT endorse.id, endorse.total_cost " . $base_from_endorse . " WHERE 1=1 $filters_common $filters_date_on_endorse");
+            $query_2 = $this->mymodel->selectWithQuery("SELECT COUNT(DISTINCT endorse.influencer) as count " . $base_from_endorse . " WHERE 1=1 $filters_common $filters_date_on_endorse");
+            $q_fyp   = $this->mymodel->selectWithQuery("SELECT COUNT(endorse.id) as result " . $base_from_endorse . " WHERE 1=1 $filters_common $filters_date_on_endorse AND endorse.is_fyp = 1");
+        }
 		$endorse_fyp = $q_fyp ? $q_fyp[0]['result'] : 0;
 
 		$influencer = $query_2[0]['count'] ?? 0;
@@ -280,50 +317,56 @@ class Ajax extends CI_Controller
 		if (!empty($ids)) {
 			$sum_where .= " AND endorse.id IN ($ids) ";
 		}
-		$sum_sql = "SELECT COALESCE(SUM(endorse.total_cost),0) AS total_cost FROM endorse $sum_where";
+        $sum_from = " FROM endorse ";
+        if ($need_join_campaign) {
+            $sum_from .= " INNER JOIN endorse_campaign ON endorse_campaign.id = endorse.id_campaign ";
+        }
+        $sum_sql = "SELECT COALESCE(SUM(endorse.total_cost),0) AS total_cost " . $sum_from . $sum_where;
 		$sum_row = $this->mymodel->selectWithQuery($sum_sql);
 		if (!empty($sum_row)) {
 			$total_cost_from_endorse = (float)$sum_row[0]['total_cost'];
 		}
 
 		// ===== Agregasi per hari dari logs =====
-		if ($is_dashboard != 'true') {
-			$sql_list = "
-				SELECT 
-					SUM(endorse_logs.likes_after)        AS likes, 
-					SUM(endorse_logs.comment_after)      AS comment,
-					SUM(endorse_logs.share_save_after)   AS share_save, 
-					SUM(endorse_logs.views_after)        AS views,
-					SUM(endorse_logs.total_cost)         AS cost, 
-					COUNT(endorse_logs.id)               AS endorse, 
-					$qry_opt                              AS opt
-				FROM endorse_logs
-				INNER JOIN endorse ON endorse.id = endorse_logs.id_endorse 
-				WHERE endorse_logs.id_campaign = '$id_campaign' 
-				$qry_list 
-				$qry_common_for_logs 
-				$group
-				ORDER BY DATE(endorse_logs.date) ASC
-			";
-		} else {
-			$sql_list = "
-				SELECT 
-					SUM(endorse_logs.likes_after)        AS likes, 
-					SUM(endorse_logs.comment_after)      AS comment,
-					SUM(endorse_logs.share_save_after)   AS share_save, 
-					SUM(endorse_logs.views_after)        AS views,
-					SUM(endorse_logs.total_cost)         AS cost,
-					COUNT(endorse_logs.id)               AS endorse, 
-					$qry_opt                              AS opt
-				FROM endorse_logs
-				INNER JOIN endorse ON endorse.id = endorse_logs.id_endorse  
-				WHERE 1=1 
-				$qry_list 
-				$qry_common_for_logs 
-				$group
-				ORDER BY DATE(endorse_logs.date) ASC
-			";
-		}
+        if ($is_dashboard != 'true') {
+            $sql_list = "
+                SELECT 
+                    SUM(endorse_logs.likes_after)        AS likes, 
+                    SUM(endorse_logs.comment_after)      AS comment,
+                    SUM(endorse_logs.share_save_after)   AS share_save, 
+                    SUM(endorse_logs.views_after)        AS views,
+                    SUM(endorse_logs.total_cost)         AS cost, 
+                    COUNT(endorse_logs.id)               AS endorse, 
+                    $qry_opt                              AS opt
+                FROM endorse_logs
+                INNER JOIN endorse ON endorse.id = endorse_logs.id_endorse 
+                INNER JOIN endorse_campaign ON endorse_campaign.id = endorse.id_campaign
+                WHERE endorse_logs.id_campaign = '$id_campaign' 
+                $qry_list 
+                $qry_common_for_logs 
+                $group
+                ORDER BY DATE(endorse_logs.date) ASC
+            ";
+        } else {
+            $sql_list = "
+                SELECT 
+                    SUM(endorse_logs.likes_after)        AS likes, 
+                    SUM(endorse_logs.comment_after)      AS comment,
+                    SUM(endorse_logs.share_save_after)   AS share_save, 
+                    SUM(endorse_logs.views_after)        AS views,
+                    SUM(endorse_logs.total_cost)         AS cost,
+                    COUNT(endorse_logs.id)               AS endorse, 
+                    $qry_opt                              AS opt
+                FROM endorse_logs
+                INNER JOIN endorse ON endorse.id = endorse_logs.id_endorse  
+                INNER JOIN endorse_campaign ON endorse_campaign.id = endorse.id_campaign
+                WHERE 1=1 
+                $qry_list 
+                $qry_common_for_logs 
+                $group
+                ORDER BY DATE(endorse_logs.date) ASC
+            ";
+        }
 		$list = $this->mymodel->selectWithQuery($sql_list);
 		if (empty($list)) $list = array();
 
@@ -388,25 +431,26 @@ class Ajax extends CI_Controller
 		$baseline_share_save = 0;
 
 		if ($checkbox[0] == 'true') {
-			$sql_base = "
-				SELECT
-					SUM(endorse_logs.views_after)                                        AS views,
-					SUM(endorse_logs.likes_after)                                        AS likes,
-					SUM(endorse_logs.comment_after)                                      AS comment,
-					SUM(endorse_logs.share_save_after)                                   AS share_save,
-					SUM(endorse_logs.likes_after + endorse_logs.comment_after + endorse_logs.share_save_after) AS engagement,
-					SUM(endorse_logs.total_cost)                                         AS cost,
-					COUNT(endorse_logs.id)                                               AS endorse,
-					DATE(endorse_logs.date)                                              AS opt
-				FROM endorse_logs
-				INNER JOIN endorse ON endorse.id = endorse_logs.id_endorse
-				WHERE DATE(endorse_logs.date) < '$start_date'
-				$qry_list
-				$qry_common_for_logs
-				GROUP BY DATE(endorse_logs.date)
-				ORDER BY DATE(endorse_logs.date) DESC
-				LIMIT 1
-			";
+            $sql_base = "
+                SELECT
+                    SUM(endorse_logs.views_after)                                        AS views,
+                    SUM(endorse_logs.likes_after)                                        AS likes,
+                    SUM(endorse_logs.comment_after)                                      AS comment,
+                    SUM(endorse_logs.share_save_after)                                   AS share_save,
+                    SUM(endorse_logs.likes_after + endorse_logs.comment_after + endorse_logs.share_save_after) AS engagement,
+                    SUM(endorse_logs.total_cost)                                         AS cost,
+                    COUNT(endorse_logs.id)                                               AS endorse,
+                    DATE(endorse_logs.date)                                              AS opt
+                FROM endorse_logs
+                INNER JOIN endorse ON endorse.id = endorse_logs.id_endorse
+                INNER JOIN endorse_campaign ON endorse_campaign.id = endorse.id_campaign
+                WHERE DATE(endorse_logs.date) < '$start_date'
+                $qry_list
+                $qry_common_for_logs
+                GROUP BY DATE(endorse_logs.date)
+                ORDER BY DATE(endorse_logs.date) DESC
+                LIMIT 1
+            ";
 			$base = $this->mymodel->selectWithQuery($sql_base);
 			if (!empty($base)) {
 				$baseline_views = (int)$base[0]['views'];
