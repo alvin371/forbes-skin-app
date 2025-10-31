@@ -6186,6 +6186,35 @@ class Api extends CI_Controller
                     $this->db->insert('transaction', $dt);
                     $dt['id'] = $this->db->insert_id();
                 }
+
+                // Step 2: Automatically trigger detail sync to populate full order data
+                // Call webhook refresh to populate order details (customer, products, payment info)
+                // Return full JSON response with sync data
+                try {
+                    // Call the existing marketplace_order_detail function to populate complete order data
+                    $detail_url = base_url() . 'api/v2/marketplace-order-detail?marketplace=' . urlencode($marketplace) . '&order_id=' . urlencode($id_marketplace) . '&shop_id=' . urlencode($config['shop_id']) . '&mode=sync';
+
+                    $curl_detail = curl_init();
+                    curl_setopt_array($curl_detail, array(
+                        CURLOPT_URL => $detail_url,
+                        CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_ENCODING => '',
+                        CURLOPT_MAXREDIRS => 10,
+                        CURLOPT_TIMEOUT => 30,
+                        CURLOPT_FOLLOWLOCATION => true,
+                        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+                        CURLOPT_CUSTOMREQUEST => 'GET',
+                    ));
+                    $detail_response = curl_exec($curl_detail);
+                    curl_close($curl_detail);
+
+                    // Log if detail sync fails (but don't stop the main sync process)
+                    if (!$detail_response) {
+                        error_log("Sync: Failed to fetch details for order $id_marketplace");
+                    }
+                } catch (Exception $e) {
+                    error_log("Sync: Error fetching order details - " . $e->getMessage());
+                }
             }
             if ($is_break) {
                 break;

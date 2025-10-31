@@ -4745,17 +4745,38 @@ class Api_v2 extends CI_Controller
         if ($dt['order_id']) {
             $this->db->insert('webhook', $dt);
 
-            // ENHANCEMENT: Fetch full order details immediately after webhook is received
-            // This ensures customer data (username, phone, name) is populated right away
+            // Step 2: Automatically trigger detail sync to populate full order data
+            // Call webhook refresh to populate order details (customer, products, payment info)
+            // Return full JSON response with sync data
             $marketplace = strval($dt['marketplace']);
-            if ($marketplace == 'TIKTOK' && $order_id && $shop_id) {
+            if ($order_id && $shop_id) {
                 try {
-                    // Trigger order detail fetch in background to avoid webhook timeout
-                    // Using non-blocking approach
-                    $this->fetch_tiktok_order_async($order_id, $shop_id, $marketplace);
+                    // Temporarily set $_GET parameters for marketplace_order_detail function
+                    $_GET['marketplace'] = $marketplace;
+                    $_GET['order_id'] = $order_id;
+                    $_GET['shop_id'] = $shop_id;
+                    $_GET['mode'] = 'webhook';
+
+                    // Call the existing sync process that populates all order data
+                    $this->marketplace_order_detail();
+
+                    // The marketplace_order_detail() function will handle the response
+                    // and die, so the code below won't execute
                 } catch (Exception $e) {
-                    // Log error but don't fail webhook response
-                    error_log("Webhook order fetch error: " . $e->getMessage());
+                    // Log error but still return success webhook response
+                    error_log("Webhook order sync error: " . $e->getMessage());
+
+                    // Return standard webhook response
+                    $dtt = array();
+                    $dtt['order_id'] = strval($order_id);
+                    $dtt['shop_id'] = strval($shop_id);
+                    $dtt['marketplace'] = strval($dt['marketplace']);
+                    $html = array();
+                    $html['status'] = true;
+                    $html['data'] = $dtt;
+                    $html['msg'] = "Acneno System webhook live access has been successful!";
+                    echo json_encode($html, true);
+                    die;
                 }
             }
 
@@ -4777,135 +4798,6 @@ class Api_v2 extends CI_Controller
             echo json_encode($html, true);
             die;
         }
-    }
-
-    /**
-     * Fetch TikTok order details asynchronously after webhook
-     * This populates customer data immediately instead of waiting for cronjob
-     */
-    private function fetch_tiktok_order_async($order_id, $shop_id, $marketplace)
-    {
-        // Get shop configuration
-        $config = $this->mymodel->selectWithQuery("SELECT * FROM marketplace_config
-            WHERE shop_id = '" . $this->db->escape_str($shop_id) . "'
-            AND marketplace = '" . $this->db->escape_str($marketplace) . "'
-            LIMIT 1");
-
-        if (empty($config)) {
-            error_log("Webhook: No config found for shop_id $shop_id");
-            return false;
-        }
-
-        $config = $config[0];
-        $access_token = $config['access_token'];
-        $brand = $config['brand'];
-
-        // Make API call to get order details
-        $url = 'https://open-api.tiktokglobalshop.com/order/202309/orders/detail/query';
-        $list_id = '"' . $order_id . '"';
-
-        $curl = curl_init();
-        curl_setopt_array($curl, array(
-            CURLOPT_URL => $url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_ENCODING => '',
-            CURLOPT_MAXREDIRS => 10,
-            CURLOPT_TIMEOUT => 5, // Short timeout to avoid blocking webhook
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-            CURLOPT_CUSTOMREQUEST => 'POST',
-            CURLOPT_POSTFIELDS => '{"order_id_list":[' . $list_id . ']}',
-            CURLOPT_HTTPHEADER => array(
-                'Content-Type: application/json',
-                'x-tts-access-token: ' . $access_token
-            ),
-        ));
-
-        $response = curl_exec($curl);
-        curl_close($curl);
-
-        if (!$response) {
-            error_log("Webhook: API call failed for order $order_id");
-            return false;
-        }
-
-        $response = json_decode($response, true);
-
-        if (empty($response['data']['order_list'][0]['order_id'])) {
-            error_log("Webhook: No order data returned for $order_id");
-            return false;
-        }
-
-        $order_data = $response['data']['order_list'][0];
-
-        // Check if transaction already exists
-        $query = $this->mymodel->selectWithQuery("SELECT id, phone FROM transaction
-            WHERE order_id = '" . $this->db->escape_str($order_id) . "'
-            AND marketplace = '" . $this->db->escape_str($marketplace) . "'
-            LIMIT 1");
-
-        // Prepare transaction data with customer information
-        $dt = array();
-        $dt['date'] = DATE("Y-m-d H:i:s", substr($order_data['create_time'], 0, -3));
-
-        // Only populate customer data if phone is empty (not already set)
-        if (empty($query) || $query[0]['phone'] == "") {
-            $dt['customer_text'] = strval($order_data['recipient_address']['name'] ?? '');
-            $dt['phone'] = strval($order_data['recipient_address']['phone'] ?? '');
-            $dt['address'] = strval($order_data['recipient_address']['address_detail'] ?? '');
-            $dt['postal_code'] = strval($order_data['recipient_address']['zipcode'] ?? '');
-            $dt['c_username'] = strval($order_data['buyer_user_id'] ?? '');
-
-            // Get address details if available
-            if (!empty($order_data['recipient_address']['full_address'])) {
-                $address_parts = explode(',', $order_data['recipient_address']['full_address']);
-                if (count($address_parts) >= 3) {
-                    $dt['province_text'] = trim($address_parts[count($address_parts) - 1]);
-                    $dt['city_text'] = trim($address_parts[count($address_parts) - 2]);
-                    $dt['subdistrict_text'] = trim($address_parts[count($address_parts) - 3]);
-                }
-            }
-        }
-
-        // Set order details
-        $dt['order_id'] = strval($order_data['order_id']);
-        $dt['shop_id'] = strval($shop_id);
-        $dt['shop_name'] = strval($config['shop_name']);
-        $dt['brand'] = strval($brand);
-        $dt['marketplace'] = strval($marketplace);
-        $dt['awb_number'] = strval($order_data['tracking_number'] ?? '');
-        $dt['shipping'] = strval($order_data['shipping_provider'] ?? '');
-        $dt['customer_price'] = strval($order_data['payment_info']['sub_total'] + $order_data['payment_info']['shipping_fee']);
-        $dt['payment_type'] = $order_data['is_cod'] ? 'COD' : 'TF';
-        $dt['is_webhook'] = 1; // Mark as processed by webhook
-        $dt['updated_at'] = DATE("Y-m-d H:i:s");
-
-        // Map order status
-        $order_status_code = $order_data['order_status'];
-        if ($order_status_code == '100') $dt['order_status'] = 'UNPAID';
-        elseif (in_array($order_status_code, ['112', '105'])) $dt['order_status'] = 'PROCESSED';
-        elseif ($order_status_code == '140') $dt['order_status'] = 'CANCELLED';
-        elseif ($order_status_code == '130') $dt['order_status'] = 'COMPLETED';
-        elseif ($order_status_code == '122') $dt['order_status'] = 'DELIVERED';
-        elseif (in_array($order_status_code, ['121', '114'])) $dt['order_status'] = 'SHIPPED';
-        elseif ($order_status_code == '111') $dt['order_status'] = 'READY_TO_SHIP';
-        else $dt['order_status'] = 'PROCESSED';
-
-        // Update or insert transaction
-        if (!empty($query)) {
-            $this->db->update('transaction', $dt, array('id' => $query[0]['id']));
-            error_log("Webhook: Updated order $order_id with customer data");
-        } else {
-            $dt['type'] = 'Out';
-            $dt['type_sub'] = 'POS';
-            $dt['is_manual'] = 0;
-            $dt['c_type'] = 'Pelanggan';
-            $dt['created_at'] = DATE("Y-m-d H:i:s");
-            $this->db->insert('transaction', $dt);
-            error_log("Webhook: Created order $order_id with customer data");
-        }
-
-        return true;
     }
 
     function marketplace_order_download()
