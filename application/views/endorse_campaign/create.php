@@ -220,6 +220,12 @@
     });
 
     $("#form-modal").submit(function () {
+        // Validate is_internal field - at least one checkbox must be selected
+        if (!$('#internal_cb').is(':checked') && !$('#external_cb').is(':checked')) {
+            alert('Silakan pilih tipe campaign: Internal atau External!');
+            return false;
+        }
+
         var form = $(this);
         var mydata = new FormData(this);
         $.ajax({
