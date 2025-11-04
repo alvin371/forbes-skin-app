@@ -48,6 +48,11 @@ class Endorse_campaign extends BaseController
         $data['keyword_category'] = $keyword_category;
         $keyword = $_GET['keyword'];
 
+        // Define variables to prevent undefined variable errors
+        $today = DATE("Y-m-d");
+        $brand = isset($_GET['brand']) ? $_GET['brand'] : null;
+        $marketplace = isset($_GET['marketplace']) ? $_GET['marketplace'] : null;
+
         if ($_GET['start_date']) {
             $start_date = $_GET['start_date'];
         } else {
@@ -158,6 +163,11 @@ class Endorse_campaign extends BaseController
         }
         $data['keyword_category'] = $keyword_category;
         $keyword = $_GET['keyword'];
+
+        // Define variables to prevent undefined variable errors
+        $today = DATE("Y-m-d");
+        $brand = isset($_GET['brand']) ? $_GET['brand'] : null;
+        $marketplace = isset($_GET['marketplace']) ? $_GET['marketplace'] : null;
 
         if ($_GET['start_date']) {
             $start_date = $_GET['start_date'];
@@ -651,6 +661,13 @@ class Endorse_campaign extends BaseController
         $dt = $_POST['dt'];
         $dt['created_at'] = DATE("Y-m-d H:i:s");
         $dt['created_by'] = $user['id'];
+
+        // Validate is_internal field - must be set and either '0' or '1'
+        if (!isset($dt['is_internal']) || !in_array($dt['is_internal'], ['0', '1'])) {
+            $msg = 'Silakan pilih tipe campaign: Internal atau External!';
+            echo $this->template->alert_danger($msg);
+            die;
+        }
 
         // Handle media file upload (images and videos)
         if (!empty($_FILES['media_file']['name'])) {
