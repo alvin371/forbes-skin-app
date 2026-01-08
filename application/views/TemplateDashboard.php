@@ -554,7 +554,7 @@ if (!$_SESSION['is_login']) {
     $menu_order_customer = $menu_toko = $menu_order_item = $menu_crm_mg = $menu_crm_pome = $menu_grup_wa = '';
     $menu_operasional = $menu_stock = $menu_product = $menu_product_3rd = $menu_discount = $menu_marketplace = $menu_shipping = '';
     $menu_hr_management = $menu_quest_level = $menu_position = $menu_benefit = $menu_quest = $menu_milestone = $menu_recruitment = $menu_roles = '';
-    $menu_attendance = $menu_attendance_report = $menu_leave = $menu_leave_approvals = $menu_leave_types = $menu_approval_routes = $menu_offices = $menu_holidays = $menu_attendance_settings = '';
+    $menu_attendance = $menu_attendance_report = $menu_leave = $menu_leave_approvals = $menu_leave_types = $menu_approval_routes = $menu_offices = $menu_holidays = $menu_attendance_settings = $menu_performance_appraisal = '';
     $menu_akun = $menu_user = $menu_profile = $menu_logout = '';
     
     // Get user permissions for menu visibility using module names from clear_and_replace_modules.sql
@@ -616,7 +616,8 @@ if (!$_SESSION['is_login']) {
                               $CI->permission->check_permission($user_id, 'leave_approvals', 'view') ||
                               $CI->permission->check_permission($user_id, 'offices', 'view') ||
                               $CI->permission->check_permission($user_id, 'leave_types', 'view') ||
-                              $CI->permission->check_permission($user_id, 'approval_routes', 'view');
+                              $CI->permission->check_permission($user_id, 'approval_routes', 'view') ||
+                              $CI->permission->check_permission($user_id, 'performance_admin', 'view');
     
     // Account Management - show if user has access to any account module  
     $can_view_akun = $CI->permission->check_permission($user_id, 'user', 'view') ||
@@ -672,6 +673,7 @@ if (!$_SESSION['is_login']) {
         'approval_routes' => $CI->permission->check_permission($user_id, 'approval_routes', 'view'),
         'holidays' => $CI->permission->check_permission($user_id, 'attendance', 'view'),
         'attendance_settings' => $CI->permission->check_permission($user_id, 'attendance', 'view'),
+        'performance_admin' => $CI->permission->check_permission($user_id, 'performance_admin', 'view'),
         'modules' => $CI->permission->check_permission($user_id, 'modules', 'view'),
         
         // Account Management
@@ -783,7 +785,7 @@ if (!$_SESSION['is_login']) {
       } else if ($uri_1 == 'product' || $uri_1 == 'marketplace' || $uri_1 == 'shipping' || $uri_1 == 'marketplace-account') {
         $menu_product = 'active';
       }
-    } else if ($uri_1 == 'quest_level' || $uri_1 == 'position' || $uri_1 == 'benefit' || $uri_1 == 'quest' || $uri_1 == 'milestone' || $uri_1 == 'recruitment' || $uri_1 == 'attendance' || $uri_1 == 'leave' || ($uri_1 == 'approvals' && $uri_2 == 'leaves') || ($uri_1 == 'admin' && in_array($uri_2, array('offices', 'leave-types', 'approval-routes', 'holidays', 'attendance-settings'), true))) {
+    } else if ($uri_1 == 'quest_level' || $uri_1 == 'position' || $uri_1 == 'benefit' || $uri_1 == 'quest' || $uri_1 == 'milestone' || $uri_1 == 'recruitment' || $uri_1 == 'attendance' || $uri_1 == 'leave' || ($uri_1 == 'approvals' && $uri_2 == 'leaves') || ($uri_1 == 'admin' && in_array($uri_2, array('offices', 'leave-types', 'approval-routes', 'holidays', 'attendance-settings', 'performance-appraisal'), true))) {
       $menu_hr_management = 'show';
       if ($uri_1 == 'quest_level') {
         $menu_quest_level = 'active';
@@ -817,6 +819,8 @@ if (!$_SESSION['is_login']) {
         $menu_holidays = 'active';
       } else if ($uri_1 == 'admin' && $uri_2 == 'attendance-settings') {
         $menu_attendance_settings = 'active';
+      } else if ($uri_1 == 'admin' && $uri_2 == 'performance-appraisal') {
+        $menu_performance_appraisal = 'active';
       }
     } else if ($uri_1 == 'user' || $uri_1 == 'profile' || $uri_1 == 'roles' || $uri_1 == 'modules') {
       $menu_akun = 'show';
@@ -834,7 +838,7 @@ if (!$_SESSION['is_login']) {
       $menu_order_customer = $menu_toko = $menu_order_item = $menu_crm_mg = $menu_crm_pome = $menu_grup_wa = '';
       $menu_operasional = $menu_stock = $menu_product = '';
       $menu_hr_management = $menu_quest_level = $menu_position = $menu_benefit = $menu_quest = $menu_milestone = $menu_recruitment = $menu_roles = '';
-      $menu_attendance = $menu_attendance_report = $menu_leave = $menu_leave_approvals = $menu_leave_types = $menu_approval_routes = $menu_offices = $menu_holidays = $menu_attendance_settings = '';
+      $menu_attendance = $menu_attendance_report = $menu_leave = $menu_leave_approvals = $menu_leave_types = $menu_approval_routes = $menu_offices = $menu_holidays = $menu_attendance_settings = $menu_performance_appraisal = '';
       $menu_akun = $menu_user = $menu_profile = $menu_logout = '';
     }
     ?>
@@ -1118,6 +1122,12 @@ if (!$_SESSION['is_login']) {
               <a href="<?= base_url() ?>admin/leave-types" class="ms-3 item-menu <?= $menu_leave_types ?>">
                 <i class="icon bi bi-clipboard2-plus"></i>
                 LEAVE TYPES
+              </a>
+            <?php endif; ?>
+            <?php if ($modules_permissions['performance_admin']): ?>
+              <a href="<?= base_url() ?>admin/performance-appraisal" class="ms-3 item-menu <?= $menu_performance_appraisal ?>">
+                <i class="icon bi bi-graph-up"></i>
+                PERFORMANCE APPRAISAL
               </a>
             <?php endif; ?>
             <?php if ($modules_permissions['approval_routes']): ?>

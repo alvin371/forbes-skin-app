@@ -76,6 +76,18 @@ $route['admin/holidays/(:num)/delete'] = 'admin/HolidaysController/delete/$1';
 
 $route['admin/attendance-settings'] = 'admin/AttendanceSettingsController/index';
 
+$route['admin/performance-appraisal'] = 'admin/PerformanceAppraisal/index';
+$route['admin/performance-appraisal/create'] = 'admin/PerformanceAppraisal/create';
+$route['admin/performance-appraisal/(:num)/edit'] = 'admin/PerformanceAppraisal/edit/$1';
+$route['admin/performance-appraisal/(:num)'] = 'admin/PerformanceAppraisal/update/$1';
+$route['admin/performance-appraisal/(:num)/delete'] = 'admin/PerformanceAppraisal/delete/$1';
+$route['admin/performance-appraisal/(:num)/items'] = 'admin/PerformanceAppraisal/item_store/$1';
+$route['admin/performance-appraisal/items/(:num)'] = 'admin/PerformanceAppraisal/item_update/$1';
+$route['admin/performance-appraisal/items/(:num)/delete'] = 'admin/PerformanceAppraisal/item_delete/$1';
+$route['admin/performance-appraisal/(:num)/items/reorder'] = 'admin/PerformanceAppraisal/items_reorder/$1';
+$route['admin/performance-appraisal/submissions'] = 'admin/PerformanceAppraisal/submissions';
+$route['admin/performance-appraisal/submissions/(:num)'] = 'admin/PerformanceAppraisal/submission_detail/$1';
+
 $route['leave'] = 'LeaveController/index';
 $route['leave/create'] = 'LeaveController/create';
 $route['leave/(:num)'] = 'LeaveController/detail/$1';
@@ -90,6 +102,7 @@ $route['seed/run'] = 'SeedRunner/index';
 $route['seed/attendance-office'] = 'SeedRunner/attendance_office';
 $route['seed/leave-types'] = 'SeedRunner/leave_types';
 $route['seed/holidays'] = 'SeedRunner/holidays';
+$route['seed/performance-2026'] = 'SeedRunner/performance_2026';
 $route['migrate/latest'] = 'MigrationRunner/latest';
 $route['schema/hr'] = 'SchemaBootstrap/hr';
 $route['schema/hrms-api'] = 'SchemaBootstrap/hrms_api';
@@ -128,12 +141,31 @@ $route['api/hrms/attendance/recap-all'] = 'Api_hrms/attendance_recap_all';
 $route['api/hrms/attendance/report'] = 'Api_hrms/attendance_report';
 $route['api/hrms/leave'] = 'Api_hrms/leave';
 $route['api/hrms/leave/quota'] = 'Api_hrms/leave_quota';
+$route['api/hrms/performance/templates/active'] = 'Api_hrms/performance_templates_active';
+$route['api/hrms/performance/submissions'] = 'Api_hrms/performance_submissions';
+$route['api/hrms/performance/submissions/(:num)'] = 'Api_hrms/performance_submission_detail/$1';
 
 $route['api/attendance/confirm'] = 'AttendanceController/confirm';
 $route['api/attendance/status'] = 'AttendanceController/status';
 $route['attendance'] = 'AttendancePageController/index';
 $route['attendance/report'] = 'AttendanceReport/index';
 $route['attendance/report/pdf'] = 'AttendanceReport/export_pdf';
+
+$route['admin/performance/templates']['get'] = 'Api_performance/templates';
+$route['admin/performance/templates']['post'] = 'Api_performance/template_create';
+$route['admin/performance/templates/(:num)']['get'] = 'Api_performance/template/$1';
+$route['admin/performance/templates/(:num)']['put'] = 'Api_performance/template_update/$1';
+$route['admin/performance/templates/(:num)']['delete'] = 'Api_performance/template_delete/$1';
+$route['admin/performance/templates/(:num)/items']['post'] = 'Api_performance/item_create/$1';
+$route['admin/performance/items/(:num)']['put'] = 'Api_performance/item_update/$1';
+$route['admin/performance/items/(:num)']['delete'] = 'Api_performance/item_delete/$1';
+$route['admin/performance/templates/(:num)/items/reorder']['post'] = 'Api_performance/items_reorder/$1';
+$route['admin/performance/submissions']['get'] = 'Api_performance/submissions';
+
+$route['performance/templates/active']['get'] = 'Api_performance/templates_active';
+$route['performance/submissions']['post'] = 'Api_performance/submission_create';
+$route['performance/submissions/me']['get'] = 'Api_performance/submissions_me';
+$route['performance/submissions/(:num)']['get'] = 'Api_performance/submission/$1';
 
 $route['api/cronjob/endorse-campaign'] = 'Api_v2/cronjob_endorse_campaign';
 $route['api/cronjob/endorse'] = 'Api_v2/cronjob_endorse';

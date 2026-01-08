@@ -18,6 +18,7 @@ class Api_hrms extends CI_Controller
         $this->load->model('LeaveRequestModel');
         $this->load->model('LeaveApprovalModel');
         $this->load->model('ApprovalRouteModel');
+        $this->load->model('Performance_model');
         $this->load->library('AttendanceEligibilityService');
         $this->load->library('LeaveCalculatorService');
         $this->load->library('LeaveOverlapService');
@@ -587,6 +588,12 @@ class Api_hrms extends CI_Controller
         ));
 
         $route = $this->ApprovalRouteModel->get_active_by_user($user['id']);
+        if (!$route || empty($route['approver_id'])) {
+            $this->db->trans_rollback();
+            return $this->respond(422, array(
+                'message' => 'No approval route configured for this user.'
+            ));
+        }
         $this->LeaveApprovalModel->insert(array(
             'leave_request_id' => $requestId,
             'step_no' => 1,
@@ -627,6 +634,124 @@ class Api_hrms extends CI_Controller
             'total' => $total,
             'remaining' => $remaining,
         ));
+    }
+
+    public function performance_templates_active()
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        $period_year = $this->input->get('period_year');
+        if (!$period_year) {
+            return $this->respond(400, array('message' => 'period_year is required.'));
+        }
+
+        $userRow = $this->db->get_where('user', array('id' => $user['id']))->row_array();
+        $department = $userRow['department'] ?? null;
+
+        $template = $this->Performance_model->get_active_template_for_employee($period_year, $department);
+        if (!$template) {
+            return $this->respond(404, array('message' => 'No active template found.'));
+        }
+
+        return $this->respond(200, array('data' => $template));
+    }
+
+    public function performance_submissions()
+    {
+        $method = $this->input->method(TRUE);
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if ($method === 'GET') {
+            $filters = array('employee_id' => $user['id']);
+            if ($this->input->get('period_year')) {
+                $filters['period_year'] = $this->input->get('period_year');
+            }
+            $submissions = $this->Performance_model->get_submissions($filters);
+            foreach ($submissions as &$sub) {
+                $sub['total_score'] = round($sub['total_score'], 2);
+            }
+            unset($sub);
+            return $this->respond(200, array('data' => $submissions));
+        }
+
+        if ($method !== 'POST') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $input = $this->json_input();
+        if (empty($input['template_id']) || empty($input['items'])) {
+            return $this->respond(400, array('message' => 'template_id and items are required.'));
+        }
+
+        $template = $this->Performance_model->get_template_by_id($input['template_id'], false);
+        if (!$template) {
+            return $this->respond(404, array('message' => 'Template not found.'));
+        }
+
+        $userRow = $this->db->get_where('user', array('id' => $user['id']))->row_array();
+        $input['employee_id'] = $user['id'];
+        $input['employee_snapshot'] = array(
+            'name' => $userRow['full_name'] ?? null,
+            'nik' => $userRow['nik'] ?? null,
+            'department' => $userRow['department'] ?? null,
+            'position' => $userRow['position'] ?? null,
+        );
+        $input['period_year'] = $template['period_year'];
+
+        $result = $this->Performance_model->create_submission($input);
+        if (!$result['success']) {
+            return $this->respond(400, array('message' => $result['error']));
+        }
+
+        return $this->respond(201, array(
+            'id' => $result['id'],
+            'total_score' => round($result['total_score'], 2),
+            'message' => 'Submission created.'
+        ));
+    }
+
+    public function performance_submission_detail($id = null)
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$id) {
+            return $this->respond(400, array('message' => 'Submission ID is required.'));
+        }
+
+        $submission = $this->Performance_model->get_submission_by_id($id, true);
+        if (!$submission) {
+            return $this->respond(404, array('message' => 'Submission not found.'));
+        }
+
+        if ((int) $submission['employee_id'] !== (int) $user['id']) {
+            return $this->respond(403, array('message' => 'Access denied.'));
+        }
+
+        $submission['total_score'] = round($submission['total_score'], 2);
+        foreach ($submission['items'] as &$item) {
+            $item['score_ratio'] = round($item['score_ratio'], 4);
+            $item['final_score'] = round($item['final_score'], 2);
+        }
+        unset($item);
+
+        return $this->respond(200, array('data' => $submission));
     }
 
     private function attendance_check($type)
