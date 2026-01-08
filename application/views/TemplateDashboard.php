@@ -554,6 +554,7 @@ if (!$_SESSION['is_login']) {
     $menu_order_customer = $menu_toko = $menu_order_item = $menu_crm_mg = $menu_crm_pome = $menu_grup_wa = '';
     $menu_operasional = $menu_stock = $menu_product = $menu_product_3rd = $menu_discount = $menu_marketplace = $menu_shipping = '';
     $menu_hr_management = $menu_quest_level = $menu_position = $menu_benefit = $menu_quest = $menu_milestone = $menu_recruitment = $menu_roles = '';
+    $menu_attendance = $menu_attendance_report = $menu_leave = $menu_leave_approvals = $menu_leave_types = $menu_approval_routes = $menu_offices = $menu_holidays = $menu_attendance_settings = '';
     $menu_akun = $menu_user = $menu_profile = $menu_logout = '';
     
     // Get user permissions for menu visibility using module names from clear_and_replace_modules.sql
@@ -609,7 +610,13 @@ if (!$_SESSION['is_login']) {
                               $CI->permission->check_permission($user_id, 'benefit', 'view') ||
                               $CI->permission->check_permission($user_id, 'quest', 'view') ||
                               $CI->permission->check_permission($user_id, 'milestone', 'view') ||
-                              $CI->permission->check_permission($user_id, 'recruitment', 'view');
+                              $CI->permission->check_permission($user_id, 'recruitment', 'view') ||
+                              $CI->permission->check_permission($user_id, 'attendance', 'view') ||
+                              $CI->permission->check_permission($user_id, 'leave', 'view') ||
+                              $CI->permission->check_permission($user_id, 'leave_approvals', 'view') ||
+                              $CI->permission->check_permission($user_id, 'offices', 'view') ||
+                              $CI->permission->check_permission($user_id, 'leave_types', 'view') ||
+                              $CI->permission->check_permission($user_id, 'approval_routes', 'view');
     
     // Account Management - show if user has access to any account module  
     $can_view_akun = $CI->permission->check_permission($user_id, 'user', 'view') ||
@@ -657,6 +664,14 @@ if (!$_SESSION['is_login']) {
         'quest' => $CI->permission->check_permission($user_id, 'quest', 'view'),
         'milestone' => $CI->permission->check_permission($user_id, 'milestone', 'view'),
         'recruitment' => $CI->permission->check_permission($user_id, 'recruitment', 'view'),
+        'attendance' => $CI->permission->check_permission($user_id, 'attendance', 'view'),
+        'leave' => $CI->permission->check_permission($user_id, 'leave', 'view'),
+        'leave_approvals' => $CI->permission->check_permission($user_id, 'leave_approvals', 'view'),
+        'offices' => $CI->permission->check_permission($user_id, 'offices', 'view'),
+        'leave_types' => $CI->permission->check_permission($user_id, 'leave_types', 'view'),
+        'approval_routes' => $CI->permission->check_permission($user_id, 'approval_routes', 'view'),
+        'holidays' => $CI->permission->check_permission($user_id, 'attendance', 'view'),
+        'attendance_settings' => $CI->permission->check_permission($user_id, 'attendance', 'view'),
         'modules' => $CI->permission->check_permission($user_id, 'modules', 'view'),
         
         // Account Management
@@ -768,7 +783,7 @@ if (!$_SESSION['is_login']) {
       } else if ($uri_1 == 'product' || $uri_1 == 'marketplace' || $uri_1 == 'shipping' || $uri_1 == 'marketplace-account') {
         $menu_product = 'active';
       }
-    } else if ($uri_1 == 'quest_level' || $uri_1 == 'position' || $uri_1 == 'benefit' || $uri_1 == 'quest' || $uri_1 == 'milestone' || $uri_1 == 'recruitment') {
+    } else if ($uri_1 == 'quest_level' || $uri_1 == 'position' || $uri_1 == 'benefit' || $uri_1 == 'quest' || $uri_1 == 'milestone' || $uri_1 == 'recruitment' || $uri_1 == 'attendance' || $uri_1 == 'leave' || ($uri_1 == 'approvals' && $uri_2 == 'leaves') || ($uri_1 == 'admin' && in_array($uri_2, array('offices', 'leave-types', 'approval-routes', 'holidays', 'attendance-settings'), true))) {
       $menu_hr_management = 'show';
       if ($uri_1 == 'quest_level') {
         $menu_quest_level = 'active';
@@ -782,6 +797,26 @@ if (!$_SESSION['is_login']) {
         $menu_milestone = 'active'; 
       } else if ($uri_1 == 'recruitment') {
         $menu_recruitment = 'active';
+      } else if ($uri_1 == 'attendance') {
+        if ($uri_2 == 'report') {
+          $menu_attendance_report = 'active';
+        } else {
+          $menu_attendance = 'active';
+        }
+      } else if ($uri_1 == 'leave') {
+        $menu_leave = 'active';
+      } else if ($uri_1 == 'approvals' && $uri_2 == 'leaves') {
+        $menu_leave_approvals = 'active';
+      } else if ($uri_1 == 'admin' && $uri_2 == 'offices') {
+        $menu_offices = 'active';
+      } else if ($uri_1 == 'admin' && $uri_2 == 'leave-types') {
+        $menu_leave_types = 'active';
+      } else if ($uri_1 == 'admin' && $uri_2 == 'approval-routes') {
+        $menu_approval_routes = 'active';
+      } else if ($uri_1 == 'admin' && $uri_2 == 'holidays') {
+        $menu_holidays = 'active';
+      } else if ($uri_1 == 'admin' && $uri_2 == 'attendance-settings') {
+        $menu_attendance_settings = 'active';
       }
     } else if ($uri_1 == 'user' || $uri_1 == 'profile' || $uri_1 == 'roles' || $uri_1 == 'modules') {
       $menu_akun = 'show';
@@ -799,6 +834,7 @@ if (!$_SESSION['is_login']) {
       $menu_order_customer = $menu_toko = $menu_order_item = $menu_crm_mg = $menu_crm_pome = $menu_grup_wa = '';
       $menu_operasional = $menu_stock = $menu_product = '';
       $menu_hr_management = $menu_quest_level = $menu_position = $menu_benefit = $menu_quest = $menu_milestone = $menu_recruitment = $menu_roles = '';
+      $menu_attendance = $menu_attendance_report = $menu_leave = $menu_leave_approvals = $menu_leave_types = $menu_approval_routes = $menu_offices = $menu_holidays = $menu_attendance_settings = '';
       $menu_akun = $menu_user = $menu_profile = $menu_logout = '';
     }
     ?>
@@ -1026,7 +1062,6 @@ if (!$_SESSION['is_login']) {
           </div>
         <?php endif; ?>
 
-        <!-- HR MANAGEMENT - Not being used yet
         <?php if ($can_view_hr_management): ?>
           <a class="item-menu fw-bold <?= $menu_hr_management ? '' : 'collapsed' ?> d-flex align-items-center justify-content-between"
             data-bs-toggle="collapse"
@@ -1039,6 +1074,58 @@ if (!$_SESSION['is_login']) {
           </a>
 
           <div class="collapse <?= $menu_hr_management ? 'show' : '' ?>" id="submenu-hr-management">
+            <?php if ($modules_permissions['attendance']): ?>
+              <a href="<?= base_url() ?>attendance" class="ms-3 item-menu <?= $menu_attendance ?>">
+                <i class="icon bi bi-calendar-check"></i>
+                ATTENDANCE
+              </a>
+              <a href="<?= base_url() ?>attendance/report" class="ms-3 item-menu <?= $menu_attendance_report ?>">
+                <i class="icon bi bi-clipboard-data"></i>
+                ATTENDANCE REPORTS
+              </a>
+            <?php endif; ?>
+            <?php if ($modules_permissions['leave']): ?>
+              <a href="<?= base_url() ?>leave" class="ms-3 item-menu <?= $menu_leave ?>">
+                <i class="icon bi bi-journal-text"></i>
+                LEAVE REQUESTS
+              </a>
+            <?php endif; ?>
+            <?php if ($modules_permissions['leave_approvals']): ?>
+              <a href="<?= base_url() ?>approvals/leaves" class="ms-3 item-menu <?= $menu_leave_approvals ?>">
+                <i class="icon bi bi-check2-circle"></i>
+                LEAVE APPROVALS
+              </a>
+            <?php endif; ?>
+            <?php if ($modules_permissions['offices']): ?>
+              <a href="<?= base_url() ?>admin/offices" class="ms-3 item-menu <?= $menu_offices ?>">
+                <i class="icon bi bi-building"></i>
+                OFFICES
+              </a>
+            <?php endif; ?>
+            <?php if ($modules_permissions['attendance_settings']): ?>
+              <a href="<?= base_url() ?>admin/attendance-settings" class="ms-3 item-menu <?= $menu_attendance_settings ?>">
+                <i class="icon bi bi-gear"></i>
+                ATTENDANCE SETTINGS
+              </a>
+            <?php endif; ?>
+            <?php if ($modules_permissions['holidays']): ?>
+              <a href="<?= base_url() ?>admin/holidays" class="ms-3 item-menu <?= $menu_holidays ?>">
+                <i class="icon bi bi-calendar-event"></i>
+                HOLIDAYS
+              </a>
+            <?php endif; ?>
+            <?php if ($modules_permissions['leave_types']): ?>
+              <a href="<?= base_url() ?>admin/leave-types" class="ms-3 item-menu <?= $menu_leave_types ?>">
+                <i class="icon bi bi-clipboard2-plus"></i>
+                LEAVE TYPES
+              </a>
+            <?php endif; ?>
+            <?php if ($modules_permissions['approval_routes']): ?>
+              <a href="<?= base_url() ?>admin/approval-routes" class="ms-3 item-menu <?= $menu_approval_routes ?>">
+                <i class="icon bi bi-diagram-3"></i>
+                APPROVAL ROUTES
+              </a>
+            <?php endif; ?>
             <?php if ($modules_permissions['recruitment']): ?>
               <a href="<?= base_url() ?>recruitment" class="ms-3 item-menu <?= $menu_recruitment ?>">
                 <i class="icon bi bi-person-fill-up"></i>
@@ -1077,7 +1164,6 @@ if (!$_SESSION['is_login']) {
             <?php endif; ?>
           </div>
         <?php endif; ?>
-        -->
 
         <?php if ($can_view_akun): ?>
           <a class="item-menu fw-bold <?= $menu_akun ? '' : 'collapsed' ?> d-flex align-items-center justify-content-between"
