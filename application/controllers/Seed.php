@@ -42,6 +42,17 @@ class Seed extends CI_Controller
         echo $message . "\n";
     }
 
+    public function performance_2026()
+    {
+        if (!is_cli()) {
+            show_404();
+            return;
+        }
+
+        $message = $this->seed_performance_2026_template();
+        echo $message . "\n";
+    }
+
     protected function seed_attendance_office()
     {
         $existing = $this->db->get_where('offices', array('id' => 1))->row_array();
@@ -177,5 +188,108 @@ class Seed extends CI_Controller
         }
 
         return sprintf('Holidays seed completed: %d inserted, %d updated, %d skipped.', $inserted, $updated, $skipped);
+    }
+
+    protected function seed_performance_2026_template()
+    {
+        $now = date('Y-m-d H:i:s');
+
+        if (!$this->db->table_exists('performance_templates')) {
+            return 'Performance templates table not found. Run migrations first.';
+        }
+
+        $templateData = array(
+            'name' => 'Performance Appraisal HRGA 2026',
+            'period_year' => 2026,
+            'department' => 'HRGA',
+            'is_active' => 0,
+            'updated_at' => $now,
+        );
+
+        $existing = $this->db->get_where('performance_templates', array(
+            'name' => $templateData['name'],
+            'period_year' => $templateData['period_year'],
+        ))->row_array();
+
+        $this->db->trans_start();
+
+        if ($existing) {
+            $this->db->where('id', (int) $existing['id']);
+            $this->db->update('performance_templates', $templateData);
+            $templateId = (int) $existing['id'];
+        } else {
+            $templateData['created_at'] = $now;
+            $this->db->insert('performance_templates', $templateData);
+            $templateId = (int) $this->db->insert_id();
+        }
+
+        $this->db->where('template_id', $templateId);
+        $this->db->delete('performance_template_items');
+
+        $items = array(
+            array(
+                'order_no' => 1,
+                'objective' => 'Efisiensi biaya operasional HRGA',
+                'kpi' => 'Cost Saving',
+                'target_value' => 100,
+                'unit' => '%',
+                'weight' => 20,
+            ),
+            array(
+                'order_no' => 2,
+                'objective' => 'Kepuasan layanan HRGA',
+                'kpi' => 'Kepuasan karyawan terhadap kinerja HR',
+                'target_value' => 90,
+                'unit' => '%',
+                'weight' => 20,
+            ),
+            array(
+                'order_no' => 3,
+                'objective' => 'Pemenuhan karyawan',
+                'kpi' => 'Ketepatan waktu pemenuhan karyawan baru',
+                'target_value' => 100,
+                'unit' => '%',
+                'weight' => 30,
+            ),
+            array(
+                'order_no' => 4,
+                'objective' => 'Kontrak dan masa kerja',
+                'kpi' => 'Kontrak kerja sesuai ketentuan',
+                'target_value' => 100,
+                'unit' => '%',
+                'weight' => 20,
+            ),
+            array(
+                'order_no' => 5,
+                'objective' => 'Presensi',
+                'kpi' => 'Tingkat kehadiran karyawan',
+                'target_value' => 95,
+                'unit' => '%',
+                'weight' => 10,
+            ),
+        );
+
+        foreach ($items as $item) {
+            $payload = array(
+                'template_id' => $templateId,
+                'order_no' => $item['order_no'],
+                'objective' => $item['objective'],
+                'kpi' => $item['kpi'],
+                'target_value' => $item['target_value'],
+                'unit' => $item['unit'],
+                'weight' => $item['weight'],
+                'created_at' => $now,
+                'updated_at' => $now,
+            );
+            $this->db->insert('performance_template_items', $payload);
+        }
+
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === FALSE) {
+            return 'Performance template seed failed.';
+        }
+
+        return 'Performance template 2026 seed completed.';
     }
 }

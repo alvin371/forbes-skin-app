@@ -388,6 +388,8 @@ Response 201:
   "status": "Pending"
 }
 ```
+Notes:
+- Leave requests require an active approval route for the user. If none is configured, the API returns `422` with `message: "No approval route configured for this user."`
 
 ### GET /leave/quota
 Response 200:
@@ -406,6 +408,97 @@ All errors use JSON with a message and optional field errors.
   "message": "Validation failed.",
   "errors": {
     "start_date": "Start date and end date are required."
+  }
+}
+```
+
+## Performance
+
+### GET /performance/templates/active
+Query: `period_year=YYYY`
+Response 200:
+```json
+{
+  "data": {
+    "id": 10,
+    "name": "Performance Appraisal HRGA 2026",
+    "period_year": 2026,
+    "department": "HRGA",
+    "is_active": 1,
+    "items": [
+      {
+        "id": 101,
+        "template_id": 10,
+        "order_no": 1,
+        "objective": "Efisiensi biaya operasional HRGA",
+        "kpi": "Cost Saving",
+        "target_value": 100,
+        "unit": "%",
+        "weight": 20
+      }
+    ]
+  }
+}
+```
+
+### GET /performance/submissions
+Query: `period_year=YYYY` (optional)
+Response 200:
+```json
+{
+  "data": [
+    {
+      "id": 55,
+      "template_id": 10,
+      "employee_id": 123,
+      "period_year": 2026,
+      "total_score": 98.5,
+      "status": "SUBMITTED",
+      "template_name": "Performance Appraisal HRGA 2026"
+    }
+  ]
+}
+```
+
+### POST /performance/submissions
+Request:
+```json
+{
+  "template_id": 10,
+  "items": [
+    { "template_item_id": 101, "actual_value": 95 }
+  ]
+}
+```
+Response 201:
+```json
+{
+  "id": 55,
+  "total_score": 98.5,
+  "message": "Submission created."
+}
+```
+
+### GET /performance/submissions/:id
+Response 200:
+```json
+{
+  "data": {
+    "id": 55,
+    "template_id": 10,
+    "employee_id": 123,
+    "period_year": 2026,
+    "total_score": 98.5,
+    "status": "SUBMITTED",
+    "items": [
+      {
+        "id": 1,
+        "template_item_id": 101,
+        "actual_value": 95,
+        "score_ratio": 0.95,
+        "final_score": 19
+      }
+    ]
   }
 }
 ```
