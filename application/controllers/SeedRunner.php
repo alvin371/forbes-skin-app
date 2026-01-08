@@ -21,6 +21,7 @@ class SeedRunner extends Seed
         $results = array(
             'attendance_office' => $this->seed_attendance_office(),
             'leave_types' => $this->seed_leave_types(),
+            'holidays' => $this->seed_holidays(),
         );
 
         $this->output
@@ -56,6 +57,20 @@ class SeedRunner extends Seed
             ->set_output(json_encode(array(
                 'success' => true,
                 'message' => $this->seed_leave_types(),
+            )));
+    }
+
+    public function holidays()
+    {
+        if (!$this->ensure_allowed()) {
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode(array(
+                'success' => true,
+                'message' => $this->seed_holidays(),
             )));
     }
 

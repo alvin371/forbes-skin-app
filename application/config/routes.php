@@ -68,12 +68,6 @@ $route['admin/leave-types/(:num)/edit'] = 'admin/LeaveTypesController/edit/$1';
 $route['admin/leave-types/(:num)'] = 'admin/LeaveTypesController/update/$1';
 $route['admin/leave-types/(:num)/delete'] = 'admin/LeaveTypesController/delete/$1';
 
-$route['admin/approval-routes'] = 'admin/ApprovalRoutesController/index';
-$route['admin/approval-routes/create'] = 'admin/ApprovalRoutesController/create';
-$route['admin/approval-routes/(:num)/edit'] = 'admin/ApprovalRoutesController/edit/$1';
-$route['admin/approval-routes/(:num)'] = 'admin/ApprovalRoutesController/update/$1';
-$route['admin/approval-routes/(:num)/delete'] = 'admin/ApprovalRoutesController/delete/$1';
-
 $route['admin/holidays'] = 'admin/HolidaysController/index';
 $route['admin/holidays/create'] = 'admin/HolidaysController/create';
 $route['admin/holidays/(:num)/edit'] = 'admin/HolidaysController/edit/$1';
@@ -95,6 +89,7 @@ $route['approvals/leaves/(:num)/reject'] = 'approvals/LeaveApprovalController/re
 $route['seed/run'] = 'SeedRunner/index';
 $route['seed/attendance-office'] = 'SeedRunner/attendance_office';
 $route['seed/leave-types'] = 'SeedRunner/leave_types';
+$route['seed/holidays'] = 'SeedRunner/holidays';
 $route['migrate/latest'] = 'MigrationRunner/latest';
 $route['schema/hr'] = 'SchemaBootstrap/hr';
 $route['schema/hrms-api'] = 'SchemaBootstrap/hrms_api';
