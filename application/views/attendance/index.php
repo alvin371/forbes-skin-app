@@ -1,24 +1,30 @@
-<div class="card">
-    <div class="card-body">
-        <h3>Attendance Confirmation</h3>
-        <p>Confirm your attendance only when you are at the office location.</p>
+<div class="card" style="border-radius: 2px; border: 1px solid #f0f0f0; box-shadow: 0 2px 8px rgba(0,0,0,0.09);">
+    <div class="card-header" style="background-color: #fff; border-bottom: 1px solid #f0f0f0; padding: 16px; height: 56px; display: flex; align-items: center;">
+        <h3 style="margin: 0; font-size: 16px; font-weight: 500; color: rgba(0,0,0,0.85);">Attendance Confirmation</h3>
+    </div>
+    <div class="card-body" style="padding: 16px;">
+        <p style="font-size: 14px; color: rgba(0,0,0,0.65); margin-bottom: 16px;">Confirm your attendance only when you are at the office location.</p>
 
         <div style="margin-bottom: 16px;">
-            <button id="confirm-in" class="btn btn-primary">Confirm IN</button>
-            <button id="confirm-out" class="btn btn-outline-primary">Confirm OUT</button>
+            <button id="confirm-in" class="btn btn-primary" style="background-color: #1890ff; border-color: #1890ff; height: 32px; padding: 4px 15px; border-radius: 2px; font-size: 14px; margin-right: 8px;">
+                <i class="bi bi-box-arrow-in-right"></i> Confirm IN
+            </button>
+            <button id="confirm-out" class="btn btn-outline-secondary" style="color: rgba(0,0,0,0.65); border-color: #d9d9d9; background: #fff; height: 32px; padding: 4px 15px; border-radius: 2px; font-size: 14px;">
+                <i class="bi bi-box-arrow-left"></i> Confirm OUT
+            </button>
         </div>
 
-        <div id="geo-status" style="margin-bottom: 8px;"></div>
-        <div id="status-panel" style="border: 1px solid #ddd; padding: 12px; margin-bottom: 12px;">
-            <div><strong>Current Location:</strong> <span id="user-location">-</span></div>
-            <div><strong>Office Target:</strong> <span id="office-location">-</span></div>
-            <div><strong>Distance:</strong> <span id="distance-info">-</span></div>
-            <div><strong>Status:</strong> <span id="status-flags">-</span></div>
-            <div><strong>Guidance:</strong> <span id="status-guidance">-</span></div>
-            <div><strong>Eligibility:</strong> <span id="status-eligibility">-</span></div>
+        <div id="geo-status" style="margin-bottom: 12px; font-size: 14px;"></div>
+        <div id="status-panel" style="border: 1px solid #d9d9d9; border-radius: 2px; padding: 16px; margin-bottom: 16px; background-color: #fafafa;">
+            <div style="margin-bottom: 8px; font-size: 14px;"><strong style="color: rgba(0,0,0,0.85);">Current Location:</strong> <span id="user-location" style="color: rgba(0,0,0,0.65);">-</span></div>
+            <div style="margin-bottom: 8px; font-size: 14px;"><strong style="color: rgba(0,0,0,0.85);">Office Target:</strong> <span id="office-location" style="color: rgba(0,0,0,0.65);">-</span></div>
+            <div style="margin-bottom: 8px; font-size: 14px;"><strong style="color: rgba(0,0,0,0.85);">Distance:</strong> <span id="distance-info" style="color: rgba(0,0,0,0.65);">-</span></div>
+            <div style="margin-bottom: 8px; font-size: 14px;"><strong style="color: rgba(0,0,0,0.85);">Status:</strong> <span id="status-flags" style="color: rgba(0,0,0,0.65);">-</span></div>
+            <div style="margin-bottom: 8px; font-size: 14px;"><strong style="color: rgba(0,0,0,0.85);">Guidance:</strong> <span id="status-guidance" style="color: rgba(0,0,0,0.65);">-</span></div>
+            <div style="font-size: 14px;"><strong style="color: rgba(0,0,0,0.85);">Eligibility:</strong> <span id="status-eligibility" style="color: rgba(0,0,0,0.65);">-</span></div>
         </div>
-        <div id="geo-data" style="font-family: monospace; margin-bottom: 8px;"></div>
-        <div id="api-response"></div>
+        <div id="geo-data" style="font-family: monospace; margin-bottom: 12px; font-size: 12px; color: rgba(0,0,0,0.65);"></div>
+        <div id="api-response" style="font-size: 14px;"></div>
     </div>
 </div>
 
@@ -43,12 +49,12 @@
 
         function setStatus(message, isError) {
             geoStatus.textContent = message;
-            geoStatus.style.color = isError ? '#b00020' : '#0a6b2b';
+            geoStatus.style.color = isError ? '#ff4d4f' : '#52c41a';
         }
 
         function setResponse(message, isError) {
             apiResponse.textContent = message;
-            apiResponse.style.color = isError ? '#b00020' : '#0a6b2b';
+            apiResponse.style.color = isError ? '#ff4d4f' : '#52c41a';
         }
 
         function formatGeo(position) {
@@ -207,7 +213,7 @@
                 (office.has_ip_rule ? (computed.ip_ok ? 'Network OK' : 'Network blocked') : 'Network check skipped');
             statusGuidanceEl.textContent = buildGuidance(computed, office);
             statusEligibilityEl.textContent = computed.can_confirm ? 'You can confirm attendance.' : 'You cannot confirm attendance.';
-            statusEligibilityEl.style.color = computed.can_confirm ? '#0a6b2b' : '#b00020';
+            statusEligibilityEl.style.color = computed.can_confirm ? '#52c41a' : '#ff4d4f';
         }
 
         function fetchStatus(position) {
@@ -226,7 +232,7 @@
                 })
                 .catch(function () {
                     statusGuidanceEl.textContent = 'Unable to load status.';
-                    statusGuidanceEl.style.color = '#b00020';
+                    statusGuidanceEl.style.color = '#ff4d4f';
                     return null;
                 });
         }
@@ -249,7 +255,7 @@
                     var message = error && error.message ? error.message : 'Unable to get location.';
                     setStatus(message, true);
                     statusGuidanceEl.textContent = 'Please allow location access to see status.';
-                    statusGuidanceEl.style.color = '#b00020';
+                    statusGuidanceEl.style.color = '#ff4d4f';
                 });
         }
 

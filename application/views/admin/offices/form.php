@@ -1,10 +1,11 @@
-<div class="card">
-    <div class="card-body">
-        <h3><?php echo $office['id'] ? 'Edit Office' : 'Create Office'; ?></h3>
-
+<div class="card" style="border-radius: 2px; border: 1px solid #f0f0f0; box-shadow: 0 2px 8px rgba(0,0,0,0.09);">
+    <div class="card-header" style="background-color: #fff; border-bottom: 1px solid #f0f0f0; padding: 16px; height: 56px; display: flex; align-items: center;">
+        <h3 style="margin: 0; font-size: 16px; font-weight: 500; color: rgba(0,0,0,0.85);"><?php echo $office['id'] ? 'Edit Office' : 'Create Office'; ?></h3>
+    </div>
+    <div class="card-body" style="padding: 16px;">
         <?php if (!empty($errors)): ?>
-            <div style="margin: 10px 0; color: #b00020;">
-                Please fix the errors below.
+            <div class="alert alert-danger" style="padding: 8px 15px; border-radius: 2px; font-size: 14px; background-color: #fff2f0; border: 1px solid #ffccc7; color: #ff4d4f; margin-bottom: 16px;">
+                <i class="bi bi-exclamation-circle"></i> Please fix the errors below.
             </div>
         <?php endif; ?>
 
@@ -13,111 +14,137 @@
                 <input type="hidden" name="<?php echo $csrf_name; ?>" value="<?php echo $csrf_hash; ?>">
             <?php endif; ?>
 
-            <div style="margin-bottom: 12px;">
-                <label>Name</label><br>
-                <input type="text" name="name" value="<?php echo htmlspecialchars($office['name']); ?>" style="width: 100%;">
+            <div style="margin-bottom: 16px;">
+                <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Name</label>
+                <input type="text" name="name" class="form-control" value="<?php echo htmlspecialchars($office['name']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;">
                 <?php if (!empty($errors['name'])): ?>
-                    <div style="color: #b00020;"><?php echo $errors['name']; ?></div>
+                    <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $errors['name']; ?></div>
                 <?php endif; ?>
             </div>
 
-            <div style="margin-bottom: 12px;">
-                <label>Latitude</label><br>
-                <input type="text" id="lat" name="lat" value="<?php echo htmlspecialchars($office['lat']); ?>" style="width: 100%;">
-                <?php if (!empty($errors['lat'])): ?>
-                    <div style="color: #b00020;"><?php echo $errors['lat']; ?></div>
-                <?php endif; ?>
+            <div class="row g-2">
+                <div class="col-md-6">
+                    <div style="margin-bottom: 16px;">
+                        <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Latitude</label>
+                        <input type="text" id="lat" name="lat" class="form-control" value="<?php echo htmlspecialchars($office['lat']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <?php if (!empty($errors['lat'])): ?>
+                            <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $errors['lat']; ?></div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div style="margin-bottom: 16px;">
+                        <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Longitude</label>
+                        <input type="text" id="lng" name="lng" class="form-control" value="<?php echo htmlspecialchars($office['lng']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <?php if (!empty($errors['lng'])): ?>
+                            <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $errors['lng']; ?></div>
+                        <?php endif; ?>
+                    </div>
+                </div>
             </div>
 
-            <div style="margin-bottom: 12px;">
-                <label>Longitude</label><br>
-                <input type="text" id="lng" name="lng" value="<?php echo htmlspecialchars($office['lng']); ?>" style="width: 100%;">
-                <?php if (!empty($errors['lng'])): ?>
-                    <div style="color: #b00020;"><?php echo $errors['lng']; ?></div>
-                <?php endif; ?>
+            <div style="margin-bottom: 16px;">
+                <button type="button" id="geo-fill" class="btn btn-outline-secondary" style="color: rgba(0,0,0,0.65); border-color: #d9d9d9; background: #fff; height: 32px; padding: 4px 15px; border-radius: 2px; font-size: 14px;">
+                    <i class="bi bi-geo-alt"></i> Get my current location
+                </button>
+                <span id="geo-status" style="margin-left: 10px; font-size: 14px;"></span>
             </div>
 
-            <div style="margin-bottom: 12px;">
-                <button type="button" id="geo-fill">Get my current location</button>
-                <span id="geo-status" style="margin-left: 10px;"></span>
+            <div id="geo-preview" style="border: 1px solid #d9d9d9; border-radius: 2px; padding: 16px; margin-bottom: 16px; background-color: #fafafa;">
+                <div style="margin-bottom: 8px; font-size: 14px;"><strong style="color: rgba(0,0,0,0.85);">Preview Location:</strong> <span id="preview-location" style="color: rgba(0,0,0,0.65);">-</span></div>
+                <div style="margin-bottom: 8px; font-size: 14px;"><strong style="color: rgba(0,0,0,0.85);">Office Target:</strong> <span id="preview-office" style="color: rgba(0,0,0,0.65);">-</span></div>
+                <div style="margin-bottom: 8px; font-size: 14px;"><strong style="color: rgba(0,0,0,0.85);">Distance:</strong> <span id="preview-distance" style="color: rgba(0,0,0,0.65);">-</span></div>
+                <div style="margin-bottom: 8px; font-size: 14px;"><strong style="color: rgba(0,0,0,0.85);">Status:</strong> <span id="preview-status" style="color: rgba(0,0,0,0.65);">-</span></div>
+                <div style="font-size: 14px;"><strong style="color: rgba(0,0,0,0.85);">Guidance:</strong> <span id="preview-guidance" style="color: rgba(0,0,0,0.65);">-</span></div>
             </div>
 
-            <div id="geo-preview" style="border: 1px solid #ddd; padding: 12px; margin-bottom: 12px;">
-                <div><strong>Preview Location:</strong> <span id="preview-location">-</span></div>
-                <div><strong>Office Target:</strong> <span id="preview-office">-</span></div>
-                <div><strong>Distance:</strong> <span id="preview-distance">-</span></div>
-                <div><strong>Status:</strong> <span id="preview-status">-</span></div>
-                <div><strong>Guidance:</strong> <span id="preview-guidance">-</span></div>
+            <div class="row g-2">
+                <div class="col-md-6">
+                    <div style="margin-bottom: 16px;">
+                        <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Radius (meters)</label>
+                        <input type="number" name="radius_m" class="form-control" value="<?php echo htmlspecialchars($office['radius_m']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <?php if (!empty($errors['radius_m'])): ?>
+                            <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $errors['radius_m']; ?></div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div style="margin-bottom: 16px;">
+                        <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Minimum Accuracy (meters)</label>
+                        <input type="number" name="min_accuracy_m" class="form-control" value="<?php echo htmlspecialchars($office['min_accuracy_m']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <?php if (!empty($errors['min_accuracy_m'])): ?>
+                            <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $errors['min_accuracy_m']; ?></div>
+                        <?php endif; ?>
+                    </div>
+                </div>
             </div>
 
-            <div style="margin-bottom: 12px;">
-                <label>Radius (meters)</label><br>
-                <input type="number" name="radius_m" value="<?php echo htmlspecialchars($office['radius_m']); ?>" style="width: 100%;">
-                <?php if (!empty($errors['radius_m'])): ?>
-                    <div style="color: #b00020;"><?php echo $errors['radius_m']; ?></div>
-                <?php endif; ?>
-            </div>
-
-            <div style="margin-bottom: 12px;">
-                <label>Minimum Accuracy (meters)</label><br>
-                <input type="number" name="min_accuracy_m" value="<?php echo htmlspecialchars($office['min_accuracy_m']); ?>" style="width: 100%;">
-                <?php if (!empty($errors['min_accuracy_m'])): ?>
-                    <div style="color: #b00020;"><?php echo $errors['min_accuracy_m']; ?></div>
-                <?php endif; ?>
-            </div>
-
-            <div style="margin-bottom: 12px;">
-                <label>Allowed IP CIDRs (one per line)</label><br>
-                <textarea name="allowed_ip_cidrs" rows="5" style="width: 100%;"><?php echo htmlspecialchars($office['allowed_ip_cidrs']); ?></textarea>
+            <div style="margin-bottom: 16px;">
+                <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Allowed IP CIDRs <span style="font-size: 12px; color: rgba(0,0,0,0.45);">(one per line)</span></label>
+                <textarea name="allowed_ip_cidrs" rows="5" class="form-control" style="padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;"><?php echo htmlspecialchars($office['allowed_ip_cidrs']); ?></textarea>
                 <?php if (!empty($errors['allowed_ip_cidrs'])): ?>
-                    <div style="color: #b00020;"><?php echo $errors['allowed_ip_cidrs']; ?></div>
+                    <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $errors['allowed_ip_cidrs']; ?></div>
                 <?php endif; ?>
             </div>
 
-            <div style="margin-bottom: 12px;">
-                <label>Allowed BSSIDs (one per line)</label><br>
-                <textarea name="allowed_bssids" rows="4" style="width: 100%;"><?php echo htmlspecialchars($office['allowed_bssids']); ?></textarea>
+            <div class="row g-2">
+                <div class="col-md-6">
+                    <div style="margin-bottom: 16px;">
+                        <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Allowed BSSIDs <span style="font-size: 12px; color: rgba(0,0,0,0.45);">(one per line)</span></label>
+                        <textarea name="allowed_bssids" rows="4" class="form-control" style="padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;"><?php echo htmlspecialchars($office['allowed_bssids']); ?></textarea>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div style="margin-bottom: 16px;">
+                        <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Allowed SSIDs <span style="font-size: 12px; color: rgba(0,0,0,0.45);">(one per line)</span></label>
+                        <textarea name="allowed_ssids" rows="4" class="form-control" style="padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;"><?php echo htmlspecialchars($office['allowed_ssids']); ?></textarea>
+                    </div>
+                </div>
             </div>
 
-            <div style="margin-bottom: 12px;">
-                <label>Allowed SSIDs (one per line)</label><br>
-                <textarea name="allowed_ssids" rows="4" style="width: 100%;"><?php echo htmlspecialchars($office['allowed_ssids']); ?></textarea>
-            </div>
-
-            <div style="margin-bottom: 12px;">
-                <label>Attendance Response Times (HH:MM, one per line)</label><br>
-                <textarea name="attendance_response_times" rows="3" style="width: 100%;"><?php echo htmlspecialchars($office['attendance_response_times']); ?></textarea>
+            <div style="margin-bottom: 16px;">
+                <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Attendance Response Times <span style="font-size: 12px; color: rgba(0,0,0,0.45);">(HH:MM, one per line)</span></label>
+                <textarea name="attendance_response_times" rows="3" class="form-control" style="padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;"><?php echo htmlspecialchars($office['attendance_response_times']); ?></textarea>
                 <?php if (!empty($errors['attendance_response_times'])): ?>
-                    <div style="color: #b00020;"><?php echo $errors['attendance_response_times']; ?></div>
+                    <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $errors['attendance_response_times']; ?></div>
                 <?php endif; ?>
             </div>
 
-            <div style="margin-bottom: 12px;">
-                <label>Attendance History Days</label><br>
-                <input type="number" name="attendance_history_days" value="<?php echo htmlspecialchars($office['attendance_history_days']); ?>" style="width: 100%;">
-                <?php if (!empty($errors['attendance_history_days'])): ?>
-                    <div style="color: #b00020;"><?php echo $errors['attendance_history_days']; ?></div>
-                <?php endif; ?>
+            <div class="row g-2">
+                <div class="col-md-6">
+                    <div style="margin-bottom: 16px;">
+                        <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Attendance History Days</label>
+                        <input type="number" name="attendance_history_days" class="form-control" value="<?php echo htmlspecialchars($office['attendance_history_days']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <?php if (!empty($errors['attendance_history_days'])): ?>
+                            <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $errors['attendance_history_days']; ?></div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div style="margin-bottom: 16px;">
+                        <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Attendance Recap Months</label>
+                        <input type="number" name="attendance_recap_months" class="form-control" value="<?php echo htmlspecialchars($office['attendance_recap_months']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <?php if (!empty($errors['attendance_recap_months'])): ?>
+                            <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $errors['attendance_recap_months']; ?></div>
+                        <?php endif; ?>
+                    </div>
+                </div>
             </div>
 
-            <div style="margin-bottom: 12px;">
-                <label>Attendance Recap Months</label><br>
-                <input type="number" name="attendance_recap_months" value="<?php echo htmlspecialchars($office['attendance_recap_months']); ?>" style="width: 100%;">
-                <?php if (!empty($errors['attendance_recap_months'])): ?>
-                    <div style="color: #b00020;"><?php echo $errors['attendance_recap_months']; ?></div>
-                <?php endif; ?>
-            </div>
-
-            <div style="margin-bottom: 12px;">
-                <label>
-                    <input type="checkbox" name="is_active" value="1" <?php echo ((int) $office['is_active'] === 1) ? 'checked' : ''; ?>>
+            <div style="margin-bottom: 16px;">
+                <label style="font-size: 14px; color: rgba(0,0,0,0.85);">
+                    <input type="checkbox" name="is_active" value="1" <?php echo ((int) $office['is_active'] === 1) ? 'checked' : ''; ?> style="margin-right: 8px;">
                     Set as active office
                 </label>
             </div>
 
-            <div style="margin-top: 16px;">
-                <button type="submit">Save</button>
-                <a href="<?php echo site_url('admin/offices'); ?>" style="margin-left: 8px;">Cancel</a>
+            <div style="margin-top: 24px;">
+                <button type="submit" class="btn btn-primary" style="background-color: #1890ff; border-color: #1890ff; height: 32px; padding: 4px 15px; border-radius: 2px; font-size: 14px; margin-right: 8px;">
+                    <i class="bi bi-check-circle"></i> Save
+                </button>
+                <a href="<?php echo site_url('admin/offices'); ?>" class="btn btn-outline-secondary" style="color: rgba(0,0,0,0.65); border-color: #d9d9d9; background: #fff; height: 32px; padding: 4px 15px; border-radius: 2px; font-size: 14px; text-decoration: none; display: inline-flex; align-items: center;">
+                    <i class="bi bi-arrow-left"></i> Cancel
+                </a>
             </div>
         </form>
     </div>
@@ -165,7 +192,7 @@
 
             if (!officeLat || !officeLng) {
                 previewGuidanceEl.textContent = 'Fill office latitude and longitude to preview.';
-                previewGuidanceEl.style.color = '#b00020';
+                previewGuidanceEl.style.color = '#ff4d4f';
                 return;
             }
 
@@ -185,7 +212,7 @@
                 .then(function (data) {
                     if (!data || data.status !== 'ok') {
                         previewGuidanceEl.textContent = data.message || 'Unable to preview office status.';
-                        previewGuidanceEl.style.color = '#b00020';
+                        previewGuidanceEl.style.color = '#ff4d4f';
                         return;
                     }
 
@@ -216,11 +243,11 @@
                         guidance.push('Office settings look good for your current location.');
                     }
                     previewGuidanceEl.textContent = guidance.join(' ');
-                    previewGuidanceEl.style.color = computed.can_confirm ? '#0a6b2b' : '#b00020';
+                    previewGuidanceEl.style.color = computed.can_confirm ? '#52c41a' : '#ff4d4f';
                 })
                 .catch(function () {
                     previewGuidanceEl.textContent = 'Unable to preview office status.';
-                    previewGuidanceEl.style.color = '#b00020';
+                    previewGuidanceEl.style.color = '#ff4d4f';
                 });
         }
 
@@ -230,11 +257,11 @@
 
         button.addEventListener('click', function () {
             statusEl.textContent = 'Requesting location...';
-            statusEl.style.color = '#333';
+            statusEl.style.color = 'rgba(0,0,0,0.65)';
 
             if (!navigator.geolocation) {
                 statusEl.textContent = 'Geolocation is not supported.';
-                statusEl.style.color = '#b00020';
+                statusEl.style.color = '#ff4d4f';
                 return;
             }
 
@@ -247,11 +274,11 @@
                     lngInput.value = position.coords.longitude;
                 }
                 statusEl.textContent = 'Location updated.';
-                statusEl.style.color = '#0a6b2b';
+                statusEl.style.color = '#52c41a';
                 updatePreview(position);
             }, function () {
                 statusEl.textContent = 'Unable to get location.';
-                statusEl.style.color = '#b00020';
+                statusEl.style.color = '#ff4d4f';
             }, {
                 enableHighAccuracy: true,
                 timeout: 15000,

@@ -1,11 +1,13 @@
-<div class="card">
-    <div class="card-body">
-        <h3><?php echo isset($leave_type['id']) && $leave_type['id'] ? 'Edit' : 'Create'; ?> Leave Type</h3>
-
+<div class="card" style="border-radius: 2px; border: 1px solid #f0f0f0; box-shadow: 0 2px 8px rgba(0,0,0,0.09);">
+    <div class="card-header" style="background-color: #fff; border-bottom: 1px solid #f0f0f0; padding: 16px; height: 56px; display: flex; align-items: center;">
+        <h3 style="margin: 0; font-size: 16px; font-weight: 500; color: rgba(0,0,0,0.85);"><?php echo isset($leave_type['id']) && $leave_type['id'] ? 'Edit' : 'Create'; ?> Leave Type</h3>
+    </div>
+    <div class="card-body" style="padding: 16px;">
         <?php if (!empty($errors)): ?>
-            <div style="margin: 10px 0; color: #b71c1c;">
+            <div class="alert alert-danger" style="padding: 8px 15px; border-radius: 2px; font-size: 14px; background-color: #fff2f0; border: 1px solid #ffccc7; color: #ff4d4f; margin-bottom: 16px;">
+                <i class="bi bi-exclamation-circle"></i>
                 <?php foreach ($errors as $error): ?>
-                    <div><?php echo htmlspecialchars($error); ?></div>
+                    <div style="margin-top: 4px;"><?php echo htmlspecialchars($error); ?></div>
                 <?php endforeach; ?>
             </div>
         <?php endif; ?>
@@ -15,45 +17,60 @@
                 <input type="hidden" name="<?php echo $csrf_name; ?>" value="<?php echo $csrf_hash; ?>">
             <?php endif; ?>
 
-            <div style="margin-bottom: 12px;">
-                <label>Code</label><br>
-                <input type="text" name="code" value="<?php echo htmlspecialchars($leave_type['code']); ?>" required>
+            <div class="row g-2">
+                <div class="col-md-6">
+                    <div style="margin-bottom: 16px;">
+                        <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">
+                            Code <span style="color: #ff4d4f;">*</span>
+                        </label>
+                        <input type="text" name="code" class="form-control" value="<?php echo htmlspecialchars($leave_type['code']); ?>" required style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div style="margin-bottom: 16px;">
+                        <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">
+                            Name <span style="color: #ff4d4f;">*</span>
+                        </label>
+                        <input type="text" name="name" class="form-control" value="<?php echo htmlspecialchars($leave_type['name']); ?>" required style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                    </div>
+                </div>
             </div>
 
-            <div style="margin-bottom: 12px;">
-                <label>Name</label><br>
-                <input type="text" name="name" value="<?php echo htmlspecialchars($leave_type['name']); ?>" required>
-            </div>
-
-            <div style="margin-bottom: 12px;">
-                <label>Max Days Per Request (optional)</label><br>
-                <input type="number" name="max_days_per_request" min="1" value="<?php echo htmlspecialchars($leave_type['max_days_per_request']); ?>">
-            </div>
-
-            <div style="margin-bottom: 12px;">
-                <label>
-                    <input type="checkbox" name="is_paid" value="1" <?php echo ((int) $leave_type['is_paid'] === 1) ? 'checked' : ''; ?>>
-                    Paid Leave
+            <div style="margin-bottom: 16px;">
+                <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">
+                    Max Days Per Request <span style="font-size: 12px; color: rgba(0,0,0,0.45);">(optional)</span>
                 </label>
+                <input type="number" name="max_days_per_request" min="1" class="form-control" value="<?php echo htmlspecialchars($leave_type['max_days_per_request']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;">
             </div>
 
-            <div style="margin-bottom: 12px;">
-                <label>
-                    <input type="checkbox" name="requires_attachment" value="1" <?php echo ((int) $leave_type['requires_attachment'] === 1) ? 'checked' : ''; ?>>
-                    Requires Attachment
-                </label>
+            <div style="margin-bottom: 16px; padding: 12px; background-color: #fafafa; border: 1px solid #d9d9d9; border-radius: 2px;">
+                <div style="margin-bottom: 8px;">
+                    <label style="font-size: 14px; color: rgba(0,0,0,0.85); cursor: pointer;">
+                        <input type="checkbox" name="is_paid" value="1" <?php echo ((int) $leave_type['is_paid'] === 1) ? 'checked' : ''; ?> style="margin-right: 8px;">
+                        Paid Leave
+                    </label>
+                </div>
+                <div style="margin-bottom: 8px;">
+                    <label style="font-size: 14px; color: rgba(0,0,0,0.85); cursor: pointer;">
+                        <input type="checkbox" name="requires_attachment" value="1" <?php echo ((int) $leave_type['requires_attachment'] === 1) ? 'checked' : ''; ?> style="margin-right: 8px;">
+                        Requires Attachment
+                    </label>
+                </div>
+                <div>
+                    <label style="font-size: 14px; color: rgba(0,0,0,0.85); cursor: pointer;">
+                        <input type="checkbox" name="is_active" value="1" <?php echo ((int) $leave_type['is_active'] === 1) ? 'checked' : ''; ?> style="margin-right: 8px;">
+                        Active
+                    </label>
+                </div>
             </div>
 
-            <div style="margin-bottom: 12px;">
-                <label>
-                    <input type="checkbox" name="is_active" value="1" <?php echo ((int) $leave_type['is_active'] === 1) ? 'checked' : ''; ?>>
-                    Active
-                </label>
-            </div>
-
-            <div>
-                <button type="submit">Save</button>
-                <a href="<?php echo site_url('admin/leave-types'); ?>">Back</a>
+            <div style="margin-top: 24px;">
+                <button type="submit" class="btn btn-primary" style="background-color: #1890ff; border-color: #1890ff; height: 32px; padding: 4px 15px; border-radius: 2px; font-size: 14px; margin-right: 8px;">
+                    <i class="bi bi-check-circle"></i> Save
+                </button>
+                <a href="<?php echo site_url('admin/leave-types'); ?>" class="btn btn-outline-secondary" style="color: rgba(0,0,0,0.65); border-color: #d9d9d9; background: #fff; height: 32px; padding: 4px 15px; border-radius: 2px; font-size: 14px; text-decoration: none; display: inline-flex; align-items: center;">
+                    <i class="bi bi-arrow-left"></i> Back
+                </a>
             </div>
         </form>
     </div>
