@@ -1,85 +1,119 @@
-# Credentials Directory
+# HRMS API Integration Plan (acneno-hrms -> forbes-skin-app)
 
-This directory contains sensitive credentials and configuration files for the application.
+## Goal
+Implement backend APIs in `forbes-skin-app` to satisfy the mobile app in `acneno-hrms`.
 
-## Files
+## Required API Surface (from acneno-hrms)
+Auth:
+- `POST /auth/login` -> `{ accessToken, refreshToken, user { id, name, email, role? } }`
+- `POST /auth/refresh` -> `{ accessToken, refreshToken }`
 
-### `.env` (Required)
-Environment variables file containing all sensitive credentials. **This file is gitignored and should never be committed.**
+Profile:
+- `GET /profile` -> `{ id, name, email, role? }`
+- `PATCH /profile` -> update name/email/phone/etc (fields to confirm)
 
-To set up:
-1. Copy `.env.example` to `.env`
-2. Update all values with your actual credentials
+PIN:
+- `POST /pin/setup` -> set/update PIN hash for user
+- `POST /pin/verify` -> verify PIN, return ok/locked
+- `POST /pin/reset` -> clear PIN (admin/self with password)
 
-### `.env.example` (Template)
-Template file showing the required environment variables. This file is safe to commit and serves as documentation for other developers.
+Config:
+- `GET /config` -> office + attendance rules + wifi/BSSID allowlist
 
-### `client_secret.json` (Legacy - Optional)
-**Note:** This file is now deprecated. The application has been migrated to use environment variables from `.env` file instead.
+Attendance:
+- `POST /attendance/office-proof` -> `{ ok: true }`
+- `POST /attendance/check-in` -> `{ lat, lng, gpsAccuracy, distanceMeters, wifiProof }`
+- `POST /attendance/check-out` -> `{ lat, lng, gpsAccuracy, distanceMeters, wifiProof }`
+- `GET /attendance/history` -> `AttendanceRecord[]`
 
-Legacy Google OAuth configuration file. The values from this file have been moved to the `.env` file under:
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_PROJECT_ID`
-- etc.
+Leave:
+- `GET /leave` -> `LeaveRecord[]`
+- `GET /leave/quota` -> `{ total, remaining }`
+- `POST /leave` (JSON or multipart) -> created record
 
-## Environment Variables
+Performance:
+- `GET /performance` -> `PerformanceRecord[]`
+- `POST /performance` -> created record
 
-### Database Configuration
-- `DB_HOSTNAME` - Database host address
-- `DB_USERNAME` - Database username
-- `DB_PASSWORD` - Database password
-- `DB_DATABASE` - Database name
-- `DB_DRIVER` - Database driver (default: mysqli)
+## Current forbes-skin-app Coverage
+- Attendance: `AttendanceController`, `AttendanceEligibilityService`, `attendance_logs` table, `/api/attendance/*` routes.
+- Leave: `LeaveController`, leave tables, approvals, attachments.
+- Auth: session-based web login.
+- Missing: token auth, profile API, config API, leave quota, performance module, HRMS API routes matching the mobile app.
+- Missing: PIN backend support (hash storage, lockouts, reset flow).
 
-### Application
-- `CI_ENV` - Environment mode (development/testing/production)
-- `BASE_URL` - Application base URL (auto-detected if not set)
+## Implementation Plan
+1. Routing strategy (decide once and keep consistent)
+   - Preferred: add `/api/hrms/...` routes and update `acneno-hrms` `API_BASE_URL` to point to `/api/hrms`.
+   - Compatibility option: keep root routes (`/auth/login`, `/leave`, `/attendance/*`, `/performance`) and return JSON when `Accept: application/json` or `Content-Type: application/json` is used.
 
-### Google OAuth
-- `GOOGLE_CLIENT_ID` - Google OAuth client ID
-- `GOOGLE_CLIENT_SECRET` - Google OAuth client secret
-- `GOOGLE_PROJECT_ID` - Google Cloud project ID
-- `GOOGLE_AUTH_URI` - Google OAuth authorization URI
-- `GOOGLE_TOKEN_URI` - Google OAuth token URI
-- `GOOGLE_AUTH_PROVIDER_CERT_URL` - Google auth provider certificate URL
-- `GOOGLE_REDIRECT_URI_PROD` - Production OAuth redirect URI
-- `GOOGLE_REDIRECT_URI_LOCAL` - Local development OAuth redirect URI
+2. Token-based auth
+   - Add JWT access tokens (short TTL) + refresh tokens (long TTL).
+   - Table: `api_refresh_tokens` with `user_id`, `token_hash`, `expires_at`, `revoked_at`, `created_at`, `user_agent`, `ip`.
+   - Env: `API_JWT_SECRET`, `API_JWT_TTL_MIN`, `API_REFRESH_TTL_DAYS`.
+   - Implement `POST /auth/login` and `POST /auth/refresh`.
+   - Accept login by email or username; return `user` with `id`, `name`, `email`, `role`.
 
-### SMTP Email
-- `SMTP_HOST` - SMTP server hostname
-- `SMTP_USER` - SMTP username (email address)
-- `SMTP_PASS` - SMTP password
-- `SMTP_PORT_SSL` - SMTP SSL port (default: 465)
-- `SMTP_PORT_TLS` - SMTP TLS port (default: 587)
+3. API auth middleware
+   - Add library `ApiAuth` to validate `Authorization: Bearer <token>`.
+   - Attach current user; reject 401 on missing/expired tokens; support refresh flow.
 
-## Security Notes
+4. Profile APIs
+   - `GET /profile`: return `id`, `name`, `email`, `role`.
+   - `PATCH /profile`: allow updates to safe fields (confirm with product).
 
-1. **Never commit `.env` file** - It contains sensitive credentials
-2. Always use `.env.example` as a template for new environments
-3. Keep credentials secure and rotate them regularly
-4. Use different credentials for development, staging, and production environments
-5. The `.env` file is automatically loaded by the `env_helper.php` helper function
+5. PIN APIs
+   - Table: `user_pins` with `user_id`, `pin_hash`, `salt`, `failed_attempts`, `locked_until`, `updated_at`.
+   - `POST /pin/setup`: hash new PIN (bcrypt/argon2) and store, reset counters.
+   - `POST /pin/verify`: compare hash, increment failures, apply lockout (configurable).
+   - `POST /pin/reset`: require password or admin role, clear pin_hash.
 
-## Usage in Code
+6. Config API
+   - `GET /config`: return office geo rules + wifi/BSSID allowlist; replaces mobile env config.
+   - Source: `offices` + new fields if needed (ssid/bssid list, proof rules).
 
-Load environment variables using the `env()` helper function:
+7. Attendance APIs
+   - Create `AttendanceApiController` (or extend existing) with:
+     - `POST /attendance/office-proof`: validate `wifiProof` (see below) and return `{ ok: true }`.
+     - `POST /attendance/check-in` and `/check-out`: reuse `AttendanceEligibilityService`, store in `attendance_logs`.
+     - `GET /attendance/history`: add model method to list per-user logs ordered by time.
+   - Extend office WiFi proof support:
+     - Use existing `offices.allowed_bssids` field; parse BSSID list and compare to `wifiProof`.
+     - Optional: add `attendance_logs.wifi_proof` and `attendance_logs.proof_method`.
 
-```php
-// Load the helper (done automatically in database.php and controllers)
-$this->load->helper('env');
+8. Leave APIs
+   - `GET /leave`: map to `LeaveRequestModel->get_by_user`.
+   - `POST /leave`: reuse validation from `LeaveController` but return JSON and accept multipart file `attachment`.
+   - `GET /leave/quota`: choose a source of truth:
+     - Option A: add `leave_quotas` table per user and leave type.
+     - Option B: compute remaining from leave types + approved usage (define annual limits).
+   - Map statuses to mobile app values:
+     - `PENDING_APPROVAL` -> `Pending`
+     - `APPROVED` -> `Approved`
+     - `REJECTED` / `CANCELLED` -> `Rejected`
 
-// Get environment variable with optional default value
-$db_host = env('DB_HOSTNAME', 'localhost');
-$client_id = env('GOOGLE_CLIENT_ID');
-```
+9. Performance APIs
+   - Add new tables (example):
+     - `performance_cycles` (id, name, start_date, end_date, is_active).
+     - `performance_entries` (id, user_id, cycle, achievements, challenges, self_score, notes, created_at).
+   - `GET /performance`: list by user.
+   - `POST /performance`: validate fields and store entry.
 
-## Migration from client_secret.json
+10. Error format + validation
+   - Standard JSON: `{ message, errors? }`.
+   - Use consistent 4xx/5xx status codes to match mobile expectations.
 
-The application has been updated to use environment variables instead of `client_secret.json`. The following controllers have been updated:
+11. Security + rate limits
+   - Add throttling for attendance submissions (reuse existing cooldown logic).
+   - Log auth token usage; revoke refresh tokens on logout.
+   - Add PIN lockout (e.g., 5 attempts -> 15 min lock).
 
-1. `Googlemeet.php` - Now uses `env('GOOGLE_CLIENT_ID')` and `env('GOOGLE_CLIENT_SECRET')`
-2. `Googlemou.php` - Now uses environment variables for both OAuth and SMTP configuration
-3. `database.php` - Now uses environment variables for database configuration
+12. Verification checklist
+   - Postman collection for each endpoint.
+   - Happy-path flows: login -> refresh -> attendance -> leave -> performance.
+   - Test multipart upload and invalid GPS/accuracy rules.
 
-The `client_secret.json` file can be kept as a backup reference but is no longer actively used by the application.
+## Notes
+- Environment variables are loaded via `.env` and the `env()` helper.
+- Web UI routes should remain unchanged if the compatibility option is used.
+- Biometrics are handled client-side; no backend endpoints required.

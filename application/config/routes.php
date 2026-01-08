@@ -55,6 +55,50 @@ $route['login'] = 'auth/login';
 $route['signup'] = 'auth/signup';
 $route['signup-process'] = 'auth/signup_process';
 
+$route['admin/offices'] = 'admin/offices/index';
+$route['admin/offices/create'] = 'admin/offices/create';
+$route['admin/offices/(:num)/edit'] = 'admin/offices/edit/$1';
+$route['admin/offices/(:num)'] = 'admin/offices/update/$1';
+$route['admin/offices/(:num)/delete'] = 'admin/offices/delete/$1';
+$route['admin/offices/(:num)/activate'] = 'admin/offices/activate/$1';
+
+$route['admin/leave-types'] = 'admin/LeaveTypesController/index';
+$route['admin/leave-types/create'] = 'admin/LeaveTypesController/create';
+$route['admin/leave-types/(:num)/edit'] = 'admin/LeaveTypesController/edit/$1';
+$route['admin/leave-types/(:num)'] = 'admin/LeaveTypesController/update/$1';
+$route['admin/leave-types/(:num)/delete'] = 'admin/LeaveTypesController/delete/$1';
+
+$route['admin/approval-routes'] = 'admin/ApprovalRoutesController/index';
+$route['admin/approval-routes/create'] = 'admin/ApprovalRoutesController/create';
+$route['admin/approval-routes/(:num)/edit'] = 'admin/ApprovalRoutesController/edit/$1';
+$route['admin/approval-routes/(:num)'] = 'admin/ApprovalRoutesController/update/$1';
+$route['admin/approval-routes/(:num)/delete'] = 'admin/ApprovalRoutesController/delete/$1';
+
+$route['admin/holidays'] = 'admin/HolidaysController/index';
+$route['admin/holidays/create'] = 'admin/HolidaysController/create';
+$route['admin/holidays/(:num)/edit'] = 'admin/HolidaysController/edit/$1';
+$route['admin/holidays/(:num)'] = 'admin/HolidaysController/update/$1';
+$route['admin/holidays/(:num)/delete'] = 'admin/HolidaysController/delete/$1';
+
+$route['admin/attendance-settings'] = 'admin/AttendanceSettingsController/index';
+
+$route['leave'] = 'LeaveController/index';
+$route['leave/create'] = 'LeaveController/create';
+$route['leave/(:num)'] = 'LeaveController/detail/$1';
+$route['leave/(:num)/cancel'] = 'LeaveController/cancel/$1';
+
+$route['approvals/leaves'] = 'approvals/LeaveApprovalController/index';
+$route['approvals/leaves/(:num)'] = 'approvals/LeaveApprovalController/detail/$1';
+$route['approvals/leaves/(:num)/approve'] = 'approvals/LeaveApprovalController/approve/$1';
+$route['approvals/leaves/(:num)/reject'] = 'approvals/LeaveApprovalController/reject/$1';
+
+$route['seed/run'] = 'SeedRunner/index';
+$route['seed/attendance-office'] = 'SeedRunner/attendance_office';
+$route['seed/leave-types'] = 'SeedRunner/leave_types';
+$route['migrate/latest'] = 'MigrationRunner/latest';
+$route['schema/hr'] = 'SchemaBootstrap/hr';
+$route['schema/hrms-api'] = 'SchemaBootstrap/hrms_api';
+
 $route['default_controller'] = 'home/index';
 $route['404_override'] = 'page/error';
 $route['translate_uri_dashes'] = TRUE;
@@ -72,6 +116,29 @@ $route['api/marketplace/webhook/refresh'] = 'Api_v2/marketplace_webhook_refresh'
 $route['api/marketplace/webhook/reset'] = 'Api_v2/marketplace_webhook_reset';
 $route['api/marketplace/order/tracking'] = 'Api_v2/marketplace_order_tracking';
 $route['api/marketplace/order/download'] = 'Api_v2/marketplace_order_download';
+
+$route['api/hrms/auth/login'] = 'Api_hrms/auth_login';
+$route['api/hrms/auth/refresh'] = 'Api_hrms/auth_refresh';
+$route['api/hrms/profile'] = 'Api_hrms/profile';
+$route['api/hrms/pin/setup'] = 'Api_hrms/pin_setup';
+$route['api/hrms/pin/verify'] = 'Api_hrms/pin_verify';
+$route['api/hrms/pin/reset'] = 'Api_hrms/pin_reset';
+$route['api/hrms/config'] = 'Api_hrms/config';
+$route['api/hrms/attendance/office-proof'] = 'Api_hrms/attendance_office_proof';
+$route['api/hrms/attendance/check-in'] = 'Api_hrms/attendance_check_in';
+$route['api/hrms/attendance/check-out'] = 'Api_hrms/attendance_check_out';
+$route['api/hrms/attendance/history'] = 'Api_hrms/attendance_history';
+$route['api/hrms/attendance/recap'] = 'Api_hrms/attendance_recap';
+$route['api/hrms/attendance/recap-all'] = 'Api_hrms/attendance_recap_all';
+$route['api/hrms/attendance/report'] = 'Api_hrms/attendance_report';
+$route['api/hrms/leave'] = 'Api_hrms/leave';
+$route['api/hrms/leave/quota'] = 'Api_hrms/leave_quota';
+
+$route['api/attendance/confirm'] = 'AttendanceController/confirm';
+$route['api/attendance/status'] = 'AttendanceController/status';
+$route['attendance'] = 'AttendancePageController/index';
+$route['attendance/report'] = 'AttendanceReport/index';
+$route['attendance/report/pdf'] = 'AttendanceReport/export_pdf';
 
 $route['api/cronjob/endorse-campaign'] = 'Api_v2/cronjob_endorse_campaign';
 $route['api/cronjob/endorse'] = 'Api_v2/cronjob_endorse';
