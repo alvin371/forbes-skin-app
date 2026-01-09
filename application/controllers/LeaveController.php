@@ -16,6 +16,7 @@ class LeaveController extends CI_Controller
         $this->load->model('LeaveRequestModel');
         $this->load->model('LeaveApprovalModel');
         $this->load->model('ApprovalRouteModel');
+        $this->load->model('HolidayModel');
         $this->authfilter->enforce();
     }
 
@@ -40,6 +41,7 @@ class LeaveController extends CI_Controller
         $data['leave_types'] = $this->LeaveTypeModel->get_active();
         $data['request'] = $this->empty_request();
         $data['errors'] = array();
+        $data['holidays'] = $this->HolidayModel->get_active();
         $data['form_action'] = site_url('leave');
         $data['csrf_name'] = $this->security->get_csrf_token_name();
         $data['csrf_hash'] = $this->security->get_csrf_hash();
@@ -115,6 +117,7 @@ class LeaveController extends CI_Controller
             $data['leave_types'] = $this->LeaveTypeModel->get_active();
             $data['request'] = array_merge($this->empty_request(), $clean);
             $data['errors'] = $errors;
+            $data['holidays'] = $this->HolidayModel->get_active();
             $data['form_action'] = site_url('leave');
             $data['csrf_name'] = $this->security->get_csrf_token_name();
             $data['csrf_hash'] = $this->security->get_csrf_hash();
@@ -133,6 +136,7 @@ class LeaveController extends CI_Controller
                 $data['leave_types'] = $this->LeaveTypeModel->get_active();
                 $data['request'] = array_merge($this->empty_request(), $clean);
                 $data['errors'] = array('attachment' => $upload['error']);
+                $data['holidays'] = $this->HolidayModel->get_active();
                 $data['form_action'] = site_url('leave');
                 $data['csrf_name'] = $this->security->get_csrf_token_name();
                 $data['csrf_hash'] = $this->security->get_csrf_hash();
@@ -149,6 +153,7 @@ class LeaveController extends CI_Controller
                 $data['leave_types'] = $this->LeaveTypeModel->get_active();
                 $data['request'] = array_merge($this->empty_request(), $clean);
                 $data['errors'] = array('attachment' => $upload['error']);
+                $data['holidays'] = $this->HolidayModel->get_active();
                 $data['form_action'] = site_url('leave');
                 $data['csrf_name'] = $this->security->get_csrf_token_name();
                 $data['csrf_hash'] = $this->security->get_csrf_hash();
@@ -161,6 +166,8 @@ class LeaveController extends CI_Controller
         }
 
         $now = date('Y-m-d H:i:s');
+        $route = $this->ApprovalRouteModel->get_active_by_user($userId);
+        $hasApprover = $route && !empty($route['approver_id']);
         $this->db->trans_start();
         $requestId = $this->LeaveRequestModel->insert(array(
             'request_no' => $requestNo,
@@ -171,19 +178,20 @@ class LeaveController extends CI_Controller
             'days_count' => $clean['days_count'],
             'reason' => $clean['reason'],
             'attachment_path' => $attachmentPath,
-            'status' => 'PENDING_APPROVAL',
-            'current_step' => 1,
+            'status' => $hasApprover ? 'PENDING_APPROVAL' : 'SUBMITTED',
+            'current_step' => $hasApprover ? 1 : 0,
             'created_at' => $now,
             'updated_at' => $now,
         ));
 
-        $route = $this->ApprovalRouteModel->get_active_by_user($userId);
-        $this->LeaveApprovalModel->insert(array(
-            'leave_request_id' => $requestId,
-            'step_no' => 1,
-            'approver_id' => (int) $route['approver_id'],
-            'action' => 'PENDING',
-        ));
+        if ($hasApprover) {
+            $this->LeaveApprovalModel->insert(array(
+                'leave_request_id' => $requestId,
+                'step_no' => 1,
+                'approver_id' => (int) $route['approver_id'],
+                'action' => 'PENDING',
+            ));
+        }
         $this->db->trans_complete();
 
         $this->session->set_flashdata('message', 'Leave request submitted.');
@@ -195,11 +203,6 @@ class LeaveController extends CI_Controller
         $errors = array();
         $clean = array();
         $leaveType = null;
-
-        $route = $this->ApprovalRouteModel->get_active_by_user($userId);
-        if (!$route) {
-            $errors['approver'] = 'No approver configured.';
-        }
 
         $clean['leave_type_id'] = (int) ($input['leave_type_id'] ?? 0);
         if ($clean['leave_type_id'] <= 0) {

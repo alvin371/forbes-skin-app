@@ -509,6 +509,54 @@ class Api_hrms extends CI_Controller
         return $this->respond(200, $report);
     }
 
+    public function holidays()
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        $startDate = trim((string) $this->input->get('start', TRUE));
+        $endDate = trim((string) $this->input->get('end', TRUE));
+        $errors = array();
+
+        if ($startDate !== '' && !$this->is_valid_date($startDate)) {
+            $errors['start'] = 'Invalid date format.';
+        }
+        if ($endDate !== '' && !$this->is_valid_date($endDate)) {
+            $errors['end'] = 'Invalid date format.';
+        }
+        if (empty($errors) && $startDate !== '' && $endDate !== '' && strtotime($startDate) > strtotime($endDate)) {
+            $errors['start'] = 'Start date must be before or equal to end date.';
+        }
+
+        if (!empty($errors)) {
+            return $this->respond(422, array('message' => 'Validation failed.', 'errors' => $errors));
+        }
+
+        $rows = $this->HolidayModel->get_active_filtered(
+            $startDate !== '' ? $startDate : null,
+            $endDate !== '' ? $endDate : null
+        );
+        $items = array();
+        foreach ($rows as $holiday) {
+            $date = $holiday['date'];
+            $items[] = array(
+                'id' => (int) $holiday['id'],
+                'date' => $date,
+                'name' => $holiday['name'],
+                'dayName' => date('l', strtotime($date)),
+                'isHoliday' => true,
+            );
+        }
+
+        return $this->respond(200, array('data' => $items));
+    }
+
     public function leave()
     {
         $method = $this->input->method(TRUE);
@@ -571,6 +619,8 @@ class Api_hrms extends CI_Controller
         }
 
         $now = date('Y-m-d H:i:s');
+        $route = $this->ApprovalRouteModel->get_active_by_user($user['id']);
+        $hasApprover = $route && !empty($route['approver_id']);
         $this->db->trans_start();
         $requestId = $this->LeaveRequestModel->insert(array(
             'request_no' => $requestNo,
@@ -581,31 +631,26 @@ class Api_hrms extends CI_Controller
             'days_count' => $clean['days_count'],
             'reason' => $clean['reason'],
             'attachment_path' => $attachmentPath,
-            'status' => 'PENDING_APPROVAL',
-            'current_step' => 1,
+            'status' => $hasApprover ? 'PENDING_APPROVAL' : 'SUBMITTED',
+            'current_step' => $hasApprover ? 1 : 0,
             'created_at' => $now,
             'updated_at' => $now,
         ));
 
-        $route = $this->ApprovalRouteModel->get_active_by_user($user['id']);
-        if (!$route || empty($route['approver_id'])) {
-            $this->db->trans_rollback();
-            return $this->respond(422, array(
-                'message' => 'No approval route configured for this user.'
+        if ($hasApprover) {
+            $this->LeaveApprovalModel->insert(array(
+                'leave_request_id' => $requestId,
+                'step_no' => 1,
+                'approver_id' => (int) $route['approver_id'],
+                'action' => 'PENDING',
             ));
         }
-        $this->LeaveApprovalModel->insert(array(
-            'leave_request_id' => $requestId,
-            'step_no' => 1,
-            'approver_id' => (int) $route['approver_id'],
-            'action' => 'PENDING',
-        ));
         $this->db->trans_complete();
 
         return $this->respond(201, array(
             'id' => (int) $requestId,
             'requestNo' => $requestNo,
-            'status' => 'Pending',
+            'status' => $hasApprover ? 'Pending' : 'Submitted',
         ));
     }
 
@@ -860,11 +905,6 @@ class Api_hrms extends CI_Controller
         $errors = array();
         $clean = array();
         $leaveType = null;
-
-        $route = $this->ApprovalRouteModel->get_active_by_user($userId);
-        if (!$route) {
-            $errors['approver'] = 'No approver configured.';
-        }
 
         $clean['leave_type_id'] = (int) ($input['leave_type_id'] ?? 0);
         if ($clean['leave_type_id'] <= 0) {

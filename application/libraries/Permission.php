@@ -308,7 +308,7 @@ class Permission
             'admin/leavetypescontroller' => 'admin_leave_types',
             'admin/offices' => 'admin_offices',
             'ads' => 'advertiser', // Special handling for ads with parameters
-            'approvals/leaveapprovalcontroller' => 'leave_approval',
+            'approvals/leaveapprovalcontroller' => 'leave_approvals',
             'attendancepagecontroller' => 'attendance',
             'attendancereport' => 'attendance_report',
             'benefit' => 'benefit',

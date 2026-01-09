@@ -139,6 +139,7 @@ $route['api/hrms/attendance/history'] = 'Api_hrms/attendance_history';
 $route['api/hrms/attendance/recap'] = 'Api_hrms/attendance_recap';
 $route['api/hrms/attendance/recap-all'] = 'Api_hrms/attendance_recap_all';
 $route['api/hrms/attendance/report'] = 'Api_hrms/attendance_report';
+$route['api/hrms/holidays'] = 'Api_hrms/holidays';
 $route['api/hrms/leave'] = 'Api_hrms/leave';
 $route['api/hrms/leave/quota'] = 'Api_hrms/leave_quota';
 $route['api/hrms/performance/templates/active'] = 'Api_hrms/performance_templates_active';

@@ -9,6 +9,7 @@ class ApproverAuthFilter
     {
         $this->CI =& get_instance();
         $this->CI->load->database();
+        $this->CI->load->library('permission');
     }
 
     public function enforce()
@@ -19,12 +20,7 @@ class ApproverAuthFilter
             return;
         }
 
-        $exists = $this->CI->db->get_where('approval_routes', array(
-            'approver_id' => $userId,
-            'is_active' => 1,
-        ))->row_array();
-
-        if ($exists) {
+        if ($this->CI->permission->check_permission($userId, 'leave_approvals', 'view')) {
             return;
         }
 
