@@ -665,20 +665,128 @@ class Api_hrms extends CI_Controller
             return null;
         }
 
-        $total = 0;
-        $remaining = 0;
-        if ($this->db->table_exists('leave_quotas')) {
-            $rows = $this->db->get_where('leave_quotas', array('user_id' => $user['id']))->result_array();
-            foreach ($rows as $row) {
-                $total += (int) $row['total_days'];
-                $remaining += (int) $row['remaining_days'];
-            }
+        if (!$this->user_requires_attendance((int) $user['id'])) {
+            return $this->respond(403, array('message' => 'Attendance is not required for this account.'));
+        }
+
+        $this->load->model('LeaveQuotaModel');
+
+        $quotas = $this->LeaveQuotaModel->get_by_user($user['id']);
+
+        $items = array();
+        $totalSum = 0;
+        $remainingSum = 0;
+
+        foreach ($quotas as $quota) {
+            $total = (int) $quota['total_days'];
+            $remaining = (int) $quota['remaining_days'];
+            $used = $total - $remaining;
+            $percentage = $total > 0 ? round(($remaining / $total) * 100, 1) : 0;
+
+            $items[] = array(
+                'id' => (int) $quota['id'],
+                'leaveTypeId' => (int) $quota['leave_type_id'],
+                'leaveTypeName' => $quota['leave_type_name'] ?? null,
+                'leaveTypeCode' => $quota['leave_type_code'] ?? null,
+                'totalDays' => $total,
+                'remainingDays' => $remaining,
+                'usedDays' => $used,
+                'percentageRemaining' => $percentage,
+                'status' => $this->get_quota_status($percentage),
+                'updatedAt' => $quota['updated_at'],
+            );
+
+            $totalSum += $total;
+            $remainingSum += $remaining;
         }
 
         return $this->respond(200, array(
-            'total' => $total,
-            'remaining' => $remaining,
+            'summary' => array(
+                'totalDays' => $totalSum,
+                'remainingDays' => $remainingSum,
+                'usedDays' => $totalSum - $remainingSum,
+            ),
+            'quotas' => $items,
         ));
+    }
+
+    public function leave_quota_detail()
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->user_requires_attendance((int) $user['id'])) {
+            return $this->respond(403, array('message' => 'Attendance is not required for this account.'));
+        }
+
+        $leaveTypeId = (int) $this->input->get('leave_type_id', TRUE);
+        if ($leaveTypeId <= 0) {
+            return $this->respond(400, array('message' => 'leave_type_id is required.'));
+        }
+
+        $this->load->model('LeaveQuotaModel');
+
+        $quota = $this->LeaveQuotaModel->get_by_user_and_type($user['id'], $leaveTypeId);
+
+        if (!$quota) {
+            return $this->respond(404, array('message' => 'Quota not found for this leave type.'));
+        }
+
+        $this->db->select('id, request_no, start_date, end_date, days_count, status, created_at');
+        $this->db->from('leave_requests');
+        $this->db->where('user_id', (int) $user['id']);
+        $this->db->where('leave_type_id', $leaveTypeId);
+        $this->db->where_in('status', array('APPROVED', 'PENDING_APPROVAL'));
+        $this->db->order_by('created_at', 'DESC');
+        $requests = $this->db->get()->result_array();
+
+        $usageHistory = array();
+        foreach ($requests as $req) {
+            $usageHistory[] = array(
+                'requestNo' => $req['request_no'],
+                'startDate' => $req['start_date'],
+                'endDate' => $req['end_date'],
+                'daysCount' => (int) $req['days_count'],
+                'status' => $this->map_leave_status($req['status']),
+                'createdAt' => $req['created_at'],
+            );
+        }
+
+        $total = (int) $quota['total_days'];
+        $remaining = (int) $quota['remaining_days'];
+        $used = $total - $remaining;
+
+        return $this->respond(200, array(
+            'quota' => array(
+                'id' => (int) $quota['id'],
+                'leaveTypeId' => (int) $quota['leave_type_id'],
+                'leaveTypeName' => $quota['leave_type_name'] ?? null,
+                'leaveTypeCode' => $quota['leave_type_code'] ?? null,
+                'totalDays' => $total,
+                'remainingDays' => $remaining,
+                'usedDays' => $used,
+                'percentageRemaining' => $total > 0 ? round(($remaining / $total) * 100, 1) : 0,
+                'updatedAt' => $quota['updated_at'],
+            ),
+            'usageHistory' => $usageHistory,
+        ));
+    }
+
+    private function get_quota_status($percentage)
+    {
+        if ($percentage > 50) {
+            return 'healthy';
+        } elseif ($percentage > 20) {
+            return 'low';
+        } else {
+            return 'critical';
+        }
     }
 
     public function performance_templates_active()
@@ -847,17 +955,20 @@ class Api_hrms extends CI_Controller
             $office['allowed_ip_cidrs'] = $officeRecord['allowed_ip_cidrs'] ?? '';
             $office['allowed_ssids'] = $officeRecord['allowed_ssids'] ?? '';
         }
-        $wifiOk = $this->wifi_proof_ok($office, $wifiProof);
         $hasWifiRules = $this->has_wifi_rules($office);
+        $wifiOk = $this->wifi_proof_ok($office, $wifiProof);
         $ipOk = $result['computed']['ip_ok'] ?? true;
-        $canConfirm = $hasWifiRules ? ($wifiOk && (!$office['has_ip_rule'] || $ipOk)) : $result['computed']['can_confirm'];
+        if ($hasWifiRules) {
+            $canConfirm = $wifiOk;
+        } else {
+            $canConfirm = $result['computed']['can_confirm'];
+        }
         if (!$canConfirm) {
             $reasons = $hasWifiRules ? array() : $result['computed']['reasons'];
-            if ($hasWifiRules && !$wifiOk) {
+            if ($hasWifiRules && $wifiProof === null) {
+                $reasons[] = 'WIFI_REQUIRED';
+            } elseif ($hasWifiRules && !$wifiOk) {
                 $reasons[] = 'WIFI_NOT_ALLOWED';
-            }
-            if ($hasWifiRules && $office['has_ip_rule'] && !$ipOk) {
-                $reasons[] = 'IP_NOT_ALLOWED';
             }
             return $this->respond(403, array(
                 'message' => 'Attendance confirmation requirements not met.',

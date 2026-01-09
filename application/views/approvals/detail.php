@@ -88,7 +88,7 @@
             </div>
         </div>
 
-        <?php if ($approval['action'] === 'PENDING'): ?>
+        <?php if ($request['status'] === 'PENDING_APPROVAL'): ?>
             <div style="border: 1px solid #f0f0f0; border-radius: 2px; padding: 16px; margin-bottom: 16px;">
                 <div style="font-size: 14px; font-weight: 500; color: rgba(0,0,0,0.85); margin-bottom: 12px;">Approval Actions</div>
                 <div class="row g-3">
@@ -117,10 +117,6 @@
                         </form>
                     </div>
                 </div>
-            </div>
-        <?php else: ?>
-            <div style="margin-bottom: 16px;">
-                <strong>Decision:</strong> <?php echo htmlspecialchars($approval['action']); ?>
             </div>
         <?php endif; ?>
 

@@ -12,15 +12,15 @@ class LeaveApprovalController extends CI_Controller
         $this->load->library('ApproverAuthFilter');
         $this->load->model('LeaveRequestModel');
         $this->load->model('LeaveApprovalModel');
+        $this->load->model('LeaveQuotaModel');
         $this->authfilter->enforce();
         $this->approverauthfilter->enforce();
     }
 
     public function index()
     {
-        $approverId = $this->current_user_id();
         $data['title'] = 'Pending Leave Approvals - ' . $this->template->title();
-        $data['requests'] = $this->LeaveRequestModel->get_pending_for_approver($approverId);
+        $data['requests'] = $this->LeaveRequestModel->get_all_pending_approvals();
         $data['csrf_name'] = $this->security->get_csrf_token_name();
         $data['csrf_hash'] = $this->security->get_csrf_hash();
         $data['content'] = $this->load->view('approvals/index', $data, true);
@@ -29,19 +29,17 @@ class LeaveApprovalController extends CI_Controller
 
     public function detail($id)
     {
-        $approverId = $this->current_user_id();
         $request = $this->LeaveRequestModel->get_by_id($id);
         if (!$request) {
             show_404();
             return;
         }
 
-        $approval = $this->LeaveApprovalModel->get_by_request_and_approver($request['id'], $approverId);
-        if (!$approval) {
+        if ($request['status'] !== 'PENDING_APPROVAL') {
             $this->output->set_status_header(403);
             $data = array(
                 'heading' => 'Access Forbidden',
-                'message' => 'You do not have permission to access this resource.',
+                'message' => 'This leave request is not pending approval.',
             );
             $this->load->view('errors/html/error_403', $data);
             return;
@@ -49,7 +47,6 @@ class LeaveApprovalController extends CI_Controller
 
         $data['title'] = 'Leave Approval Detail - ' . $this->template->title();
         $data['request'] = $request;
-        $data['approval'] = $approval;
         $data['csrf_name'] = $this->security->get_csrf_token_name();
         $data['csrf_hash'] = $this->security->get_csrf_hash();
         $data['content'] = $this->load->view('approvals/detail', $data, true);
@@ -63,30 +60,55 @@ class LeaveApprovalController extends CI_Controller
             return;
         }
 
-        $approverId = $this->current_user_id();
-        $approval = $this->LeaveApprovalModel->get_by_request_and_approver($id, $approverId);
-        if (!$approval || $approval['action'] !== 'PENDING') {
-            show_error('Approval not found or already processed.', 404);
+        $request = $this->LeaveRequestModel->get_by_id($id);
+        if (!$request || $request['status'] !== 'PENDING_APPROVAL') {
+            show_error('Leave request not found or already processed.', 404);
             return;
         }
 
+        $approverId = $this->current_user_id();
         $notes = trim((string) $this->input->post('notes', TRUE));
         $now = date('Y-m-d H:i:s');
 
         $this->db->trans_start();
-        $this->LeaveApprovalModel->update_action($approval['id'], array(
-            'action' => 'APPROVED',
-            'action_at' => $now,
-            'notes' => $notes === '' ? null : $notes,
-        ));
+
+        $this->db->where('leave_request_id', (int) $id);
+        $this->db->where('action', 'PENDING');
+        $existingApproval = $this->db->get('leave_approvals')->row_array();
+
+        if ($existingApproval) {
+            $this->LeaveApprovalModel->update_action($existingApproval['id'], array(
+                'action' => 'APPROVED',
+                'action_at' => $now,
+                'notes' => $notes === '' ? null : $notes,
+                'approver_id' => $approverId,
+            ));
+        } else {
+            $this->LeaveApprovalModel->insert(array(
+                'leave_request_id' => (int) $id,
+                'step_no' => 1,
+                'approver_id' => $approverId,
+                'action' => 'APPROVED',
+                'action_at' => $now,
+                'notes' => $notes === '' ? null : $notes,
+            ));
+        }
+
         $this->db->where('id', (int) $id);
         $this->db->update('leave_requests', array(
             'status' => 'APPROVED',
             'updated_at' => $now,
         ));
+
+        $this->LeaveQuotaModel->deduct_quota(
+            (int) $request['user_id'],
+            (int) $request['leave_type_id'],
+            (int) $request['days_count']
+        );
+
         $this->db->trans_complete();
 
-        $this->session->set_flashdata('message', 'Leave request approved.');
+        $this->session->set_flashdata('message', 'Leave request approved and quota updated.');
         redirect('approvals/leaves');
     }
 
@@ -97,10 +119,9 @@ class LeaveApprovalController extends CI_Controller
             return;
         }
 
-        $approverId = $this->current_user_id();
-        $approval = $this->LeaveApprovalModel->get_by_request_and_approver($id, $approverId);
-        if (!$approval || $approval['action'] !== 'PENDING') {
-            show_error('Approval not found or already processed.', 404);
+        $request = $this->LeaveRequestModel->get_by_id($id);
+        if (!$request || $request['status'] !== 'PENDING_APPROVAL') {
+            show_error('Leave request not found or already processed.', 404);
             return;
         }
 
@@ -111,13 +132,33 @@ class LeaveApprovalController extends CI_Controller
             return;
         }
 
+        $approverId = $this->current_user_id();
         $now = date('Y-m-d H:i:s');
+
         $this->db->trans_start();
-        $this->LeaveApprovalModel->update_action($approval['id'], array(
-            'action' => 'REJECTED',
-            'action_at' => $now,
-            'notes' => $notes,
-        ));
+
+        $this->db->where('leave_request_id', (int) $id);
+        $this->db->where('action', 'PENDING');
+        $existingApproval = $this->db->get('leave_approvals')->row_array();
+
+        if ($existingApproval) {
+            $this->LeaveApprovalModel->update_action($existingApproval['id'], array(
+                'action' => 'REJECTED',
+                'action_at' => $now,
+                'notes' => $notes,
+                'approver_id' => $approverId,
+            ));
+        } else {
+            $this->LeaveApprovalModel->insert(array(
+                'leave_request_id' => (int) $id,
+                'step_no' => 1,
+                'approver_id' => $approverId,
+                'action' => 'REJECTED',
+                'action_at' => $now,
+                'notes' => $notes,
+            ));
+        }
+
         $this->db->where('id', (int) $id);
         $this->db->update('leave_requests', array(
             'status' => 'REJECTED',

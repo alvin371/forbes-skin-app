@@ -68,6 +68,15 @@ $route['admin/leave-types/(:num)/edit'] = 'admin/LeaveTypesController/edit/$1';
 $route['admin/leave-types/(:num)'] = 'admin/LeaveTypesController/update/$1';
 $route['admin/leave-types/(:num)/delete'] = 'admin/LeaveTypesController/delete/$1';
 
+$route['admin/leave-requests'] = 'admin/LeaveRequestsController/index';
+$route['admin/leave-requests/(:num)'] = 'admin/LeaveRequestsController/detail/$1';
+
+$route['admin/leave-quotas'] = 'admin/LeaveQuotasController/index';
+$route['admin/leave-quotas/users'] = 'admin/LeaveQuotasController/users';
+$route['admin/leave-quotas/bulk-set'] = 'admin/LeaveQuotasController/bulk_set';
+$route['admin/leave-quotas/manage/(:num)'] = 'admin/LeaveQuotasController/manage/$1';
+$route['admin/leave-quotas/(:num)/delete'] = 'admin/LeaveQuotasController/delete/$1';
+
 $route['admin/holidays'] = 'admin/HolidaysController/index';
 $route['admin/holidays/create'] = 'admin/HolidaysController/create';
 $route['admin/holidays/(:num)/edit'] = 'admin/HolidaysController/edit/$1';
@@ -97,6 +106,9 @@ $route['approvals/leaves'] = 'approvals/LeaveApprovalController/index';
 $route['approvals/leaves/(:num)'] = 'approvals/LeaveApprovalController/detail/$1';
 $route['approvals/leaves/(:num)/approve'] = 'approvals/LeaveApprovalController/approve/$1';
 $route['approvals/leaves/(:num)/reject'] = 'approvals/LeaveApprovalController/reject/$1';
+
+$route['diagnostic/check-leave-data'] = 'DiagnosticController/check_leave_data';
+$route['fix/leave-status'] = 'FixLeaveStatusController/update_status';
 
 $route['seed/run'] = 'SeedRunner/index';
 $route['seed/attendance-office'] = 'SeedRunner/attendance_office';
@@ -142,6 +154,7 @@ $route['api/hrms/attendance/report'] = 'Api_hrms/attendance_report';
 $route['api/hrms/holidays'] = 'Api_hrms/holidays';
 $route['api/hrms/leave'] = 'Api_hrms/leave';
 $route['api/hrms/leave/quota'] = 'Api_hrms/leave_quota';
+$route['api/hrms/leave/quota/detail'] = 'Api_hrms/leave_quota_detail';
 $route['api/hrms/performance/templates/active'] = 'Api_hrms/performance_templates_active';
 $route['api/hrms/performance/submissions'] = 'Api_hrms/performance_submissions';
 $route['api/hrms/performance/submissions/(:num)'] = 'Api_hrms/performance_submission_detail/$1';
