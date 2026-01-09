@@ -15,6 +15,26 @@ class HolidayModel extends CI_Model
         return $this->db->get('holidays')->result_array();
     }
 
+    public function get_active()
+    {
+        $this->db->where('is_active', 1);
+        $this->db->order_by('date', 'ASC');
+        return $this->db->get('holidays')->result_array();
+    }
+
+    public function get_active_filtered($startDate = null, $endDate = null)
+    {
+        $this->db->where('is_active', 1);
+        if (!empty($startDate)) {
+            $this->db->where('date >=', $startDate);
+        }
+        if (!empty($endDate)) {
+            $this->db->where('date <=', $endDate);
+        }
+        $this->db->order_by('date', 'ASC');
+        return $this->db->get('holidays')->result_array();
+    }
+
     public function get_by_id($id)
     {
         return $this->db->get_where('holidays', array('id' => (int) $id))->row_array();

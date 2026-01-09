@@ -484,6 +484,7 @@ class Roles extends BaseController
             // Approval workflow modules (View + Approve only)
             'recruitment' => ['view', 'approve'],
             'interview' => ['view', 'approve'],
+            'leave_approvals' => ['view', 'approve'],
 
             // =========================================================================
             // MARKETING MODULES
@@ -598,7 +599,7 @@ class Roles extends BaseController
 
             'HR Management' => array(
                 'quest', 'quest_level', 'position', 'benefit', 'milestone',
-                'recruitment', 'interview'
+                'recruitment', 'interview', 'leave_approvals'
             ),
 
             'Marketing' => array(

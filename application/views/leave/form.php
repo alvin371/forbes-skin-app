@@ -37,7 +37,7 @@
                         <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">
                             Start Date <span style="color: #ff4d4f;">*</span>
                         </label>
-                        <input type="date" name="start_date" class="form-control" value="<?php echo htmlspecialchars($request['start_date']); ?>" required style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <input type="text" id="leave-start-date" name="start_date" class="form-control js-leave-date" value="<?php echo htmlspecialchars($request['start_date']); ?>" required autocomplete="off" placeholder="YYYY-MM-DD" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
                     </div>
                 </div>
                 <div class="col-md-6">
@@ -45,7 +45,7 @@
                         <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">
                             End Date <span style="color: #ff4d4f;">*</span>
                         </label>
-                        <input type="date" name="end_date" class="form-control" value="<?php echo htmlspecialchars($request['end_date']); ?>" required style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <input type="text" id="leave-end-date" name="end_date" class="form-control js-leave-date" value="<?php echo htmlspecialchars($request['end_date']); ?>" required autocomplete="off" placeholder="YYYY-MM-DD" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
                     </div>
                 </div>
             </div>
@@ -73,3 +73,80 @@
         </form>
     </div>
 </div>
+
+<style>
+    .flatpickr-calendar,
+    .flatpickr-months,
+    .flatpickr-innerContainer,
+    .flatpickr-rContainer {
+        background: #fff !important;
+        opacity: 1 !important;
+    }
+
+    .flatpickr-day.holiday-day {
+        background: #fff1f0 !important;
+        border-color: #ffa39e !important;
+        color: #cf1322 !important;
+    }
+
+    .flatpickr-day.holiday-day:hover {
+        background: #ffccc7 !important;
+        color: #a8071a !important;
+    }
+</style>
+
+<script>
+    (function () {
+        if (typeof flatpickr === 'undefined') {
+            return;
+        }
+
+        var holidays = <?php echo json_encode($holidays ?? array(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
+        var holidayLookup = {};
+        var holidayDates = holidays.map(function (holiday) {
+            holidayLookup[holiday.date] = holiday.name || '';
+            return holiday.date;
+        });
+
+        function attachLeaveDatepicker(selector, options) {
+            var input = document.querySelector(selector);
+            if (!input) {
+                return;
+            }
+
+            return flatpickr(input, Object.assign({
+                dateFormat: 'Y-m-d',
+                allowInput: false,
+                minDate: 'today',
+                disable: holidayDates,
+                onDayCreate: function (dObj, dStr, fp, dayElem) {
+                    var date = dayElem.dateObj.getFullYear() + '-' +
+                        String(dayElem.dateObj.getMonth() + 1).padStart(2, '0') + '-' +
+                        String(dayElem.dateObj.getDate()).padStart(2, '0');
+                    if (holidayLookup[date]) {
+                        dayElem.classList.add('holiday-day');
+                        dayElem.setAttribute('title', holidayLookup[date]);
+                    }
+                }
+            }, options || {}));
+        }
+
+        var endPicker = attachLeaveDatepicker('#leave-end-date');
+        attachLeaveDatepicker('#leave-start-date', {
+            onChange: function (selectedDates) {
+                if (!endPicker) {
+                    return;
+                }
+
+                if (selectedDates && selectedDates.length) {
+                    endPicker.set('minDate', selectedDates[0]);
+                    if (endPicker.selectedDates.length && endPicker.selectedDates[0] < selectedDates[0]) {
+                        endPicker.setDate(selectedDates[0], true);
+                    }
+                } else {
+                    endPicker.set('minDate', 'today');
+                }
+            }
+        });
+    })();
+</script>
