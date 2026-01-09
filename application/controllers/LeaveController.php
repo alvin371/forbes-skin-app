@@ -17,6 +17,7 @@ class LeaveController extends CI_Controller
         $this->load->model('LeaveApprovalModel');
         $this->load->model('ApprovalRouteModel');
         $this->load->model('HolidayModel');
+        $this->load->model('LeaveQuotaModel');
         $this->authfilter->enforce();
     }
 
@@ -80,11 +81,13 @@ class LeaveController extends CI_Controller
             return;
         }
 
-        if ($request['status'] !== 'PENDING_APPROVAL') {
-            $this->session->set_flashdata('message', 'Only pending requests can be cancelled.');
+        if (!in_array($request['status'], array('PENDING_APPROVAL', 'APPROVED'))) {
+            $this->session->set_flashdata('message', 'This request cannot be cancelled.');
             redirect('leave/' . $request['id']);
             return;
         }
+
+        $wasApproved = $request['status'] === 'APPROVED';
 
         $now = date('Y-m-d H:i:s');
         $this->db->trans_start();
@@ -100,9 +103,19 @@ class LeaveController extends CI_Controller
             'action_at' => $now,
             'notes' => 'Cancelled by requester.',
         ));
+
+        if ($wasApproved) {
+            $this->LeaveQuotaModel->restore_quota(
+                (int) $request['user_id'],
+                (int) $request['leave_type_id'],
+                (int) $request['days_count']
+            );
+        }
+
         $this->db->trans_complete();
 
-        $this->session->set_flashdata('message', 'Leave request cancelled.');
+        $message = $wasApproved ? 'Leave request cancelled and quota restored.' : 'Leave request cancelled.';
+        $this->session->set_flashdata('message', $message);
         redirect('leave');
     }
 
@@ -166,8 +179,6 @@ class LeaveController extends CI_Controller
         }
 
         $now = date('Y-m-d H:i:s');
-        $route = $this->ApprovalRouteModel->get_active_by_user($userId);
-        $hasApprover = $route && !empty($route['approver_id']);
         $this->db->trans_start();
         $requestId = $this->LeaveRequestModel->insert(array(
             'request_no' => $requestNo,
@@ -178,20 +189,11 @@ class LeaveController extends CI_Controller
             'days_count' => $clean['days_count'],
             'reason' => $clean['reason'],
             'attachment_path' => $attachmentPath,
-            'status' => $hasApprover ? 'PENDING_APPROVAL' : 'SUBMITTED',
-            'current_step' => $hasApprover ? 1 : 0,
+            'status' => 'PENDING_APPROVAL',
+            'current_step' => 1,
             'created_at' => $now,
             'updated_at' => $now,
         ));
-
-        if ($hasApprover) {
-            $this->LeaveApprovalModel->insert(array(
-                'leave_request_id' => $requestId,
-                'step_no' => 1,
-                'approver_id' => (int) $route['approver_id'],
-                'action' => 'PENDING',
-            ));
-        }
         $this->db->trans_complete();
 
         $this->session->set_flashdata('message', 'Leave request submitted.');

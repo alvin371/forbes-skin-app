@@ -554,7 +554,7 @@ if (!$_SESSION['is_login']) {
     $menu_order_customer = $menu_toko = $menu_order_item = $menu_crm_mg = $menu_crm_pome = $menu_grup_wa = '';
     $menu_operasional = $menu_stock = $menu_product = $menu_product_3rd = $menu_discount = $menu_marketplace = $menu_shipping = '';
     $menu_hr_management = $menu_quest_level = $menu_position = $menu_benefit = $menu_quest = $menu_milestone = $menu_recruitment = $menu_roles = '';
-    $menu_attendance = $menu_attendance_report = $menu_leave = $menu_leave_approvals = $menu_leave_types = $menu_approval_routes = $menu_offices = $menu_holidays = $menu_attendance_settings = $menu_performance_appraisal = '';
+    $menu_attendance = $menu_attendance_report = $menu_leave = $menu_leave_approvals = $menu_leave_types = $menu_leave_quotas = $menu_leave_requests_admin = $menu_approval_routes = $menu_offices = $menu_holidays = $menu_attendance_settings = $menu_performance_appraisal = '';
     $menu_akun = $menu_user = $menu_profile = $menu_logout = '';
     
     // Get user permissions for menu visibility using module names from clear_and_replace_modules.sql
@@ -670,6 +670,7 @@ if (!$_SESSION['is_login']) {
         'leave_approvals' => $CI->permission->check_permission($user_id, 'leave_approvals', 'view'),
         'offices' => $CI->permission->check_permission($user_id, 'offices', 'view'),
         'leave_types' => $CI->permission->check_permission($user_id, 'leave_types', 'view'),
+        'leave_quotas' => $CI->permission->check_permission($user_id, 'leave_quotas', 'view'),
         'approval_routes' => $CI->permission->check_permission($user_id, 'approval_routes', 'view'),
         'holidays' => $CI->permission->check_permission($user_id, 'attendance', 'view'),
         'attendance_settings' => $CI->permission->check_permission($user_id, 'attendance', 'view'),
@@ -813,6 +814,10 @@ if (!$_SESSION['is_login']) {
         $menu_offices = 'active';
       } else if ($uri_1 == 'admin' && $uri_2 == 'leave-types') {
         $menu_leave_types = 'active';
+      } else if ($uri_1 == 'admin' && $uri_2 == 'leave-quotas') {
+        $menu_leave_quotas = 'active';
+      } else if ($uri_1 == 'admin' && $uri_2 == 'leave-requests') {
+        $menu_leave_requests_admin = 'active';
       } else if ($uri_1 == 'admin' && $uri_2 == 'approval-routes') {
         $menu_approval_routes = 'active';
       } else if ($uri_1 == 'admin' && $uri_2 == 'holidays') {
@@ -838,7 +843,7 @@ if (!$_SESSION['is_login']) {
       $menu_order_customer = $menu_toko = $menu_order_item = $menu_crm_mg = $menu_crm_pome = $menu_grup_wa = '';
       $menu_operasional = $menu_stock = $menu_product = '';
       $menu_hr_management = $menu_quest_level = $menu_position = $menu_benefit = $menu_quest = $menu_milestone = $menu_recruitment = $menu_roles = '';
-      $menu_attendance = $menu_attendance_report = $menu_leave = $menu_leave_approvals = $menu_leave_types = $menu_approval_routes = $menu_offices = $menu_holidays = $menu_attendance_settings = $menu_performance_appraisal = '';
+      $menu_attendance = $menu_attendance_report = $menu_leave = $menu_leave_approvals = $menu_leave_types = $menu_leave_quotas = $menu_leave_requests_admin = $menu_approval_routes = $menu_offices = $menu_holidays = $menu_attendance_settings = $menu_performance_appraisal = '';
       $menu_akun = $menu_user = $menu_profile = $menu_logout = '';
     }
     ?>
@@ -1122,6 +1127,12 @@ if (!$_SESSION['is_login']) {
               <a href="<?= base_url() ?>admin/leave-types" class="ms-3 item-menu <?= $menu_leave_types ?>">
                 <i class="icon bi bi-clipboard2-plus"></i>
                 LEAVE TYPES
+              </a>
+            <?php endif; ?>
+            <?php if ($modules_permissions['leave_quotas']): ?>
+              <a href="<?= base_url() ?>admin/leave-quotas" class="ms-3 item-menu <?= $menu_leave_quotas ?>">
+                <i class="icon bi bi-calendar3-range"></i>
+                LEAVE QUOTAS
               </a>
             <?php endif; ?>
             <?php if ($modules_permissions['performance_admin']): ?>
