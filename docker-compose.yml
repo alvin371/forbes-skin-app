@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  # PHP Application with Apache
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hrms-app
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      # Mount source code for development (hot reload)
+      - .:/var/www/html
+      # Persist sessions
+      - ./application/cache/sessions:/var/www/html/application/cache/sessions
+      # Persist logs
+      - ./application/logs:/var/www/html/application/logs
+      # Persist uploads
+      - ./assets/uploads:/var/www/html/assets/uploads
+    env_file:
+      # Use your existing .env file for database connection
+      - .env
+    environment:
+      # Override BASE_URL for local development
+      - BASE_URL=http://localhost:8080/
+      - CI_ENV=development
+    networks:
+      - hrms-network
+
+networks:
+  hrms-network:
+    driver: bridge

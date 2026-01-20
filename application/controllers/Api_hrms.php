@@ -795,23 +795,31 @@ class Api_hrms extends CI_Controller
             return $this->respond(405, array('message' => 'Method not allowed'));
         }
 
-        $user = $this->require_user();
-        if (!$user) {
+        // Get user AND JWT payload with role_id
+        $auth_data = $this->require_user_with_payload();
+        if (!$auth_data) {
             return null;
         }
+
+        $user = $auth_data['user'];
+        $jwt_payload = $auth_data['payload'];
 
         $period_year = $this->input->get('period_year');
         if (!$period_year) {
             return $this->respond(400, array('message' => 'period_year is required.'));
         }
 
-        $userRow = $this->db->get_where('user', array('id' => $user['id']))->row_array();
-        $department = $userRow['department'] ?? null;
+        // Use role_id from JWT directly - no need to query user_roles again
+        $role_id = isset($jwt_payload['role_id']) ? (int) $jwt_payload['role_id'] : null;
+        $role_name = $jwt_payload['role'] ?? null;
 
-        $template = $this->Performance_model->get_active_template_for_employee($period_year, $department);
+        $template = $this->Performance_model->get_active_template_for_employee($period_year, $role_id);
         if (!$template) {
-            return $this->respond(404, array('message' => 'No active template found.'));
+            return $this->respond(404, array('message' => 'No active template found for this period and role.'));
         }
+
+        $template['employee_role_id'] = $role_id;
+        $template['employee_role_name'] = $role_name;
 
         return $this->respond(200, array('data' => $template));
     }
@@ -852,12 +860,15 @@ class Api_hrms extends CI_Controller
         }
 
         $userRow = $this->db->get_where('user', array('id' => $user['id']))->row_array();
+        $employee_role = $this->Performance_model->get_employee_primary_role($user['id']);
         $input['employee_id'] = $user['id'];
         $input['employee_snapshot'] = array(
             'name' => $userRow['full_name'] ?? null,
             'nik' => $userRow['nik'] ?? null,
             'department' => $userRow['department'] ?? null,
             'position' => $userRow['position'] ?? null,
+            'role_id' => $employee_role ? $employee_role['id'] : null,
+            'role_name' => $employee_role ? $employee_role['display_name'] : null,
         );
         $input['period_year'] = $template['period_year'];
 
@@ -1114,13 +1125,48 @@ class Api_hrms extends CI_Controller
         return $user;
     }
 
+    /**
+     * Get user AND JWT payload with role_id (for performance API)
+     */
+    private function require_user_with_payload()
+    {
+        $header = $this->input->get_request_header('Authorization', true);
+        if (!$header || stripos($header, 'Bearer ') !== 0) {
+            $this->respond(401, array('message' => 'Unauthorized'));
+            return null;
+        }
+
+        $token = trim(substr($header, 7));
+        $payload = $this->apiauth->decode_jwt_payload($token);
+
+        if (!$payload || empty($payload['sub'])) {
+            $this->respond(401, array('message' => 'Unauthorized'));
+            return null;
+        }
+
+        $user = $this->db->get_where('user', array('id' => (int) $payload['sub']))->row_array();
+        if (!$user) {
+            $this->respond(401, array('message' => 'Unauthorized'));
+            return null;
+        }
+
+        return array(
+            'user' => $user,
+            'payload' => $payload
+        );
+    }
+
     private function user_response($user)
     {
+        $employeeRole = $this->Performance_model->get_employee_primary_role($user['id']);
+
         return array(
             'id' => (int) $user['id'],
             'name' => $user['full_name'] ?? null,
             'email' => $user['email'] ?? null,
             'role' => $user['role_text'] ?? ($user['role'] ?? null),
+            'role_id' => $employeeRole ? (int) $employeeRole['id'] : null,
+            'role_name' => $employeeRole['display_name'] ?? null,
         );
     }
 

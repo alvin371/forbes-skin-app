@@ -10,19 +10,25 @@
     </div>
     <div class="card-body" style="padding: 16px;">
         <div class="row g-2" style="margin-bottom: 16px;">
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <div style="font-size: 13px; color: rgba(0,0,0,0.45);">Employee</div>
                 <div style="font-size: 14px; color: rgba(0,0,0,0.85); font-weight: 500;">
                     <?php echo htmlspecialchars($submission['employee_name'] ?: $submission['employee_id']); ?>
                 </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
+                <div style="font-size: 13px; color: rgba(0,0,0,0.45);">Role</div>
+                <div style="font-size: 14px; color: rgba(0,0,0,0.85); font-weight: 500;">
+                    <?php echo htmlspecialchars($submission['employee_role_name'] ?: 'N/A'); ?>
+                </div>
+            </div>
+            <div class="col-md-3">
                 <div style="font-size: 13px; color: rgba(0,0,0,0.45);">Template</div>
                 <div style="font-size: 14px; color: rgba(0,0,0,0.85); font-weight: 500;">
                     <?php echo htmlspecialchars($submission['template_name']); ?>
                 </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <div style="font-size: 13px; color: rgba(0,0,0,0.45);">Total Score</div>
                 <div style="font-size: 16px; color: rgba(0,0,0,0.85); font-weight: 600;">
                     <?php echo number_format((float) $submission['total_score'], 2); ?>

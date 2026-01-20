@@ -24,8 +24,15 @@
                     <input type="number" name="period_year" class="form-control" value="<?php echo isset($filters['period_year']) ? htmlspecialchars($filters['period_year']) : ''; ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
                 </div>
                 <div class="col-md-3">
-                    <label style="font-size: 13px; color: rgba(0,0,0,0.65); margin-bottom: 4px; display: block;">Department</label>
-                    <input type="text" name="department" class="form-control" value="<?php echo isset($filters['department']) ? htmlspecialchars($filters['department']) : ''; ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                    <label style="font-size: 13px; color: rgba(0,0,0,0.65); margin-bottom: 4px; display: block;">Role</label>
+                    <select name="role_id" class="form-control" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <option value="">All Roles</option>
+                        <?php foreach ($roles as $role): ?>
+                            <option value="<?php echo (int) $role['id']; ?>" <?php echo (isset($filters['role_id']) && (int) $filters['role_id'] === (int) $role['id']) ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($role['display_name']); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
                 <div class="col-md-2" style="display: flex; align-items: flex-end;">
                     <button type="submit" class="btn btn-primary" style="background-color: #1890ff; border-color: #1890ff; height: 32px; padding: 4px 15px; border-radius: 2px; font-size: 14px; width: 100%;">

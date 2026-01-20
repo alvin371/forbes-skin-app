@@ -77,16 +77,47 @@ class ApiAuth
     public function generate_access_token($user)
     {
         $now = time();
+
+        // Get user's primary role_id from user_roles table
+        $role_id = $this->get_user_primary_role_id($user['id']);
+
         $payload = array(
             'sub' => (int) $user['id'],
             'name' => $user['full_name'] ?? null,
             'email' => $user['email'] ?? null,
             'role' => $user['role_text'] ?? ($user['role'] ?? null),
+            'role_id' => $role_id,
             'iat' => $now,
             'exp' => $now + ($this->jwtTtlMin * 60),
         );
 
         return $this->encode_jwt($payload);
+    }
+
+    /**
+     * Decode JWT payload without returning user (for getting role_id from token)
+     */
+    public function decode_jwt_payload($token)
+    {
+        return $this->decode_jwt($token);
+    }
+
+    /**
+     * Get user's primary role_id from user_roles table
+     */
+    private function get_user_primary_role_id($user_id)
+    {
+        $this->CI->db->select('ur.role_id');
+        $this->CI->db->from('user_roles ur');
+        $this->CI->db->join('roles r', 'ur.role_id = r.id');
+        $this->CI->db->where('ur.user_id', $user_id);
+        $this->CI->db->where('ur.is_active', 1);
+        $this->CI->db->where('r.is_active', 1);
+        $this->CI->db->order_by('ur.assigned_at', 'ASC');
+        $this->CI->db->limit(1);
+
+        $result = $this->CI->db->get()->row_array();
+        return $result ? (int) $result['role_id'] : null;
     }
 
     public function generate_refresh_token()

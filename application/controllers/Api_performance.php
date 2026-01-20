@@ -43,7 +43,10 @@ class Api_performance extends CI_Controller
         if ($this->input->get('period_year')) {
             $filters['period_year'] = $this->input->get('period_year');
         }
-        if ($this->input->get('department')) {
+        // Use role_id filter (new) or department (legacy)
+        if ($this->input->get('role_id') !== null && $this->input->get('role_id') !== '') {
+            $filters['role_id'] = $this->input->get('role_id');
+        } elseif ($this->input->get('department')) {
             $filters['department'] = $this->input->get('department');
         }
         if ($this->input->get('is_active') !== null) {
@@ -319,7 +322,7 @@ class Api_performance extends CI_Controller
 
     /**
      * GET /api_performance/templates/active
-     * Get active template for employee
+     * Get active template for employee based on their role
      */
     public function templates_active()
     {
@@ -333,14 +336,14 @@ class Api_performance extends CI_Controller
             return;
         }
 
-        // Get employee department
-        $employee = $this->mymodel->selectDataOne('user', ['id' => $employee_id]);
-        $department = $employee['department'] ?? null;
+        // Get employee's primary role instead of department
+        $employee_role = $this->performance_model->get_employee_primary_role($employee_id);
+        $role_id = $employee_role ? $employee_role['id'] : null;
 
-        $template = $this->performance_model->get_active_template_for_employee($period_year, $department);
+        $template = $this->performance_model->get_active_template_for_employee($period_year, $role_id);
 
         if (!$template) {
-            $this->json_response(['success' => false, 'error' => 'No active template found for this period and department'], 404);
+            $this->json_response(['success' => false, 'error' => 'No active template found for this period and role'], 404);
             return;
         }
 
@@ -486,7 +489,10 @@ class Api_performance extends CI_Controller
         if ($this->input->get('period_year')) {
             $filters['period_year'] = $this->input->get('period_year');
         }
-        if ($this->input->get('department') !== null && $this->input->get('department') !== '') {
+        // Use role_id filter (new) or department (legacy)
+        if ($this->input->get('role_id') !== null && $this->input->get('role_id') !== '') {
+            $filters['role_id'] = $this->input->get('role_id');
+        } elseif ($this->input->get('department') !== null && $this->input->get('department') !== '') {
             $filters['department'] = $this->input->get('department');
         }
 
@@ -500,6 +506,31 @@ class Api_performance extends CI_Controller
         $this->json_response([
             'success' => true,
             'data' => $submissions
+        ]);
+    }
+
+    // ============================================
+    // ROLES ENDPOINT
+    // ============================================
+
+    /**
+     * GET /api_performance/roles
+     * Get all active roles for dropdowns
+     */
+    public function roles()
+    {
+        $user_id = $_SESSION['user']['id'];
+
+        if (!$this->permission->check_permission($user_id, 'performance_admin', 'view')) {
+            $this->json_response(['success' => false, 'error' => 'Access denied'], 403);
+            return;
+        }
+
+        $roles = $this->performance_model->get_all_roles();
+
+        $this->json_response([
+            'success' => true,
+            'data' => $roles
         ]);
     }
 

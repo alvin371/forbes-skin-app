@@ -1,0 +1,62 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+.docker
+
+# IDE and editors
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files (will be created by Docker)
+.env
+
+# Logs and cache (will be mounted as volumes)
+application/logs/*
+application/cache/sessions/*
+!application/logs/.gitkeep
+!application/cache/sessions/.gitkeep
+
+# Documentation
+*.md
+!CLAUDE.md
+docs/
+
+# Test files
+tests/
+phpunit.xml
+.phpunit.result.cache
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.travis.yml
+
+# Temporary files
+*.log
+*.tmp
+*.temp
+
+# Uploads (will be mounted as volume)
+assets/uploads/*
+!assets/uploads/.gitkeep
+
+# Node modules (if any)
+node_modules/
+
+# Composer development dependencies
+vendor/bin/
+vendor/phpunit/
+vendor/fakerphp/
+vendor/mikey179/

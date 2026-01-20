@@ -28,7 +28,7 @@
                     <tr style="background-color: #fafafa;">
                         <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Name</th>
                         <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Year</th>
-                        <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Department</th>
+                        <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Role</th>
                         <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Active</th>
                         <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Total Weight</th>
                         <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Actions</th>
@@ -43,12 +43,13 @@
                         <?php foreach ($templates as $template): ?>
                             <?php
                                 $total_weight = $template['total_weight'] !== null ? (float) $template['total_weight'] : 0;
-                                $department = $template['department'] ?: '*';
+                                $role_display = $template['role_display_name'] ?? null;
+                                $role_display = $role_display ?: 'All Roles';
                             ?>
                             <tr style="border-bottom: 1px solid #f0f0f0; transition: background-color 0.3s;">
                                 <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);"><?php echo htmlspecialchars($template['name']); ?></td>
                                 <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);"><?php echo (int) $template['period_year']; ?></td>
-                                <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);"><?php echo htmlspecialchars($department); ?></td>
+                                <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);"><?php echo htmlspecialchars($role_display); ?></td>
                                 <td style="padding: 12px 8px; font-size: 14px;">
                                     <?php if ((int) $template['is_active'] === 1): ?>
                                         <span style="background-color: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; padding: 0 8px; height: 22px; display: inline-flex; align-items: center; border-radius: 2px; font-size: 12px;">
@@ -73,7 +74,7 @@
                                         <?php endif; ?>
                                         <input type="hidden" name="name" value="<?php echo htmlspecialchars($template['name'], ENT_QUOTES, 'UTF-8'); ?>">
                                         <input type="hidden" name="period_year" value="<?php echo (int) $template['period_year']; ?>">
-                                        <input type="hidden" name="department" value="<?php echo htmlspecialchars($template['department'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
+                                        <input type="hidden" name="role_id" value="<?php echo htmlspecialchars($template['role_id'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
                                         <input type="hidden" name="is_active" value="<?php echo (int) $template['is_active'] === 1 ? 0 : 1; ?>">
                                         <button type="submit" style="background: none; border: none; padding: 0; cursor: pointer; color: <?php echo (int) $template['is_active'] === 1 ? '#ff4d4f' : '#52c41a'; ?>; font-size: 16px;" title="<?php echo (int) $template['is_active'] === 1 ? 'Deactivate' : 'Activate'; ?>">
                                             <i class="bi <?php echo (int) $template['is_active'] === 1 ? 'bi-toggle-on' : 'bi-toggle-off'; ?>"></i>

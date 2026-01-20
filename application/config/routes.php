@@ -165,6 +165,7 @@ $route['attendance'] = 'AttendancePageController/index';
 $route['attendance/report'] = 'AttendanceReport/index';
 $route['attendance/report/pdf'] = 'AttendanceReport/export_pdf';
 
+$route['admin/performance/roles']['get'] = 'Api_performance/roles';
 $route['admin/performance/templates']['get'] = 'Api_performance/templates';
 $route['admin/performance/templates']['post'] = 'Api_performance/template_create';
 $route['admin/performance/templates/(:num)']['get'] = 'Api_performance/template/$1';
