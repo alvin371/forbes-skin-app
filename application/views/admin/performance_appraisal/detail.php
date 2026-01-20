@@ -38,7 +38,7 @@
 
             <div style="margin-bottom: 16px;">
                 <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Template Name</label>
-                <input type="text" name="name" class="form-control" value="<?php echo htmlspecialchars($template['name']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;">
+                <input type="text" name="name" class="form-control" value="<?php echo htmlspecialchars($template['name']); ?>" placeholder="e.g., Sales Performance 2026" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;">
                 <?php if (!empty($errors['name'])): ?>
                     <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $errors['name']; ?></div>
                 <?php endif; ?>
@@ -48,7 +48,7 @@
                 <div class="col-md-4">
                     <div style="margin-bottom: 16px;">
                         <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Period Year</label>
-                        <input type="number" name="period_year" class="form-control" value="<?php echo htmlspecialchars($template['period_year']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <input type="number" name="period_year" class="form-control" value="<?php echo htmlspecialchars($template['period_year']); ?>" placeholder="e.g., 2026" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
                         <?php if (!empty($errors['period_year'])): ?>
                             <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $errors['period_year']; ?></div>
                         <?php endif; ?>
@@ -56,8 +56,15 @@
                 </div>
                 <div class="col-md-8">
                     <div style="margin-bottom: 16px;">
-                        <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Department <span style="font-size: 12px; color: rgba(0,0,0,0.45);">(leave blank or use * for all)</span></label>
-                        <input type="text" name="department" class="form-control" value="<?php echo htmlspecialchars($template['department']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Role <span style="font-size: 12px; color: rgba(0,0,0,0.45);">(leave blank for all roles)</span></label>
+                        <select name="role_id" class="form-control" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                            <option value="">All Roles (Global)</option>
+                            <?php foreach ($roles as $role): ?>
+                                <option value="<?php echo (int) $role['id']; ?>" <?php echo (isset($template['role_id']) && (int) $template['role_id'] === (int) $role['id']) ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($role['display_name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                 </div>
             </div>
@@ -184,13 +191,13 @@
                 <div class="col-md-2">
                     <div style="margin-bottom: 16px;">
                         <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Order</label>
-                        <input type="number" name="order_no" id="item-order" class="form-control" value="<?php echo htmlspecialchars($item_form['order_no']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <input type="number" name="order_no" id="item-order" class="form-control" value="<?php echo htmlspecialchars($item_form['order_no']); ?>" placeholder="1" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
                     </div>
                 </div>
                 <div class="col-md-5">
                     <div style="margin-bottom: 16px;">
                         <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Objective</label>
-                        <input type="text" name="objective" id="item-objective" class="form-control" value="<?php echo htmlspecialchars($item_form['objective']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <input type="text" name="objective" id="item-objective" class="form-control" value="<?php echo htmlspecialchars($item_form['objective']); ?>" placeholder="e.g., Achieve sales target" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
                         <?php if (!empty($item_errors['objective'])): ?>
                             <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $item_errors['objective']; ?></div>
                         <?php endif; ?>
@@ -199,7 +206,7 @@
                 <div class="col-md-5">
                     <div style="margin-bottom: 16px;">
                         <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">KPI</label>
-                        <input type="text" name="kpi" id="item-kpi" class="form-control" value="<?php echo htmlspecialchars($item_form['kpi']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <input type="text" name="kpi" id="item-kpi" class="form-control" value="<?php echo htmlspecialchars($item_form['kpi']); ?>" placeholder="e.g., Total revenue generated" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
                         <?php if (!empty($item_errors['kpi'])): ?>
                             <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $item_errors['kpi']; ?></div>
                         <?php endif; ?>
@@ -211,7 +218,7 @@
                 <div class="col-md-3">
                     <div style="margin-bottom: 16px;">
                         <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Target Value</label>
-                        <input type="number" step="0.01" name="target_value" id="item-target" class="form-control" value="<?php echo htmlspecialchars($item_form['target_value']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <input type="number" step="0.01" name="target_value" id="item-target" class="form-control" value="<?php echo htmlspecialchars($item_form['target_value']); ?>" placeholder="e.g., 100" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
                         <?php if (!empty($item_errors['target_value'])): ?>
                             <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $item_errors['target_value']; ?></div>
                         <?php endif; ?>
@@ -220,7 +227,7 @@
                 <div class="col-md-3">
                     <div style="margin-bottom: 16px;">
                         <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Unit</label>
-                        <input type="text" name="unit" id="item-unit" class="form-control" value="<?php echo htmlspecialchars($item_form['unit']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <input type="text" name="unit" id="item-unit" class="form-control" value="<?php echo htmlspecialchars($item_form['unit']); ?>" placeholder="e.g., %, IDR, unit" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
                         <?php if (!empty($item_errors['unit'])): ?>
                             <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $item_errors['unit']; ?></div>
                         <?php endif; ?>
@@ -229,7 +236,7 @@
                 <div class="col-md-3">
                     <div style="margin-bottom: 16px;">
                         <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Weight (%)</label>
-                        <input type="number" step="0.01" name="weight" id="item-weight" class="form-control" value="<?php echo htmlspecialchars($item_form['weight']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <input type="number" step="0.01" name="weight" id="item-weight" class="form-control" value="<?php echo htmlspecialchars($item_form['weight']); ?>" placeholder="e.g., 25" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
                         <?php if (!empty($item_errors['weight'])): ?>
                             <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $item_errors['weight']; ?></div>
                         <?php endif; ?>

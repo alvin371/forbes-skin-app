@@ -29,6 +29,14 @@ class PerformanceAppraisal extends BaseController
         $this->adminauthfilter->enforce();
     }
 
+    /**
+     * Get all active roles for dropdown
+     */
+    private function get_roles()
+    {
+        return $this->performance_model->get_all_roles();
+    }
+
     public function index()
     {
         if ($this->input->method(TRUE) === 'POST') {
@@ -37,6 +45,7 @@ class PerformanceAppraisal extends BaseController
 
         $data['title'] = 'Performance Appraisal Templates - ' . $this->template->title();
         $data['templates'] = $this->performance_model->get_templates();
+        $data['roles'] = $this->get_roles();
         $data['csrf_name'] = $this->security->get_csrf_token_name();
         $data['csrf_hash'] = $this->security->get_csrf_hash();
         $data['content'] = $this->load->view('admin/performance_appraisal/index', $data, true);
@@ -47,6 +56,7 @@ class PerformanceAppraisal extends BaseController
     {
         $data['title'] = 'Create Performance Template - ' . $this->template->title();
         $data['template'] = $this->empty_template();
+        $data['roles'] = $this->get_roles();
         $data['errors'] = [];
         $data['item_errors'] = [];
         $data['item_rows'] = [$this->empty_item_row(1)];
@@ -67,6 +77,7 @@ class PerformanceAppraisal extends BaseController
 
         $data['title'] = 'Edit Performance Template - ' . $this->template->title();
         $data['template'] = $template;
+        $data['roles'] = $this->get_roles();
         $data['errors'] = [];
         $data['item_errors'] = [];
         $data['csrf_name'] = $this->security->get_csrf_token_name();
@@ -94,6 +105,7 @@ class PerformanceAppraisal extends BaseController
         if (!empty($errors)) {
             $data['title'] = 'Edit Performance Template - ' . $this->template->title();
             $data['template'] = array_merge($template, $payload);
+            $data['roles'] = $this->get_roles();
             $data['errors'] = $errors;
             $data['item_errors'] = [];
             $data['csrf_name'] = $this->security->get_csrf_token_name();
@@ -108,6 +120,7 @@ class PerformanceAppraisal extends BaseController
         if (!$result['success']) {
             $data['title'] = 'Edit Performance Template - ' . $this->template->title();
             $data['template'] = array_merge($template, $payload);
+            $data['roles'] = $this->get_roles();
             $data['errors'] = ['is_active' => $result['error']];
             $data['item_errors'] = [];
             $data['csrf_name'] = $this->security->get_csrf_token_name();
@@ -159,6 +172,7 @@ class PerformanceAppraisal extends BaseController
         if (!empty($errors)) {
             $data['title'] = 'Edit Performance Template - ' . $this->template->title();
             $data['template'] = $template;
+            $data['roles'] = $this->get_roles();
             $data['errors'] = [];
             $data['item_errors'] = $errors;
             $data['item_form'] = $payload;
@@ -200,6 +214,7 @@ class PerformanceAppraisal extends BaseController
             $template = $this->performance_model->get_template_by_id($item['template_id'], true);
             $data['title'] = 'Edit Performance Template - ' . $this->template->title();
             $data['template'] = $template;
+            $data['roles'] = $this->get_roles();
             $data['errors'] = [];
             $data['item_errors'] = $errors;
             $data['item_form'] = array_merge($item, $payload, ['id' => $item_id]);
@@ -278,12 +293,16 @@ class PerformanceAppraisal extends BaseController
         if ($this->input->get('period_year')) {
             $filters['period_year'] = $this->input->get('period_year');
         }
-        if ($this->input->get('department') !== null && $this->input->get('department') !== '') {
+        // Use role_id filter (new) or department (legacy)
+        if ($this->input->get('role_id') !== null && $this->input->get('role_id') !== '') {
+            $filters['role_id'] = $this->input->get('role_id');
+        } elseif ($this->input->get('department') !== null && $this->input->get('department') !== '') {
             $filters['department'] = $this->input->get('department');
         }
 
         $data['title'] = 'Performance Submissions - ' . $this->template->title();
         $data['templates'] = $this->performance_model->get_templates();
+        $data['roles'] = $this->get_roles();
         $data['submissions'] = $this->performance_model->get_submissions($filters);
         $data['filters'] = $filters;
         $data['csrf_name'] = $this->security->get_csrf_token_name();
@@ -322,6 +341,7 @@ class PerformanceAppraisal extends BaseController
         if (!empty($errors) || !empty($item_errors)) {
             $data['title'] = 'Create Performance Template - ' . $this->template->title();
             $data['template'] = array_merge($this->empty_template(), $payload);
+            $data['roles'] = $this->get_roles();
             $data['errors'] = $errors;
             $data['item_errors'] = $item_errors;
             $data['item_rows'] = !empty($item_rows) ? $item_rows : [$this->empty_item_row(1)];
@@ -351,6 +371,7 @@ class PerformanceAppraisal extends BaseController
             $this->db->trans_rollback();
             $data['title'] = 'Create Performance Template - ' . $this->template->title();
             $data['template'] = array_merge($this->empty_template(), $payload);
+            $data['roles'] = $this->get_roles();
             $data['errors'] = ['items' => $item_error_message ?? 'Failed to create template.'];
             $data['item_errors'] = [];
             $data['item_rows'] = !empty($item_rows) ? $item_rows : [$this->empty_item_row(1)];
@@ -382,8 +403,9 @@ class PerformanceAppraisal extends BaseController
             $errors['period_year'] = 'Period year is required.';
         }
 
-        $department = trim((string) ($input['department'] ?? ''));
-        $clean['department'] = $department === '' ? null : $department;
+        // Use role_id instead of department
+        $role_id = $input['role_id'] ?? '';
+        $clean['role_id'] = ($role_id === '' || $role_id === 'null' || $role_id === null) ? null : (int) $role_id;
 
         $clean['is_active'] = isset($input['is_active']) && $input['is_active'] === '1' ? 1 : 0;
 
@@ -511,7 +533,7 @@ class PerformanceAppraisal extends BaseController
             'id' => null,
             'name' => '',
             'period_year' => date('Y'),
-            'department' => '',
+            'role_id' => null,
             'is_active' => 0,
         ];
     }

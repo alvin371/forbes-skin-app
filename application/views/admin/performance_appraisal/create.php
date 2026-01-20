@@ -16,7 +16,7 @@
 
             <div style="margin-bottom: 16px;">
                 <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Template Name</label>
-                <input type="text" name="name" class="form-control" value="<?php echo htmlspecialchars($template['name']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;">
+                <input type="text" name="name" class="form-control" value="<?php echo htmlspecialchars($template['name']); ?>" placeholder="e.g., Sales Performance 2026" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;">
                 <?php if (!empty($errors['name'])): ?>
                     <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $errors['name']; ?></div>
                 <?php endif; ?>
@@ -26,7 +26,7 @@
                 <div class="col-md-4">
                     <div style="margin-bottom: 16px;">
                         <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Period Year</label>
-                        <input type="number" name="period_year" class="form-control" value="<?php echo htmlspecialchars($template['period_year']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <input type="number" name="period_year" class="form-control" value="<?php echo htmlspecialchars($template['period_year']); ?>" placeholder="e.g., 2026" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
                         <?php if (!empty($errors['period_year'])): ?>
                             <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $errors['period_year']; ?></div>
                         <?php endif; ?>
@@ -34,8 +34,15 @@
                 </div>
                 <div class="col-md-8">
                     <div style="margin-bottom: 16px;">
-                        <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Department <span style="font-size: 12px; color: rgba(0,0,0,0.45);">(leave blank or use * for all)</span></label>
-                        <input type="text" name="department" class="form-control" value="<?php echo htmlspecialchars($template['department']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                        <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">Role <span style="font-size: 12px; color: rgba(0,0,0,0.45);">(leave blank for all roles)</span></label>
+                        <select name="role_id" class="form-control" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                            <option value="">All Roles (Global)</option>
+                            <?php foreach ($roles as $role): ?>
+                                <option value="<?php echo (int) $role['id']; ?>" <?php echo (isset($template['role_id']) && (int) $template['role_id'] === (int) $role['id']) ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($role['display_name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                 </div>
             </div>
@@ -87,34 +94,34 @@
                             <?php foreach ($item_rows as $index => $row): ?>
                                 <tr>
                                     <td style="padding: 8px;">
-                                        <input type="number" name="items[<?php echo $index; ?>][order_no]" value="<?php echo htmlspecialchars($row['order_no']); ?>" style="width: 70px; height: 32px; padding: 4px 6px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                                        <input type="number" name="items[<?php echo $index; ?>][order_no]" value="<?php echo htmlspecialchars($row['order_no']); ?>" placeholder="1" style="width: 70px; height: 32px; padding: 4px 6px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
                                     </td>
                                     <td style="padding: 8px;">
-                                        <input type="text" name="items[<?php echo $index; ?>][objective]" value="<?php echo htmlspecialchars($row['objective']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;">
+                                        <input type="text" name="items[<?php echo $index; ?>][objective]" value="<?php echo htmlspecialchars($row['objective']); ?>" placeholder="e.g., Achieve sales target" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;">
                                         <?php if (!empty($item_errors[$index]['objective'])): ?>
                                             <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $item_errors[$index]['objective']; ?></div>
                                         <?php endif; ?>
                                     </td>
                                     <td style="padding: 8px;">
-                                        <input type="text" name="items[<?php echo $index; ?>][kpi]" value="<?php echo htmlspecialchars($row['kpi']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;">
+                                        <input type="text" name="items[<?php echo $index; ?>][kpi]" value="<?php echo htmlspecialchars($row['kpi']); ?>" placeholder="e.g., Total revenue" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;">
                                         <?php if (!empty($item_errors[$index]['kpi'])): ?>
                                             <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $item_errors[$index]['kpi']; ?></div>
                                         <?php endif; ?>
                                     </td>
                                     <td style="padding: 8px;">
-                                        <input type="number" step="0.01" name="items[<?php echo $index; ?>][target_value]" value="<?php echo htmlspecialchars($row['target_value']); ?>" style="width: 100px; height: 32px; padding: 4px 6px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                                        <input type="number" step="0.01" name="items[<?php echo $index; ?>][target_value]" value="<?php echo htmlspecialchars($row['target_value']); ?>" placeholder="e.g., 100" style="width: 100px; height: 32px; padding: 4px 6px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
                                         <?php if (!empty($item_errors[$index]['target_value'])): ?>
                                             <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $item_errors[$index]['target_value']; ?></div>
                                         <?php endif; ?>
                                     </td>
                                     <td style="padding: 8px;">
-                                        <input type="text" name="items[<?php echo $index; ?>][unit]" value="<?php echo htmlspecialchars($row['unit']); ?>" style="width: 80px; height: 32px; padding: 4px 6px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                                        <input type="text" name="items[<?php echo $index; ?>][unit]" value="<?php echo htmlspecialchars($row['unit']); ?>" placeholder="e.g., %" style="width: 80px; height: 32px; padding: 4px 6px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
                                         <?php if (!empty($item_errors[$index]['unit'])): ?>
                                             <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $item_errors[$index]['unit']; ?></div>
                                         <?php endif; ?>
                                     </td>
                                     <td style="padding: 8px;">
-                                        <input type="number" step="0.01" name="items[<?php echo $index; ?>][weight]" value="<?php echo htmlspecialchars($row['weight']); ?>" style="width: 90px; height: 32px; padding: 4px 6px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
+                                        <input type="number" step="0.01" name="items[<?php echo $index; ?>][weight]" value="<?php echo htmlspecialchars($row['weight']); ?>" placeholder="e.g., 25" style="width: 90px; height: 32px; padding: 4px 6px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
                                         <?php if (!empty($item_errors[$index]['weight'])): ?>
                                             <div style="color: #ff4d4f; font-size: 12px; margin-top: 4px;"><?php echo $item_errors[$index]['weight']; ?></div>
                                         <?php endif; ?>
@@ -187,22 +194,22 @@
             var row = document.createElement('tr');
             row.innerHTML =
                 '<td style="padding: 8px;">' +
-                    '<input type="number" name="items[' + index + '][order_no]" value="' + (index + 1) + '" style="width: 70px; height: 32px; padding: 4px 6px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">' +
+                    '<input type="number" name="items[' + index + '][order_no]" value="' + (index + 1) + '" placeholder="1" style="width: 70px; height: 32px; padding: 4px 6px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">' +
                 '</td>' +
                 '<td style="padding: 8px;">' +
-                    '<input type="text" name="items[' + index + '][objective]" value="" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;">' +
+                    '<input type="text" name="items[' + index + '][objective]" value="" placeholder="e.g., Achieve sales target" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;">' +
                 '</td>' +
                 '<td style="padding: 8px;">' +
-                    '<input type="text" name="items[' + index + '][kpi]" value="" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;">' +
+                    '<input type="text" name="items[' + index + '][kpi]" value="" placeholder="e.g., Total revenue" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;">' +
                 '</td>' +
                 '<td style="padding: 8px;">' +
-                    '<input type="number" step="0.01" name="items[' + index + '][target_value]" value="" style="width: 100px; height: 32px; padding: 4px 6px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">' +
+                    '<input type="number" step="0.01" name="items[' + index + '][target_value]" value="" placeholder="e.g., 100" style="width: 100px; height: 32px; padding: 4px 6px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">' +
                 '</td>' +
                 '<td style="padding: 8px;">' +
-                    '<input type="text" name="items[' + index + '][unit]" value="%" style="width: 80px; height: 32px; padding: 4px 6px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">' +
+                    '<input type="text" name="items[' + index + '][unit]" value="%" placeholder="e.g., %" style="width: 80px; height: 32px; padding: 4px 6px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">' +
                 '</td>' +
                 '<td style="padding: 8px;">' +
-                    '<input type="number" step="0.01" name="items[' + index + '][weight]" value="" style="width: 90px; height: 32px; padding: 4px 6px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">' +
+                    '<input type="number" step="0.01" name="items[' + index + '][weight]" value="" placeholder="e.g., 25" style="width: 90px; height: 32px; padding: 4px 6px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">' +
                 '</td>' +
                 '<td style="padding: 8px;">' +
                     '<button type="button" class="btn btn-link remove-item" style="color: #ff4d4f; padding: 0; font-size: 14px;">Remove</button>' +

@@ -14,6 +14,39 @@ class Performance_model extends CI_Model
     }
 
     // ============================================
+    // ROLE HELPER METHODS
+    // ============================================
+
+    /**
+     * Get all active roles for dropdown
+     */
+    public function get_all_roles()
+    {
+        $this->db->select('id, name, display_name');
+        $this->db->from('roles');
+        $this->db->where('is_active', 1);
+        $this->db->order_by('display_name', 'ASC');
+        return $this->db->get()->result_array();
+    }
+
+    /**
+     * Get employee's primary role (first assigned role)
+     */
+    public function get_employee_primary_role($employee_id)
+    {
+        $this->db->select('r.id, r.name, r.display_name');
+        $this->db->from('user_roles ur');
+        $this->db->join('roles r', 'ur.role_id = r.id');
+        $this->db->where('ur.user_id', $employee_id);
+        $this->db->where('ur.is_active', 1);
+        $this->db->where('r.is_active', 1);
+        $this->db->order_by('ur.assigned_at', 'ASC');
+        $this->db->limit(1);
+
+        return $this->db->get()->row_array();
+    }
+
+    // ============================================
     // TEMPLATE OPERATIONS
     // ============================================
 
@@ -24,18 +57,23 @@ class Performance_model extends CI_Model
     {
         $this->db->select('
             pt.*,
+            r.display_name as role_display_name,
             COUNT(pti.id) as item_count,
             SUM(pti.weight) as total_weight,
             (SELECT COUNT(*) FROM performance_submissions ps WHERE ps.template_id = pt.id) as submission_count
         ');
         $this->db->from('performance_templates pt');
         $this->db->join('performance_template_items pti', 'pt.id = pti.template_id', 'left');
+        $this->db->join('roles r', 'pt.role_id = r.id', 'left');
 
         if (isset($filters['period_year'])) {
             $this->db->where('pt.period_year', $filters['period_year']);
         }
 
-        if (isset($filters['department']) && $filters['department'] !== '') {
+        // Filter by role_id (new) or department (legacy)
+        if (isset($filters['role_id']) && $filters['role_id'] !== '' && $filters['role_id'] !== null) {
+            $this->db->where('pt.role_id', $filters['role_id']);
+        } elseif (isset($filters['department']) && $filters['department'] !== '') {
             $this->db->where('pt.department', $filters['department']);
         }
 
@@ -77,35 +115,33 @@ class Performance_model extends CI_Model
     }
 
     /**
-     * Get active template for employee
+     * Get active template for employee based on their role
+     * @param int $period_year
+     * @param int|null $employee_role_id - The employee's primary role ID
      */
-    public function get_active_template_for_employee($period_year, $employee_department = null)
+    public function get_active_template_for_employee($period_year, $employee_role_id = null)
     {
-        $this->db->select('pt.*');
+        $this->db->select('pt.*, r.display_name as role_display_name');
         $this->db->from('performance_templates pt');
+        $this->db->join('roles r', 'pt.role_id = r.id', 'left');
         $this->db->where('pt.is_active', 1);
         $this->db->where('pt.period_year', $period_year);
 
-        // Match department or global template (NULL or *)
-        if ($employee_department) {
+        // Match role or global template (role_id = NULL means all roles)
+        if ($employee_role_id) {
             $this->db->group_start();
-            $this->db->where('pt.department', $employee_department);
-            $this->db->or_where('pt.department IS NULL');
-            $this->db->or_where('pt.department', '*');
+            $this->db->where('pt.role_id', $employee_role_id);
+            $this->db->or_where('pt.role_id IS NULL');
             $this->db->group_end();
-        } else {
-            $this->db->group_start();
-            $this->db->where('pt.department IS NULL');
-            $this->db->or_where('pt.department', '*');
-            $this->db->group_end();
-        }
 
-        if ($employee_department) {
-            $order_expr = "CASE WHEN pt.department = " . $this->db->escape($employee_department) . " THEN 0 WHEN pt.department IS NULL THEN 1 WHEN pt.department = '*' THEN 1 ELSE 2 END";
+            // Prioritize specific role over global template
+            $order_expr = "CASE WHEN pt.role_id = " . $this->db->escape($employee_role_id) . " THEN 0 WHEN pt.role_id IS NULL THEN 1 ELSE 2 END";
             $this->db->order_by($order_expr, 'ASC', FALSE);
         } else {
-            $this->db->order_by('pt.department', 'DESC');
+            // No role assigned - prefer global templates but allow any active template
+            $this->db->order_by('CASE WHEN pt.role_id IS NULL THEN 0 ELSE 1 END', 'ASC', FALSE);
         }
+
         $this->db->limit(1);
 
         $query = $this->db->get();
@@ -126,7 +162,8 @@ class Performance_model extends CI_Model
         $template_data = [
             'name' => $data['name'],
             'period_year' => $data['period_year'],
-            'department' => $data['department'] ?? null,
+            'role_id' => isset($data['role_id']) && $data['role_id'] !== '' ? $data['role_id'] : null,
+            'department' => null, // Deprecated, kept for backward compatibility
             'is_active' => $data['is_active'] ?? 0,
             'created_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s')
@@ -160,6 +197,9 @@ class Performance_model extends CI_Model
 
         if (isset($data['name'])) $update_data['name'] = $data['name'];
         if (isset($data['period_year'])) $update_data['period_year'] = $data['period_year'];
+        if (array_key_exists('role_id', $data)) {
+            $update_data['role_id'] = ($data['role_id'] === '' || $data['role_id'] === null) ? null : $data['role_id'];
+        }
         if (isset($data['department'])) $update_data['department'] = $data['department'];
         if (isset($data['is_active'])) $update_data['is_active'] = $data['is_active'];
 
@@ -323,11 +363,13 @@ class Performance_model extends CI_Model
         $this->db->select('
             ps.*,
             pt.name as template_name,
-            pt.department as template_department,
+            pt.role_id as template_role_id,
+            r.display_name as template_role_name,
             COUNT(psi.id) as item_count
         ');
         $this->db->from('performance_submissions ps');
         $this->db->join('performance_templates pt', 'ps.template_id = pt.id', 'left');
+        $this->db->join('roles r', 'pt.role_id = r.id', 'left');
         $this->db->join('performance_submission_items psi', 'ps.id = psi.submission_id', 'left');
 
         if (isset($filters['employee_id'])) {
@@ -346,6 +388,12 @@ class Performance_model extends CI_Model
             $this->db->where('ps.status', $filters['status']);
         }
 
+        // Filter by employee's role at submission time
+        if (isset($filters['role_id']) && $filters['role_id'] !== '' && $filters['role_id'] !== null) {
+            $this->db->where('ps.employee_role_id', $filters['role_id']);
+        }
+
+        // Legacy: filter by department
         if (isset($filters['department'])) {
             $this->db->where('pt.department', $filters['department']);
         }
@@ -429,6 +477,8 @@ class Performance_model extends CI_Model
                 'employee_nik' => $data['employee_snapshot']['nik'] ?? null,
                 'employee_department' => $data['employee_snapshot']['department'] ?? null,
                 'employee_position' => $data['employee_snapshot']['position'] ?? null,
+                'employee_role_id' => $data['employee_snapshot']['role_id'] ?? null,
+                'employee_role_name' => $data['employee_snapshot']['role_name'] ?? null,
                 'period_year' => $data['period_year'],
                 'status' => $data['status'] ?? 'SUBMITTED',
                 'total_score' => 0,
