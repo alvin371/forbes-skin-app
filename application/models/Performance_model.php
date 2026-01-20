@@ -38,9 +38,7 @@ class Performance_model extends CI_Model
         $this->db->from('user_roles ur');
         $this->db->join('roles r', 'ur.role_id = r.id');
         $this->db->where('ur.user_id', $employee_id);
-        $this->db->where('ur.is_active', 1);
         $this->db->where('r.is_active', 1);
-        $this->db->order_by('ur.assigned_at', 'ASC');
         $this->db->limit(1);
 
         return $this->db->get()->row_array();

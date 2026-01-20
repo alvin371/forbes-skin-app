@@ -111,9 +111,7 @@ class ApiAuth
         $this->CI->db->from('user_roles ur');
         $this->CI->db->join('roles r', 'ur.role_id = r.id');
         $this->CI->db->where('ur.user_id', $user_id);
-        $this->CI->db->where('ur.is_active', 1);
         $this->CI->db->where('r.is_active', 1);
-        $this->CI->db->order_by('ur.assigned_at', 'ASC');
         $this->CI->db->limit(1);
 
         $result = $this->CI->db->get()->row_array();
