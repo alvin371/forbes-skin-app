@@ -1141,12 +1141,6 @@ if (!$_SESSION['is_login']) {
                 PERFORMANCE APPRAISAL
               </a>
             <?php endif; ?>
-            <?php if ($modules_permissions['approval_routes']): ?>
-              <a href="<?= base_url() ?>admin/approval-routes" class="ms-3 item-menu <?= $menu_approval_routes ?>">
-                <i class="icon bi bi-diagram-3"></i>
-                APPROVAL ROUTES
-              </a>
-            <?php endif; ?>
             <?php if ($modules_permissions['recruitment']): ?>
               <a href="<?= base_url() ?>recruitment" class="ms-3 item-menu <?= $menu_recruitment ?>">
                 <i class="icon bi bi-person-fill-up"></i>
