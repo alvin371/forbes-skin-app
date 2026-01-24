@@ -92,6 +92,16 @@
             <a href="<?php echo site_url('leave'); ?>" class="btn btn-outline-secondary" style="color: rgba(0,0,0,0.65); border-color: #d9d9d9; background: #fff; height: 32px; padding: 4px 15px; border-radius: 2px; font-size: 14px; text-decoration: none; display: inline-flex; align-items: center;">
                 <i class="bi bi-arrow-left"></i> Back
             </a>
+            <?php if ($request['status'] === 'PENDING_APPROVAL'): ?>
+                <form method="post" action="<?php echo site_url('leave/' . $request['id'] . '/cancel'); ?>" style="display:inline;" onsubmit="return confirm('Cancel this request?');">
+                    <?php if (!empty($csrf_name) && !empty($csrf_hash)): ?>
+                        <input type="hidden" name="<?php echo $csrf_name; ?>" value="<?php echo $csrf_hash; ?>">
+                    <?php endif; ?>
+                    <button type="submit" class="btn btn-outline-danger" style="height: 32px; padding: 4px 15px; border-radius: 2px; font-size: 14px; margin-left: 8px;">
+                        Cancel Request
+                    </button>
+                </form>
+            <?php endif; ?>
         </div>
     </div>
 </div>
