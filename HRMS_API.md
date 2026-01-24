@@ -467,10 +467,12 @@ Response 200:
 
 ## Error Format
 
-All errors use JSON with a message and optional field errors.
+All errors use JSON with a status, message, code, and optional field errors.
 ```json
 {
+  "status": "error",
   "message": "Validation failed.",
+  "code": "VALIDATION_FAILED",
   "errors": {
     "start_date": "Start date and end date are required."
   }

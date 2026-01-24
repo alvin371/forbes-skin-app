@@ -1319,10 +1319,55 @@ class Api_hrms extends CI_Controller
 
     private function respond($statusCode, $payload)
     {
+        if (!is_array($payload)) {
+            $payload = array('message' => (string) $payload);
+        }
+
+        if ($statusCode >= 400) {
+            $message = isset($payload['message']) ? (string) $payload['message'] : 'Request failed.';
+            $normalized = array(
+                'status' => 'error',
+                'message' => $message,
+                'code' => isset($payload['code']) ? (string) $payload['code'] : $this->default_error_code($statusCode, $message),
+            );
+
+            if (isset($payload['errors'])) {
+                $normalized['errors'] = $payload['errors'];
+            }
+
+            $payload = array_merge($payload, $normalized);
+        }
+
         return $this->output
             ->set_status_header($statusCode)
             ->set_content_type('application/json')
             ->set_output(json_encode($payload));
+    }
+
+    private function default_error_code($statusCode, $message)
+    {
+        switch ($statusCode) {
+            case 400:
+                return 'BAD_REQUEST';
+            case 401:
+                return 'UNAUTHORIZED';
+            case 403:
+                return 'FORBIDDEN';
+            case 404:
+                return 'NOT_FOUND';
+            case 405:
+                return 'METHOD_NOT_ALLOWED';
+            case 409:
+                return 'CONFLICT';
+            case 422:
+                return 'VALIDATION_FAILED';
+            case 429:
+                return 'TOO_MANY_REQUESTS';
+            case 500:
+                return 'INTERNAL_SERVER_ERROR';
+            default:
+                return 'ERROR';
+        }
     }
 
     private function require_user()
