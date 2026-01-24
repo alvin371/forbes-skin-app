@@ -109,6 +109,7 @@ $route['approvals/leaves/(:num)/reject'] = 'approvals/LeaveApprovalController/re
 
 $route['diagnostic/check-leave-data'] = 'DiagnosticController/check_leave_data';
 $route['fix/leave-status'] = 'FixLeaveStatusController/update_status';
+$route['migrate/leave-status'] = 'MigrateLeaveStatusController/submitted_to_pending';
 
 $route['seed/run'] = 'SeedRunner/index';
 $route['seed/attendance-office'] = 'SeedRunner/attendance_office';
@@ -154,6 +155,7 @@ $route['api/hrms/attendance/report'] = 'Api_hrms/attendance_report';
 $route['api/hrms/holidays'] = 'Api_hrms/holidays';
 $route['api/hrms/upload'] = 'Api_hrms/upload';
 $route['api/hrms/leave'] = 'Api_hrms/leave';
+$route['api/hrms/leave/(:num)/cancel'] = 'Api_hrms/leave_cancel/$1';
 $route['api/hrms/leave/quota'] = 'Api_hrms/leave_quota';
 $route['api/hrms/leave/quota/detail'] = 'Api_hrms/leave_quota_detail';
 $route['api/hrms/performance/templates/active'] = 'Api_hrms/performance_templates_active';

@@ -678,8 +678,8 @@ class Api_hrms extends CI_Controller
             'days_count' => $clean['days_count'],
             'reason' => $clean['reason'],
             'attachment_path' => $attachmentPath,
-            'status' => $hasApprover ? 'PENDING_APPROVAL' : 'SUBMITTED',
-            'current_step' => $hasApprover ? 1 : 0,
+            'status' => 'PENDING_APPROVAL',
+            'current_step' => 1,
             'created_at' => $now,
             'updated_at' => $now,
         ));
@@ -697,7 +697,57 @@ class Api_hrms extends CI_Controller
         return $this->respond(201, array(
             'id' => (int) $requestId,
             'requestNo' => $requestNo,
-            'status' => $hasApprover ? 'Pending' : 'Submitted',
+            'status' => 'Pending',
+        ));
+    }
+
+    public function leave_cancel($id)
+    {
+        if ($this->input->method(TRUE) !== 'POST') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->user_requires_attendance((int) $user['id'])) {
+            return $this->respond(403, array('message' => 'Attendance is not required for this account.'));
+        }
+
+        $request = $this->LeaveRequestModel->get_by_id((int) $id);
+        if (!$request || (int) $request['user_id'] !== (int) $user['id']) {
+            return $this->respond(404, array('message' => 'Leave request not found.'));
+        }
+
+        $cancellableStatuses = array('PENDING_APPROVAL');
+        if (!in_array($request['status'], $cancellableStatuses, true)) {
+            return $this->respond(409, array('message' => 'This request cannot be cancelled.'));
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $this->db->trans_start();
+
+        $this->LeaveRequestModel->update($request['id'], array(
+            'status' => 'CANCELLED',
+            'updated_at' => $now,
+        ));
+
+        $this->db->where('leave_request_id', (int) $request['id']);
+        $this->db->where('action', 'PENDING');
+        $this->db->update('leave_approvals', array(
+            'action' => 'REJECTED',
+            'action_at' => $now,
+            'notes' => 'Cancelled by requester.',
+        ));
+
+        $this->db->trans_complete();
+
+        return $this->respond(200, array(
+            'message' => 'Leave request cancelled.',
+            'id' => (int) $request['id'],
+            'status' => 'CANCELLED',
         ));
     }
 
