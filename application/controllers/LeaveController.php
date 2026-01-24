@@ -239,7 +239,7 @@ class LeaveController extends CI_Controller
         }
 
         if (empty($errors) && $this->leaveoverlapservice->has_overlap($userId, $clean['start_date'], $clean['end_date'])) {
-            $errors['start_date'] = 'Leave dates overlap with an existing request.';
+            $errors['start_date'] = 'A leave application already exists for the selected date range.';
         }
 
         if ($leaveType && (int) $leaveType['requires_attachment'] === 1) {
