@@ -155,6 +155,7 @@ $route['api/hrms/attendance/report'] = 'Api_hrms/attendance_report';
 $route['api/hrms/holidays'] = 'Api_hrms/holidays';
 $route['api/hrms/upload'] = 'Api_hrms/upload';
 $route['api/hrms/leave'] = 'Api_hrms/leave';
+$route['api/hrms/leave/(:num)'] = 'Api_hrms/leave_detail/$1';
 $route['api/hrms/leave/(:num)/cancel'] = 'Api_hrms/leave_cancel/$1';
 $route['api/hrms/leave/quota'] = 'Api_hrms/leave_quota';
 $route['api/hrms/leave/quota/detail'] = 'Api_hrms/leave_quota_detail';
