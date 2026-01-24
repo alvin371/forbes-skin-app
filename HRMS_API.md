@@ -389,7 +389,72 @@ Response 201:
 }
 ```
 Notes:
-- Leave requests require an active approval route for the user. If none is configured, the API returns `422` with `message: "No approval route configured for this user."`
+- Leave requests are created with `Pending` status. If there is no approval route configured, the request is still created and can be approved by any user with leave-approval access.
+
+### GET /leave/{id}
+Response 200:
+```json
+{
+  "id": 3,
+  "requestNo": "LV-20250101-0001",
+  "requester": {
+    "id": 12,
+    "name": "Jane Doe",
+    "email": "jane@example.com"
+  },
+  "leaveTypeId": 2,
+  "leaveTypeName": "Annual Leave",
+  "leaveTypeCode": "AL",
+  "requiresAttachment": 0,
+  "maxDaysPerRequest": 5,
+  "startDate": "2025-01-10",
+  "endDate": "2025-01-12",
+  "daysCount": 3,
+  "reason": "Family event",
+  "status": "Pending",
+  "statusRaw": "PENDING_APPROVAL",
+  "currentStep": 1,
+  "attachmentPath": "writable/uploads/leaves/LV-20250101-0001/file.pdf",
+  "createdAt": "2025-01-01 09:15:00",
+  "updatedAt": "2025-01-01 09:15:00",
+  "approvals": [
+    {
+      "id": 4,
+      "leaveRequestId": 3,
+      "stepNo": 1,
+      "approverId": 9,
+      "approverName": "Manager Name",
+      "approverEmail": "manager@example.com",
+      "action": "PENDING",
+      "actionAt": null,
+      "notes": null
+    }
+  ]
+}
+```
+Error responses:
+- 403: You do not have access to this leave request.
+- 404: Leave request not found.
+
+### POST /leave/{id}/cancel
+Request:
+```bash
+curl -X POST "/api/hrms/leave/3/cancel" \
+  -H "Authorization: Bearer <accessToken>"
+```
+Response 200:
+```json
+{
+  "message": "Leave request cancelled.",
+  "id": 3,
+  "status": "CANCELLED"
+}
+```
+Error responses:
+- 401: Unauthorized
+- 403: Attendance is not required for this account.
+- 404: Leave request not found.
+- 409: This request cannot be cancelled. (Only `PENDING_APPROVAL` requests can be cancelled.)
 
 ### GET /leave/quota
 Response 200:

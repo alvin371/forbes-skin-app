@@ -631,7 +631,7 @@ class Api_hrms extends CI_Controller
                     'daysCount' => (int) $request['days_count'],
                     'reason' => $request['reason'],
                     'status' => $this->map_leave_status($request['status']),
-                    'attachmentPath' => $request['attachment_path'],
+                    'attachmentPath' => $this->absolute_attachment_url($request['attachment_path']),
                 );
             }
 
@@ -698,6 +698,85 @@ class Api_hrms extends CI_Controller
             'id' => (int) $requestId,
             'requestNo' => $requestNo,
             'status' => 'Pending',
+        ));
+    }
+
+    public function leave_detail($id)
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->user_requires_attendance((int) $user['id'])) {
+            return $this->respond(403, array('message' => 'Attendance is not required for this account.'));
+        }
+
+        $request = $this->LeaveRequestModel->get_by_id((int) $id);
+        if (!$request) {
+            return $this->respond(404, array('message' => 'Leave request not found.'));
+        }
+
+        if ((int) $request['user_id'] !== (int) $user['id']) {
+            return $this->respond(403, array('message' => 'You do not have access to this leave request.'));
+        }
+
+        $this->db->select('la.id, la.leave_request_id, la.step_no, la.approver_id, la.action, la.action_at, la.notes,
+            approver.full_name as approver_name, approver.email as approver_email');
+        $this->db->from('leave_approvals la');
+        $this->db->join('user approver', 'approver.id = la.approver_id', 'left');
+        $this->db->where('la.leave_request_id', (int) $id);
+        $this->db->order_by('la.step_no', 'ASC');
+        $this->db->order_by('la.id', 'ASC');
+        $approvals = $this->db->get()->result_array();
+
+        $approvalsPayload = array();
+        foreach ($approvals as $approval) {
+            $approvalsPayload[] = array(
+                'id' => (int) $approval['id'],
+                'leaveRequestId' => (int) $approval['leave_request_id'],
+                'stepNo' => (int) $approval['step_no'],
+                'approverId' => (int) $approval['approver_id'],
+                'approverName' => $approval['approver_name'] ?? null,
+                'approverEmail' => $approval['approver_email'] ?? null,
+                'action' => $approval['action'],
+                'actionAt' => $approval['action_at'],
+                'notes' => $approval['notes'],
+            );
+        }
+
+        $requester = $this->db->select('id, full_name, email')
+            ->get_where('user', array('id' => (int) $request['user_id']))
+            ->row_array();
+
+        return $this->respond(200, array(
+            'id' => (int) $request['id'],
+            'requestNo' => $request['request_no'],
+            'requester' => array(
+                'id' => (int) ($requester['id'] ?? 0),
+                'name' => $requester['full_name'] ?? null,
+                'email' => $requester['email'] ?? null,
+            ),
+            'leaveTypeId' => (int) $request['leave_type_id'],
+            'leaveTypeName' => $request['leave_type_name'] ?? null,
+            'leaveTypeCode' => $request['leave_type_code'] ?? null,
+            'requiresAttachment' => (int) ($request['requires_attachment'] ?? 0),
+            'maxDaysPerRequest' => $request['max_days_per_request'] !== null ? (int) $request['max_days_per_request'] : null,
+            'startDate' => $request['start_date'],
+            'endDate' => $request['end_date'],
+            'daysCount' => (int) $request['days_count'],
+            'reason' => $request['reason'],
+            'status' => $this->map_leave_status($request['status']),
+            'statusRaw' => $request['status'],
+            'currentStep' => (int) $request['current_step'],
+            'attachmentPath' => $this->absolute_attachment_url($request['attachment_path']),
+            'createdAt' => $request['created_at'],
+            'updatedAt' => $request['updated_at'],
+            'approvals' => $approvalsPayload,
         ));
     }
 
@@ -1307,6 +1386,17 @@ class Api_hrms extends CI_Controller
             default:
                 return $status;
         }
+    }
+
+    private function absolute_attachment_url($path)
+    {
+        $path = trim((string) $path);
+        if ($path === '') {
+            return null;
+        }
+
+        $baseUrl = 'https://acnenosystem.com/';
+        return rtrim($baseUrl, '/') . '/' . ltrim($path, '/');
     }
 
     private function is_valid_date($date)
