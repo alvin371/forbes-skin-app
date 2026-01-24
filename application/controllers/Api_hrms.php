@@ -649,14 +649,16 @@ class Api_hrms extends CI_Controller
         }
 
         $requestNo = $this->requestnogenerator->generate_unique();
-        $attachmentPath = null;
+        $attachmentPath = $clean['attachment_path'] !== '' ? $clean['attachment_path'] : null;
 
         if ($leaveType && (int) $leaveType['requires_attachment'] === 1) {
-            $upload = $this->handle_attachment_upload($requestNo, 'attachment');
-            if (isset($upload['error'])) {
-                return $this->respond(422, array('message' => $upload['error']));
+            if (!empty($_FILES['attachment']['name'])) {
+                $upload = $this->handle_attachment_upload($requestNo, 'attachment');
+                if (isset($upload['error'])) {
+                    return $this->respond(422, array('message' => $upload['error']));
+                }
+                $attachmentPath = $upload['path'];
             }
-            $attachmentPath = $upload['path'];
         } elseif (!empty($_FILES['attachment']['name'])) {
             $upload = $this->handle_attachment_upload($requestNo, 'attachment');
             if (isset($upload['error'])) {
@@ -1225,6 +1227,7 @@ class Api_hrms extends CI_Controller
         }
 
         $clean['reason'] = trim((string) ($input['reason'] ?? ''));
+        $clean['attachment_path'] = trim((string) ($input['attachment_path'] ?? $input['attachment'] ?? ''));
         $clean['days_count'] = $this->leavecalculatorservice->calculate_days($clean['start_date'], $clean['end_date']);
         if ($clean['days_count'] <= 0) {
             $errors['days_count'] = 'Unable to calculate leave days.';
@@ -1241,7 +1244,7 @@ class Api_hrms extends CI_Controller
         }
 
         if ($leaveType && (int) $leaveType['requires_attachment'] === 1) {
-            if (empty($_FILES['attachment']['name'])) {
+            if (empty($_FILES['attachment']['name']) && $clean['attachment_path'] === '') {
                 $errors['attachment'] = 'Attachment is required for this leave type.';
             }
         }
@@ -1393,6 +1396,10 @@ class Api_hrms extends CI_Controller
         $path = trim((string) $path);
         if ($path === '') {
             return null;
+        }
+
+        if (preg_match('/^https?:\\/\\//i', $path)) {
+            return $path;
         }
 
         $baseUrl = 'https://acnenosystem.com/';
