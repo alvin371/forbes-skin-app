@@ -76,9 +76,21 @@
                         <div style="font-size: 12px; color: rgba(0,0,0,0.45); margin-bottom: 4px;">Attachment</div>
                         <div style="font-size: 14px; color: rgba(0,0,0,0.65);">
                             <?php if (!empty($request['attachment_path'])): ?>
-                                <a href="<?php echo base_url($request['attachment_path']); ?>" target="_blank" style="color: #1890ff; text-decoration: none;">
-                                    <i class="bi bi-paperclip"></i> View Attachment
-                                </a>
+                                <?php
+                                    $attachmentPath = $request['attachment_path'];
+                                    $isAbsolute = preg_match('/^https?:\\/\\//i', $attachmentPath) === 1;
+                                    $attachmentUrl = $isAbsolute ? $attachmentPath : base_url($attachmentPath);
+                                    $extension = strtolower(pathinfo(parse_url($attachmentUrl, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION));
+                                ?>
+                                <?php if (in_array($extension, array('jpg', 'jpeg', 'png', 'gif', 'webp'), true)): ?>
+                                    <img src="<?php echo htmlspecialchars($attachmentUrl); ?>" alt="Attachment" style="max-width: 100%; height: auto; border: 1px solid #f0f0f0; border-radius: 2px;">
+                                <?php elseif ($extension === 'pdf'): ?>
+                                    <iframe src="<?php echo htmlspecialchars($attachmentUrl); ?>" title="Attachment" style="width: 100%; height: 520px; border: 1px solid #f0f0f0; border-radius: 2px;"></iframe>
+                                <?php else: ?>
+                                    <a href="<?php echo htmlspecialchars($attachmentUrl); ?>" style="color: #1890ff; text-decoration: none;">
+                                        <i class="bi bi-paperclip"></i> View Attachment
+                                    </a>
+                                <?php endif; ?>
                             <?php else: ?>
                                 <span style="color: rgba(0,0,0,0.45);">No attachment</span>
                             <?php endif; ?>
