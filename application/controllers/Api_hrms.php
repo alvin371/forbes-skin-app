@@ -557,6 +557,53 @@ class Api_hrms extends CI_Controller
         return $this->respond(200, array('data' => $items));
     }
 
+    public function upload()
+    {
+        if ($this->input->method(TRUE) !== 'POST') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        $type = trim((string) $this->input->post('type', TRUE));
+        if ($type === '') {
+            $type = trim((string) $this->input->get('type', TRUE));
+        }
+
+        $allowedTypes = array('leave', 'profile');
+        if ($type === '') {
+            return $this->respond(400, array('message' => 'type is required.'));
+        }
+        if (!in_array($type, $allowedTypes, true)) {
+            return $this->respond(422, array('message' => 'type is invalid.'));
+        }
+
+        if (empty($_FILES['file']['name'])) {
+            return $this->respond(400, array('message' => 'file is required.'));
+        }
+
+        $relativeBase = 'assets/uploads/' . $type . '/';
+        $uploadDir = FCPATH . $relativeBase;
+        $upload = $this->handle_hrms_upload($uploadDir, $relativeBase, 'file');
+        if (!empty($upload['error'])) {
+            return $this->respond(422, array('message' => $upload['error']));
+        }
+
+        $file = $upload['file'];
+        $sizeBytes = (int) round(((float) $file['file_size']) * 1024);
+
+        return $this->respond(200, array(
+            'type' => $type,
+            'path' => $upload['path'],
+            'filename' => $file['file_name'],
+            'originalName' => $file['client_name'],
+            'sizeBytes' => $sizeBytes,
+        ));
+    }
+
     public function leave()
     {
         $method = $this->input->method(TRUE);
@@ -1096,6 +1143,33 @@ class Api_hrms extends CI_Controller
         $relativePath = 'writable/uploads/leaves/' . $requestNo . '/' . $file['file_name'];
 
         return array('path' => $relativePath);
+    }
+
+    private function handle_hrms_upload($uploadDir, $relativeBase, $fieldName)
+    {
+        if (!is_dir($uploadDir)) {
+            if (!mkdir($uploadDir, 0755, true)) {
+                return array('error' => 'Failed to create upload directory.');
+            }
+        }
+
+        $config['upload_path'] = $uploadDir;
+        $config['allowed_types'] = 'pdf|jpg|jpeg|png';
+        $config['max_size'] = 2048;
+        $config['encrypt_name'] = true;
+
+        $this->load->library('upload', $config);
+        if (!$this->upload->do_upload($fieldName)) {
+            return array('error' => strip_tags($this->upload->display_errors('', '')));
+        }
+
+        $file = $this->upload->data();
+        $relativePath = $relativeBase . $file['file_name'];
+
+        return array(
+            'path' => $relativePath,
+            'file' => $file,
+        );
     }
 
     private function json_input()

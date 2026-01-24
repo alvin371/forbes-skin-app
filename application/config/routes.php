@@ -152,6 +152,7 @@ $route['api/hrms/attendance/recap'] = 'Api_hrms/attendance_recap';
 $route['api/hrms/attendance/recap-all'] = 'Api_hrms/attendance_recap_all';
 $route['api/hrms/attendance/report'] = 'Api_hrms/attendance_report';
 $route['api/hrms/holidays'] = 'Api_hrms/holidays';
+$route['api/hrms/upload'] = 'Api_hrms/upload';
 $route['api/hrms/leave'] = 'Api_hrms/leave';
 $route['api/hrms/leave/quota'] = 'Api_hrms/leave_quota';
 $route['api/hrms/leave/quota/detail'] = 'Api_hrms/leave_quota_detail';
@@ -256,4 +257,3 @@ $route['auth/redirect'] = 'TiktokAuth/redirect_to_auth';
 $route['auth/callback'] = 'TiktokAuth/callback';        
 $route['cronjob/expense'] = 'Api_v3/generate_recurring_expense';
 $route['cronjob/sync-product'] = 'Api_v3/sync_all_product';
-
