@@ -1100,6 +1100,45 @@ class Api_hrms extends CI_Controller
         return $this->respond(200, array('data' => $submission));
     }
 
+    public function performance_submission_cancel($id = null)
+    {
+        if ($this->input->method(TRUE) !== 'POST') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$id) {
+            return $this->respond(400, array('message' => 'Submission ID is required.'));
+        }
+
+        $submission = $this->Performance_model->get_submission_by_id($id, false);
+        if (!$submission || (int) $submission['employee_id'] !== (int) $user['id']) {
+            return $this->respond(404, array('message' => 'Submission not found.'));
+        }
+
+        $cancellableStatuses = array('SUBMITTED', 'DRAFT');
+        if (!in_array($submission['status'], $cancellableStatuses, true)) {
+            return $this->respond(409, array('message' => 'This submission cannot be cancelled.'));
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $this->db->where('id', (int) $submission['id']);
+        $this->db->update('performance_submissions', array(
+            'status' => 'CANCELLED',
+            'updated_at' => $now,
+        ));
+
+        return $this->respond(200, array(
+            'message' => 'Submission cancelled.',
+            'id' => (int) $submission['id'],
+            'status' => 'CANCELLED',
+        ));
+    }
+
     private function attendance_check($type)
     {
         if ($this->input->method(TRUE) !== 'POST') {

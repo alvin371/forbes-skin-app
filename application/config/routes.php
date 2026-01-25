@@ -162,6 +162,7 @@ $route['api/hrms/leave/quota/detail'] = 'Api_hrms/leave_quota_detail';
 $route['api/hrms/performance/templates/active'] = 'Api_hrms/performance_templates_active';
 $route['api/hrms/performance/submissions'] = 'Api_hrms/performance_submissions';
 $route['api/hrms/performance/submissions/(:num)'] = 'Api_hrms/performance_submission_detail/$1';
+$route['api/hrms/performance/submissions/(:num)/cancel'] = 'Api_hrms/performance_submission_cancel/$1';
 
 $route['api/attendance/confirm'] = 'AttendanceController/confirm';
 $route['api/attendance/status'] = 'AttendanceController/status';
