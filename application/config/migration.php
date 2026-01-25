@@ -15,6 +15,17 @@ $config['migration_enabled'] = FALSE;
 
 /*
 |--------------------------------------------------------------------------
+| Allow Remote Migration Runner
+|--------------------------------------------------------------------------
+|
+| When TRUE and not in production, the MigrationRunner controller can be
+| accessed from non-local IPs via route URL.
+|
+*/
+$config['migration_allow_remote'] = TRUE;
+
+/*
+|--------------------------------------------------------------------------
 | Migration Type
 |--------------------------------------------------------------------------
 |

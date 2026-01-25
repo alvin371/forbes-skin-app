@@ -49,6 +49,10 @@ class MigrationRunner extends CI_Controller
             return true;
         }
 
+        if ($this->config->item('migration_allow_remote') === TRUE) {
+            return true;
+        }
+
         $ip = $this->input->ip_address();
         if (!in_array($ip, $this->allowed_ips, true)) {
             show_404();
