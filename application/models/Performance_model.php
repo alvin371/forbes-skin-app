@@ -460,6 +460,7 @@ class Performance_model extends CI_Model
                 'template_id' => $data['template_id'],
                 'period_year' => $data['period_year']
             ]);
+            $this->db->where('status !=', 'CANCELLED');
             $existing = $this->db->get('performance_submissions')->row_array();
 
             if ($existing) {

@@ -569,3 +569,13 @@ Response 200:
   }
 }
 ```
+
+### POST /performance/submissions/:id/cancel
+Response 200:
+```json
+{
+  "message": "Submission cancelled.",
+  "id": 55,
+  "status": "CANCELLED"
+}
+```
