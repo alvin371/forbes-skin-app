@@ -188,6 +188,7 @@ class Roles extends BaseController
                 if ($this->db->trans_status() === FALSE) {
                     echo $this->template->alert_danger('Failed to create role!');
                 } else {
+                    $this->sync_user_permissions_for_role($role_id);
                     $msg = 'Role created successfully!';
                     echo $this->template->alert_success($msg);
                 }
@@ -286,13 +287,14 @@ class Roles extends BaseController
 
                 $this->db->trans_complete();
 
-                if ($this->db->trans_status() === FALSE) {
-                    echo $this->template->alert_danger('Failed to update role!');
-                } else {
-                    $msg = 'Role updated successfully!';
-                    echo $this->template->alert_success($msg);
-                }
+            if ($this->db->trans_status() === FALSE) {
+                echo $this->template->alert_danger('Failed to update role!');
             } else {
+                $this->sync_user_permissions_for_role($id);
+                $msg = 'Role updated successfully!';
+                echo $this->template->alert_success($msg);
+            }
+        } else {
                 $this->db->trans_rollback();
                 echo $this->template->alert_danger('Failed to update role!');
             }
@@ -351,6 +353,9 @@ class Roles extends BaseController
         $this->require_ajax_permission('delete');
 
         $id = $_POST['id'];
+
+        // sync affected users before removing role (if any)
+        $this->sync_user_permissions_for_role($id);
 
         // Check if this role is being used by users
         $users = $this->mymodel->selectWithQuery("SELECT COUNT(id) as count FROM user_roles WHERE role_id = '$id'");
@@ -414,6 +419,143 @@ class Roles extends BaseController
                 $this->mymodel->insertData('role_permissions', $permission_data);
             }
         }
+    }
+
+    /**
+     * Sync user_module_permissions for users assigned to a role.
+     */
+    private function sync_user_permissions_for_role($role_id)
+    {
+        if (!$this->db->table_exists('user_module_permissions')) {
+            return;
+        }
+
+        $users = $this->mymodel->selectWithQuery(
+            "SELECT DISTINCT user_id FROM user_roles WHERE role_id = " . (int) $role_id
+        );
+
+        if (empty($users)) {
+            return;
+        }
+
+        $user_ids = array_map(static function ($row) {
+            return (int) $row['user_id'];
+        }, $users);
+
+        $has_override = $this->db->field_exists('has_override', 'user_module_permissions');
+        $has_created_at = $this->db->field_exists('created_at', 'user_module_permissions');
+        $has_updated_at = $this->db->field_exists('updated_at', 'user_module_permissions');
+
+        $this->db->trans_start();
+
+        if ($has_override) {
+            $this->db->where_in('user_id', $user_ids);
+            $this->db->group_start()
+                ->where('has_override', 0)
+                ->or_where('has_override IS NULL', null, false)
+                ->group_end();
+            $this->db->delete('user_module_permissions');
+        } else {
+            $this->db->where_in('user_id', $user_ids);
+            $this->db->delete('user_module_permissions');
+        }
+
+        $user_ids_sql = implode(',', array_map('intval', $user_ids));
+        $query = $this->db->query("
+            SELECT
+                ur.user_id,
+                m.id AS module_id,
+                m.name AS module_name,
+                m.display_name AS module_display_name,
+                m.controller,
+                m.parent_id,
+                MAX(rp.can_view) AS can_view,
+                MAX(rp.can_create) AS can_create,
+                MAX(rp.can_edit) AS can_edit,
+                MAX(rp.can_delete) AS can_delete,
+                MAX(rp.can_approve) AS can_approve
+            FROM user_roles ur
+            INNER JOIN role_permissions rp ON rp.role_id = ur.role_id
+            INNER JOIN modules m ON m.id = rp.module_id
+            WHERE ur.user_id IN ($user_ids_sql)
+            GROUP BY
+                ur.user_id,
+                m.id,
+                m.name,
+                m.display_name,
+                m.controller,
+                m.parent_id
+        ");
+
+        $rows = $query->result_array();
+
+        if (!empty($rows)) {
+            $columns = array(
+                'user_id',
+                'module_id',
+                'module_name',
+                'module_display_name',
+                'controller',
+                'parent_id',
+                'can_view',
+                'can_create',
+                'can_edit',
+                'can_delete',
+                'can_approve'
+            );
+
+            if ($has_override) {
+                $columns[] = 'has_override';
+            }
+            if ($has_created_at) {
+                $columns[] = 'created_at';
+            }
+            if ($has_updated_at) {
+                $columns[] = 'updated_at';
+            }
+
+            $batch = [];
+            $now = date('Y-m-d H:i:s');
+
+            foreach ($rows as $row) {
+                $payload = array(
+                    'user_id' => (int) $row['user_id'],
+                    'module_id' => (int) $row['module_id'],
+                    'module_name' => $row['module_name'],
+                    'module_display_name' => $row['module_display_name'],
+                    'controller' => $row['controller'],
+                    'parent_id' => $row['parent_id'],
+                    'can_view' => (int) $row['can_view'],
+                    'can_create' => (int) $row['can_create'],
+                    'can_edit' => (int) $row['can_edit'],
+                    'can_delete' => (int) $row['can_delete'],
+                    'can_approve' => (int) $row['can_approve']
+                );
+
+                if ($has_override) {
+                    $payload['has_override'] = 0;
+                }
+                if ($has_created_at) {
+                    $payload['created_at'] = $now;
+                }
+                if ($has_updated_at) {
+                    $payload['updated_at'] = $now;
+                }
+
+                $batch[] = $payload;
+
+                if (count($batch) >= 500) {
+                    $this->db->insert_batch('user_module_permissions', $batch, $columns);
+                    $batch = [];
+                }
+            }
+
+            if (!empty($batch)) {
+                $this->db->insert_batch('user_module_permissions', $batch, $columns);
+            }
+        }
+
+        $this->db->trans_complete();
     }
 
     /**

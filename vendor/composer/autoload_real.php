@@ -38,7 +38,9 @@ class ComposerAutoloaderInit8cf1bacdb2e6efbb785a257795599173
             if (empty($GLOBALS['__composer_autoload_files'][$fileIdentifier])) {
                 $GLOBALS['__composer_autoload_files'][$fileIdentifier] = true;
 
-                require $file;
+                if (is_file($file)) {
+                    require $file;
+                }
             }
         }, null, null);
         foreach ($filesToLoad as $fileIdentifier => $file) {
