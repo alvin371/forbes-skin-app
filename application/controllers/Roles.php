@@ -475,6 +475,18 @@ class Roles extends BaseController
             // HR MANAGEMENT MODULES
             // =========================================================================
 
+            // Attendance & leave
+            'attendance' => ['view', 'create', 'edit', 'delete'],
+            'leave' => ['view', 'create', 'edit', 'delete'],
+            'leave_approvals' => ['view', 'approve'],
+            'leave_types' => ['view', 'create', 'edit', 'delete'],
+            'leave_quotas' => ['view', 'create', 'edit', 'delete'],
+            'approval_routes' => ['view', 'create', 'edit', 'delete'],
+            'holidays' => ['view', 'create', 'edit', 'delete'],
+            'attendance_settings' => ['view', 'create', 'edit', 'delete'],
+            'offices' => ['view', 'create', 'edit', 'delete'],
+            'performance_admin' => ['view', 'create', 'edit', 'delete'],
+
             'quest' => ['view', 'create', 'edit', 'delete'],
             'quest_level' => ['view', 'create', 'edit', 'delete'],
             'position' => ['view', 'create', 'edit', 'delete'],
@@ -484,7 +496,6 @@ class Roles extends BaseController
             // Approval workflow modules (View + Approve only)
             'recruitment' => ['view', 'approve'],
             'interview' => ['view', 'approve'],
-            'leave_approvals' => ['view', 'approve'],
 
             // =========================================================================
             // MARKETING MODULES
@@ -598,8 +609,11 @@ class Roles extends BaseController
             ),
 
             'HR Management' => array(
+                'attendance', 'leave', 'leave_approvals', 'leave_types', 'leave_quotas',
+                'approval_routes', 'holidays', 'attendance_settings', 'offices',
+                'performance_admin',
                 'quest', 'quest_level', 'position', 'benefit', 'milestone',
-                'recruitment', 'interview', 'leave_approvals'
+                'recruitment', 'interview'
             ),
 
             'Marketing' => array(

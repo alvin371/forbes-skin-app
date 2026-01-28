@@ -615,7 +615,10 @@ if (!$_SESSION['is_login']) {
                               $CI->permission->check_permission($user_id, 'leave', 'view') ||
                               $CI->permission->check_permission($user_id, 'leave_approvals', 'view') ||
                               $CI->permission->check_permission($user_id, 'offices', 'view') ||
+                              $CI->permission->check_permission($user_id, 'attendance_settings', 'view') ||
+                              $CI->permission->check_permission($user_id, 'holidays', 'view') ||
                               $CI->permission->check_permission($user_id, 'leave_types', 'view') ||
+                              $CI->permission->check_permission($user_id, 'leave_quotas', 'view') ||
                               $CI->permission->check_permission($user_id, 'approval_routes', 'view') ||
                               $CI->permission->check_permission($user_id, 'performance_admin', 'view');
     
@@ -672,8 +675,8 @@ if (!$_SESSION['is_login']) {
         'leave_types' => $CI->permission->check_permission($user_id, 'leave_types', 'view'),
         'leave_quotas' => $CI->permission->check_permission($user_id, 'leave_quotas', 'view'),
         'approval_routes' => $CI->permission->check_permission($user_id, 'approval_routes', 'view'),
-        'holidays' => $CI->permission->check_permission($user_id, 'attendance', 'view'),
-        'attendance_settings' => $CI->permission->check_permission($user_id, 'attendance', 'view'),
+        'holidays' => $CI->permission->check_permission($user_id, 'holidays', 'view'),
+        'attendance_settings' => $CI->permission->check_permission($user_id, 'attendance_settings', 'view'),
         'performance_admin' => $CI->permission->check_permission($user_id, 'performance_admin', 'view'),
         'modules' => $CI->permission->check_permission($user_id, 'modules', 'view'),
         
