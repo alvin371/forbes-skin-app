@@ -548,29 +548,6 @@ if (!$_SESSION['is_login']) {
         <h1 class="sidebar-title text-white">DNX1SCREEN</h1>
       </div> -->
     <?php
-    /**
-     * DYNAMIC SIDEBAR FEATURE FLAG
-     *
-     * Set to true to use the new database-driven dynamic sidebar.
-     * When enabled:
-     * - Modules with show_in_sidebar=1 and proper URL will appear
-     * - Permissions are read from role_permissions table
-     * - New modules added via Modules page automatically appear
-     *
-     * Set to false to use the legacy hardcoded sidebar.
-     */
-    $use_dynamic_sidebar = true;
-
-    // Get CodeIgniter instance and permission library
-    $CI =& get_instance();
-    $CI->load->library('permission');
-    $CI->load->library('template');
-
-    if ($use_dynamic_sidebar):
-        // Use dynamic sidebar from database
-        $CI->load->view('partials/sidebar_dynamic', ['user_id' => $user_id]);
-    else:
-    // === LEGACY HARDCODED SIDEBAR (kept for backwards compatibility) ===
     $menu_marketing = $menu_overview = $menu_overview_ads = $menu_overview_kol = $menu_overview_influencer = '';
     $menu_ads = $menu_ads_tiktok = $menu_ads_meta = $menu_ads_shopee = $menu_ads_lazada = '';
     $menu_endorsement = $menu_influencer = $menu_influencer_dummy = $menu_calendar = $menu_payment_fee = $menu_codeboost = '';
@@ -579,6 +556,11 @@ if (!$_SESSION['is_login']) {
     $menu_hr_management = $menu_quest_level = $menu_position = $menu_benefit = $menu_quest = $menu_milestone = $menu_recruitment = $menu_roles = '';
     $menu_attendance = $menu_attendance_report = $menu_leave = $menu_leave_approvals = $menu_leave_types = $menu_leave_quotas = $menu_leave_requests_admin = $menu_approval_routes = $menu_offices = $menu_holidays = $menu_attendance_settings = $menu_performance_appraisal = '';
     $menu_akun = $menu_user = $menu_profile = $menu_logout = '';
+    
+    // Get user permissions for menu visibility using module names from clear_and_replace_modules.sql
+    // Access permission library through CodeIgniter instance
+    $CI =& get_instance();
+    $CI->load->library('permission');
     
     // System Management
     $can_view_report = $CI->permission->check_permission($user_id, 'report', 'view');
@@ -1083,7 +1065,7 @@ if (!$_SESSION['is_login']) {
                 STOK
               </a>
             <?php endif; ?>
-            <?php if ($modules_permissions['product'] || $modules_permissions['marketplace-account']): ?>
+            <?php if ($modules_permissions['product'] || $modules_permissions['marketplace_account']): ?>
               <a href="<?= base_url() ?>product" class="ms-3 item-menu <?= $menu_product ?>">
                 <i class="icon bi bi-box"></i>
                 KONFIGURASI
@@ -1245,7 +1227,6 @@ if (!$_SESSION['is_login']) {
         <?php endif; ?>
       </div>
     </div>
-    <?php endif; // End of legacy hardcoded sidebar ?>
   </nav>
 
   <?php

@@ -115,6 +115,8 @@
     .status-inactive { background-color: #ff4d4f; color: white; }
 </style>
 
+<?php $read_only = $read_only ?? false; ?>
+
 <div class="container-fluid py-3">
     <div class="card">
         <div class="card-header">
@@ -124,21 +126,23 @@
                 </h5>
                 
                 <div class="d-flex gap-2">
-                    <!-- Bulk actions (initially hidden) -->
-                    <div id="bulkActions" class="d-flex gap-2" style="display: none;">
-                        <button type="button" class="btn btn-danger btn-sm" onclick="bulkDelete()">
-                            <i class="bi bi-trash me-1"></i>Delete Selected (<span id="selectedCount">0</span>)
-                        </button>
-                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearSelection()">
-                            <i class="bi bi-x me-1"></i>Clear Selection
-                        </button>
-                    </div>
-                    
-                    <!-- Show create button only if user has create permission -->
-                    <?php if (isset($can_create) && $can_create): ?>
-                        <a href="<?= base_url() ?>/modules/create_page" class="btn btn-primary">
-                            <i class="bi bi-plus me-1"></i> Create Module
-                        </a>
+                    <?php if (!$read_only): ?>
+                        <!-- Bulk actions (initially hidden) -->
+                        <div id="bulkActions" class="d-flex gap-2" style="display: none;">
+                            <button type="button" class="btn btn-danger btn-sm" onclick="bulkDelete()">
+                                <i class="bi bi-trash me-1"></i>Delete Selected (<span id="selectedCount">0</span>)
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearSelection()">
+                                <i class="bi bi-x me-1"></i>Clear Selection
+                            </button>
+                        </div>
+
+                        <!-- Show create button only if user has create permission -->
+                        <?php if (isset($can_create) && $can_create): ?>
+                            <a href="<?= base_url() ?>/modules/create_page" class="btn btn-primary">
+                                <i class="bi bi-plus me-1"></i> Create Module
+                            </a>
+                        <?php endif; ?>
                     <?php endif; ?>
                 </div>
             </div>
@@ -196,11 +200,13 @@
                 <table class="table table-hover" id="modules-table">
                     <thead>
                         <tr>
-                            <th class="text-start" width="40">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" id="selectAll" onchange="toggleSelectAll()">
-                                </div>
-                            </th>
+                            <?php if (!$read_only): ?>
+                                <th class="text-start" width="40">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="selectAll" onchange="toggleSelectAll()">
+                                    </div>
+                                </th>
+                            <?php endif; ?>
                             <th class="text-start">#</th>
                             <th class="text-start">Module</th>
                             <th class="text-start">Controller</th>

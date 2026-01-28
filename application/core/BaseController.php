@@ -20,7 +20,7 @@ class BaseController extends CI_Controller
         'dashboard' => 'dashboard',
         'report' => 'report', 
         'expense' => 'expense',
-        'overview' => 'overview',
+        'overview' => 'marketing',
         'ads' => null, // Special handling - multiple modules based on ?m parameter
         'influencer' => 'influencer',
         'influencer_dummy' => 'influencer_dummy',
@@ -43,8 +43,13 @@ class BaseController extends CI_Controller
         'quest' => 'quest',
         'milestone' => 'milestone',
         'attendancereport' => 'attendance',
-        'attendancesettingscontroller' => 'attendance',
-        'holidayscontroller' => 'attendance',
+        'attendancesettingscontroller' => 'attendance_settings',
+        'holidayscontroller' => 'holidays',
+        'leavetypescontroller' => 'leave_types',
+        'leavequotascontroller' => 'leave_quotas',
+        'approvalroutescontroller' => 'approval_routes',
+        'performanceappraisal' => 'performance_admin',
+        'leaverequestscontroller' => 'leave',
         'modules' => 'modules',
         'user' => 'user',
         'profile' => 'profile',
@@ -115,7 +120,7 @@ class BaseController extends CI_Controller
         // Handle special cases with parameters
         if ($controller === 'ads') {
             $platform = $this->input->get('m');
-            return $platform ? "ads_{$platform}" : 'overview'; // Default to overview if no platform
+            return $platform ? "ads_{$platform}" : 'marketing'; // Default to marketing if no platform
         }
         
         if ($controller === 'crm') {
