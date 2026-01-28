@@ -122,9 +122,8 @@ class Roles extends BaseController
         $data['data'] = array();
 
         // Get all modules grouped by category for permission matrix
-        // Include category and available_permissions for dynamic grouping and permission types
         $modules = $this->mymodel->selectWithQuery("
-            SELECT id, name, display_name, parent_id, sort_order, icon, category, available_permissions
+            SELECT id, name, display_name, parent_id, sort_order, icon
             FROM modules
             WHERE is_active = 1
             ORDER BY sort_order, display_name
@@ -200,7 +199,7 @@ class Roles extends BaseController
     {
         $data['user'] = $_SESSION['user'];
 
-        $id = $this->db->escape_str($_GET['id']);
+        $id = $_GET['id'];
         $query = $this->mymodel->selectWithQuery("SELECT * FROM roles WHERE id = '$id'");
 
         if (empty($query)) {
@@ -210,9 +209,8 @@ class Roles extends BaseController
         $data['data'] = $query[0];
 
         // Get all modules grouped by category for permission matrix
-        // Include category and available_permissions for dynamic grouping and permission types
         $modules = $this->mymodel->selectWithQuery("
-            SELECT id, name, display_name, parent_id, sort_order, icon, category, available_permissions
+            SELECT id, name, display_name, parent_id, sort_order, icon
             FROM modules
             WHERE is_active = 1
             ORDER BY sort_order, display_name
@@ -410,111 +408,53 @@ class Roles extends BaseController
 
     /**
      * Group modules by category for permission matrix
-     * Now reads category from database instead of hardcoded mapping
      */
     private function group_modules_by_category($modules)
     {
-        $groups = array();
+        $groups = array(
+            'System Management' => array(),
+            'HR Management' => array(),
+            'Marketing' => array(),
+            'Operations' => array(),
+            'Reports & Analytics' => array()
+        );
 
         foreach ($modules as $module) {
-            // Use category from database, fallback to get_module_category for backwards compatibility
-            $category = !empty($module['category']) ? $module['category'] : $this->get_module_category($module['name']);
-
+            $category = $this->get_module_category($module['name']);
             if (!isset($groups[$category])) {
                 $groups[$category] = array();
             }
             $groups[$category][] = $module;
         }
 
-        // Sort groups by predefined order
-        $category_order = array(
-            'System Management',
-            'HR Management',
-            'Marketing',
-            'Operations',
-            'Reports & Analytics',
-            'Google Integration',
-            'API Modules'
-        );
-
-        $sorted_groups = array();
-        foreach ($category_order as $cat) {
-            if (isset($groups[$cat])) {
-                $sorted_groups[$cat] = $groups[$cat];
-                unset($groups[$cat]);
-            }
-        }
-
-        // Append any remaining categories (custom categories)
-        foreach ($groups as $cat => $modules) {
-            $sorted_groups[$cat] = $modules;
-        }
-
         // Remove empty groups
-        return array_filter($sorted_groups, function ($group) {
+        return array_filter($groups, function ($group) {
             return !empty($group);
         });
     }
 
     /**
-     * Get available permissions for each module
-     * Now reads from database (modules.available_permissions) with fallback to hardcoded defaults
+     * Get available permissions for each module based on actual functionality
      */
     private function get_module_permissions()
     {
-        // Try to get permissions from database
-        $db_permissions = $this->get_module_permissions_from_db();
-
-        if (!empty($db_permissions)) {
-            return $db_permissions;
-        }
-
-        // Fallback to hardcoded defaults (for backwards compatibility)
-        return $this->get_default_module_permissions();
-    }
-
-    /**
-     * Get module permissions from database
-     */
-    private function get_module_permissions_from_db()
-    {
-        try {
-            $modules = $this->mymodel->selectWithQuery("
-                SELECT name, available_permissions
-                FROM modules
-                WHERE is_active = 1 AND available_permissions IS NOT NULL
-            ");
-
-            $permissions = array();
-            foreach ($modules as $module) {
-                $perms = json_decode($module['available_permissions'], true);
-                if (!empty($perms) && is_array($perms)) {
-                    $permissions[$module['name']] = $perms;
-                }
-            }
-
-            return $permissions;
-        } catch (Exception $e) {
-            return array();
-        }
-    }
-
-    /**
-     * Get default module permissions (fallback for backwards compatibility)
-     */
-    private function get_default_module_permissions()
-    {
         return array(
-            // System Management
+            // =========================================================================
+            // SYSTEM MANAGEMENT MODULES
+            // =========================================================================
+
+            // Full CRUD modules
             'modules' => ['view', 'create', 'edit', 'delete'],
             'roles' => ['view', 'create', 'edit', 'delete'],
             'user' => ['view', 'create', 'edit', 'delete'],
+
+            // Read-only modules
             'dashboard' => ['view'],
             'profile' => ['view'],
             'home' => ['view'],
             'auth' => ['view'],
 
-            // Dashboard Cards
+            // Dashboard Cards (View only - granular widget permissions)
             'dashboard_card_jumlah_order' => ['view'],
             'dashboard_card_order_belum_proses' => ['view'],
             'dashboard_card_order_belum_cairkan' => ['view'],
@@ -531,7 +471,11 @@ class Roles extends BaseController
             'dashboard_card_ongkir' => ['view'],
             'dashboard_card_penjualan_return' => ['view'],
 
-            // HR Management
+            // =========================================================================
+            // HR MANAGEMENT MODULES
+            // =========================================================================
+
+            // Attendance & leave
             'attendance' => ['view', 'create', 'edit', 'delete'],
             'leave' => ['view', 'create', 'edit', 'delete'],
             'leave_approvals' => ['view', 'approve'],
@@ -542,44 +486,73 @@ class Roles extends BaseController
             'attendance_settings' => ['view', 'create', 'edit', 'delete'],
             'offices' => ['view', 'create', 'edit', 'delete'],
             'performance_admin' => ['view', 'create', 'edit', 'delete'],
+
             'quest' => ['view', 'create', 'edit', 'delete'],
             'quest_level' => ['view', 'create', 'edit', 'delete'],
             'position' => ['view', 'create', 'edit', 'delete'],
             'benefit' => ['view', 'create', 'edit', 'delete'],
             'milestone' => ['view', 'create', 'edit', 'delete'],
+
+            // Approval workflow modules (View + Approve only)
             'recruitment' => ['view', 'approve'],
             'interview' => ['view', 'approve'],
 
-            // Marketing
-            'marketing' => ['view'],
+            // =========================================================================
+            // MARKETING MODULES
+            // =========================================================================
+
+            // Marketing overview and reporting
+            'marketing' => ['view'],  // Maps to Overview.php controller
+
+            // Influencer management
             'influencer' => ['view', 'create', 'edit', 'delete'],
             'influencer_dummy' => ['view', 'create', 'edit', 'delete'],
+
+            // Endorsement management
             'endorse' => ['view', 'create', 'edit', 'delete'],
             'endorse_campaign' => ['view', 'create', 'edit', 'delete'],
             'review_endorse' => ['view', 'approve'],
+
+            // Payment and calendar
             'payment' => ['view', 'create', 'edit', 'delete'],
             'calendar' => ['view'],
+
+            // Ads Management (parent and platform-specific)
             'ads' => ['view'],
             'ads_tiktok' => ['view'],
             'ads_meta' => ['view'],
             'ads_shopee' => ['view'],
             'ads_lazada' => ['view'],
             'advertiser' => ['view'],
+
+            // Marketplace and Meta accounts
             'marketplace_account' => ['view', 'create', 'edit', 'delete'],
             'meta_account' => ['view', 'create', 'edit', 'delete'],
+
+            // CRM modules
             'crm' => ['view', 'create', 'edit', 'delete'],
             'crm_mg' => ['view', 'create', 'edit', 'delete'],
             'crm_pome' => ['view', 'create', 'edit', 'delete'],
             'customer' => ['view', 'create', 'edit', 'delete'],
             'group_wa' => ['view', 'create', 'edit', 'delete'],
+
+            // Codeboost
             'codeboost' => ['view', 'create', 'edit', 'delete'],
 
-            // Operations
+            // =========================================================================
+            // OPERATIONS MODULES
+            // =========================================================================
+
+            // Transaction management
             'transaction' => ['view', 'create', 'edit', 'delete'],
             'transaction_item' => ['view', 'create', 'edit', 'delete'],
             'order_customer' => ['view', 'create', 'edit', 'delete'],
+
+            // Product management
             'product' => ['view', 'create', 'edit', 'delete'],
             'product_3rd' => ['view', 'create', 'edit', 'delete'],
+
+            // Inventory and operations
             'stock' => ['view', 'create', 'edit', 'delete'],
             'marketplace' => ['view', 'create', 'edit', 'delete'],
             'shipping' => ['view', 'create', 'edit', 'delete'],
@@ -590,16 +563,25 @@ class Roles extends BaseController
             'admin_fee_configuration' => ['view', 'create', 'edit', 'delete'],
             'operasional' => ['view', 'create', 'edit', 'delete'],
 
-            // Reports & Analytics
+            // =========================================================================
+            // REPORTS & ANALYTICS MODULES
+            // =========================================================================
+
             'report' => ['view'],
             'notifications' => ['view'],
             'scraper' => ['view', 'create', 'edit', 'delete'],
 
-            // Google Integration
+            // =========================================================================
+            // GOOGLE INTEGRATION MODULES
+            // =========================================================================
+
             'googlemeet' => ['view', 'create'],
             'googlemou' => ['view', 'create'],
 
-            // API Modules
+            // =========================================================================
+            // API MODULES (Usually restricted to system/admin only)
+            // =========================================================================
+
             'api' => ['view'],
             'api_v2' => ['view'],
             'api_v3' => ['view'],
