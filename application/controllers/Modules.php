@@ -702,7 +702,14 @@ class Modules extends BaseController
     {
         $categories = array(
             'System Management' => array('dashboard', 'profile', 'modules', 'roles'),
-            'HR Management' => array('quest', 'quest_level', 'position', 'benefit', 'milestone'),
+            'HR Management' => array(
+                'hr_management',
+                'attendance', 'leave', 'leave_approvals', 'leave_types', 'leave_quotas',
+                'approval_routes', 'holidays', 'attendance_settings', 'offices',
+                'performance_admin',
+                'quest', 'quest_level', 'position', 'benefit', 'milestone',
+                'recruitment', 'interview'
+            ),
             'Marketing' => array('marketing', 'overview', 'advertiser', 'ads_tiktok', 'ads_meta', 'ads_shopee', 'ads_lazada', 'endorsement', 'influencer', 'influencer_dummy', 'endorse_campaign', 'calendar', 'payment', 'codeboost'),
             'Operations' => array('transaction', 'transaction_item', 'marketplace_account', 'order_customer', 'crm_mg', 'crm_pome', 'group_wa', 'stock', 'product', 'product_3rd', 'operasional', 'discount', 'marketplace', 'shipping', 'customer'),
             'Reports & Analytics' => array('report', 'expense')

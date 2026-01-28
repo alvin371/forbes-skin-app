@@ -147,6 +147,10 @@ class MigrateUserModulePermissions extends CI_Controller
 
     private function ensure_allowed()
     {
+        if (is_cli()) {
+            return true;
+        }
+
         $ip = $this->input->ip_address();
         if (!in_array($ip, $this->allowed_ips, true)) {
             $this->output->set_status_header(403);

@@ -609,6 +609,7 @@ class Roles extends BaseController
             ),
 
             'HR Management' => array(
+                'hr_management',
                 'attendance', 'leave', 'leave_approvals', 'leave_types', 'leave_quotas',
                 'approval_routes', 'holidays', 'attendance_settings', 'offices',
                 'performance_admin',

@@ -309,7 +309,14 @@ function updateIconPreview() {
 function updateCategoryDisplay(moduleName) {
     const categories = {
         'System Management': ['dashboard', 'profile', 'modules', 'roles', 'settings'],
-        'HR Management': ['quest', 'quest_level', 'position', 'benefit', 'milestone', 'employee'],
+        'HR Management': [
+            'hr_management',
+            'attendance', 'leave', 'leave_approvals', 'leave_types', 'leave_quotas',
+            'approval_routes', 'holidays', 'attendance_settings', 'offices',
+            'performance_admin',
+            'quest', 'quest_level', 'position', 'benefit', 'milestone',
+            'recruitment', 'interview', 'employee'
+        ],
         'Marketing': ['marketing', 'overview', 'advertiser', 'ads', 'endorsement', 'influencer', 'campaign', 'calendar', 'payment'],
         'Operations': ['transaction', 'marketplace', 'order', 'crm', 'group_wa', 'stock', 'product', 'operasional', 'discount', 'shipping', 'customer'],
         'Reports & Analytics': ['report', 'expense', 'analytics']
