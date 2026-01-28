@@ -26,16 +26,36 @@ class Modules extends BaseController
         ]);
     }
 
+    // Available module categories
+    private $module_categories = array(
+        'System Management' => 'System Management',
+        'HR Management' => 'HR Management',
+        'Marketing' => 'Marketing',
+        'Operations' => 'Operations',
+        'Reports & Analytics' => 'Reports & Analytics',
+        'Google Integration' => 'Google Integration',
+        'API Modules' => 'API Modules'
+    );
+
+    // Available permission types
+    private $permission_types = array(
+        'view' => 'View',
+        'create' => 'Create',
+        'edit' => 'Edit',
+        'delete' => 'Delete',
+        'approve' => 'Approve'
+    );
+
     public function index()
     {
         $data['user'] = $_SESSION['user'];
         $user_id = $data['user']['id'];
-        
+
         // Check if user has permission (Super Admin only)
         if (!in_array($data['user']['role'], array('1'))) {
             redirect(base_url() . 'dashboard');
         }
-        
+
         // Pass permission data to view
         $data['can_create'] = in_array($data['user']['role'], array('1'));
         $data['can_edit'] = in_array($data['user']['role'], array('1'));
@@ -45,20 +65,14 @@ class Modules extends BaseController
         $keyword = $_GET['keyword'] ?? "";
         $status_filter = $_GET['status_filter'] ?? "";
         $category_filter = $_GET['category_filter'] ?? "";
-        
+
         $data['keyword_category'] = $keyword_category;
         $data['status_filter'] = $status_filter;
         $data['category_filter'] = $category_filter;
         $data['title'] = 'Module Management - ' . $this->template->title();
 
         // Get module categories for filter dropdown
-        $data['module_categories'] = array(
-            'System Management' => 'System Management',
-            'HR Management' => 'HR Management', 
-            'Marketing' => 'Marketing',
-            'Operations' => 'Operations',
-            'Reports & Analytics' => 'Reports & Analytics'
-        );
+        $data['module_categories'] = $this->module_categories;
 
         $qry = "1=1";
 
@@ -175,22 +189,26 @@ class Modules extends BaseController
     public function create_page()
     {
         $data['user'] = $_SESSION['user'];
-        
+
         if (!in_array($data['user']['role'], array('1'))) {
             redirect(base_url() . 'dashboard');
         }
 
         $data['data'] = array();
-        
+
         // Get all parent modules for dropdown
         $parent_modules = $this->mymodel->selectWithQuery("
             SELECT id, display_name, name
-            FROM modules 
+            FROM modules
             WHERE parent_id IS NULL
             ORDER BY sort_order, display_name
         ");
         $data['parent_modules'] = $parent_modules;
-        
+
+        // Pass categories and permission types to view
+        $data['module_categories'] = $this->module_categories;
+        $data['permission_types'] = $this->permission_types;
+
         $data['title'] = 'Create Module - ' . $this->template->title();
         $data['content'] = $this->load->view("modules/create_page", $data, true);
         $this->load->view("TemplateDashboard", $data);
@@ -199,13 +217,14 @@ class Modules extends BaseController
     public function store()
     {
         $user = $_SESSION['user'];
-        
+
         if (!in_array($user['role'], array('1'))) {
             echo $this->template->alert_danger('Access denied!');
             return;
         }
-        
+
         $dt = $_POST['dt'];
+        $available_permissions = $_POST['available_permissions'] ?? array();
 
         // Validate required fields
         if (empty($dt['name']) || empty($dt['display_name'])) {
@@ -214,7 +233,8 @@ class Modules extends BaseController
         }
 
         // Check if module name already exists
-        $existing = $this->mymodel->selectWithQuery("SELECT id FROM modules WHERE name = '{$dt['name']}';");
+        $name_safe = $this->db->escape_str($dt['name']);
+        $existing = $this->mymodel->selectWithQuery("SELECT id FROM modules WHERE name = '$name_safe'");
         if (!empty($existing)) {
             echo $this->template->alert_danger('Module name already exists!');
             return;
@@ -230,15 +250,30 @@ class Modules extends BaseController
         if (empty($dt['parent_id'])) {
             $dt['parent_id'] = null;
         }
+        if (empty($dt['category'])) {
+            $dt['category'] = 'System Management';
+        }
+        if (empty($dt['url'])) {
+            $dt['url'] = null;
+        }
+        if (!isset($dt['show_in_sidebar'])) {
+            $dt['show_in_sidebar'] = 1;
+        }
+
+        // Process available permissions (default to ['view'] if none selected)
+        if (empty($available_permissions)) {
+            $available_permissions = ['view'];
+        }
+        $dt['available_permissions'] = json_encode(array_values($available_permissions));
 
         // Start transaction
         $this->db->trans_start();
-        
+
         try {
             // Insert module
             if ($this->db->insert('modules', $dt)) {
                 $this->db->trans_complete();
-                
+
                 if ($this->db->trans_status() === FALSE) {
                     echo $this->template->alert_danger('Failed to create module!');
                 } else {
@@ -258,29 +293,39 @@ class Modules extends BaseController
     public function edit_page()
     {
         $data['user'] = $_SESSION['user'];
-        
+
         if (!in_array($data['user']['role'], array('1'))) {
             redirect(base_url() . 'dashboard');
         }
 
-        $id = $_GET['id'];
+        $id = $this->db->escape_str($_GET['id']);
         $query = $this->mymodel->selectWithQuery("SELECT * FROM modules WHERE id = '$id'");
-        
+
         if (empty($query)) {
             redirect(base_url() . 'modules');
         }
 
         $data['data'] = $query[0];
-        
+
+        // Parse available_permissions JSON
+        $data['current_permissions'] = array();
+        if (!empty($data['data']['available_permissions'])) {
+            $data['current_permissions'] = json_decode($data['data']['available_permissions'], true) ?? array();
+        }
+
         // Get all parent modules for dropdown
         $parent_modules = $this->mymodel->selectWithQuery("
             SELECT id, display_name, name
-            FROM modules 
+            FROM modules
             WHERE parent_id IS NULL AND id != '$id'
             ORDER BY sort_order, display_name
         ");
         $data['parent_modules'] = $parent_modules;
-        
+
+        // Pass categories and permission types to view
+        $data['module_categories'] = $this->module_categories;
+        $data['permission_types'] = $this->permission_types;
+
         $data['title'] = 'Edit Module - ' . $this->template->title();
         $data['content'] = $this->load->view("modules/edit_page", $data, true);
         $this->load->view("TemplateDashboard", $data);
@@ -289,14 +334,15 @@ class Modules extends BaseController
     public function update()
     {
         $user = $_SESSION['user'];
-        
+
         if (!in_array($user['role'], array('1'))) {
             echo $this->template->alert_danger('Access denied!');
             return;
         }
-        
-        $id = $_POST['id'];
+
+        $id = $this->db->escape_str($_POST['id']);
         $dt = $_POST['dt'];
+        $available_permissions = $_POST['available_permissions'] ?? array();
 
         // Validate required fields
         if (empty($dt['name']) || empty($dt['display_name'])) {
@@ -305,7 +351,8 @@ class Modules extends BaseController
         }
 
         // Check if module name already exists (excluding current record)
-        $existing = $this->mymodel->selectWithQuery("SELECT id FROM modules WHERE name = '{$dt['name']}' AND id != '$id'");
+        $name_safe = $this->db->escape_str($dt['name']);
+        $existing = $this->mymodel->selectWithQuery("SELECT id FROM modules WHERE name = '$name_safe' AND id != '$id'");
         if (!empty($existing)) {
             echo $this->template->alert_danger('Module name already exists!');
             return;
@@ -318,15 +365,30 @@ class Modules extends BaseController
         if (empty($dt['sort_order'])) {
             $dt['sort_order'] = 0;
         }
+        if (empty($dt['category'])) {
+            $dt['category'] = 'System Management';
+        }
+        if (empty($dt['url'])) {
+            $dt['url'] = null;
+        }
+        if (!isset($dt['show_in_sidebar'])) {
+            $dt['show_in_sidebar'] = 0;
+        }
+
+        // Process available permissions (default to ['view'] if none selected)
+        if (empty($available_permissions)) {
+            $available_permissions = ['view'];
+        }
+        $dt['available_permissions'] = json_encode(array_values($available_permissions));
 
         // Start transaction
         $this->db->trans_start();
-        
+
         try {
             // Update module
             if ($this->db->update('modules', $dt, array('id' => $id))) {
                 $this->db->trans_complete();
-                
+
                 if ($this->db->trans_status() === FALSE) {
                     echo $this->template->alert_danger('Failed to update module!');
                 } else {

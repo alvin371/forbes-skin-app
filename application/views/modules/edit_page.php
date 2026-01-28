@@ -64,11 +64,28 @@
         border-radius: 6px;
         background-color: #fafafa;
     }
+
+    .permission-checkbox {
+        display: inline-flex;
+        align-items: center;
+        margin-right: 15px;
+        margin-bottom: 5px;
+    }
+
+    .permission-checkbox .form-check-input {
+        margin-right: 5px;
+    }
+
+    .section-divider {
+        border-top: 1px solid #f0f0f0;
+        margin: 20px 0;
+        padding-top: 20px;
+    }
 </style>
 
 <div class="container-fluid py-3">
     <div class="row justify-content-center">
-        <div class="col-lg-8">
+        <div class="col-lg-10">
             <div class="card">
                 <div class="card-header">
                     <h5 class="mb-0">
@@ -78,15 +95,18 @@
                 <div class="card-body">
                     <form id="moduleForm" onsubmit="submitModule(event)">
                         <input type="hidden" name="id" value="<?= $data['id'] ?>">
-                        
+
+                        <!-- Basic Information Section -->
+                        <h6 class="mb-3 text-muted"><i class="bi bi-info-circle me-2"></i>Basic Information</h6>
+
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
                                     <label for="name" class="form-label">Module Name <span class="text-danger">*</span></label>
                                     <input type="text" class="form-control" id="name" name="dt[name]" required
                                            value="<?= htmlspecialchars($data['name']) ?>"
-                                           placeholder="e.g., user_management, product_catalog" 
-                                           pattern="[a-z_]+" 
+                                           placeholder="e.g., user_management, product_catalog"
+                                           pattern="[a-z_]+"
                                            title="Use lowercase letters and underscores only">
                                     <small class="form-text text-muted">Use lowercase with underscores (e.g., user_management)</small>
                                 </div>
@@ -107,7 +127,7 @@
                                 <div class="mb-3">
                                     <label for="controller" class="form-label">Controller</label>
                                     <input type="text" class="form-control" id="controller" name="dt[controller]"
-                                           value="<?= htmlspecialchars($data['controller']) ?>"
+                                           value="<?= htmlspecialchars($data['controller'] ?? '') ?>"
                                            placeholder="e.g., User, Product">
                                     <small class="form-text text-muted">CodeIgniter controller name (leave empty for parent modules)</small>
                                 </div>
@@ -133,12 +153,12 @@
                                 <div class="mb-3">
                                     <label for="icon" class="form-label">Icon</label>
                                     <div class="input-group">
-                                        <input type="text" class="form-control" id="icon" name="dt[icon]" 
-                                               value="<?= htmlspecialchars($data['icon']) ?>"
+                                        <input type="text" class="form-control" id="icon" name="dt[icon]"
+                                               value="<?= htmlspecialchars($data['icon'] ?? '') ?>"
                                                placeholder="bi bi-house" onkeyup="updateIconPreview()">
                                         <div class="input-group-text">
                                             <div class="icon-preview" id="iconPreview">
-                                                <?php if ($data['icon']): ?>
+                                                <?php if (!empty($data['icon'])): ?>
                                                     <i class="<?= htmlspecialchars($data['icon']) ?>"></i>
                                                 <?php else: ?>
                                                     <i class="bi bi-image"></i>
@@ -152,9 +172,39 @@
                             <div class="col-md-6">
                                 <div class="mb-3">
                                     <label for="sort_order" class="form-label">Sort Order</label>
-                                    <input type="number" class="form-control" id="sort_order" name="dt[sort_order]" 
-                                           value="<?= $data['sort_order'] ?>" min="0" max="999">
+                                    <input type="number" class="form-control" id="sort_order" name="dt[sort_order]"
+                                           value="<?= $data['sort_order'] ?? 0 ?>" min="0" max="999">
                                     <small class="form-text text-muted">Display order (lower numbers appear first)</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Sidebar & Navigation Section -->
+                        <div class="section-divider">
+                            <h6 class="mb-3 text-muted"><i class="bi bi-layout-sidebar me-2"></i>Sidebar & Navigation</h6>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="category" class="form-label">Category <span class="text-danger">*</span></label>
+                                    <select class="form-select" id="category" name="dt[category]" required>
+                                        <?php foreach ($module_categories as $key => $label): ?>
+                                            <option value="<?= htmlspecialchars($key) ?>" <?= ($data['category'] ?? 'System Management') === $key ? 'selected' : '' ?>>
+                                                <?= htmlspecialchars($label) ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <small class="form-text text-muted">Category for grouping in Roles permission matrix</small>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="url" class="form-label">Sidebar URL</label>
+                                    <input type="text" class="form-control" id="url" name="dt[url]"
+                                           value="<?= htmlspecialchars($data['url'] ?? '') ?>"
+                                           placeholder="e.g., dashboard or crm?brand=MG">
+                                    <small class="form-text text-muted">URL path for sidebar navigation (relative to base_url)</small>
                                 </div>
                             </div>
                         </div>
@@ -162,53 +212,92 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
+                                    <label class="form-label">Show in Sidebar</label>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="show_in_sidebar" name="dt[show_in_sidebar]"
+                                               value="1" <?= ($data['show_in_sidebar'] ?? 1) ? 'checked' : '' ?>>
+                                        <label class="form-check-label" for="show_in_sidebar">
+                                            Display this module in the sidebar menu
+                                        </label>
+                                    </div>
+                                    <small class="form-text text-muted">Uncheck to hide from sidebar (API modules, helper modules)</small>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
                                     <label for="is_active" class="form-label">Status</label>
                                     <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" id="is_active" name="dt[is_active]" 
+                                        <input class="form-check-input" type="checkbox" id="is_active" name="dt[is_active]"
                                                value="1" <?= $data['is_active'] ? 'checked' : '' ?>>
                                         <label class="form-check-label" for="is_active">
                                             Active Module
                                         </label>
                                     </div>
-                                    <small class="form-text text-muted">Only active modules appear in menus</small>
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label class="form-label">Module Category</label>
-                                    <div class="p-2 bg-light rounded">
-                                        <small class="text-muted" id="categoryDisplay">Will be determined automatically based on module name</small>
-                                    </div>
+                                    <small class="form-text text-muted">Only active modules can be accessed</small>
                                 </div>
                             </div>
                         </div>
 
+                        <!-- Permissions Section -->
+                        <div class="section-divider">
+                            <h6 class="mb-3 text-muted"><i class="bi bi-shield-check me-2"></i>Available Permissions</h6>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Permission Types <span class="text-danger">*</span></label>
+                            <p class="text-muted small mb-2">Select which permission types this module supports. These will appear in the Roles permission matrix.</p>
+                            <div class="d-flex flex-wrap">
+                                <?php foreach ($permission_types as $key => $label): ?>
+                                    <div class="permission-checkbox">
+                                        <input class="form-check-input" type="checkbox" id="perm_<?= $key ?>"
+                                               name="available_permissions[]" value="<?= $key ?>"
+                                               <?= in_array($key, $current_permissions) ? 'checked' : '' ?>>
+                                        <label class="form-check-label" for="perm_<?= $key ?>"><?= $label ?></label>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                            <small class="form-text text-muted">At minimum, "View" permission is required</small>
+                        </div>
+
                         <!-- Module Info -->
-                        <div class="mt-4">
-                            <h6 class="mb-3">
-                                <i class="bi bi-info-circle me-2"></i>Module Information
-                            </h6>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <div class="card border-0 bg-light">
-                                        <div class="card-body p-3">
-                                            <h6 class="card-title">Current ID</h6>
-                                            <p class="mb-0 text-muted"><?= $data['id'] ?></p>
-                                        </div>
+                        <div class="section-divider">
+                            <h6 class="mb-3 text-muted"><i class="bi bi-info-circle me-2"></i>Module Information</h6>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="card border-0 bg-light">
+                                    <div class="card-body p-3">
+                                        <h6 class="card-title">Module ID</h6>
+                                        <p class="mb-0 text-muted"><?= $data['id'] ?></p>
                                     </div>
                                 </div>
-                                <div class="col-md-6">
-                                    <div class="card border-0 bg-light">
-                                        <div class="card-body p-3">
-                                            <h6 class="card-title">Current Status</h6>
-                                            <p class="mb-0">
-                                                <?php if ($data['is_active']): ?>
-                                                    <span class="badge bg-success">Active</span>
-                                                <?php else: ?>
-                                                    <span class="badge bg-danger">Inactive</span>
-                                                <?php endif; ?>
-                                            </p>
-                                        </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card border-0 bg-light">
+                                    <div class="card-body p-3">
+                                        <h6 class="card-title">Current Status</h6>
+                                        <p class="mb-0">
+                                            <?php if ($data['is_active']): ?>
+                                                <span class="badge bg-success">Active</span>
+                                            <?php else: ?>
+                                                <span class="badge bg-danger">Inactive</span>
+                                            <?php endif; ?>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card border-0 bg-light">
+                                    <div class="card-body p-3">
+                                        <h6 class="card-title">Sidebar Visibility</h6>
+                                        <p class="mb-0">
+                                            <?php if ($data['show_in_sidebar'] ?? 1): ?>
+                                                <span class="badge bg-info">Visible</span>
+                                            <?php else: ?>
+                                                <span class="badge bg-secondary">Hidden</span>
+                                            <?php endif; ?>
+                                        </p>
                                     </div>
                                 </div>
                             </div>
@@ -232,16 +321,27 @@
 <script>
 function submitModule(event) {
     event.preventDefault();
-    
+
+    // Validate at least one permission is selected
+    const permissions = document.querySelectorAll('input[name="available_permissions[]"]:checked');
+    if (permissions.length === 0) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Validation Error',
+            text: 'Please select at least one permission type (View is recommended)'
+        });
+        return;
+    }
+
     const form = document.getElementById('moduleForm');
     const formData = new FormData(form);
-    
+
     // Show loading state
     const submitBtn = form.querySelector('button[type="submit"]');
     const originalText = submitBtn.innerHTML;
     submitBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Updating...';
     submitBtn.disabled = true;
-    
+
     $.ajax({
         url: '<?= base_url() ?>/modules/update',
         type: 'POST',
@@ -265,7 +365,7 @@ function submitModule(event) {
                     title: 'Error',
                     html: response
                 });
-                
+
                 // Reset button
                 submitBtn.innerHTML = originalText;
                 submitBtn.disabled = false;
@@ -277,7 +377,7 @@ function submitModule(event) {
                 title: 'Error',
                 text: 'An error occurred while updating the module'
             });
-            
+
             // Reset button
             submitBtn.innerHTML = originalText;
             submitBtn.disabled = false;
@@ -290,51 +390,11 @@ function updateIconPreview() {
     const iconInput = document.getElementById('icon');
     const iconPreview = document.getElementById('iconPreview');
     const iconClass = iconInput.value.trim();
-    
+
     if (iconClass) {
         iconPreview.innerHTML = `<i class="${iconClass}"></i>`;
     } else {
         iconPreview.innerHTML = '<i class="bi bi-image"></i>';
     }
 }
-
-// Update category display based on module name
-function updateCategoryDisplay(moduleName) {
-    const categories = {
-        'System Management': ['dashboard', 'profile', 'modules', 'roles', 'settings'],
-        'HR Management': [
-            'hr_management',
-            'attendance', 'leave', 'leave_approvals', 'leave_types', 'leave_quotas',
-            'approval_routes', 'holidays', 'attendance_settings', 'offices',
-            'performance_admin',
-            'quest', 'quest_level', 'position', 'benefit', 'milestone',
-            'recruitment', 'interview', 'employee'
-        ],
-        'Marketing': ['marketing', 'overview', 'advertiser', 'ads', 'endorsement', 'influencer', 'campaign', 'calendar', 'payment'],
-        'Operations': ['transaction', 'marketplace', 'order', 'crm', 'group_wa', 'stock', 'product', 'operasional', 'discount', 'shipping', 'customer'],
-        'Reports & Analytics': ['report', 'expense', 'analytics']
-    };
-    
-    let category = 'System Management'; // Default
-    
-    for (const [categoryName, moduleList] of Object.entries(categories)) {
-        if (moduleList.some(keyword => moduleName.includes(keyword))) {
-            category = categoryName;
-            break;
-        }
-    }
-    
-    document.getElementById('categoryDisplay').textContent = category;
-}
-
-// Initialize category display and set up event listeners
-document.addEventListener('DOMContentLoaded', function() {
-    const currentModuleName = '<?= $data['name'] ?>';
-    updateCategoryDisplay(currentModuleName);
-    
-    // Update category when name changes
-    document.getElementById('name').addEventListener('input', function() {
-        updateCategoryDisplay(this.value);
-    });
-});
 </script>
