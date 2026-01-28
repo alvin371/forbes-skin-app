@@ -1065,7 +1065,7 @@ if (!$_SESSION['is_login']) {
                 STOK
               </a>
             <?php endif; ?>
-            <?php if ($modules_permissions['product'] || $modules_permissions['marketplace-account']): ?>
+            <?php if ($modules_permissions['product'] || $modules_permissions['marketplace_account']): ?>
               <a href="<?= base_url() ?>product" class="ms-3 item-menu <?= $menu_product ?>">
                 <i class="icon bi bi-box"></i>
                 KONFIGURASI

@@ -12,6 +12,7 @@ class Roles extends BaseController
         $this->load->model('mymodel');
         $this->load->library('permission');
         $this->load->library('template');
+        $this->load->helper('sidebar_registry');
 
         // Set public methods (no permission required)
         $this->set_public_methods([]);
@@ -121,11 +122,16 @@ class Roles extends BaseController
 
         $data['data'] = array();
 
+        sidebar_registry_sync($this);
+
         // Get all modules grouped by category for permission matrix
+        $module_names = sidebar_registry_names();
+        $module_names_sql = implode(',', array_map([$this->db, 'escape'], $module_names));
         $modules = $this->mymodel->selectWithQuery("
             SELECT id, name, display_name, parent_id, sort_order, icon
             FROM modules
             WHERE is_active = 1
+            AND name IN ($module_names_sql)
             ORDER BY sort_order, display_name
         ");
         $data['module_groups'] = $this->group_modules_by_category($modules);
@@ -209,10 +215,14 @@ class Roles extends BaseController
         $data['data'] = $query[0];
 
         // Get all modules grouped by category for permission matrix
+        sidebar_registry_sync($this);
+        $module_names = sidebar_registry_names();
+        $module_names_sql = implode(',', array_map([$this->db, 'escape'], $module_names));
         $modules = $this->mymodel->selectWithQuery("
             SELECT id, name, display_name, parent_id, sort_order, icon
             FROM modules
             WHERE is_active = 1
+            AND name IN ($module_names_sql)
             ORDER BY sort_order, display_name
         ");
         $data['module_groups'] = $this->group_modules_by_category($modules);
@@ -411,20 +421,25 @@ class Roles extends BaseController
      */
     private function group_modules_by_category($modules)
     {
-        $groups = array(
-            'System Management' => array(),
-            'HR Management' => array(),
-            'Marketing' => array(),
-            'Operations' => array(),
-            'Reports & Analytics' => array()
-        );
+        $groups = [];
+        foreach (sidebar_registry_categories() as $category) {
+            $groups[$category] = [];
+        }
 
+        $module_map = [];
         foreach ($modules as $module) {
-            $category = $this->get_module_category($module['name']);
-            if (!isset($groups[$category])) {
-                $groups[$category] = array();
+            $module_map[$module['name']] = $module;
+        }
+
+        foreach (sidebar_registry() as $name => $config) {
+            if (!isset($module_map[$name])) {
+                continue;
             }
-            $groups[$category][] = $module;
+            $category = $config['category'];
+            if (!isset($groups[$category])) {
+                $groups[$category] = [];
+            }
+            $groups[$category][] = $module_map[$name];
         }
 
         // Remove empty groups
@@ -438,155 +453,7 @@ class Roles extends BaseController
      */
     private function get_module_permissions()
     {
-        return array(
-            // =========================================================================
-            // SYSTEM MANAGEMENT MODULES
-            // =========================================================================
-
-            // Full CRUD modules
-            'modules' => ['view', 'create', 'edit', 'delete'],
-            'roles' => ['view', 'create', 'edit', 'delete'],
-            'user' => ['view', 'create', 'edit', 'delete'],
-
-            // Read-only modules
-            'dashboard' => ['view'],
-            'profile' => ['view'],
-            'home' => ['view'],
-            'auth' => ['view'],
-
-            // Dashboard Cards (View only - granular widget permissions)
-            'dashboard_card_jumlah_order' => ['view'],
-            'dashboard_card_order_belum_proses' => ['view'],
-            'dashboard_card_order_belum_cairkan' => ['view'],
-            'dashboard_card_belum_cairkan' => ['view'],
-            'dashboard_card_penjualan_kotor' => ['view'],
-            'dashboard_card_diskon' => ['view'],
-            'dashboard_card_penjualan_bersih' => ['view'],
-            'dashboard_card_laba_bersih' => ['view'],
-            'dashboard_card_marketplace_fee' => ['view'],
-            'dashboard_card_pengeluaran' => ['view'],
-            'dashboard_card_hpp_produk' => ['view'],
-            'dashboard_card_order_return' => ['view'],
-            'dashboard_card_nilai_produk' => ['view'],
-            'dashboard_card_ongkir' => ['view'],
-            'dashboard_card_penjualan_return' => ['view'],
-
-            // =========================================================================
-            // HR MANAGEMENT MODULES
-            // =========================================================================
-
-            // Attendance & leave
-            'attendance' => ['view', 'create', 'edit', 'delete'],
-            'leave' => ['view', 'create', 'edit', 'delete'],
-            'leave_approvals' => ['view', 'approve'],
-            'leave_types' => ['view', 'create', 'edit', 'delete'],
-            'leave_quotas' => ['view', 'create', 'edit', 'delete'],
-            'approval_routes' => ['view', 'create', 'edit', 'delete'],
-            'holidays' => ['view', 'create', 'edit', 'delete'],
-            'attendance_settings' => ['view', 'create', 'edit', 'delete'],
-            'offices' => ['view', 'create', 'edit', 'delete'],
-            'performance_admin' => ['view', 'create', 'edit', 'delete'],
-
-            'quest' => ['view', 'create', 'edit', 'delete'],
-            'quest_level' => ['view', 'create', 'edit', 'delete'],
-            'position' => ['view', 'create', 'edit', 'delete'],
-            'benefit' => ['view', 'create', 'edit', 'delete'],
-            'milestone' => ['view', 'create', 'edit', 'delete'],
-
-            // Approval workflow modules (View + Approve only)
-            'recruitment' => ['view', 'approve'],
-            'interview' => ['view', 'approve'],
-
-            // =========================================================================
-            // MARKETING MODULES
-            // =========================================================================
-
-            // Marketing overview and reporting
-            'marketing' => ['view'],  // Maps to Overview.php controller
-
-            // Influencer management
-            'influencer' => ['view', 'create', 'edit', 'delete'],
-            'influencer_dummy' => ['view', 'create', 'edit', 'delete'],
-
-            // Endorsement management
-            'endorse' => ['view', 'create', 'edit', 'delete'],
-            'endorse_campaign' => ['view', 'create', 'edit', 'delete'],
-            'review_endorse' => ['view', 'approve'],
-
-            // Payment and calendar
-            'payment' => ['view', 'create', 'edit', 'delete'],
-            'calendar' => ['view'],
-
-            // Ads Management (parent and platform-specific)
-            'ads' => ['view'],
-            'ads_tiktok' => ['view'],
-            'ads_meta' => ['view'],
-            'ads_shopee' => ['view'],
-            'ads_lazada' => ['view'],
-            'advertiser' => ['view'],
-
-            // Marketplace and Meta accounts
-            'marketplace_account' => ['view', 'create', 'edit', 'delete'],
-            'meta_account' => ['view', 'create', 'edit', 'delete'],
-
-            // CRM modules
-            'crm' => ['view', 'create', 'edit', 'delete'],
-            'crm_mg' => ['view', 'create', 'edit', 'delete'],
-            'crm_pome' => ['view', 'create', 'edit', 'delete'],
-            'customer' => ['view', 'create', 'edit', 'delete'],
-            'group_wa' => ['view', 'create', 'edit', 'delete'],
-
-            // Codeboost
-            'codeboost' => ['view', 'create', 'edit', 'delete'],
-
-            // =========================================================================
-            // OPERATIONS MODULES
-            // =========================================================================
-
-            // Transaction management
-            'transaction' => ['view', 'create', 'edit', 'delete'],
-            'transaction_item' => ['view', 'create', 'edit', 'delete'],
-            'order_customer' => ['view', 'create', 'edit', 'delete'],
-
-            // Product management
-            'product' => ['view', 'create', 'edit', 'delete'],
-            'product_3rd' => ['view', 'create', 'edit', 'delete'],
-
-            // Inventory and operations
-            'stock' => ['view', 'create', 'edit', 'delete'],
-            'marketplace' => ['view', 'create', 'edit', 'delete'],
-            'shipping' => ['view', 'create', 'edit', 'delete'],
-            'discount' => ['view', 'create', 'edit', 'delete'],
-            'label' => ['view', 'create', 'edit', 'delete'],
-            'expense' => ['view', 'create', 'edit', 'delete'],
-            'testimoni' => ['view', 'create', 'edit', 'delete'],
-            'admin_fee_configuration' => ['view', 'create', 'edit', 'delete'],
-            'operasional' => ['view', 'create', 'edit', 'delete'],
-
-            // =========================================================================
-            // REPORTS & ANALYTICS MODULES
-            // =========================================================================
-
-            'report' => ['view'],
-            'notifications' => ['view'],
-            'scraper' => ['view', 'create', 'edit', 'delete'],
-
-            // =========================================================================
-            // GOOGLE INTEGRATION MODULES
-            // =========================================================================
-
-            'googlemeet' => ['view', 'create'],
-            'googlemou' => ['view', 'create'],
-
-            // =========================================================================
-            // API MODULES (Usually restricted to system/admin only)
-            // =========================================================================
-
-            'api' => ['view'],
-            'api_v2' => ['view'],
-            'api_v3' => ['view'],
-            'ajax' => ['view']
-        );
+        return sidebar_registry_permissions();
     }
 
     /**
@@ -594,67 +461,6 @@ class Roles extends BaseController
      */
     private function get_module_category($module_name)
     {
-        $categories = array(
-            'System Management' => array(
-                'home', 'dashboard', 'profile', 'modules', 'roles', 'user', 'auth',
-                // Dashboard cards
-                'dashboard_card_jumlah_order', 'dashboard_card_order_belum_proses',
-                'dashboard_card_order_belum_cairkan', 'dashboard_card_belum_cairkan',
-                'dashboard_card_penjualan_kotor', 'dashboard_card_diskon',
-                'dashboard_card_penjualan_bersih', 'dashboard_card_laba_bersih',
-                'dashboard_card_marketplace_fee', 'dashboard_card_pengeluaran',
-                'dashboard_card_hpp_produk', 'dashboard_card_order_return',
-                'dashboard_card_nilai_produk', 'dashboard_card_ongkir',
-                'dashboard_card_penjualan_return'
-            ),
-
-            'HR Management' => array(
-                'hr_management',
-                'attendance', 'leave', 'leave_approvals', 'leave_types', 'leave_quotas',
-                'approval_routes', 'holidays', 'attendance_settings', 'offices',
-                'performance_admin',
-                'quest', 'quest_level', 'position', 'benefit', 'milestone',
-                'recruitment', 'interview'
-            ),
-
-            'Marketing' => array(
-                'marketing',  // Overview.php controller
-                'influencer', 'influencer_dummy',
-                'endorse', 'endorse_campaign', 'review_endorse',
-                'payment', 'calendar',
-                'ads', 'ads_tiktok', 'ads_meta', 'ads_shopee', 'ads_lazada',
-                'advertiser', 'marketplace_account', 'meta_account',
-                'crm', 'crm_mg', 'crm_pome', 'customer', 'group_wa',
-                'codeboost'
-            ),
-
-            'Operations' => array(
-                'transaction', 'transaction_item', 'order_customer',
-                'product', 'product_3rd',
-                'stock', 'marketplace', 'shipping', 'discount', 'label',
-                'expense', 'testimoni',
-                'admin_fee_configuration', 'operasional'
-            ),
-
-            'Reports & Analytics' => array(
-                'report', 'notifications', 'scraper'
-            ),
-
-            'Google Integration' => array(
-                'googlemeet', 'googlemou'
-            ),
-
-            'API Modules' => array(
-                'api', 'api_v2', 'api_v3', 'ajax'
-            )
-        );
-
-        foreach ($categories as $category => $module_list) {
-            if (in_array($module_name, $module_list)) {
-                return $category;
-            }
-        }
-
-        return 'System Management'; // Default category
+        return sidebar_registry_category_for($module_name);
     }
 }

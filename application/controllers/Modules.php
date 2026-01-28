@@ -12,6 +12,7 @@ class Modules extends BaseController
         $this->load->model('mymodel');
         $this->load->library('permission');
         $this->load->library('template');
+        $this->load->helper('sidebar_registry');
 
         // Set public methods (no permission required)
         $this->set_public_methods([]);
@@ -26,6 +27,12 @@ class Modules extends BaseController
         ]);
     }
 
+    private function deny_module_crud()
+    {
+        $this->output->set_status_header(403);
+        echo $this->template->alert_danger('Module registry is read-only.');
+    }
+
     public function index()
     {
         $data['user'] = $_SESSION['user'];
@@ -36,10 +43,13 @@ class Modules extends BaseController
             redirect(base_url() . 'dashboard');
         }
         
-        // Pass permission data to view
-        $data['can_create'] = in_array($data['user']['role'], array('1'));
-        $data['can_edit'] = in_array($data['user']['role'], array('1'));
-        $data['can_delete'] = in_array($data['user']['role'], array('1'));
+        sidebar_registry_sync($this);
+
+        // Read-only module registry
+        $data['read_only'] = true;
+        $data['can_create'] = false;
+        $data['can_edit'] = false;
+        $data['can_delete'] = false;
 
         $keyword_category = $_GET['keyword_category'] ?? "Name";
         $keyword = $_GET['keyword'] ?? "";
@@ -61,6 +71,9 @@ class Modules extends BaseController
         );
 
         $qry = "1=1";
+        $module_names = sidebar_registry_names();
+        $module_names_sql = implode(',', array_map([$this->db, 'escape'], $module_names));
+        $qry .= " AND m.name IN ($module_names_sql)";
 
         if ($keyword) {
             $keyword_safe = $this->db->escape_str($keyword);
@@ -110,10 +123,13 @@ class Modules extends BaseController
         $data['template'] = $this->template;
         $user_id = $_SESSION['user']['id'];
 
-        // Pass permission data to view
-        $data['can_create'] = in_array($_SESSION['user']['role'], array('1'));
-        $data['can_edit'] = in_array($_SESSION['user']['role'], array('1'));
-        $data['can_delete'] = in_array($_SESSION['user']['role'], array('1'));
+        sidebar_registry_sync($this);
+
+        // Read-only module registry
+        $data['read_only'] = true;
+        $data['can_create'] = false;
+        $data['can_edit'] = false;
+        $data['can_delete'] = false;
 
         $keyword_category = $_GET['keyword_category'] ?? "Name";
         $keyword = $_GET['keyword'] ?? "";
@@ -121,6 +137,9 @@ class Modules extends BaseController
         $category_filter = $_GET['category_filter'] ?? "";
 
         $qry = "1=1";
+        $module_names = sidebar_registry_names();
+        $module_names_sql = implode(',', array_map([$this->db, 'escape'], $module_names));
+        $qry .= " AND m.name IN ($module_names_sql)";
 
         if ($keyword) {
             $keyword_safe = $this->db->escape_str($keyword);
@@ -174,6 +193,9 @@ class Modules extends BaseController
 
     public function create_page()
     {
+        $this->deny_module_crud();
+        return;
+
         $data['user'] = $_SESSION['user'];
         
         if (!in_array($data['user']['role'], array('1'))) {
@@ -198,6 +220,9 @@ class Modules extends BaseController
 
     public function store()
     {
+        $this->deny_module_crud();
+        return;
+
         $user = $_SESSION['user'];
         
         if (!in_array($user['role'], array('1'))) {
@@ -257,6 +282,9 @@ class Modules extends BaseController
 
     public function edit_page()
     {
+        $this->deny_module_crud();
+        return;
+
         $data['user'] = $_SESSION['user'];
         
         if (!in_array($data['user']['role'], array('1'))) {
@@ -288,6 +316,9 @@ class Modules extends BaseController
 
     public function update()
     {
+        $this->deny_module_crud();
+        return;
+
         $user = $_SESSION['user'];
         
         if (!in_array($user['role'], array('1'))) {
@@ -379,6 +410,9 @@ class Modules extends BaseController
 
     public function remove()
     {
+        $this->deny_module_crud();
+        return;
+
         $id = $_GET['id'];
         $data['data']['id'] = $id;
         $this->load->view("modules/delete", $data);
@@ -386,6 +420,9 @@ class Modules extends BaseController
 
     public function delete()
     {
+        $this->deny_module_crud();
+        return;
+
         $user = $_SESSION['user'];
         
         if (!in_array($user['role'], array('1'))) {
@@ -422,6 +459,9 @@ class Modules extends BaseController
 
     public function bulk_delete()
     {
+        $this->deny_module_crud();
+        return;
+
         $user = $_SESSION['user'];
         
         if (!in_array($user['role'], array('1'))) {
@@ -590,6 +630,9 @@ class Modules extends BaseController
     // Legacy AJAX methods for backward compatibility
     public function create_module()
     {
+        $this->deny_module_crud();
+        return;
+
         // Check permission
         if (!in_array($_SESSION['user']['role'], array('1'))) {
             echo json_encode(['status' => 'error', 'message' => 'Access denied']);
@@ -616,6 +659,9 @@ class Modules extends BaseController
 
     public function update_module()
     {
+        $this->deny_module_crud();
+        return;
+
         // Check permission
         if (!in_array($_SESSION['user']['role'], array('1'))) {
             echo json_encode(['status' => 'error', 'message' => 'Access denied']);
@@ -644,6 +690,9 @@ class Modules extends BaseController
 
     public function delete_module()
     {
+        $this->deny_module_crud();
+        return;
+
         // Check permission
         if (!in_array($_SESSION['user']['role'], array('1'))) {
             echo json_encode(['status' => 'error', 'message' => 'Access denied']);
