@@ -164,8 +164,13 @@ class Migration_Create_performance_appraisal_tables extends CI_Migration
         $this->dbforge->add_key('template_id');
         $this->dbforge->add_key('employee_id');
         $this->dbforge->add_key('period_year');
-        $this->db->query('ALTER TABLE performance_submissions ADD UNIQUE KEY unique_submission (employee_id, template_id, period_year)');
         $this->dbforge->create_table('performance_submissions', TRUE);
+        if ($this->db->table_exists('performance_submissions')) {
+            $index = $this->db->query("SHOW INDEX FROM performance_submissions WHERE Key_name = 'unique_submission'");
+            if ($index->num_rows() === 0) {
+                $this->db->query('ALTER TABLE performance_submissions ADD UNIQUE KEY unique_submission (employee_id, template_id, period_year)');
+            }
+        }
 
         // Table: performance_submission_items
         $this->dbforge->add_field(array(
@@ -212,33 +217,41 @@ class Migration_Create_performance_appraisal_tables extends CI_Migration
         $this->dbforge->create_table('performance_submission_items', TRUE);
 
         // Add foreign keys
-        $this->db->query('
-            ALTER TABLE performance_template_items
-            ADD CONSTRAINT fk_template_items_template
-            FOREIGN KEY (template_id) REFERENCES performance_templates(id)
-            ON DELETE CASCADE
-        ');
+        if (!$this->foreign_key_exists('performance_template_items', 'fk_template_items_template')) {
+            $this->db->query('
+                ALTER TABLE performance_template_items
+                ADD CONSTRAINT fk_template_items_template
+                FOREIGN KEY (template_id) REFERENCES performance_templates(id)
+                ON DELETE CASCADE
+            ');
+        }
 
-        $this->db->query('
-            ALTER TABLE performance_submissions
-            ADD CONSTRAINT fk_submissions_template
-            FOREIGN KEY (template_id) REFERENCES performance_templates(id)
-            ON DELETE RESTRICT
-        ');
+        if (!$this->foreign_key_exists('performance_submissions', 'fk_submissions_template')) {
+            $this->db->query('
+                ALTER TABLE performance_submissions
+                ADD CONSTRAINT fk_submissions_template
+                FOREIGN KEY (template_id) REFERENCES performance_templates(id)
+                ON DELETE RESTRICT
+            ');
+        }
 
-        $this->db->query('
-            ALTER TABLE performance_submission_items
-            ADD CONSTRAINT fk_submission_items_submission
-            FOREIGN KEY (submission_id) REFERENCES performance_submissions(id)
-            ON DELETE CASCADE
-        ');
+        if (!$this->foreign_key_exists('performance_submission_items', 'fk_submission_items_submission')) {
+            $this->db->query('
+                ALTER TABLE performance_submission_items
+                ADD CONSTRAINT fk_submission_items_submission
+                FOREIGN KEY (submission_id) REFERENCES performance_submissions(id)
+                ON DELETE CASCADE
+            ');
+        }
 
-        $this->db->query('
-            ALTER TABLE performance_submission_items
-            ADD CONSTRAINT fk_submission_items_template_item
-            FOREIGN KEY (template_item_id) REFERENCES performance_template_items(id)
-            ON DELETE RESTRICT
-        ');
+        if (!$this->foreign_key_exists('performance_submission_items', 'fk_submission_items_template_item')) {
+            $this->db->query('
+                ALTER TABLE performance_submission_items
+                ADD CONSTRAINT fk_submission_items_template_item
+                FOREIGN KEY (template_item_id) REFERENCES performance_template_items(id)
+                ON DELETE RESTRICT
+            ');
+        }
     }
 
     public function down()
@@ -254,5 +267,19 @@ class Migration_Create_performance_appraisal_tables extends CI_Migration
         $this->dbforge->drop_table('performance_submissions', TRUE);
         $this->dbforge->drop_table('performance_template_items', TRUE);
         $this->dbforge->drop_table('performance_templates', TRUE);
+    }
+
+    private function foreign_key_exists($table, $constraint)
+    {
+        $query = $this->db->query(
+            'SELECT 1 FROM information_schema.TABLE_CONSTRAINTS ' .
+            'WHERE CONSTRAINT_SCHEMA = DATABASE() ' .
+            'AND TABLE_NAME = ' . $this->db->escape($table) . ' ' .
+            'AND CONSTRAINT_NAME = ' . $this->db->escape($constraint) . ' ' .
+            "AND CONSTRAINT_TYPE = 'FOREIGN KEY' " .
+            'LIMIT 1'
+        );
+
+        return $query->num_rows() > 0;
     }
 }

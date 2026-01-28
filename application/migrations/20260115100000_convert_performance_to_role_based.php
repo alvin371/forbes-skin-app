@@ -18,8 +18,16 @@ class Migration_Convert_performance_to_role_based extends CI_Migration
         if (!$this->column_exists('performance_templates', 'role_id')) {
             $this->db->query("
                 ALTER TABLE performance_templates
-                ADD COLUMN role_id INT(11) UNSIGNED NULL AFTER department
+                ADD COLUMN role_id INT(11) NULL AFTER department
             ");
+        } else {
+            $column_type = $this->column_type('performance_templates', 'role_id');
+            if ($column_type !== null && stripos($column_type, 'unsigned') !== false) {
+                $this->db->query("
+                    ALTER TABLE performance_templates
+                    MODIFY COLUMN role_id INT(11) NULL
+                ");
+            }
         }
 
         // Add index for role_id if not exists
@@ -137,5 +145,22 @@ class Migration_Convert_performance_to_role_based extends CI_Migration
             AND CONSTRAINT_TYPE = 'FOREIGN KEY'
         ")->row();
         return $result && $result->cnt > 0;
+    }
+
+    private function column_type($table, $column)
+    {
+        $db_name = $this->db->database;
+        $row = $this->db->query("
+            SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = '{$db_name}'
+            AND TABLE_NAME = '{$table}'
+            AND COLUMN_NAME = '{$column}'
+        ")->row();
+
+        if (!$row || !isset($row->COLUMN_TYPE)) {
+            return null;
+        }
+
+        return $row->COLUMN_TYPE;
     }
 }
