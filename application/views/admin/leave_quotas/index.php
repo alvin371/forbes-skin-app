@@ -104,14 +104,18 @@ $totalLeaveTypes = count($leave_types);
             <div style="min-width: 220px; flex: 1;">
                 <input id="quota-search" type="text" placeholder="Search name or email" style="width: 100%; border: 1px solid #d9d9d9; border-radius: 2px; padding: 6px 11px; font-size: 14px;">
             </div>
-            <div style="min-width: 180px;">
-                <select id="quota-department" style="width: 100%; border: 1px solid #d9d9d9; border-radius: 2px; padding: 6px 11px; font-size: 14px;">
-                    <option value="">All Departments</option>
-                    <?php foreach ($departments as $department): ?>
-                        <option value="<?php echo htmlspecialchars($department); ?>"><?php echo htmlspecialchars($department); ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
+            <?php if (!empty($has_department)): ?>
+                <div style="min-width: 180px;">
+                    <select id="quota-department" style="width: 100%; border: 1px solid #d9d9d9; border-radius: 2px; padding: 6px 11px; font-size: 14px;">
+                        <option value="">All Departments</option>
+                        <?php foreach ($departments as $department): ?>
+                            <option value="<?php echo htmlspecialchars($department); ?>"><?php echo htmlspecialchars($department); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            <?php else: ?>
+                <input type="hidden" id="quota-department" value="">
+            <?php endif; ?>
             <div style="min-width: 180px;">
                 <select id="quota-status" style="width: 100%; border: 1px solid #d9d9d9; border-radius: 2px; padding: 6px 11px; font-size: 14px;">
                     <option value="">All Status</option>
@@ -573,6 +577,7 @@ $totalLeaveTypes = count($leave_types);
     }
 
     [searchInput, departmentSelect, statusSelect, leaveTypeFilter].forEach(function(el) {
+        if (!el) return;
         el.addEventListener('input', applyFilters);
         el.addEventListener('change', applyFilters);
     });

@@ -22,7 +22,14 @@ class LeaveQuotasController extends BaseController
         $data['quotas'] = $this->LeaveQuotaModel->get_all_with_details();
         $data['leave_types'] = $this->LeaveTypeModel->get_active();
 
-        $this->db->select('u.id, u.full_name, u.email, u.department');
+        $hasDepartment = $this->db->field_exists('department', 'user');
+        $selectFields = array('u.id', 'u.full_name', 'u.email');
+        if ($hasDepartment) {
+            $selectFields[] = 'u.department';
+        }
+        $data['has_department'] = $hasDepartment;
+
+        $this->db->select(implode(', ', $selectFields));
         $this->db->from('user u');
         $this->db->where('u.status', 'Aktif');
         $this->db->order_by('u.full_name', 'ASC');
@@ -104,7 +111,14 @@ class LeaveQuotasController extends BaseController
         $data['title'] = 'Bulk Set Leave Quotas - ' . $this->template->title();
         $data['leave_types'] = $this->LeaveTypeModel->get_active();
 
-        $this->db->select('id, full_name, email, department');
+        $hasDepartment = $this->db->field_exists('department', 'user');
+        $selectFields = array('id', 'full_name', 'email');
+        if ($hasDepartment) {
+            $selectFields[] = 'department';
+        }
+        $data['has_department'] = $hasDepartment;
+
+        $this->db->select(implode(', ', $selectFields));
         $this->db->from('user');
         $this->db->where('status', 'Aktif');
         $this->db->order_by('full_name', 'ASC');
