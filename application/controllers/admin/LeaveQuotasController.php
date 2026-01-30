@@ -20,6 +20,20 @@ class LeaveQuotasController extends BaseController
     {
         $data['title'] = 'Leave Quotas - ' . $this->template->title();
         $data['quotas'] = $this->LeaveQuotaModel->get_all_with_details();
+        $data['leave_types'] = $this->LeaveTypeModel->get_active();
+
+        $this->db->select('u.id, u.full_name, u.email, u.department');
+        $this->db->from('user u');
+        $this->db->where('u.status', 'Aktif');
+        $this->db->order_by('u.full_name', 'ASC');
+        $data['users'] = $this->db->get()->result_array();
+
+        $departments = array_filter(array_unique(array_map(function ($row) {
+            return trim((string) ($row['department'] ?? ''));
+        }, $data['users'])));
+        sort($departments, SORT_NATURAL | SORT_FLAG_CASE);
+        $data['departments'] = $departments;
+
         $data['csrf_name'] = $this->security->get_csrf_token_name();
         $data['csrf_hash'] = $this->security->get_csrf_hash();
         $data['content'] = $this->load->view('admin/leave_quotas/index', $data, true);
@@ -47,6 +61,11 @@ class LeaveQuotasController extends BaseController
         $data['user'] = $user;
         $data['leave_types'] = $this->LeaveTypeModel->get_active();
         $data['quotas'] = $this->LeaveQuotaModel->get_by_user($userId);
+        $this->db->select('u.id, u.full_name, u.email');
+        $this->db->from('user u');
+        $this->db->where('u.status', 'Aktif');
+        $this->db->order_by('u.full_name', 'ASC');
+        $data['users'] = $this->db->get()->result_array();
 
         $quotasByType = array();
         foreach ($data['quotas'] as $quota) {
@@ -85,7 +104,7 @@ class LeaveQuotasController extends BaseController
         $data['title'] = 'Bulk Set Leave Quotas - ' . $this->template->title();
         $data['leave_types'] = $this->LeaveTypeModel->get_active();
 
-        $this->db->select('id, full_name, email');
+        $this->db->select('id, full_name, email, department');
         $this->db->from('user');
         $this->db->where('status', 'Aktif');
         $this->db->order_by('full_name', 'ASC');
@@ -160,6 +179,155 @@ class LeaveQuotasController extends BaseController
 
         $this->session->set_flashdata('message', "Leave quotas set for {$count} user(s).");
         redirect('admin/leave-quotas');
+    }
+
+    public function bulk_update()
+    {
+        if ($this->input->method(TRUE) !== 'POST') {
+            show_error('Method not allowed', 405);
+            return;
+        }
+
+        $input = $this->input->post(NULL, TRUE);
+        $updates = $input['quota_updates'] ?? array();
+        $onlyUserId = isset($input['only_user_id']) ? (int) $input['only_user_id'] : 0;
+        $onlyLeaveTypeId = isset($input['only_leave_type_id']) ? (int) $input['only_leave_type_id'] : 0;
+
+        if (empty($updates)) {
+            $this->session->set_flashdata('error', 'No quota updates provided.');
+            redirect('admin/leave-quotas');
+            return;
+        }
+
+        $this->db->trans_start();
+        $count = 0;
+        $skipped = 0;
+
+        foreach ($updates as $userId => $types) {
+            foreach ((array) $types as $leaveTypeId => $totalDays) {
+                if ($onlyUserId && (int) $userId !== $onlyUserId) {
+                    continue;
+                }
+                if ($onlyLeaveTypeId && (int) $leaveTypeId !== $onlyLeaveTypeId) {
+                    continue;
+                }
+
+                if ($totalDays === '' || $totalDays === null) {
+                    $skipped++;
+                    continue;
+                }
+
+                if (!is_numeric($totalDays) || (int) $totalDays < 0) {
+                    $this->session->set_flashdata('error', 'Total days must be a non-negative number.');
+                    redirect('admin/leave-quotas');
+                    return;
+                }
+
+                $this->LeaveQuotaModel->upsert((int) $userId, (int) $leaveTypeId, (int) $totalDays);
+                $count++;
+            }
+        }
+
+        $this->db->trans_complete();
+
+        if ($count > 0) {
+            $this->session->set_flashdata('message', "Leave quotas updated for {$count} item(s)." . ($skipped ? " {$skipped} skipped." : ''));
+        } else {
+            $this->session->set_flashdata('error', 'No valid quota updates to apply.');
+        }
+        redirect('admin/leave-quotas');
+    }
+
+    public function set_all()
+    {
+        if ($this->input->method(TRUE) !== 'POST') {
+            show_error('Method not allowed', 405);
+            return;
+        }
+
+        $input = $this->input->post(NULL, TRUE);
+        $leaveTypeId = (int) ($input['leave_type_id'] ?? 0);
+        $totalDays = $input['total_days'] ?? null;
+
+        if ($leaveTypeId <= 0) {
+            $this->session->set_flashdata('error', 'Please select a leave type.');
+            redirect('admin/leave-quotas');
+            return;
+        }
+
+        if ($totalDays === '' || $totalDays === null || !is_numeric($totalDays) || (int) $totalDays < 0) {
+            $this->session->set_flashdata('error', 'Total days must be a non-negative number.');
+            redirect('admin/leave-quotas');
+            return;
+        }
+
+        $this->db->select('id');
+        $this->db->from('user');
+        $this->db->where('status', 'Aktif');
+        $users = $this->db->get()->result_array();
+
+        if (empty($users)) {
+            $this->session->set_flashdata('error', 'No active users found.');
+            redirect('admin/leave-quotas');
+            return;
+        }
+
+        $this->db->trans_start();
+        $count = 0;
+        foreach ($users as $user) {
+            $this->LeaveQuotaModel->upsert((int) $user['id'], $leaveTypeId, (int) $totalDays);
+            $count++;
+        }
+        $this->db->trans_complete();
+
+        $this->session->set_flashdata('message', "Leave quotas set for {$count} user(s).");
+        redirect('admin/leave-quotas');
+    }
+
+    public function copy_from($userId = null)
+    {
+        if (!$userId) {
+            show_404();
+            return;
+        }
+
+        if ($this->input->method(TRUE) !== 'POST') {
+            show_error('Method not allowed', 405);
+            return;
+        }
+
+        $input = $this->input->post(NULL, TRUE);
+        $sourceUserId = (int) ($input['source_user_id'] ?? 0);
+
+        if ($sourceUserId <= 0) {
+            $this->session->set_flashdata('error', 'Please select a template user.');
+            redirect('admin/leave-quotas/manage/' . $userId);
+            return;
+        }
+
+        if ($sourceUserId === (int) $userId) {
+            $this->session->set_flashdata('error', 'Template user must be different.');
+            redirect('admin/leave-quotas/manage/' . $userId);
+            return;
+        }
+
+        $sourceQuotas = $this->LeaveQuotaModel->get_by_user($sourceUserId);
+        if (empty($sourceQuotas)) {
+            $this->session->set_flashdata('error', 'Template user has no quotas to copy.');
+            redirect('admin/leave-quotas/manage/' . $userId);
+            return;
+        }
+
+        $this->db->trans_start();
+        $count = 0;
+        foreach ($sourceQuotas as $quota) {
+            $this->LeaveQuotaModel->upsert((int) $userId, (int) $quota['leave_type_id'], (int) $quota['total_days']);
+            $count++;
+        }
+        $this->db->trans_complete();
+
+        $this->session->set_flashdata('message', "Copied {$count} quota(s) from template user.");
+        redirect('admin/leave-quotas/manage/' . $userId);
     }
 
     public function delete($id)

@@ -29,6 +29,36 @@
             <?php endif; ?>
         </div>
 
+        <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
+            <div style="flex: 1; min-width: 220px; background-color: #fafafa; border: 1px solid #d9d9d9; border-radius: 2px; padding: 12px;">
+                <div style="font-size: 12px; font-weight: 500; color: rgba(0,0,0,0.85); margin-bottom: 8px;">Quick Set All</div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <input type="number" id="set-all-days" min="0" step="1" placeholder="Total days" style="width: 120px; border: 1px solid #d9d9d9; border-radius: 2px; padding: 6px 11px; font-size: 13px;">
+                    <button type="button" id="apply-set-all" style="background-color: #fff; border: 1px solid #d9d9d9; color: rgba(0,0,0,0.65); height: 32px; padding: 4px 12px; border-radius: 2px; font-size: 12px;">Apply to All Types</button>
+                </div>
+                <div style="margin-top: 6px; font-size: 12px; color: rgba(0,0,0,0.45);">This will fill all quota inputs before saving.</div>
+            </div>
+            <div style="flex: 1; min-width: 260px; background-color: #fafafa; border: 1px solid #d9d9d9; border-radius: 2px; padding: 12px;">
+                <div style="font-size: 12px; font-weight: 500; color: rgba(0,0,0,0.85); margin-bottom: 8px;">Copy from Template User</div>
+                <form method="post" action="<?php echo site_url('admin/leave-quotas/manage/' . $user['id'] . '/copy-from'); ?>" style="display: flex; gap: 8px; align-items: center;">
+                    <?php if (!empty($csrf_name) && !empty($csrf_hash)): ?>
+                        <input type="hidden" name="<?php echo $csrf_name; ?>" value="<?php echo $csrf_hash; ?>">
+                    <?php endif; ?>
+                    <select name="source_user_id" required style="flex: 1; min-width: 160px; border: 1px solid #d9d9d9; border-radius: 2px; padding: 6px 11px; font-size: 13px;">
+                        <option value="">Select user</option>
+                        <?php foreach ($users as $templateUser): ?>
+                            <?php if ((int) $templateUser['id'] === (int) $user['id']) continue; ?>
+                            <option value="<?php echo (int) $templateUser['id']; ?>">
+                                <?php echo htmlspecialchars($templateUser['full_name']); ?> (<?php echo htmlspecialchars($templateUser['email']); ?>)
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <button type="submit" style="background-color: #1890ff; border: 1px solid #1890ff; color: #fff; height: 32px; padding: 4px 12px; border-radius: 2px; font-size: 12px;">Copy</button>
+                </form>
+                <div style="margin-top: 6px; font-size: 12px; color: rgba(0,0,0,0.45);">Copies total days from another user.</div>
+            </div>
+        </div>
+
         <form method="post" action="<?php echo site_url('admin/leave-quotas/manage/' . $user['id']); ?>">
             <?php if (!empty($csrf_name) && !empty($csrf_hash)): ?>
                 <input type="hidden" name="<?php echo $csrf_name; ?>" value="<?php echo $csrf_hash; ?>">
@@ -41,7 +71,8 @@
                             <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px; width: 40%;">Leave Type</th>
                             <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px; width: 25%;">Total Days (Quota)</th>
                             <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px; width: 20%;">Currently Remaining</th>
-                            <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px; width: 15%;">Status</th>
+                            <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px; width: 10%;">Status</th>
+                            <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px; width: 15%;">Last Updated</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -104,6 +135,9 @@
                                             </span>
                                         <?php endif; ?>
                                     </td>
+                                    <td style="padding: 12px 8px; font-size: 13px; color: rgba(0,0,0,0.45);">
+                                        <?php echo !empty($existingQuota['updated_at']) ? date('d M Y', strtotime($existingQuota['updated_at'])) : '-'; ?>
+                                    </td>
                                 </tr>
                             <?php endforeach; ?>
                         <?php endif; ?>
@@ -124,3 +158,19 @@
         </form>
     </div>
 </div>
+
+<script>
+(function() {
+    var applyBtn = document.getElementById('apply-set-all');
+    var input = document.getElementById('set-all-days');
+    if (!applyBtn || !input) return;
+
+    applyBtn.addEventListener('click', function() {
+        var value = input.value;
+        if (value === '') return;
+        document.querySelectorAll('input[name^=\"quotas[\"]').forEach(function(el) {
+            el.value = value;
+        });
+    });
+})();
+</script>

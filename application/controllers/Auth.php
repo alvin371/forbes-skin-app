@@ -8,6 +8,7 @@ class Auth extends CI_Controller
         parent::__construct();
         $this->load->library('template');
         $this->load->model('mymodel');
+        $this->load->model('LeaveQuotaModel');
         $this->load->helper('url');
         $this->load->library('form_validation');
         $this->load->library('permission');
@@ -507,6 +508,8 @@ class Auth extends CI_Controller
             // Note: assigned_by omitted for self-registration (will be NULL by default)
         );
         $this->db->insert('user_roles', $role_assignment);
+
+        $this->LeaveQuotaModel->apply_defaults_for_user($user_id);
 
         // Complete transaction
         $this->db->trans_complete();

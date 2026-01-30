@@ -43,6 +43,14 @@
                 <input type="number" name="max_days_per_request" min="1" class="form-control" value="<?php echo htmlspecialchars($leave_type['max_days_per_request']); ?>" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;">
             </div>
 
+            <div style="margin-bottom: 16px;">
+                <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">
+                    Default Quota for New Users <span style="font-size: 12px; color: rgba(0,0,0,0.45);">(optional)</span>
+                </label>
+                <input type="number" name="default_quota_days" min="0" class="form-control" value="<?php echo htmlspecialchars($leave_type['default_quota_days'] ?? ''); ?>" placeholder="Leave blank to skip" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px; width: 100%;">
+                <div style="margin-top: 6px; font-size: 12px; color: rgba(0,0,0,0.45);">Applied automatically when a new user is created.</div>
+            </div>
+
             <div style="margin-bottom: 16px; padding: 12px; background-color: #fafafa; border: 1px solid #d9d9d9; border-radius: 2px;">
                 <div style="margin-bottom: 8px;">
                     <label style="font-size: 14px; color: rgba(0,0,0,0.85); cursor: pointer;">

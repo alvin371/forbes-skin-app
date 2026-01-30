@@ -93,6 +93,7 @@ class LeaveTypesController extends BaseController
             'is_paid' => $clean['is_paid'] ? 1 : 0,
             'requires_attachment' => $clean['requires_attachment'] ? 1 : 0,
             'max_days_per_request' => $clean['max_days_per_request'],
+            'default_quota_days' => $clean['default_quota_days'],
             'is_active' => $clean['is_active'] ? 1 : 0,
             'updated_at' => date('Y-m-d H:i:s'),
         );
@@ -143,6 +144,7 @@ class LeaveTypesController extends BaseController
             'is_paid' => $clean['is_paid'] ? 1 : 0,
             'requires_attachment' => $clean['requires_attachment'] ? 1 : 0,
             'max_days_per_request' => $clean['max_days_per_request'],
+            'default_quota_days' => $clean['default_quota_days'],
             'is_active' => $clean['is_active'] ? 1 : 0,
             'created_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),
@@ -185,6 +187,16 @@ class LeaveTypesController extends BaseController
             $clean['max_days_per_request'] = (int) $maxDaysRaw;
         }
 
+        $defaultQuotaRaw = trim((string) ($input['default_quota_days'] ?? ''));
+        if ($defaultQuotaRaw === '') {
+            $clean['default_quota_days'] = null;
+        } elseif (!is_numeric($defaultQuotaRaw) || (int) $defaultQuotaRaw < 0) {
+            $errors['default_quota_days'] = 'Default quota days must be 0 or more.';
+            $clean['default_quota_days'] = $defaultQuotaRaw;
+        } else {
+            $clean['default_quota_days'] = (int) $defaultQuotaRaw;
+        }
+
         $clean['is_paid'] = isset($input['is_paid']) && $input['is_paid'] === '1';
         $clean['requires_attachment'] = isset($input['requires_attachment']) && $input['requires_attachment'] === '1';
         $clean['is_active'] = isset($input['is_active']) && $input['is_active'] === '1';
@@ -201,6 +213,7 @@ class LeaveTypesController extends BaseController
             'is_paid' => 0,
             'requires_attachment' => 0,
             'max_days_per_request' => '',
+            'default_quota_days' => '',
             'is_active' => 1,
         );
     }
