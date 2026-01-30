@@ -68,14 +68,18 @@ sort($departments, SORT_NATURAL | SORT_FLAG_CASE);
                     <div style="min-width: 200px; flex: 1;">
                         <input id="bulk-user-search" type="text" placeholder="Search name or email" style="width: 100%; border: 1px solid #d9d9d9; border-radius: 2px; padding: 6px 11px; font-size: 14px;">
                     </div>
-                    <div style="min-width: 180px;">
-                        <select id="bulk-department" style="width: 100%; border: 1px solid #d9d9d9; border-radius: 2px; padding: 6px 11px; font-size: 14px;">
-                            <option value="">All Departments</option>
-                            <?php foreach ($departments as $department): ?>
-                                <option value="<?php echo htmlspecialchars($department); ?>"><?php echo htmlspecialchars($department); ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
+                    <?php if (!empty($has_department)): ?>
+                        <div style="min-width: 180px;">
+                            <select id="bulk-department" style="width: 100%; border: 1px solid #d9d9d9; border-radius: 2px; padding: 6px 11px; font-size: 14px;">
+                                <option value="">All Departments</option>
+                                <?php foreach ($departments as $department): ?>
+                                    <option value="<?php echo htmlspecialchars($department); ?>"><?php echo htmlspecialchars($department); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    <?php else: ?>
+                        <input type="hidden" id="bulk-department" value="">
+                    <?php endif; ?>
                     <div style="font-size: 12px; color: rgba(0,0,0,0.45);">Selected: <span id="bulk-selected-count">0</span></div>
                     <button type="button" onclick="selectAllUsers()" style="background: none; border: none; color: #1890ff; font-size: 12px; cursor: pointer;">Select All</button>
                     <button type="button" onclick="selectFilteredUsers()" style="background: none; border: none; color: #1890ff; font-size: 12px; cursor: pointer;">Select Filtered</button>
@@ -170,7 +174,10 @@ document.querySelectorAll('input[name="user_ids[]"]').forEach(function(checkbox)
 });
 
 document.getElementById('bulk-user-search').addEventListener('input', applyBulkFilters);
-document.getElementById('bulk-department').addEventListener('change', applyBulkFilters);
+var bulkDept = document.getElementById('bulk-department');
+if (bulkDept) {
+    bulkDept.addEventListener('change', applyBulkFilters);
+}
 
 updateSelectedCount();
 applyBulkFilters();
