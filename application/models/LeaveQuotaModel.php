@@ -71,7 +71,8 @@ class LeaveQuotaModel extends CI_Model
         } else {
             $data['user_id'] = (int) $userId;
             $data['leave_type_id'] = (int) $leaveTypeId;
-        return $this->insert($data);
+            return $this->insert($data);
+        }
     }
 
     public function apply_defaults_for_user($userId)
