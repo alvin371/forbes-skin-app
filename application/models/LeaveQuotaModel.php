@@ -119,7 +119,6 @@ class LeaveQuotaModel extends CI_Model
 
         return $count;
     }
-    }
 
     public function deduct_quota($userId, $leaveTypeId, $days)
     {
