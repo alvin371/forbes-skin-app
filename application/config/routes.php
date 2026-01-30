@@ -74,7 +74,10 @@ $route['admin/leave-requests/(:num)'] = 'admin/LeaveRequestsController/detail/$1
 $route['admin/leave-quotas'] = 'admin/LeaveQuotasController/index';
 $route['admin/leave-quotas/users'] = 'admin/LeaveQuotasController/users';
 $route['admin/leave-quotas/bulk-set'] = 'admin/LeaveQuotasController/bulk_set';
+$route['admin/leave-quotas/bulk-update'] = 'admin/LeaveQuotasController/bulk_update';
+$route['admin/leave-quotas/set-all'] = 'admin/LeaveQuotasController/set_all';
 $route['admin/leave-quotas/manage/(:num)'] = 'admin/LeaveQuotasController/manage/$1';
+$route['admin/leave-quotas/manage/(:num)/copy-from'] = 'admin/LeaveQuotasController/copy_from/$1';
 $route['admin/leave-quotas/(:num)/delete'] = 'admin/LeaveQuotasController/delete/$1';
 
 $route['admin/holidays'] = 'admin/HolidaysController/index';

@@ -71,8 +71,53 @@ class LeaveQuotaModel extends CI_Model
         } else {
             $data['user_id'] = (int) $userId;
             $data['leave_type_id'] = (int) $leaveTypeId;
-            return $this->insert($data);
+        return $this->insert($data);
+    }
+
+    public function apply_defaults_for_user($userId)
+    {
+        $userId = (int) $userId;
+        if ($userId <= 0) {
+            return 0;
         }
+
+        $existing = $this->get_by_user($userId);
+        $existingTypeIds = array();
+        foreach ($existing as $quota) {
+            $existingTypeIds[(int) $quota['leave_type_id']] = true;
+        }
+
+        $this->db->select('id, default_quota_days');
+        $this->db->from('leave_types');
+        $this->db->where('is_active', 1);
+        $this->db->where('default_quota_days IS NOT NULL', null, false);
+        $leaveTypes = $this->db->get()->result_array();
+
+        $count = 0;
+        foreach ($leaveTypes as $leaveType) {
+            $leaveTypeId = (int) $leaveType['id'];
+            if (isset($existingTypeIds[$leaveTypeId])) {
+                continue;
+            }
+
+            $days = (int) $leaveType['default_quota_days'];
+            if ($days < 0) {
+                continue;
+            }
+
+            $data = array(
+                'user_id' => $userId,
+                'leave_type_id' => $leaveTypeId,
+                'total_days' => $days,
+                'remaining_days' => $days,
+                'updated_at' => date('Y-m-d H:i:s'),
+            );
+            $this->insert($data);
+            $count++;
+        }
+
+        return $count;
+    }
     }
 
     public function deduct_quota($userId, $leaveTypeId, $days)

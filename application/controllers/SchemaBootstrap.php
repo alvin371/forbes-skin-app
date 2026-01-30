@@ -79,6 +79,13 @@ class SchemaBootstrap extends CI_Controller
             $results[] = 'leave_types exists';
         }
 
+        if ($this->db->table_exists('leave_types')) {
+            if (!$this->db->field_exists('default_quota_days', 'leave_types')) {
+                $this->db->query("ALTER TABLE leave_types ADD COLUMN default_quota_days INT NULL");
+                $results[] = 'leave_types.default_quota_days added';
+            }
+        }
+
         if (!$this->db->table_exists('approval_routes')) {
             $this->create_approval_routes_table();
             $results[] = 'approval_routes created';
@@ -370,6 +377,11 @@ class SchemaBootstrap extends CI_Controller
                 'default' => 0,
             ),
             'max_days_per_request' => array(
+                'type' => 'INT',
+                'constraint' => 11,
+                'null' => TRUE,
+            ),
+            'default_quota_days' => array(
                 'type' => 'INT',
                 'constraint' => 11,
                 'null' => TRUE,

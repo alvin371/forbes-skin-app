@@ -10,6 +10,7 @@ class User extends BaseController
         parent::__construct();
         $this->load->database();
         $this->load->model('mymodel');
+        $this->load->model('LeaveQuotaModel');
         $this->load->library('permission');
         $this->load->library('template');
 
@@ -584,6 +585,8 @@ class User extends BaseController
                 'assigned_by' => $user['id']
             );
             $this->db->insert('user_roles', $role_assignment);
+
+            $this->LeaveQuotaModel->apply_defaults_for_user($user_id);
             
             // Handle user profile data
             $profile_data = $_POST['profile'] ?? array();
