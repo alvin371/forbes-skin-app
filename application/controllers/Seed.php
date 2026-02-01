@@ -190,6 +190,115 @@ class Seed extends CI_Controller
         return sprintf('Holidays seed completed: %d inserted, %d updated, %d skipped.', $inserted, $updated, $skipped);
     }
 
+    protected function seed_approval_modules()
+    {
+        $now = date('Y-m-d H:i:s');
+
+        if (!$this->db->table_exists('modules')) {
+            return 'Modules table not found. Run migrations first.';
+        }
+
+        $modules_added = 0;
+        $permissions_added = 0;
+
+        // Add approval_routes module
+        $existing = $this->db->get_where('modules', array('name' => 'approval_routes'))->row_array();
+        if (!$existing) {
+            $this->db->insert('modules', array(
+                'name' => 'approval_routes',
+                'display_name' => 'Approval Routes',
+                'controller' => 'admin/ApprovalRoutesController',
+                'icon' => 'bi-diagram-3',
+                'parent_id' => null,
+                'sort_order' => 100,
+                'is_active' => 1,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ));
+            $modules_added++;
+        }
+
+        // Add approval_inbox module
+        $existing = $this->db->get_where('modules', array('name' => 'approval_inbox'))->row_array();
+        if (!$existing) {
+            $this->db->insert('modules', array(
+                'name' => 'approval_inbox',
+                'display_name' => 'Approval Inbox',
+                'controller' => 'approvals/ApprovalInboxController',
+                'icon' => 'bi-inbox',
+                'parent_id' => null,
+                'sort_order' => 101,
+                'is_active' => 1,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ));
+            $modules_added++;
+        }
+
+        // Get module IDs
+        $approval_routes_module = $this->db->get_where('modules', array('name' => 'approval_routes'))->row_array();
+        $approval_inbox_module = $this->db->get_where('modules', array('name' => 'approval_inbox'))->row_array();
+
+        if ($this->db->table_exists('roles') && $this->db->table_exists('role_permissions')) {
+            // Get admin roles
+            $admin_roles = $this->db->query("
+                SELECT id FROM roles
+                WHERE LOWER(name) IN ('admin', 'super_admin', 'super admin', 'hr', 'head of hr', 'hr admin')
+                AND is_active = 1
+            ")->result_array();
+
+            foreach ($admin_roles as $role) {
+                // Add approval_routes permission
+                if ($approval_routes_module) {
+                    $existing_perm = $this->db->get_where('role_permissions', array(
+                        'role_id' => $role['id'],
+                        'module_id' => $approval_routes_module['id']
+                    ))->row_array();
+
+                    if (!$existing_perm) {
+                        $this->db->insert('role_permissions', array(
+                            'role_id' => $role['id'],
+                            'module_id' => $approval_routes_module['id'],
+                            'can_view' => 1,
+                            'can_create' => 1,
+                            'can_edit' => 1,
+                            'can_delete' => 1,
+                            'can_approve' => 1,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ));
+                        $permissions_added++;
+                    }
+                }
+
+                // Add approval_inbox permission
+                if ($approval_inbox_module) {
+                    $existing_perm = $this->db->get_where('role_permissions', array(
+                        'role_id' => $role['id'],
+                        'module_id' => $approval_inbox_module['id']
+                    ))->row_array();
+
+                    if (!$existing_perm) {
+                        $this->db->insert('role_permissions', array(
+                            'role_id' => $role['id'],
+                            'module_id' => $approval_inbox_module['id'],
+                            'can_view' => 1,
+                            'can_create' => 0,
+                            'can_edit' => 1,
+                            'can_delete' => 0,
+                            'can_approve' => 1,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ));
+                        $permissions_added++;
+                    }
+                }
+            }
+        }
+
+        return sprintf('Approval modules seed completed: %d modules added, %d permissions added.', $modules_added, $permissions_added);
+    }
+
     protected function seed_approval_routes()
     {
         $now = date('Y-m-d H:i:s');

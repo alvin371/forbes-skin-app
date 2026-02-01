@@ -147,6 +147,7 @@ $route['seed/attendance-office'] = 'SeedRunner/attendance_office';
 $route['seed/leave-types'] = 'SeedRunner/leave_types';
 $route['seed/holidays'] = 'SeedRunner/holidays';
 $route['seed/performance-2026'] = 'SeedRunner/performance_2026';
+$route['seed/approval-modules'] = 'SeedRunner/approval_modules';
 $route['seed/approval-routes'] = 'SeedRunner/approval_routes';
 $route['migrate/latest'] = 'MigrationRunner/latest';
 $route['schema/hr'] = 'SchemaBootstrap/hr';
