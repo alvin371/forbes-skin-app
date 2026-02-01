@@ -23,6 +23,7 @@ class SeedRunner extends Seed
             'leave_types' => $this->seed_leave_types(),
             'holidays' => $this->seed_holidays(),
             'performance_2026' => $this->seed_performance_2026_template(),
+            'approval_modules' => $this->seed_approval_modules(),
             'approval_routes' => $this->seed_approval_routes(),
         );
 
@@ -101,6 +102,20 @@ class SeedRunner extends Seed
             ->set_output(json_encode(array(
                 'success' => true,
                 'message' => $this->seed_approval_routes(),
+            )));
+    }
+
+    public function approval_modules()
+    {
+        if (!$this->ensure_allowed()) {
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode(array(
+                'success' => true,
+                'message' => $this->seed_approval_modules(),
             )));
     }
 
