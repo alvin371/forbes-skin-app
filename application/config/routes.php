@@ -104,11 +104,39 @@ $route['leave'] = 'LeaveController/index';
 $route['leave/create'] = 'LeaveController/create';
 $route['leave/(:num)'] = 'LeaveController/detail/$1';
 $route['leave/(:num)/cancel'] = 'LeaveController/cancel/$1';
+$route['leave/(:num)/submit'] = 'LeaveController/submit/$1';
+$route['leave/(:num)/progress'] = 'LeaveController/progress/$1';
+$route['leave/quota'] = 'LeaveController/quota';
 
 $route['approvals/leaves'] = 'approvals/LeaveApprovalController/index';
 $route['approvals/leaves/(:num)'] = 'approvals/LeaveApprovalController/detail/$1';
 $route['approvals/leaves/(:num)/approve'] = 'approvals/LeaveApprovalController/approve/$1';
 $route['approvals/leaves/(:num)/reject'] = 'approvals/LeaveApprovalController/reject/$1';
+
+// Dynamic Approval Routes - Inbox
+$route['approvals/inbox'] = 'approvals/ApprovalInboxController/index';
+$route['approvals/inbox/detail/(:num)'] = 'approvals/ApprovalInboxController/detail/$1';
+$route['approvals/inbox/approve/(:num)'] = 'approvals/ApprovalInboxController/approve/$1';
+$route['approvals/inbox/reject/(:num)'] = 'approvals/ApprovalInboxController/reject/$1';
+$route['approvals/inbox/history'] = 'approvals/ApprovalInboxController/history';
+$route['approvals/inbox/needs-route'] = 'approvals/ApprovalInboxController/needs_route';
+$route['approvals/inbox/assign-route'] = 'approvals/ApprovalInboxController/assign_route';
+$route['approvals/inbox/quick-approve'] = 'approvals/ApprovalInboxController/quick_approve';
+$route['approvals/inbox/quick-reject'] = 'approvals/ApprovalInboxController/quick_reject';
+$route['approvals/inbox/pending-count'] = 'approvals/ApprovalInboxController/pending_count';
+
+// Admin Approval Routes Management
+$route['admin/approval-routes'] = 'admin/ApprovalRoutesController/index';
+$route['admin/approval-routes/create'] = 'admin/ApprovalRoutesController/create';
+$route['admin/approval-routes/store'] = 'admin/ApprovalRoutesController/store';
+$route['admin/approval-routes/(:num)/edit'] = 'admin/ApprovalRoutesController/edit/$1';
+$route['admin/approval-routes/(:num)/update'] = 'admin/ApprovalRoutesController/update/$1';
+$route['admin/approval-routes/(:num)/deactivate'] = 'admin/ApprovalRoutesController/deactivate/$1';
+$route['admin/approval-routes/(:num)/versions'] = 'admin/ApprovalRoutesController/versions/$1';
+$route['admin/approval-routes/detail/(:num)'] = 'admin/ApprovalRoutesController/detail/$1';
+$route['admin/approval-routes/preview'] = 'admin/ApprovalRoutesController/preview';
+$route['admin/approval-routes/bulk'] = 'admin/ApprovalRoutesController/bulk_create';
+$route['admin/approval-routes/bulk-store'] = 'admin/ApprovalRoutesController/bulk_store';
 
 $route['diagnostic/check-leave-data'] = 'DiagnosticController/check_leave_data';
 $route['fix/leave-status'] = 'FixLeaveStatusController/update_status';
@@ -119,6 +147,7 @@ $route['seed/attendance-office'] = 'SeedRunner/attendance_office';
 $route['seed/leave-types'] = 'SeedRunner/leave_types';
 $route['seed/holidays'] = 'SeedRunner/holidays';
 $route['seed/performance-2026'] = 'SeedRunner/performance_2026';
+$route['seed/approval-routes'] = 'SeedRunner/approval_routes';
 $route['migrate/latest'] = 'MigrationRunner/latest';
 $route['schema/hr'] = 'SchemaBootstrap/hr';
 $route['schema/hrms-api'] = 'SchemaBootstrap/hrms_api';
@@ -160,8 +189,15 @@ $route['api/hrms/upload'] = 'Api_hrms/upload';
 $route['api/hrms/leave'] = 'Api_hrms/leave';
 $route['api/hrms/leave/(:num)'] = 'Api_hrms/leave_detail/$1';
 $route['api/hrms/leave/(:num)/cancel'] = 'Api_hrms/leave_cancel/$1';
+$route['api/hrms/leave/(:num)/submit'] = 'Api_hrms/leave_submit/$1';
+$route['api/hrms/leave/(:num)/progress'] = 'Api_hrms/leave_progress/$1';
 $route['api/hrms/leave/quota'] = 'Api_hrms/leave_quota';
 $route['api/hrms/leave/quota/detail'] = 'Api_hrms/leave_quota_detail';
+$route['api/hrms/approvals/inbox'] = 'Api_hrms/approvals_inbox';
+$route['api/hrms/approvals/inbox/count'] = 'Api_hrms/approvals_inbox_count';
+$route['api/hrms/approvals/(:num)/approve'] = 'Api_hrms/approval_approve/$1';
+$route['api/hrms/approvals/(:num)/reject'] = 'Api_hrms/approval_reject/$1';
+$route['api/hrms/approvals/history'] = 'Api_hrms/approvals_history';
 $route['api/hrms/performance/templates/active'] = 'Api_hrms/performance_templates_active';
 $route['api/hrms/performance/submissions'] = 'Api_hrms/performance_submissions';
 $route['api/hrms/performance/submissions/(:num)'] = 'Api_hrms/performance_submission_detail/$1';
