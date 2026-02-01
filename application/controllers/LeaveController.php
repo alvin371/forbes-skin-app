@@ -12,12 +12,15 @@ class LeaveController extends CI_Controller
         $this->load->library('LeaveCalculatorService');
         $this->load->library('LeaveOverlapService');
         $this->load->library('RequestNoGenerator');
+        $this->load->library('ApprovalWorkflowEngine');
+        $this->load->library('LeaveQuotaService');
         $this->load->model('LeaveTypeModel');
         $this->load->model('LeaveRequestModel');
         $this->load->model('LeaveApprovalModel');
         $this->load->model('ApprovalRouteModel');
         $this->load->model('HolidayModel');
         $this->load->model('LeaveQuotaModel');
+        $this->load->model('ApprovalStepModel');
         $this->authfilter->enforce();
     }
 
@@ -61,9 +64,112 @@ class LeaveController extends CI_Controller
 
         $data['title'] = 'Leave Request Detail - ' . $this->template->title();
         $data['request'] = $request;
+
+        // Get approval workflow progress
+        $data['progress'] = $this->approvalworkflowengine->getWorkflowProgress($id);
+        $data['approval_steps'] = $this->ApprovalStepModel->get_by_leave_request($id);
+
         $data['csrf_name'] = $this->security->get_csrf_token_name();
         $data['csrf_hash'] = $this->security->get_csrf_hash();
         $data['content'] = $this->load->view('leave/detail', $data, true);
+        $this->load->view('TemplateDashboard', $data);
+    }
+
+    /**
+     * Submit a draft leave request for approval
+     */
+    public function submit($id)
+    {
+        if ($this->input->method(TRUE) !== 'POST') {
+            show_error('Method not allowed', 405);
+            return;
+        }
+
+        $userId = $this->current_user_id();
+        $request = $this->LeaveRequestModel->get_by_id($id);
+
+        if (!$request || (int) $request['user_id'] !== (int) $userId) {
+            show_404();
+            return;
+        }
+
+        // Check if request can be submitted
+        if (!in_array($request['status'], array('DRAFT', 'NEEDS_ROUTE'))) {
+            $this->session->set_flashdata('error', 'Pengajuan ini tidak dapat disubmit.');
+            redirect('leave/' . $id);
+            return;
+        }
+
+        // Validate quota before submission
+        $quotaCheck = $this->leavequotaservice->validateQuota(
+            $userId,
+            $request['leave_type_id'],
+            $request['days_count'],
+            $id
+        );
+
+        if (!$quotaCheck['valid']) {
+            $this->session->set_flashdata('error', 'Kuota cuti tidak mencukupi: ' . $quotaCheck['message']);
+            redirect('leave/' . $id);
+            return;
+        }
+
+        // Initialize workflow
+        $result = $this->approvalworkflowengine->initializeWorkflow($id);
+
+        if ($result['success']) {
+            if (isset($result['needs_route']) && $result['needs_route']) {
+                $this->session->set_flashdata('warning', $result['message']);
+            } else {
+                $this->session->set_flashdata('success', 'Pengajuan cuti berhasil disubmit untuk persetujuan.');
+            }
+        } else {
+            $this->session->set_flashdata('error', 'Gagal submit pengajuan: ' . $result['message']);
+        }
+
+        redirect('leave/' . $id);
+    }
+
+    /**
+     * View approval progress timeline
+     */
+    public function progress($id)
+    {
+        $userId = $this->current_user_id();
+        $request = $this->LeaveRequestModel->get_by_id($id);
+
+        if (!$request || (int) $request['user_id'] !== (int) $userId) {
+            show_404();
+            return;
+        }
+
+        $data['title'] = 'Approval Progress - ' . $this->template->title();
+        $data['request'] = $request;
+        $data['progress'] = $this->approvalworkflowengine->getWorkflowProgress($id);
+        $data['approval_steps'] = $this->ApprovalStepModel->get_by_leave_request($id);
+
+        $data['csrf_name'] = $this->security->get_csrf_token_name();
+        $data['csrf_hash'] = $this->security->get_csrf_hash();
+        $data['content'] = $this->load->view('leave/progress', $data, true);
+        $this->load->view('TemplateDashboard', $data);
+    }
+
+    /**
+     * View user's quota summary
+     */
+    public function quota()
+    {
+        $userId = $this->current_user_id();
+        $year = $this->input->get('year') ?: date('Y');
+
+        $data['title'] = 'Kuota Cuti Saya - ' . $this->template->title();
+        $data['quotas'] = $this->leavequotaservice->getQuotaSummary($userId, $year);
+        $data['ledger'] = $this->leavequotaservice->getLedgerEntries($userId, $year);
+        $data['logs'] = $this->leavequotaservice->getQuotaLogs($userId, 20);
+        $data['year'] = $year;
+        $data['years'] = range(date('Y') - 2, date('Y') + 1);
+
+        $data['content'] = $this->load->view('leave/quota', $data, true);
         $this->load->view('TemplateDashboard', $data);
     }
 
@@ -81,41 +187,56 @@ class LeaveController extends CI_Controller
             return;
         }
 
-        if (!in_array($request['status'], array('PENDING_APPROVAL', 'APPROVED'))) {
-            $this->session->set_flashdata('message', 'This request cannot be cancelled.');
+        // Allow cancellation for more statuses
+        $cancellableStatuses = array('DRAFT', 'SUBMITTED', 'PENDING_APPROVAL', 'IN_REVIEW', 'NEEDS_ROUTE', 'APPROVED');
+        if (!in_array($request['status'], $cancellableStatuses)) {
+            $this->session->set_flashdata('error', 'Pengajuan ini tidak dapat dibatalkan.');
             redirect('leave/' . $request['id']);
             return;
         }
 
         $wasApproved = $request['status'] === 'APPROVED';
 
-        $now = date('Y-m-d H:i:s');
-        $this->db->trans_start();
-        $this->LeaveRequestModel->update($request['id'], array(
-            'status' => 'CANCELLED',
-            'updated_at' => $now,
-        ));
+        // Use workflow engine to cancel
+        $result = $this->approvalworkflowengine->cancelWorkflow($id, $userId);
 
-        $this->db->where('leave_request_id', (int) $request['id']);
-        $this->db->where('action', 'PENDING');
-        $this->db->update('leave_approvals', array(
-            'action' => 'REJECTED',
-            'action_at' => $now,
-            'notes' => 'Cancelled by requester.',
-        ));
+        if (!$result['success']) {
+            // Fallback to direct update if workflow engine fails
+            $now = date('Y-m-d H:i:s');
+            $this->db->trans_start();
+            $this->LeaveRequestModel->update($request['id'], array(
+                'status' => 'CANCELLED',
+                'updated_at' => $now,
+            ));
 
-        if ($wasApproved) {
-            $this->LeaveQuotaModel->restore_quota(
-                (int) $request['user_id'],
-                (int) $request['leave_type_id'],
-                (int) $request['days_count']
-            );
+            $this->db->where('leave_request_id', (int) $request['id']);
+            $this->db->where('action', 'PENDING');
+            $this->db->update('leave_approvals', array(
+                'action' => 'REJECTED',
+                'action_at' => $now,
+                'notes' => 'Cancelled by requester.',
+            ));
+            $this->db->trans_complete();
         }
 
-        $this->db->trans_complete();
+        // Restore quota if was approved
+        if ($wasApproved) {
+            $this->leavequotaservice->restoreQuota(
+                (int) $request['user_id'],
+                (int) $request['leave_type_id'],
+                (int) $request['days_count'],
+                (int) $request['id'],
+                $userId,
+                'Pengajuan dibatalkan oleh pemohon'
+            );
 
-        $message = $wasApproved ? 'Leave request cancelled and quota restored.' : 'Leave request cancelled.';
-        $this->session->set_flashdata('message', $message);
+            // Delete ledger entry
+            $this->load->model('LeaveLedgerModel');
+            $this->LeaveLedgerModel->delete_by_leave_request($id);
+        }
+
+        $message = $wasApproved ? 'Pengajuan cuti dibatalkan dan kuota dikembalikan.' : 'Pengajuan cuti dibatalkan.';
+        $this->session->set_flashdata('success', $message);
         redirect('leave');
     }
 
@@ -179,6 +300,8 @@ class LeaveController extends CI_Controller
         }
 
         $now = date('Y-m-d H:i:s');
+        $submitNow = $this->input->post('submit_now') == '1';
+
         $this->db->trans_start();
         $requestId = $this->LeaveRequestModel->insert(array(
             'request_no' => $requestNo,
@@ -189,14 +312,29 @@ class LeaveController extends CI_Controller
             'days_count' => $clean['days_count'],
             'reason' => $clean['reason'],
             'attachment_path' => $attachmentPath,
-            'status' => 'PENDING_APPROVAL',
+            'status' => $submitNow ? 'SUBMITTED' : 'DRAFT',
             'current_step' => 1,
             'created_at' => $now,
             'updated_at' => $now,
         ));
         $this->db->trans_complete();
 
-        $this->session->set_flashdata('message', 'Leave request submitted.');
+        // If submit now, initialize workflow
+        if ($submitNow && $requestId) {
+            $result = $this->approvalworkflowengine->initializeWorkflow($requestId);
+            if ($result['success']) {
+                if (isset($result['needs_route']) && $result['needs_route']) {
+                    $this->session->set_flashdata('warning', 'Pengajuan tersimpan tapi tidak ada rute approval yang cocok. HR akan menentukan rute secara manual.');
+                } else {
+                    $this->session->set_flashdata('success', 'Pengajuan cuti berhasil disubmit untuk persetujuan.');
+                }
+            } else {
+                $this->session->set_flashdata('warning', 'Pengajuan tersimpan tapi gagal memulai workflow: ' . $result['message']);
+            }
+        } else {
+            $this->session->set_flashdata('success', 'Pengajuan cuti berhasil disimpan sebagai draft.');
+        }
+
         redirect('leave');
     }
 

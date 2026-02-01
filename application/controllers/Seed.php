@@ -190,6 +190,185 @@ class Seed extends CI_Controller
         return sprintf('Holidays seed completed: %d inserted, %d updated, %d skipped.', $inserted, $updated, $skipped);
     }
 
+    protected function seed_approval_routes()
+    {
+        $now = date('Y-m-d H:i:s');
+
+        if (!$this->db->table_exists('approval_route_versions')) {
+            return 'Approval route tables not found. Run migrations first.';
+        }
+
+        // Check if routes already exist
+        $existing = $this->db->get('approval_route_versions')->num_rows();
+        if ($existing > 0) {
+            return 'Approval routes already seeded (' . $existing . ' routes found).';
+        }
+
+        $this->db->trans_start();
+
+        // Route 1: Finance/Warehouse Route (2 Steps)
+        $this->db->insert('approval_route_versions', array(
+            'route_code' => 'FINANCE_WAREHOUSE',
+            'name' => 'Rute Finance/Warehouse',
+            'description' => 'Rute approval untuk departemen Finance dan Warehouse',
+            'version' => 1,
+            'effective_from' => date('Y-m-d'),
+            'is_active' => 1,
+            'created_by' => 1,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ));
+        $route_id_1 = $this->db->insert_id();
+
+        $this->db->insert('approval_route_scopes', array(
+            'route_version_id' => $route_id_1,
+            'scope_type' => 'department',
+            'scope_value' => 'Finance,Warehouse',
+            'operator' => 'in',
+        ));
+
+        $this->db->insert_batch('approval_route_steps', array(
+            array('route_version_id' => $route_id_1, 'step_no' => 1, 'approver_type' => 'role', 'approver_value' => 'Head of Operation', 'step_name' => 'Head of Operation'),
+            array('route_version_id' => $route_id_1, 'step_no' => 2, 'approver_type' => 'role', 'approver_value' => 'Head of HR', 'step_name' => 'Head of HR'),
+        ));
+
+        // Route 2: Marketing Route (2 Steps)
+        $this->db->insert('approval_route_versions', array(
+            'route_code' => 'MARKETING',
+            'name' => 'Rute Marketing',
+            'description' => 'Rute approval untuk departemen Marketing',
+            'version' => 1,
+            'effective_from' => date('Y-m-d'),
+            'is_active' => 1,
+            'created_by' => 1,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ));
+        $route_id_2 = $this->db->insert_id();
+
+        $this->db->insert('approval_route_scopes', array(
+            'route_version_id' => $route_id_2,
+            'scope_type' => 'department',
+            'scope_value' => 'Marketing',
+            'operator' => 'eq',
+        ));
+
+        $this->db->insert_batch('approval_route_steps', array(
+            array('route_version_id' => $route_id_2, 'step_no' => 1, 'approver_type' => 'role', 'approver_value' => 'Head of Marketing', 'step_name' => 'Head of Marketing'),
+            array('route_version_id' => $route_id_2, 'step_no' => 2, 'approver_type' => 'role', 'approver_value' => 'Head of HR', 'step_name' => 'Head of HR'),
+        ));
+
+        // Route 3: HR Short Leave (<= 3 days) - 1 Step
+        $this->db->insert('approval_route_versions', array(
+            'route_code' => 'HR_SHORT',
+            'name' => 'Rute HR Cuti Singkat',
+            'description' => 'Rute approval HR untuk cuti <= 3 hari',
+            'version' => 1,
+            'effective_from' => date('Y-m-d'),
+            'is_active' => 1,
+            'created_by' => 1,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ));
+        $route_id_3 = $this->db->insert_id();
+
+        $this->db->insert_batch('approval_route_scopes', array(
+            array('route_version_id' => $route_id_3, 'scope_type' => 'department', 'scope_value' => 'HR', 'operator' => 'eq'),
+            array('route_version_id' => $route_id_3, 'scope_type' => 'leave_duration', 'scope_value' => '3', 'operator' => 'lte'),
+        ));
+
+        $this->db->insert('approval_route_steps', array(
+            'route_version_id' => $route_id_3,
+            'step_no' => 1,
+            'approver_type' => 'role',
+            'approver_value' => 'Head of HR',
+            'step_name' => 'Head of HR',
+        ));
+
+        // Route 4: HR Long Leave (> 3 days) - 3 Steps
+        $this->db->insert('approval_route_versions', array(
+            'route_code' => 'HR_LONG',
+            'name' => 'Rute HR Cuti Panjang',
+            'description' => 'Rute approval HR untuk cuti > 3 hari',
+            'version' => 1,
+            'effective_from' => date('Y-m-d'),
+            'is_active' => 1,
+            'created_by' => 1,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ));
+        $route_id_4 = $this->db->insert_id();
+
+        $this->db->insert_batch('approval_route_scopes', array(
+            array('route_version_id' => $route_id_4, 'scope_type' => 'department', 'scope_value' => 'HR', 'operator' => 'eq'),
+            array('route_version_id' => $route_id_4, 'scope_type' => 'leave_duration', 'scope_value' => '3', 'operator' => 'gt'),
+        ));
+
+        $this->db->insert_batch('approval_route_steps', array(
+            array('route_version_id' => $route_id_4, 'step_no' => 1, 'approver_type' => 'dynamic', 'approver_value' => 'direct_manager', 'step_name' => 'Atasan Langsung'),
+            array('route_version_id' => $route_id_4, 'step_no' => 2, 'approver_type' => 'role', 'approver_value' => 'Head of HR', 'step_name' => 'Head of HR'),
+            array('route_version_id' => $route_id_4, 'step_no' => 3, 'approver_type' => 'role', 'approver_value' => 'Director', 'step_name' => 'Director'),
+        ));
+
+        // Route 5: Default/Fallback Route (2 Steps) - No scopes
+        $this->db->insert('approval_route_versions', array(
+            'route_code' => 'DEFAULT',
+            'name' => 'Rute Default',
+            'description' => 'Rute default untuk semua departemen yang tidak memiliki rute khusus',
+            'version' => 1,
+            'effective_from' => date('Y-m-d'),
+            'is_active' => 1,
+            'created_by' => 1,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ));
+        $route_id_5 = $this->db->insert_id();
+
+        // No scopes for default route (matches everyone with lowest priority)
+
+        $this->db->insert_batch('approval_route_steps', array(
+            array('route_version_id' => $route_id_5, 'step_no' => 1, 'approver_type' => 'dynamic', 'approver_value' => 'direct_manager', 'step_name' => 'Atasan Langsung'),
+            array('route_version_id' => $route_id_5, 'step_no' => 2, 'approver_type' => 'role', 'approver_value' => 'Head of HR', 'step_name' => 'HR Final Approval'),
+        ));
+
+        // Route 6: Sick Leave Route (Any Department) - 1 Step
+        $this->db->insert('approval_route_versions', array(
+            'route_code' => 'SICK_LEAVE',
+            'name' => 'Rute Cuti Sakit',
+            'description' => 'Rute khusus untuk cuti sakit (semua departemen)',
+            'version' => 1,
+            'effective_from' => date('Y-m-d'),
+            'is_active' => 1,
+            'created_by' => 1,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ));
+        $route_id_6 = $this->db->insert_id();
+
+        $this->db->insert('approval_route_scopes', array(
+            'route_version_id' => $route_id_6,
+            'scope_type' => 'leave_type',
+            'scope_value' => 'Sakit',
+            'operator' => 'eq',
+        ));
+
+        $this->db->insert('approval_route_steps', array(
+            'route_version_id' => $route_id_6,
+            'step_no' => 1,
+            'approver_type' => 'role',
+            'approver_value' => 'Head of HR',
+            'step_name' => 'Head of HR',
+        ));
+
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === FALSE) {
+            return 'Approval routes seed failed.';
+        }
+
+        return 'Approval routes seed completed (6 routes created).';
+    }
+
     protected function seed_performance_2026_template()
     {
         $now = date('Y-m-d H:i:s');
