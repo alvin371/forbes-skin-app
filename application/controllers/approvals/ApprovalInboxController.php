@@ -24,7 +24,7 @@ class ApprovalInboxController extends CI_Controller
         $this->load->helper('url');
 
         // Check authentication
-        $this->authfilter->check();
+        $this->authfilter->enforce();
     }
 
     /**

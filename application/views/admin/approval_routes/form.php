@@ -135,7 +135,9 @@
                                         <option value="<?php echo $key; ?>" <?php echo $step['approver_type'] == $key ? 'selected' : ''; ?>><?php echo $label; ?></option>
                                     <?php endforeach; ?>
                                 </select>
-                                <select name="approver_value[]" class="form-select approver-value-select" style="flex: 1; border-radius: 2px; height: 32px; font-size: 14px;">
+                                <select name="approver_value[]" class="form-select approver-value-select"
+                                        data-saved-value="<?php echo htmlspecialchars($step['approver_value']); ?>"
+                                        style="flex: 1; border-radius: 2px; height: 32px; font-size: 14px;">
                                     <option value="<?php echo htmlspecialchars($step['approver_value']); ?>"><?php echo htmlspecialchars($step['approver_value']); ?></option>
                                 </select>
                                 <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeStep(this)" style="border-radius: 2px;">
@@ -320,15 +322,25 @@ function updateApproverValue(select) {
     }
 }
 
-// Initialize existing approver value selects
+// Initialize existing approver value selects on page load
 document.querySelectorAll('.approver-type-select').forEach(function(select) {
     if (select.value) {
-        updateApproverValue(select);
-        // Re-select the saved value
         var row = select.closest('.step-row');
-        var savedValue = row.querySelector('.approver-value-select').getAttribute('data-saved-value');
+        var valueSelect = row.querySelector('.approver-value-select');
+        var savedValue = valueSelect.getAttribute('data-saved-value');
+
+        // Populate options based on approver type
+        updateApproverValue(select);
+
+        // Re-select the saved value after options are populated
         if (savedValue) {
-            row.querySelector('.approver-value-select').value = savedValue;
+            // Re-query the select in case it was replaced by updateApproverValue
+            valueSelect = row.querySelector('.approver-value-select');
+            if (valueSelect.tagName === 'SELECT') {
+                valueSelect.value = savedValue;
+            } else if (valueSelect.tagName === 'INPUT') {
+                valueSelect.value = savedValue;
+            }
         }
     }
 });
