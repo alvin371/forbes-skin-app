@@ -74,15 +74,38 @@
                 <div class="col-md-12">
                     <div>
                         <div style="font-size: 12px; color: rgba(0,0,0,0.45); margin-bottom: 4px;">Attachment</div>
-                        <div style="font-size: 14px; color: rgba(0,0,0,0.65);">
-                            <?php if (!empty($request['attachment_path'])): ?>
-                                <a href="<?php echo base_url($request['attachment_path']); ?>" target="_blank" style="color: #1890ff; text-decoration: none;">
-                                    <i class="bi bi-paperclip"></i> View Attachment
-                                </a>
-                            <?php else: ?>
-                                <span style="color: rgba(0,0,0,0.45);">No attachment</span>
-                            <?php endif; ?>
-                        </div>
+                        <?php if (!empty($request['attachment_path'])): ?>
+                            <?php
+                            $attachmentUrl = base_url($request['attachment_path']);
+                            $fileExt = strtolower(pathinfo($request['attachment_path'], PATHINFO_EXTENSION));
+                            $isImage = in_array($fileExt, array('jpg', 'jpeg', 'png', 'gif', 'webp'));
+                            $isPdf = $fileExt === 'pdf';
+                            ?>
+                            <div style="border: 1px solid #d9d9d9; border-radius: 4px; overflow: hidden; background-color: #fafafa; margin-top: 8px;">
+                                <?php if ($isImage): ?>
+                                    <a href="<?php echo $attachmentUrl; ?>" target="_blank" title="Click to enlarge">
+                                        <img src="<?php echo $attachmentUrl; ?>" alt="Attachment" style="max-width: 100%; max-height: 400px; display: block; margin: 0 auto; cursor: zoom-in;">
+                                    </a>
+                                <?php elseif ($isPdf): ?>
+                                    <iframe src="<?php echo $attachmentUrl; ?>" style="width: 100%; height: 500px; border: none;"></iframe>
+                                    <div style="padding: 8px; background-color: #fff; border-top: 1px solid #d9d9d9; text-align: center;">
+                                        <a href="<?php echo $attachmentUrl; ?>" target="_blank" style="color: #1890ff; font-size: 12px;">
+                                            <i class="bi bi-box-arrow-up-right"></i> Open in new tab
+                                        </a>
+                                    </div>
+                                <?php else: ?>
+                                    <div style="padding: 16px; text-align: center;">
+                                        <i class="bi bi-file-earmark" style="font-size: 48px; color: #d9d9d9;"></i>
+                                        <p style="margin: 8px 0 0; color: rgba(0,0,0,0.45);"><?php echo strtoupper($fileExt); ?> File</p>
+                                        <a href="<?php echo $attachmentUrl; ?>" target="_blank" class="btn btn-outline-primary btn-sm" style="margin-top: 8px; border-radius: 2px;">
+                                            <i class="bi bi-download"></i> Download
+                                        </a>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                        <?php else: ?>
+                            <div style="font-size: 14px; color: rgba(0,0,0,0.45);">No attachment</div>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>

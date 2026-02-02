@@ -90,13 +90,36 @@
                 <?php endif; ?>
 
                 <?php if (!empty($leave_request['attachment_path'])): ?>
+                    <?php
+                    $attachmentUrl = base_url($leave_request['attachment_path']);
+                    $fileExt = strtolower(pathinfo($leave_request['attachment_path'], PATHINFO_EXTENSION));
+                    $isImage = in_array($fileExt, array('jpg', 'jpeg', 'png', 'gif', 'webp'));
+                    $isPdf = $fileExt === 'pdf';
+                    ?>
                     <div style="margin-bottom: 16px;">
-                        <label style="font-size: 12px; color: rgba(0,0,0,0.45);">Lampiran</label>
-                        <p style="margin: 0;">
-                            <a href="<?php echo base_url($leave_request['attachment_path']); ?>" target="_blank" style="color: #1890ff;">
-                                <i class="bi bi-paperclip"></i> Lihat Lampiran
-                            </a>
-                        </p>
+                        <label style="font-size: 12px; color: rgba(0,0,0,0.45); margin-bottom: 8px; display: block;">Lampiran</label>
+                        <div style="border: 1px solid #d9d9d9; border-radius: 4px; overflow: hidden; background-color: #fafafa;">
+                            <?php if ($isImage): ?>
+                                <a href="<?php echo $attachmentUrl; ?>" target="_blank" title="Klik untuk memperbesar">
+                                    <img src="<?php echo $attachmentUrl; ?>" alt="Lampiran" style="max-width: 100%; max-height: 400px; display: block; margin: 0 auto; cursor: zoom-in;">
+                                </a>
+                            <?php elseif ($isPdf): ?>
+                                <iframe src="<?php echo $attachmentUrl; ?>" style="width: 100%; height: 500px; border: none;"></iframe>
+                                <div style="padding: 8px; background-color: #fff; border-top: 1px solid #d9d9d9; text-align: center;">
+                                    <a href="<?php echo $attachmentUrl; ?>" target="_blank" style="color: #1890ff; font-size: 12px;">
+                                        <i class="bi bi-box-arrow-up-right"></i> Buka di tab baru
+                                    </a>
+                                </div>
+                            <?php else: ?>
+                                <div style="padding: 16px; text-align: center;">
+                                    <i class="bi bi-file-earmark" style="font-size: 48px; color: #d9d9d9;"></i>
+                                    <p style="margin: 8px 0 0; color: rgba(0,0,0,0.45);"><?php echo strtoupper($fileExt); ?> File</p>
+                                    <a href="<?php echo $attachmentUrl; ?>" target="_blank" class="btn btn-outline-primary btn-sm" style="margin-top: 8px; border-radius: 2px;">
+                                        <i class="bi bi-download"></i> Download
+                                    </a>
+                                </div>
+                            <?php endif; ?>
+                        </div>
                     </div>
                 <?php endif; ?>
             </div>
