@@ -53,6 +53,28 @@ class Seed extends CI_Controller
         echo $message . "\n";
     }
 
+    public function approval_modules()
+    {
+        if (!is_cli()) {
+            show_404();
+            return;
+        }
+
+        $message = $this->seed_approval_modules();
+        echo $message . "\n";
+    }
+
+    public function approval_routes()
+    {
+        if (!is_cli()) {
+            show_404();
+            return;
+        }
+
+        $message = $this->seed_approval_routes();
+        echo $message . "\n";
+    }
+
     protected function seed_attendance_office()
     {
         $existing = $this->db->get_where('offices', array('id' => 1))->row_array();

@@ -1613,11 +1613,15 @@ if (!$_SESSION['is_login']) {
     }
 
 
-    async function handleNotificationClick(notificationId, title) {
+    async function handleNotificationClick(notificationId, title, relatedTable, relatedId) {
         try {
             await markRead(notificationId);
-            if (title.includes('Review')) {
-                window.location.href = '<?= base_url("review-endorse?keyword_category=SPV&keyword=") ?>' + 
+
+            // Route based on related_table for precise navigation
+            if (relatedTable === 'leave_requests' && relatedId) {
+                window.location.href = '<?= base_url("approvals/inbox/detail/") ?>' + relatedId;
+            } else if (title.includes('Review')) {
+                window.location.href = '<?= base_url("review-endorse?keyword_category=SPV&keyword=") ?>' +
                                     encodeURIComponent('<?= $_SESSION['user']['full_name'] ?>');
             } else if (title.includes('Pengajuan')) {
                 window.location.href = '<?= base_url("payment") ?>';
@@ -1652,9 +1656,11 @@ if (!$_SESSION['is_login']) {
           if (notification.type === 'danger') iconClass = 'bi-x-circle danger';
           
           const escapedTitle = notification.title.replace(/'/g, "\\'");
-          
+          const relatedTable = notification.related_table || '';
+          const relatedId = notification.related_id || '';
+
           html += `
-              <div class="notification-item ${unreadClass}" onclick="handleNotificationClick(${notification.id}, '${escapedTitle}')">
+              <div class="notification-item ${unreadClass}" onclick="handleNotificationClick(${notification.id}, '${escapedTitle}', '${relatedTable}', '${relatedId}')">
                   <div class="notification-content">
                       <div class="notification-icon ${iconClass}"></div>
                       <div class="notification-details">

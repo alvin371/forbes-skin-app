@@ -88,6 +88,104 @@
             </div>
         </div>
 
+        <!-- Approval Progress Section -->
+        <?php if (!empty($approval_steps)): ?>
+            <div style="background-color: #fff; border: 1px solid #d9d9d9; border-radius: 2px; padding: 16px; margin-bottom: 16px;">
+                <h5 style="margin: 0 0 16px 0; font-size: 14px; font-weight: 500; color: rgba(0,0,0,0.85);">
+                    <i class="bi bi-diagram-3"></i> Approval Progress
+                </h5>
+                <div class="approval-timeline">
+                    <?php foreach ($approval_steps as $idx => $step): ?>
+                        <?php
+                        $isCurrentStep = isset($progress['current_step']) && $step['step_no'] == $progress['current_step'] && $step['action'] === 'PENDING';
+                        $isCompleted = $step['action'] === 'APPROVED';
+                        $isRejected = $step['action'] === 'REJECTED';
+                        $isPending = $step['action'] === 'PENDING';
+
+                        if ($isCompleted) {
+                            $stepColor = '#52c41a';
+                            $stepBg = '#f6ffed';
+                            $icon = 'bi-check-circle-fill';
+                            $statusText = 'Approved';
+                        } elseif ($isRejected) {
+                            $stepColor = '#ff4d4f';
+                            $stepBg = '#fff2f0';
+                            $icon = 'bi-x-circle-fill';
+                            $statusText = 'Rejected';
+                        } elseif ($isCurrentStep) {
+                            $stepColor = '#1890ff';
+                            $stepBg = '#e6f7ff';
+                            $icon = 'bi-arrow-right-circle-fill';
+                            $statusText = 'Waiting for approval';
+                        } else {
+                            $stepColor = '#d9d9d9';
+                            $stepBg = '#fafafa';
+                            $icon = 'bi-circle';
+                            $statusText = 'Pending';
+                        }
+
+                        $isLastStep = $idx === count($approval_steps) - 1;
+                        ?>
+                        <div style="display: flex; position: relative; padding-bottom: <?php echo $isLastStep ? '0' : '20px'; ?>;">
+                            <!-- Vertical Line -->
+                            <?php if (!$isLastStep): ?>
+                                <div style="position: absolute; left: 11px; top: 24px; bottom: 0; width: 2px; background-color: <?php echo $isCompleted ? '#52c41a' : '#e8e8e8'; ?>;"></div>
+                            <?php endif; ?>
+
+                            <!-- Icon -->
+                            <div style="width: 24px; z-index: 1;">
+                                <i class="bi <?php echo $icon; ?>" style="font-size: 22px; color: <?php echo $stepColor; ?>;"></i>
+                            </div>
+
+                            <!-- Content -->
+                            <div style="flex: 1; margin-left: 12px; padding-bottom: 4px;">
+                                <div style="font-size: 14px; font-weight: 500; color: rgba(0,0,0,0.85);">
+                                    Step <?php echo $step['step_no']; ?>: <?php echo htmlspecialchars($step['step_name'] ?? 'Approval'); ?>
+                                </div>
+                                <div style="font-size: 13px; color: rgba(0,0,0,0.65); margin-top: 4px;">
+                                    <?php if (!empty($step['assigned_approver_name'])): ?>
+                                        <i class="bi bi-person"></i> <?php echo htmlspecialchars($step['assigned_approver_name']); ?>
+                                        <?php if (!empty($step['assigned_approver_role'])): ?>
+                                            <span style="color: rgba(0,0,0,0.45);">(<?php echo htmlspecialchars($step['assigned_approver_role']); ?>)</span>
+                                        <?php endif; ?>
+                                    <?php endif; ?>
+                                </div>
+
+                                <!-- Status Badge -->
+                                <div style="margin-top: 8px;">
+                                    <span style="display: inline-flex; align-items: center; padding: 2px 8px; background-color: <?php echo $stepBg; ?>; color: <?php echo $stepColor; ?>; border-radius: 4px; font-size: 12px;">
+                                        <i class="bi <?php echo $icon; ?>" style="font-size: 12px; margin-right: 4px;"></i>
+                                        <?php echo $statusText; ?>
+                                    </span>
+                                </div>
+
+                                <?php if ($step['action'] !== 'PENDING' && !empty($step['action_at'])): ?>
+                                    <div style="font-size: 12px; color: rgba(0,0,0,0.45); margin-top: 6px;">
+                                        <i class="bi bi-clock"></i> <?php echo date('d M Y H:i', strtotime($step['action_at'])); ?>
+                                        <?php if (!empty($step['actual_approver_name']) && $step['actual_approver_name'] !== $step['assigned_approver_name']): ?>
+                                            by <?php echo htmlspecialchars($step['actual_approver_name']); ?>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php endif; ?>
+
+                                <?php if (!empty($step['notes'])): ?>
+                                    <div style="font-size: 12px; color: rgba(0,0,0,0.65); margin-top: 6px; padding: 8px; background-color: <?php echo $stepBg; ?>; border-radius: 4px; border-left: 3px solid <?php echo $stepColor; ?>;">
+                                        <i class="bi bi-chat-left-quote"></i> "<?php echo htmlspecialchars($step['notes']); ?>"
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        <?php elseif ($request['status'] === 'SUBMITTED' || $request['status'] === 'NEEDS_ROUTE'): ?>
+            <div style="background-color: #fffbe6; border: 1px solid #ffe58f; border-radius: 2px; padding: 16px; margin-bottom: 16px;">
+                <div style="font-size: 14px; color: #ad8b00;">
+                    <i class="bi bi-hourglass-split"></i> Approval route is being determined. Please wait.
+                </div>
+            </div>
+        <?php endif; ?>
+
         <div>
             <a href="<?php echo site_url('leave'); ?>" class="btn btn-outline-secondary" style="color: rgba(0,0,0,0.65); border-color: #d9d9d9; background: #fff; height: 32px; padding: 4px 15px; border-radius: 2px; font-size: 14px; text-decoration: none; display: inline-flex; align-items: center;">
                 <i class="bi bi-arrow-left"></i> Back

@@ -300,7 +300,9 @@ class LeaveController extends CI_Controller
         }
 
         $now = date('Y-m-d H:i:s');
-        $submitNow = $this->input->post('submit_now') == '1';
+        // Default to submit immediately unless explicitly set to '0' (draft mode)
+        $submitNowField = $this->input->post('submit_now');
+        $submitNow = $submitNowField !== '0';
 
         $this->db->trans_start();
         $requestId = $this->LeaveRequestModel->insert(array(
