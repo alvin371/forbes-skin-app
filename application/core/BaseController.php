@@ -49,6 +49,7 @@ class BaseController extends CI_Controller
         'leavequotascontroller' => 'leave_quotas',
         'approvalroutescontroller' => 'approval_routes',
         'performanceappraisal' => 'performance_admin',
+        'overtime' => 'overtime',
         'leaverequestscontroller' => 'leave',
         'modules' => 'modules',
         'user' => 'user',

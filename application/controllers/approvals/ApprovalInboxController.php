@@ -25,6 +25,9 @@ class ApprovalInboxController extends CI_Controller
 
         // Check authentication
         $this->authfilter->enforce();
+
+        // Enforce module permission
+        $this->enforce_permission('view');
     }
 
     /**
@@ -101,6 +104,8 @@ class ApprovalInboxController extends CI_Controller
             redirect('approvals/inbox');
         }
 
+        $this->enforce_permission('approve');
+
         $data['user'] = $_SESSION['user'];
         $userId = $data['user']['id'];
 
@@ -134,6 +139,8 @@ class ApprovalInboxController extends CI_Controller
         if ($this->input->method() !== 'post') {
             redirect('approvals/inbox');
         }
+
+        $this->enforce_permission('approve');
 
         $data['user'] = $_SESSION['user'];
         $userId = $data['user']['id'];
@@ -284,6 +291,8 @@ class ApprovalInboxController extends CI_Controller
             return;
         }
 
+        $this->enforce_permission('approve');
+
         $userId = $_SESSION['user']['id'];
         $stepId = $this->input->post('step_id');
         $notes = $this->input->post('notes') ?: 'Disetujui';
@@ -310,6 +319,8 @@ class ApprovalInboxController extends CI_Controller
             return;
         }
 
+        $this->enforce_permission('approve');
+
         $userId = $_SESSION['user']['id'];
         $stepId = $this->input->post('step_id');
         $notes = $this->input->post('notes');
@@ -329,5 +340,26 @@ class ApprovalInboxController extends CI_Controller
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode($result));
+    }
+
+    private function enforce_permission($action = 'view')
+    {
+        $userId = isset($_SESSION['user']['id']) ? (int) $_SESSION['user']['id'] : 0;
+        if (!$userId) {
+            redirect(base_url('auth/login'));
+            exit;
+        }
+
+        if ($this->permission->check_permission($userId, 'approval_inbox', $action)) {
+            return;
+        }
+
+        $this->output->set_status_header(403);
+        $data = array(
+            'heading' => 'Access Forbidden',
+            'message' => 'You do not have permission to access this resource.',
+        );
+        $this->load->view('errors/html/error_403', $data);
+        exit;
     }
 }

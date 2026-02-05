@@ -107,6 +107,11 @@ $route['leave/(:num)/cancel'] = 'LeaveController/cancel/$1';
 $route['leave/(:num)/submit'] = 'LeaveController/submit/$1';
 $route['leave/(:num)/progress'] = 'LeaveController/progress/$1';
 $route['leave/quota'] = 'LeaveController/quota';
+$route['overtime'] = 'Overtime/index';
+$route['overtime/create'] = 'Overtime/create';
+$route['overtime/store'] = 'Overtime/store';
+$route['overtime/(:num)'] = 'Overtime/detail/$1';
+$route['overtime/(:num)/cancel'] = 'Overtime/cancel/$1';
 
 $route['approvals/leaves'] = 'approvals/LeaveApprovalController/index';
 $route['approvals/leaves/(:num)'] = 'approvals/LeaveApprovalController/detail/$1';
