@@ -14,8 +14,8 @@ The sync described here is for **TikTok Shop orders** and is triggered from the 
 1. **Open the Transaction page** with a date range (`start_date`, `until_date`).
 2. The **Sync modal** loads **active marketplace stores** from `marketplace_config`.
 3. Click **Sync Data** on a specific store (TikTok) to send a request:
-   `transaction/sync-process?marketplace=TIKTOK&shop_id=...&start_date=YYYY-MM-DD&until_date=YYYY-MM-DD&debug=1`
-4. `Transaction::sync_process()` validates parameters and calls the internal API endpoint:
+   `transaction/sync-process?marketplace=TIKTOK&shop_id=...&start_date=YYYY-MM-DD&until_date=YYYY-MM-DD`
+4. `Transaction::sync_process()` calls the internal API endpoint:
    `api/marketplace/order`.
 5. `Api_v2::marketplace_order()` detects `marketplace = TIKTOK`, calls TikTok Shop API, and updates/inserts orders into `transaction`.
 
@@ -29,13 +29,11 @@ The sync described here is for **TikTok Shop orders** and is triggered from the 
   - `val` JSON config (TikTok credentials)
 
 ### 2) Sync request parameters
-`Transaction::sync_process()` requires:
+`Transaction::sync_process()` uses:
 - `marketplace` (must be `TIKTOK`)
 - `shop_id` (the store you want to sync)
 - `start_date` (YYYY-MM-DD)
 - `until_date` (YYYY-MM-DD)
-
-If any of these are missing, it returns **"Parameter tidak lengkap!"**.
 
 ### 3) Internal API call
 `Transaction::sync_process()` calls:
@@ -91,14 +89,9 @@ For each order in `order_list`:
 - If existing: **update** `transaction`.
 - If new and not cancelled: **insert** into `transaction`.
 
-## Debugging
-The modal already passes `debug=1`. When enabled, `sync_process()` returns:
-- Endpoint URL
-- HTTP status
-- JSON parse info
-- Response preview
-
-This is rendered in the UI debug log in the sync modal.
+## Notes And Quirks
+- In `Transaction::sync_process`, `start_date` is currently set from `until_date`.
+- That means the API receives the same start and end date, so the sync is effectively a single-day sync.
 
 ## Token Refresh
 If the TikTok access token is expired, use the **Refresh Token** button. It hits:

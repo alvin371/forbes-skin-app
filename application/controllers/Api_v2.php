@@ -23,6 +23,7 @@ class Api_v2 extends CI_Controller
     function __construct()
     {
         parent::__construct();
+        $this->load->library('Template');
         $this->load->helper('env');
 
         // TikTok Shop API credentials
@@ -40,6 +41,17 @@ class Api_v2 extends CI_Controller
         // Meta/Facebook API credentials
         $this->app_id_meta = env('META_APP_ID', '');
         $this->app_secret_meta = env('META_APP_SECRET', '');
+        $config = $this->mymodel->selectWithQuery("SELECT * FROM endorse_config");
+        $config_map = array();
+        if (is_array($config)) {
+            foreach ($config as $row) {
+                if (isset($row['title'])) {
+                    $config_map[$row['title']] = isset($row['value']) ? $row['value'] : null;
+                }
+            }
+        }
+        $this->fyp_views = isset($config_map['fyp_views']) ? intval($config_map['fyp_views']) : 0;
+        $this->fyp_percentage = isset($config_map['fyp_persentase']) ? intval($config_map['fyp_persentase']) : 0;
     }
 
     public function index()
@@ -1439,9 +1451,9 @@ class Api_v2 extends CI_Controller
                 if (!empty($variant['id_product']) && $variant['id_product'] != '0') {
                     $skus[] = [
                         'id' => (string)$variant['id_product'],
-                        'stock_infos' => [
+                        'inventory' => [
                             [
-                                'available_stock' => (int)$stock
+                                'quantity' => (int)$stock
                             ]
                         ]
                     ];
@@ -1453,56 +1465,57 @@ class Api_v2 extends CI_Controller
         if (empty($skus)) {
             $skus[] = [
                 'id' => (string)$product['id_product'],
-                'stock_infos' => [
+                'inventory' => [
                     [
-                        'available_stock' => (int)$stock
+                        'quantity' => (int)$stock
                     ]
                 ]
             ];
         }
     
         $post_data = [
-            'product_id' => (string)$product['id_product'],
             'skus' => $skus
         ];
-    
-        $base_url = 'https://open-api.tiktokglobalshop.com/api/products/stocks';
-        $url = $base_url . '?access_token=' . $access_token . 
-               '&app_key=' . $app_key . 
-               '&shop_cipher=' . $shop_cipher . 
-               '&shop_id=' . $shop_id . 
-               '&sign={{sign}}&timestamp={{timestamp}}&version=202212';
-    
-        $urlParts = parse_url($url);
-        $paramGET = [];
-        parse_str($urlParts['query'], $paramGET);
-        
+
+        $base_url = 'https://open-api.tiktokglobalshop.com/product/202309/products/'
+          . $product['id_product'] . '/inventory/update';
+
         $timest = time();
-        $pr = [
+
+        $body = json_encode($post_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        $queryParams = [
+            'app_key'     => $app_key,
+            'timestamp'   => $timest,     
+            'shop_cipher' => $shop_cipher,
+        ];
+
+        $sign = $this->tiktok_signature_generator([
             'secret' => $app_secret,
             'timest' => $timest,
-            'get' => $paramGET,
-            'url' => $base_url
-        ];
-        
-        $sign = $this->tiktok_signature_generator($pr);
-    
-        $url = str_replace('{{sign}}', $sign, $url);
-        $url = str_replace('{{timestamp}}', $timest, $url);
+            'get'    => $queryParams,
+            'url'    => $base_url,
+            'post'   => $body,  
+        ]);
+
+        $queryParams['sign'] = $sign;
+
+        $url = $base_url . '?' . http_build_query($queryParams);
 
         $curl = curl_init();
         curl_setopt_array($curl, [
-            CURLOPT_URL => $url,
+            CURLOPT_URL            => $url,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CUSTOMREQUEST => 'PUT',
-            CURLOPT_POSTFIELDS => json_encode($post_data),
-            CURLOPT_HTTPHEADER => [
+            CURLOPT_CUSTOMREQUEST  => 'POST',
+            CURLOPT_POSTFIELDS     => $body,
+            CURLOPT_HTTPHEADER     => [
                 'Content-Type: application/json',
-                'x-tts-access-token: ' . $access_token
+                'x-tts-access-token: ' . $access_token, 
             ],
         ]);
-    
+
         $response = curl_exec($curl);
+        $err = curl_error($curl);
     
         curl_close($curl);
     
@@ -1861,6 +1874,77 @@ class Api_v2 extends CI_Controller
                 //     $dt['return_at'] = DATE("Y-m-d H:i:s", $v3['create_time']);
                 //     $dt['order_status'] = "RETURN";
                 // }
+                
+                $url = 'https://open-api.tiktokglobalshop.com/finance/202501/orders/' . $order_id . '/statement_transactions?access_token=' . $access_token . '&app_key=' . $app_key . '&shop_cipher=' . $shop_cipher . '&shop_id=' . $shop_id . '&sign={{sign}}&timestamp={{timestamp}}';
+
+                $urlParts = parse_url($url);
+                $paramGET = [];
+                parse_str($urlParts['query'], $paramGET);
+                $timest = strtotime('now');
+                $pr = array();
+                $pr['secret'] = $app_secret;
+                $pr['timest'] = $timest;
+                $pr['get'] = $paramGET;
+                $pr['url'] = $url;
+                $sign = $this->tiktok_signature_generator($pr);
+    
+                $url = str_replace('{{sign}}', $sign, $url);
+                $url = str_replace('{{timestamp}}', $timest, $url);
+                $curl = curl_init();
+                curl_setopt_array($curl, array(
+                    CURLOPT_URL => $url,
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_ENCODING => '',
+                    CURLOPT_MAXREDIRS => 10,
+                    CURLOPT_TIMEOUT => 0,
+                    CURLOPT_FOLLOWLOCATION => true,
+                    CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+                    CURLOPT_CUSTOMREQUEST => 'GET',
+                    CURLOPT_HTTPHEADER => array(
+                        'x-tts-access-token: ' . $access_token
+                    ),
+                ));
+    
+                $response = curl_exec($curl);
+                $response = json_decode($response, true);
+                if ($response['message'] != 'Success') {
+                    $html['status'] = false;
+                    $html['data'] = array();
+                    $html['msg'] = $response['message'];
+                    echo json_encode($html, true);
+                    die;
+                }
+    
+                $payment = $response['data'];
+    
+                if ($payment['settlement_amount'] > 0) {
+                    $total_komisi_afiliasi = 0;
+                    $total_omset_bersih = 0;
+                    $total_platform_commission = 0;
+                    $total_sfp_service_fee = 0;
+                    
+                    foreach ($payment['sku_transactions'] as $sku) {
+                        $fee_breakdown = $sku['fee_tax_breakdown']['fee'];
+                        $total_komisi_afiliasi += abs(doubleval($fee_breakdown['affiliate_commission_amount']));
+                        $total_omset_bersih += doubleval($sku['revenue_breakdown']['subtotal_before_discount_amount']) 
+                                            + doubleval($sku['revenue_breakdown']['seller_discount_amount']);
+                        
+                        $total_platform_commission += abs(doubleval($fee_breakdown['platform_commission_amount']));
+                        $total_sfp_service_fee += abs(doubleval($fee_breakdown['sfp_service_fee_amount']));
+                    }
+                    
+                    $dt['komisi_afiliasi'] = $total_komisi_afiliasi;
+                    $dt['omset_bersih'] = $total_omset_bersih;
+                    $dt['marketplace_fee'] = $total_platform_commission + $total_sfp_service_fee;
+                    $dt['dana_pencairan'] = doubleval($payment['settlement_amount']);
+                    $dt['pencairan_status'] = '';
+                    $dt['pencairan_at'] = '';
+                    
+                    if ($payment['settlement_time']) {
+                        $dt['pencairan_status'] = 'Settlement';
+                        $dt['pencairan_at'] = DATE("Y-m-d H:i:s", ($payment['settlement_time']));
+                    }
+                }
             }
 
 
@@ -1886,69 +1970,10 @@ class Api_v2 extends CI_Controller
 
 
 
-            $url = 'https://open-api.tiktokglobalshop.com/api/finance/order/settlements?access_token=' . $access_token . '&app_key=' . $app_key . '&order_id=' . $order_id . '&shop_cipher=' . $shop_cipher . '&shop_id=' . $shop_id . '&sign={{sign}}&timestamp={{timestamp}}&version=202212';
-
-            $urlParts = parse_url($url);
-            $paramGET = [];
-            parse_str($urlParts['query'], $paramGET);
-            $timest = strtotime('now');
-            $pr = array();
-            $pr['secret'] = $app_secret;
-            $pr['timest'] = $timest;
-            $pr['get'] = $paramGET;
-            $pr['url'] = $url;
-            $sign = $this->tiktok_signature_generator($pr);
-
-            $url = str_replace('{{sign}}', $sign, $url);
-            $url = str_replace('{{timestamp}}', $timest, $url);
-            $curl = curl_init();
-            curl_setopt_array($curl, array(
-                CURLOPT_URL => $url,
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_ENCODING => '',
-                CURLOPT_MAXREDIRS => 10,
-                CURLOPT_TIMEOUT => 0,
-                CURLOPT_FOLLOWLOCATION => true,
-                CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-                CURLOPT_CUSTOMREQUEST => 'GET',
-                CURLOPT_HTTPHEADER => array(
-                    'x-tts-access-token: ' . $access_token
-                ),
-            ));
-
-            $response = curl_exec($curl);
-            
-            $response = json_decode($response, true);
-            if ($response['message'] != 'Success') {
-                $html['status'] = false;
-                $html['data'] = array();
-                $html['msg'] = $response['message'];
-                echo json_encode($html, true);
-                die;
-            }
-
-            $payment = $response['data']['settlement_list'][0]['settlement_info'];
-
-
             $dt['customer_price'] = doubleval($v2['payment']['total_amount']);
             $dt['omset_kotor'] = doubleval($v2['payment']['original_total_product_price']);
             $dt['omset_bersih'] = doubleval($v2['payment']['original_total_product_price'] - $v2['payment']['seller_discount']);
             $dt['diskon_penjual'] = doubleval($v2['payment']['seller_discount']);
-
-            if ($payment['settlement_amount']) {
-                $dt['komisi_afiliasi'] = doubleval($payment['affiliate_commission']);
-                // $dt['omset_kotor'] = doubleval($v['price_total']);
-                // $dt['diskon_penjual'] = abs(doubleval($payment['subtotal_after_seller_discounts']) - doubleval($v['price_total']));
-                $dt['omset_bersih'] = doubleval($payment['subtotal_after_seller_discounts']);
-                $dt['marketplace_fee'] = doubleval($payment['platform_commission']) + doubleval($payment['sfp_service_fee']);
-                $dt['dana_pencairan'] = doubleval($payment['settlement_amount']);
-                $dt['pencairan_status'] = '';
-                $dt['pencairan_at'] = '';
-                if ($payment['settlement_time']) {
-                    $dt['pencairan_status'] = 'Settlement';
-                    $dt['pencairan_at'] = DATE("Y-m-d H:i:s", ($payment['settlement_time']));
-                }
-            }
 
             if ($dt['marketplace_fee'] == 0) {
                 $channel = $this->mymodel->selectDataOne('marketplace', array('name' => $marketplace));
@@ -5373,6 +5398,1136 @@ class Api_v2 extends CI_Controller
             $this->db->update('download_file', $dt, array('id' => $id));
         } else {
             echo "Error saving the file.";
+        }
+    }
+
+    public function get_handover_time_slots_by_package()
+    {
+        header('Content-Type: application/json');
+
+        $transaction_id = $_POST['transaction_id'] ?? '';
+        $shop_id = $_POST['shop_id'] ?? '';
+
+        $package_id = '';
+        if ($transaction_id) {
+            $transaction_row = $this->mymodel->selectDataOne('transaction', ['order_id' => $transaction_id]);
+            if ($transaction_row) {
+                $package_id = $transaction_row['package_id'];
+            }
+        }
+        if (!$package_id || !$shop_id) {
+            echo json_encode(['status' => false, 'message' => 'package_id dan shop_id wajib diisi']);
+            return;
+        }
+
+        $config_row = $this->mymodel->selectDataOne('marketplace_config', ['shop_id' => $shop_id]);
+        if (!$config_row) {
+            echo json_encode(['status' => false, 'message' => 'Config toko tidak ditemukan']);
+            return;
+        }
+
+        $config       = json_decode($config_row['val'], true);
+        $app_key      = $config['app_key'] ?? '';
+        $access_token = $config['access_token'] ?? '';
+        $shop_cipher  = $config['shop']['cipher'] ?? '';
+        $app_secret   = $this->app_secret_tiktok;
+        $shop_id_val  = $config['shop']['id'] ?? $shop_id;
+
+        if (!$app_key || !$access_token || !$shop_cipher || !$app_secret) {
+            echo json_encode(['status' => false, 'message' => 'Config tidak lengkap']);
+            return;
+        }
+
+        $endpoint_path = '/fulfillment/202309/packages/' . $package_id . '/handover_time_slots';
+
+        $request_url = 'https://open-api.tiktokglobalshop.com' . $endpoint_path
+            . '?access_token=' . rawurlencode($access_token)
+            . '&app_key='      . rawurlencode($app_key)
+            . '&shop_cipher='  . rawurlencode($shop_cipher)
+            . '&shop_id='      . rawurlencode($shop_id_val)
+            . '&sign={{sign}}&timestamp={{timestamp}}&version=202309';
+
+        $urlParts  = parse_url($request_url);
+        $paramGET  = [];
+        parse_str($urlParts['query'], $paramGET);
+
+        $timest = time();
+        $pr = [
+            'secret' => $app_secret,
+            'timest' => $timest,
+            'get'    => $paramGET,
+            'post'   => '',
+            'url'    => $request_url
+        ];
+
+        $sign = $this->tiktok_signature_generator($pr);
+
+        $request_url_signed = str_replace('{{sign}}', $sign, $request_url);
+        $request_url_signed = str_replace('{{timestamp}}', $timest, $request_url_signed);
+
+        // Eksekusi request
+        $curl = curl_init();
+        curl_setopt_array($curl, [
+            CURLOPT_URL            => $request_url_signed,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_ENCODING       => '',
+            CURLOPT_MAXREDIRS      => 10,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST  => 'GET',
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'x-tts-access-token: ' . $access_token
+            ],
+        ]);
+
+        $response_body = curl_exec($curl);
+        $curl_error    = curl_error($curl);
+        $http_code     = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        curl_close($curl);
+
+        if ($curl_error) {
+            echo json_encode(['status' => false, 'message' => 'CURL Error: ' . $curl_error]);
+            return;
+        }
+
+        $response_json = json_decode($response_body, true);
+        
+        if (isset($response_json['code']) && $response_json['code'] == 0) {
+            echo json_encode([
+                'status' => true,
+                'data' => $response_json['data'] ?? [],
+                'message' => 'Berhasil mengambil time slots'
+            ]);
+        } else {
+            echo json_encode([
+                'status' => false,
+                'message' => 'Gagal mengambil time slots: ' . ($response_json['message'] ?? 'Unknown error'),
+                'raw' => $response_json
+            ]);
+        }
+    }
+
+
+    
+    public function tts_ship_packages_bulk()
+    {
+        header('Content-Type: application/json');
+    
+        $transaction_ids_input = $_POST['transaction_ids'] ?? [];
+        if (is_string($transaction_ids_input)) {
+            $transaction_ids = array_filter(array_map('trim', explode(',', $transaction_ids_input)));
+        } else {
+            $transaction_ids = (array) $transaction_ids_input;
+        }
+    
+        if (empty($transaction_ids)) {
+            echo json_encode(['status' => false, 'message' => 'transaction_ids wajib (array atau CSV)']);
+            return;
+        }
+    
+        $handover_type = 'PICKUP';
+        $pickup_start_time = null;
+        $pickup_end_time = null;
+    
+        if ($handover_type === 'PICKUP') {
+            $pickup_start_time_input = $_POST['pickup_start_time'] ?? '';
+            $pickup_end_time_input = $_POST['pickup_end_time'] ?? '';
+    
+            if ($pickup_start_time_input === '' || $pickup_end_time_input === '') {
+                echo json_encode(['status' => false, 'message' => 'pickup_start_time dan pickup_end_time wajib diisi']);
+                return;
+            }
+    
+            if (!ctype_digit((string)$pickup_start_time_input) || !ctype_digit((string)$pickup_end_time_input)) {
+                echo json_encode(['status' => false, 'message' => 'pickup_start_time dan pickup_end_time harus berupa angka detik UNIX']);
+                return;
+            }
+    
+            $pickup_start_time = (int)$pickup_start_time_input;
+            $pickup_end_time = (int)$pickup_end_time_input;
+    
+            if ($pickup_start_time >= $pickup_end_time) {
+                echo json_encode(['status' => false, 'message' => 'pickup_end_time harus lebih besar dari pickup_start_time']);
+                return;
+            }
+        }
+    
+        // 1. AMBIL SEMUA DATA TRANSAKSI SEKALIGUS DENGAN JOIN
+        $placeholders = implode(',', array_fill(0, count($transaction_ids), '?'));
+        $sql = "SELECT t.order_id, t.package_id, t.shop_id, mc.val as config_val 
+                FROM transaction t 
+                LEFT JOIN marketplace_config mc ON t.shop_id = mc.shop_id 
+                WHERE t.order_id IN ($placeholders)";
+        
+        $transactions = $this->db->query($sql, $transaction_ids)->result_array();
+        
+        // Kelompokkan transaksi berdasarkan shop_id dan buat lookup
+        $transactions_by_shop = [];
+        $transaction_lookup = [];
+        $missing_transactions = [];
+        
+        foreach ($transaction_ids as $tx_id) {
+            $found = false;
+            foreach ($transactions as $tx) {
+                if ($tx['order_id'] === $tx_id) {
+                    $found = true;
+                    $shop_id = $tx['shop_id'];
+                    if (!isset($transactions_by_shop[$shop_id])) {
+                        $transactions_by_shop[$shop_id] = [
+                            'transactions' => [],
+                            'config_val' => $tx['config_val']
+                        ];
+                    }
+                    $transactions_by_shop[$shop_id]['transactions'][] = $tx;
+                    $transaction_lookup[$tx_id] = $tx;
+                    break;
+                }
+            }
+            if (!$found) {
+                $missing_transactions[] = $tx_id;
+            }
+        }
+    
+        $results = [];
+    
+        // 2. PROSES SETIAP SHOP DENGAN BATCHING (MAKSIMAL 50 PER REQUEST)
+        $successful_updates = [];
+        
+        foreach ($transactions_by_shop as $shop_id => $shop_data) {
+            $config_val = json_decode($shop_data['config_val'] ?? '{}', true);
+            
+            if (empty($config_val)) {
+                foreach ($shop_data['transactions'] as $tx) {
+                    $results[] = [
+                        'transaction_id' => $tx['order_id'],
+                        'status' => false,
+                        'message' => 'Config toko tidak ditemukan'
+                    ];
+                }
+                continue;
+            }
+    
+            $app_key = $config_val['app_key'] ?? '';
+            $access_token = $config_val['access_token'] ?? '';
+            $shop_cipher = $config_val['shop']['cipher'] ?? '';
+            $app_secret = $this->app_secret_tiktok;
+            $shop_id_val = $config_val['shop']['id'] ?? $shop_id;
+    
+            if (!$app_key || !$access_token || !$shop_cipher || !$app_secret) {
+                foreach ($shop_data['transactions'] as $tx) {
+                    $results[] = [
+                        'transaction_id' => $tx['order_id'],
+                        'status' => false,
+                        'message' => 'Config tidak lengkap'
+                    ];
+                }
+                continue;
+            }
+    
+            // Bagi transactions menjadi chunk maksimal 50
+            $transaction_chunks = array_chunk($shop_data['transactions'], 50);
+            
+            foreach ($transaction_chunks as $chunk_index => $transaction_chunk) {
+                // Siapkan packages data untuk bulk request (maksimal 50)
+                $packages_data = [];
+                $package_to_transaction = [];
+                
+                foreach ($transaction_chunk as $tx) {
+                    $package_id = $tx['package_id'] ?? '';
+                    if (!$package_id) {
+                        $results[] = [
+                            'transaction_id' => $tx['order_id'],
+                            'status' => false,
+                            'message' => 'package_id kosong'
+                        ];
+                        continue;
+                    }
+    
+                    $package_data = [
+                        'id' => $package_id,
+                        'handover_method' => $handover_type,
+                    ];
+    
+                    if ($handover_type === 'PICKUP') {
+                        $package_data['pickup_slot'] = [
+                            'start_time' => (int)$pickup_start_time,
+                            'end_time' => (int)$pickup_end_time
+                        ];
+                    }
+    
+                    $packages_data[] = $package_data;
+                    $package_to_transaction[$package_id] = $tx['order_id'];
+                }
+    
+                if (empty($packages_data)) {
+                    continue;
+                }
+    
+                // Persiapkan request untuk chunk ini
+                $endpoint_path = '/fulfillment/202309/packages/ship';
+                $request_url = 'https://open-api.tiktokglobalshop.com' . $endpoint_path
+                    . '?access_token=' . rawurlencode($access_token)
+                    . '&app_key='      . rawurlencode($app_key)
+                    . '&shop_cipher='  . rawurlencode($shop_cipher)
+                    . '&shop_id='      . rawurlencode($shop_id_val)
+                    . '&sign={{sign}}&timestamp={{timestamp}}&version=202309';
+    
+                $request_body_json = json_encode([
+                    'packages' => $packages_data
+                ], JSON_UNESCAPED_SLASHES);
+    
+                $urlParts  = parse_url($request_url);
+                $paramGET  = [];
+                parse_str($urlParts['query'], $paramGET);
+    
+                $timest = time();
+                $pr = [
+                    'secret' => $app_secret,
+                    'timest' => $timest,
+                    'get'    => $paramGET,
+                    'post'   => $request_body_json,
+                    'url'    => $request_url
+                ];
+    
+                $sign = $this->tiktok_signature_generator($pr);
+    
+                $request_url_signed = str_replace(['{{sign}}', '{{timestamp}}'], [$sign, $timest], $request_url);
+    
+                $curl = curl_init();
+                curl_setopt_array($curl, [
+                    CURLOPT_URL            => $request_url_signed,
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_ENCODING       => '',
+                    CURLOPT_MAXREDIRS      => 10,
+                    CURLOPT_TIMEOUT        => 0,
+                    CURLOPT_FOLLOWLOCATION => true,
+                    CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
+                    CURLOPT_CUSTOMREQUEST  => 'POST',
+                    CURLOPT_POSTFIELDS     => $request_body_json,
+                    CURLOPT_HTTPHEADER     => [
+                        'Content-Type: application/json',
+                        'x-tts-access-token: ' . $access_token
+                    ],
+                ]);
+    
+                $response_body = curl_exec($curl);
+                $curl_error = curl_error($curl);
+                $http_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+                curl_close($curl);
+    
+                if ($curl_error) {
+                    foreach ($transaction_chunk as $tx) {
+                        $results[] = [
+                            'transaction_id' => $tx['order_id'],
+                            'status' => false,
+                            'message' => 'CURL Error: ' . $curl_error
+                        ];
+                    }
+                    continue;
+                }
+    
+                $response_json = json_decode($response_body, true);
+                
+                if (isset($response_json['code']) && $response_json['code'] == 0) {
+                    // Semua package dalam chunk ini berhasil
+                    foreach ($transaction_chunk as $tx) {
+                        $successful_updates[] = $tx['order_id'];
+                        $results[] = [
+                            'transaction_id' => $tx['order_id'],
+                            'status' => true,
+                            'message' => 'Ship Package sukses',
+                            'package_id' => $tx['package_id'],
+                            'raw' => $response_json
+                        ];
+                    }
+                } else {
+                    $error_message = $response_json['message'] ?? 'Unknown error';
+                    
+                    if (isset($response_json['data']['failed_packages'])) {
+                        $failed_packages = $response_json['data']['failed_packages'];
+                        $success_packages = $response_json['data']['success_packages'] ?? [];
+                        
+                        // Process failed packages
+                        foreach ($failed_packages as $failed_pkg) {
+                            $package_id = $failed_pkg['package_id'] ?? '';
+                            if (isset($package_to_transaction[$package_id])) {
+                                $transaction_id = $package_to_transaction[$package_id];
+                                $results[] = [
+                                    'transaction_id' => $transaction_id,
+                                    'status' => false,
+                                    'message' => 'Ship Package gagal: ' . ($failed_pkg['message'] ?? $error_message),
+                                    'package_id' => $package_id,
+                                    'raw' => $response_json
+                                ];
+                            }
+                        }
+                        
+                        // Process success packages
+                        foreach ($success_packages as $success_pkg) {
+                            $package_id = $success_pkg['package_id'] ?? '';
+                            if (isset($package_to_transaction[$package_id])) {
+                                $transaction_id = $package_to_transaction[$package_id];
+                                $successful_updates[] = $transaction_id;
+                                $results[] = [
+                                    'transaction_id' => $transaction_id,
+                                    'status' => true,
+                                    'message' => 'Ship Package sukses',
+                                    'package_id' => $package_id,
+                                    'raw' => $response_json
+                                ];
+                            }
+                        }
+                    } else {
+                        // Jika tidak ada detail per package, anggap semua dalam chunk gagal
+                        foreach ($transaction_chunk as $tx) {
+                            $results[] = [
+                                'transaction_id' => $tx['order_id'],
+                                'status' => false,
+                                'message' => 'Ship Package gagal: ' . $error_message,
+                                'package_id' => $tx['package_id'],
+                                'raw' => $response_json
+                            ];
+                        }
+                    }
+                }
+    
+                // Tambahkan delay kecil antara request untuk menghindari rate limiting
+                if (count($transaction_chunks) > 1 && $chunk_index < count($transaction_chunks) - 1) {
+                    usleep(500000); // 0.5 detik delay
+                }
+            }
+        }
+    
+        // 3. BATCH UPDATE UNTUK SEMUA TRANSAKSI YANG BERHASIL
+        if (!empty($successful_updates)) {
+            $placeholders = implode(',', array_fill(0, count($successful_updates), '?'));
+            $update_sql = "UPDATE transaction SET rts_at = ?, order_status = ? WHERE order_id IN ($placeholders)";
+            $params = array_merge([date('Y-m-d H:i:s'), 'PROCESSED'], $successful_updates);
+            $this->db->query($update_sql, $params);
+        }
+    
+        // 4. HANDLE TRANSAKSI YANG TIDAK DITEMUKAN
+        foreach ($missing_transactions as $tx_id) {
+            $results[] = [
+                'transaction_id' => $tx_id, 
+                'status' => false, 
+                'message' => 'Transaksi tidak ditemukan'
+            ];
+        }
+    
+        echo json_encode(['status' => true, 'results' => $results]);
+    }
+
+
+    
+    public function tts_get_shipping_documents_bulk()
+    {
+        header('Content-Type: application/json');
+        header('Access-Control-Allow-Origin: *');
+        header('Access-Control-Allow-Methods: POST, GET, OPTIONS');
+        header('Access-Control-Allow-Headers: Content-Type');
+        header('Content-Type: application/json');
+    
+        // Handle preflight request
+        if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
+            exit(0);
+        }
+    
+        $transaction_ids_input = $_POST['transaction_ids'] ?? [];
+        if (is_string($transaction_ids_input)) {
+            $transaction_ids = array_filter(array_map('trim', explode(',', $transaction_ids_input)));
+        } else {
+            $transaction_ids = (array) $transaction_ids_input;
+        }
+    
+        if (empty($transaction_ids)) {
+            echo json_encode(['status' => false, 'message' => 'transaction_ids wajib (array atau CSV)']);
+            return;
+        }
+    
+        // 1. AMBIL SEMUA DATA TRANSAKSI SEKALIGUS
+        $placeholders = implode(',', array_fill(0, count($transaction_ids), '?'));
+        $sql = "SELECT t.order_id, t.package_id, t.shop_id, mc.val as config_val 
+                FROM transaction t 
+                LEFT JOIN marketplace_config mc ON t.shop_id = mc.shop_id 
+                WHERE t.order_id IN ($placeholders)";
+        
+        $transactions = $this->db->query($sql, $transaction_ids)->result_array();
+        
+        // Group by shop_id untuk optimasi lebih lanjut
+        $transactions_by_shop = [];
+        $transaction_lookup = [];
+        
+        foreach ($transactions as $tx) {
+            $transactions_by_shop[$tx['shop_id']][] = $tx;
+            $transaction_lookup[$tx['order_id']] = $tx;
+        }
+    
+        $results = [];
+        $doc_type = strtoupper('SHIPPING_LABEL_PICTURE');
+        $label_size = 'A6';
+    
+        foreach ($transactions_by_shop as $shop_id => $shop_transactions) {
+            $first_tx = $shop_transactions[0];
+            $config_val = json_decode($first_tx['config_val'] ?? '{}', true);
+            
+            if (empty($config_val)) {
+                foreach ($shop_transactions as $tx) {
+                    $results[] = [
+                        'transaction_id' => $tx['order_id'], 
+                        'status' => false, 
+                        'message' => 'Config toko tidak ditemukan'
+                    ];
+                }
+                continue;
+            }
+    
+            $app_key = $config_val['app_key'] ?? '';
+            $access_token = $config_val['access_token'] ?? '';
+            $shop_cipher = $config_val['shop']['cipher'] ?? '';
+            $app_secret = $this->app_secret_tiktok;
+            $shop_id_val = $config_val['shop']['id'] ?? $shop_id;
+    
+            if (!$app_key || !$access_token || !$shop_cipher || !$app_secret) {
+                foreach ($shop_transactions as $tx) {
+                    $results[] = [
+                        'transaction_id' => $tx['order_id'],
+                        'status' => false,
+                        'message' => 'Config tidak lengkap'
+                    ];
+                }
+                continue;
+            }
+    
+            // OPTIMASI: Gunakan batch size lebih besar dengan connection limit
+            $batch_size = 40; // Increased batch size
+            $transaction_batches = array_chunk($shop_transactions, $batch_size);
+            
+            $successful_updates = [];
+    
+            foreach ($transaction_batches as $batch_index => $batch_transactions) {
+                $multi_curl = curl_multi_init();
+                $curl_handlers = [];
+                $package_to_tx = [];
+    
+                // OPTIMASI: Set konfigurasi multi curl untuk performa lebih baik
+                curl_multi_setopt($multi_curl, CURLMOPT_MAXCONNECTS, 30);
+                curl_multi_setopt($multi_curl, CURLMOPT_MAX_HOST_CONNECTIONS, 10);
+    
+                foreach ($batch_transactions as $tx) {
+                    $package_id = $tx['package_id'] ?? '';
+                    if (!$package_id) {
+                        $results[] = [
+                            'transaction_id' => $tx['order_id'],
+                            'status' => false,
+                            'message' => 'package_id kosong'
+                        ];
+                        continue;
+                    }
+    
+                    $endpoint_path = '/fulfillment/202309/packages/' . $package_id . '/shipping_documents';
+                    $request_url = 'https://open-api.tiktokglobalshop.com' . $endpoint_path
+                        . '?app_key=' . rawurlencode($app_key)
+                        . '&shop_cipher=' . rawurlencode($shop_cipher)
+                        . '&document_type=' . rawurlencode($doc_type)
+                        . '&document_size=' . rawurlencode($label_size)
+                        . '&sign={{sign}}'
+                        . '&timestamp={{timestamp}}'
+                        . '&version=202309';
+    
+                    $urlParts = parse_url($request_url);
+                    $paramGET = [];
+                    parse_str($urlParts['query'], $paramGET);
+    
+                    $timest = time();
+                    $pr = [
+                        'secret' => $app_secret,
+                        'timest' => $timest,
+                        'get' => $paramGET,
+                        'post' => '',
+                        'url' => $request_url
+                    ];
+    
+                    $sign = $this->tiktok_signature_generator($pr);
+                    $request_url_signed = str_replace(['{{sign}}', '{{timestamp}}'], [$sign, $timest], $request_url);
+    
+                    $curl = curl_init();
+                    
+                    // OPTIMASI: Kurang timeout dan optimasi curl options
+                    curl_setopt_array($curl, [
+                        CURLOPT_URL => $request_url_signed,
+                        CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_ENCODING => '',
+                        CURLOPT_MAXREDIRS => 5, // Reduced
+                        CURLOPT_TIMEOUT => 30,  // Reduced from 60 to 30
+                        CURLOPT_FOLLOWLOCATION => true,
+                        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+                        CURLOPT_CUSTOMREQUEST => 'GET',
+                        CURLOPT_HTTPHEADER => [
+                            'Content-Type: application/json',
+                            'x-tts-access-token: ' . $access_token
+                        ],
+                        CURLOPT_SSL_VERIFYPEER => false, // OPTIONAL: untuk percepatan
+                        CURLOPT_SSL_VERIFYHOST => false, // OPTIONAL: untuk percepatan
+                    ]);
+    
+                    $curl_handlers[$package_id] = $curl;
+                    $package_to_tx[$package_id] = $tx['order_id'];
+                    curl_multi_add_handle($multi_curl, $curl);
+                }
+    
+                // OPTIMASI: Eksekusi multi curl dengan timeout lebih agresif
+                $running = null;
+                $start_time = microtime(true);
+                
+                do {
+                    $status = curl_multi_exec($multi_curl, $running);
+                    if ($running) {
+                        // Kurangi timeout untuk respons lebih cepat
+                        curl_multi_select($multi_curl, 0.05); // Reduced from 0.1 to 0.05
+                    }
+                    
+                    // Timeout safety: maksimal 15 detik per batch
+                    if ((microtime(true) - $start_time) > 15) {
+                        break;
+                    }
+                } while ($running > 0);
+    
+                // Process responses untuk batch saat ini
+                foreach ($curl_handlers as $package_id => $curl) {
+                    $tx_id = $package_to_tx[$package_id];
+                    $response_body = curl_multi_getcontent($curl);
+                    $curl_error = curl_error($curl);
+                    $http_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+    
+                    if ($curl_error) {
+                        $results[] = ['transaction_id' => $tx_id, 'status' => false, 'message' => $curl_error];
+                        continue;
+                    }
+    
+                    $response_json = json_decode($response_body, true);
+                    
+                    // Handle rate limiting
+                    if ($http_code === 429 || (isset($response_json['code']) && $response_json['code'] == 36009002)) {
+                        $results[] = [
+                            'transaction_id' => $tx_id,
+                            'status' => false,
+                            'message' => 'Rate limit exceeded',
+                        ];
+                        continue;
+                    }
+    
+                    if (isset($response_json['code']) && $response_json['code'] != 0) {
+                        $results[] = [
+                            'transaction_id' => $tx_id,
+                            'status' => false,
+                            'message' => 'Get Shipping Document gagal: ' . ($response_json['message'] ?? 'Unknown'),
+                            'raw' => $response_json
+                        ];
+                        continue;
+                    }
+    
+                    $document_urls = $response_json['data']['document_urls'] ?? $response_json['data'] ?? [];
+                    
+                    $successful_updates[] = $tx_id;
+                    
+                    $results[] = [
+                        'transaction_id' => $tx_id,
+                        'status' => true,
+                        'message' => 'OK',
+                        'package_id' => $package_id,
+                        'document_urls' => $document_urls
+                    ];
+    
+                    curl_multi_remove_handle($multi_curl, $curl);
+                    curl_close($curl);
+                }
+    
+                curl_multi_close($multi_curl);
+    
+                // OPTIMASI: Kurangi delay antara batch
+                if (count($transaction_batches) > 1 && $batch_index < count($transaction_batches) - 1) {
+                    // Delay minimal antara batch
+                    usleep(100000); // Hanya 0.1 detik delay antara batch
+                }
+            }
+    
+            $today = date('Y-m-d H:i:s');
+    
+            if (!empty($successful_updates)) {
+                $data = array(
+                    'print_at' => $today
+                );
+                
+                $this->db->where_in('order_id', $successful_updates);
+                $this->db->update('transaction', $data);
+            }
+        }
+    
+        foreach ($transaction_ids as $tx_id) {
+            if (!isset($transaction_lookup[$tx_id])) {
+                $results[] = ['transaction_id' => $tx_id, 'status' => false, 'message' => 'Transaksi tidak ditemukan'];
+            }
+        }
+    
+        echo json_encode(['status' => true, 'results' => $results]);
+    }
+
+
+
+    public function get_shop_products_performance()
+    {
+        header('Content-Type: application/json');
+
+        $shop_id = $_GET['shop_id'] ?? '';
+        $start_date = $_GET['start_date'] ?? '';
+        $end_date = $_GET['end_date'] ?? '';
+        
+        if (!$shop_id || !$start_date || !$end_date) {
+            echo json_encode(['status' => false, 'message' => 'shop_id, start_date, dan end_date wajib diisi']);
+            return;
+        }
+
+        $config_row = $this->mymodel->selectDataOne('marketplace_config', ['shop_id' => $shop_id]);
+        if (!$config_row) {
+            echo json_encode(['status' => false, 'message' => 'Config toko tidak ditemukan']);
+            return;
+        }
+
+        $config       = json_decode($config_row['val'], true);
+        $app_key      = $config['app_key'] ?? '';
+        $access_token = $config['access_token'] ?? '';
+        $shop_cipher  = $config['shop']['cipher'] ?? '';
+        $app_secret   = $this->app_secret_tiktok;
+        $shop_id_val  = $config['shop']['id'] ?? $shop_id;
+
+        if (!$app_key || !$access_token || !$shop_cipher || !$app_secret) {
+            echo json_encode(['status' => false, 'message' => 'Config tidak lengkap']);
+            return;
+        }
+
+        $timest = time();
+        
+        $endpoint_path = '/analytics/202405/shop/performance';
+        
+        $params = [
+            'sort_order' => 'DESC',
+            'sort_field' => 'gmv',
+            'currency' => 'LOCAL',
+            'page_size' => 10,
+            'start_date_ge' => $start_date,
+            'end_date_lt' => $end_date,
+            'app_key' => $app_key,
+            'shop_cipher' => $shop_cipher,
+            'shop_id' => $shop_id_val,
+            'timestamp' => $timest, 
+        ];
+
+        if (!empty($_GET['page_token'])) {
+            $params['page_token'] = $_GET['page_token'];
+        }
+
+        $pr = [
+            'secret' => $app_secret,
+            'timest' => $timest,
+            'get'    => $params,
+            'post'   => '',
+            'url'    => 'https://open-api.tiktokglobalshop.com' . $endpoint_path
+        ];
+
+        $sign = $this->tiktok_signature_generator($pr);
+        
+        $params['sign'] = $sign;
+        
+        $request_url = 'https://open-api.tiktokglobalshop.com' . $endpoint_path . '?' . http_build_query($params);
+
+        // Eksekusi request
+        $curl = curl_init();
+        curl_setopt_array($curl, [
+            CURLOPT_URL            => $request_url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_ENCODING       => '',
+            CURLOPT_MAXREDIRS      => 10,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST  => 'GET',
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'x-tts-access-token: ' . $access_token
+            ],
+        ]);
+
+        $response_body = curl_exec($curl);
+        $curl_error    = curl_error($curl);
+        $http_code     = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        curl_close($curl);
+
+        if ($curl_error) {
+            echo json_encode(['status' => false, 'message' => 'CURL Error: ' . $curl_error]);
+            return;
+        }
+
+        $response_json = json_decode($response_body, true);
+        
+        if (isset($response_json['code']) && $response_json['code'] == 0) {
+            echo json_encode([
+                'status' => true,
+                'data' => $response_json['data'] ?? [],
+                'message' => 'Berhasil mengambil data performa produk'
+            ]);
+        } else {
+            echo json_encode([
+                'status' => false,
+                'message' => 'Gagal mengambil data performa produk: ' . ($response_json['message'] ?? 'Unknown error'),
+                'raw' => $response_json
+            ]);
+        }
+    }
+
+
+
+    public function get_affiliate_performance()
+    {
+        header('Content-Type: application/json');
+
+        $shop_id = $_GET['shop_id'] ?? '';
+        $creator_id = $_GET['creator_id'] ?? '';
+
+        if (!$shop_id || !$creator_id) {
+            echo json_encode(['status' => false, 'message' => 'shop_id dan creator_id wajib diisi']);
+            return;
+        }
+
+        $config_row = $this->mymodel->selectDataOne('marketplace_config', ['shop_id' => $shop_id]);
+        if (!$config_row) {
+            echo json_encode(['status' => false, 'message' => 'Config toko tidak ditemukan']);
+            return;
+        }
+
+        $config       = json_decode($config_row['val'], true);
+        $app_key      = $config['app_key'] ?? '';
+        $access_token = $config['access_token'] ?? '';
+        $shop_cipher  = $config['shop']['cipher'] ?? '';
+        $app_secret   = $this->app_secret_tiktok;
+
+        if (!$app_key || !$access_token || !$shop_cipher || !$app_secret) {
+            echo json_encode(['status' => false, 'message' => 'Config tidak lengkap']);
+            return;
+        }
+
+        $timest = time();
+        $endpoint_path = '/affiliate_seller/202508/marketplace_creators/' . rawurlencode($creator_id);
+
+        $params = [
+            'app_key' => $app_key,
+            'shop_cipher' => $shop_cipher,
+            'timestamp' => $timest,
+        ];
+
+        $pr = [
+            'secret' => $app_secret,
+            'timest' => $timest,
+            'get'    => $params,
+            'post'   => '',
+            'url'    => 'https://open-api.tiktokglobalshop.com' . $endpoint_path
+        ];
+
+        $sign = $this->tiktok_signature_generator($pr);
+        $params['sign'] = $sign;
+
+        $request_url = 'https://open-api.tiktokglobalshop.com' . $endpoint_path . '?' . http_build_query($params);
+
+        $curl = curl_init();
+        curl_setopt_array($curl, [
+            CURLOPT_URL            => $request_url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_ENCODING       => '',
+            CURLOPT_MAXREDIRS      => 10,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST  => 'GET',
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'x-tts-access-token: ' . $access_token
+            ],
+        ]);
+
+        $response_body = curl_exec($curl);
+        $curl_error    = curl_error($curl);
+        $http_code     = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        curl_close($curl);
+
+        if ($curl_error) {
+            echo json_encode(['status' => false, 'message' => 'CURL Error: ' . $curl_error]);
+            return;
+        }
+
+        $response_json = json_decode($response_body, true);
+
+        if (isset($response_json['code']) && $response_json['code'] == 0) {
+            echo json_encode([
+                'status' => true,
+                'data' => $response_json['data'] ?? [],
+                'message' => 'Berhasil mengambil performa affiliate'
+            ]);
+        } else {
+            echo json_encode([
+                'status' => false,
+                'message' => 'Gagal mengambil performa affiliate: ' . ($response_json['message'] ?? 'Unknown error'),
+                'raw' => $response_json
+            ]);
+        }
+    }
+
+
+
+    public function search_marketplace_creators()
+    {
+        header('Content-Type: application/json');
+
+        $shop_id = $_GET['shop_id'] ?? '';
+        if (!$shop_id) {
+            echo json_encode(['status' => false, 'message' => 'shop_id wajib diisi']);
+            return;
+        }
+
+        $config_row = $this->mymodel->selectDataOne('marketplace_config', ['shop_id' => $shop_id]);
+        if (!$config_row) {
+            echo json_encode(['status' => false, 'message' => 'Config toko tidak ditemukan']);
+            return;
+        }
+
+        $config       = json_decode($config_row['val'], true);
+        $app_key      = $config['app_key'] ?? '';
+        $access_token = $config['access_token'] ?? '';
+        $shop_cipher  = $config['shop']['cipher'] ?? '';
+        $app_secret   = $this->app_secret_tiktok;
+
+        if (!$app_key || !$access_token || !$shop_cipher || !$app_secret) {
+            echo json_encode(['status' => false, 'message' => 'Config tidak lengkap']);
+            return;
+        }
+
+        $raw_input = file_get_contents('php://input');
+        $payload = json_decode($raw_input, true);
+        if (!is_array($payload)) {
+            $payload = $_POST;
+        }
+
+        $allowed_filters = [
+            'search_key',
+            'keyword',
+            'follower_demographics',
+            'gmv_ranges',
+            'units_sold_ranges',
+            'category',
+            'content_performance',
+            'affiliate_data',
+            'advanced_filters',
+        ];
+
+        $filters = [];
+        foreach ($allowed_filters as $key) {
+            if (!array_key_exists($key, $payload)) {
+                continue;
+            }
+            $value = $payload[$key];
+            if ($value === '' || $value === null) {
+                continue;
+            }
+            if (is_array($value) && empty($value)) {
+                continue;
+            }
+            $filters[$key] = $value;
+        }
+
+        $timest = time();
+        $endpoint_path = '/affiliate_seller/202508/marketplace_creators/search';
+
+        $params = [
+            'app_key' => $app_key,
+            'shop_cipher' => $shop_cipher,
+            'timestamp' => $timest,
+        ];
+
+        if (!empty($_GET['page_token'])) {
+            $params['page_token'] = $_GET['page_token'];
+        }
+        if (isset($_GET['page_size']) && $_GET['page_size'] !== '') {
+            $params['page_size'] = (int)$_GET['page_size'];
+        } else {
+            $params['page_size'] = 20;
+        }
+
+        $body = $filters
+            ? json_encode($filters, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            : '{}';
+
+        $pr = [
+            'secret' => $app_secret,
+            'timest' => $timest,
+            'get'    => $params,
+            'post'   => $body,
+            'url'    => 'https://open-api.tiktokglobalshop.com' . $endpoint_path
+        ];
+
+        $sign = $this->tiktok_signature_generator($pr);
+        $params['sign'] = $sign;
+
+        $request_url = 'https://open-api.tiktokglobalshop.com' . $endpoint_path . '?' . http_build_query($params);
+
+        $curl = curl_init();
+        curl_setopt_array($curl, [
+            CURLOPT_URL            => $request_url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_ENCODING       => '',
+            CURLOPT_MAXREDIRS      => 10,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST  => 'POST',
+            CURLOPT_POSTFIELDS     => $body,
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'x-tts-access-token: ' . $access_token
+            ],
+        ]);
+
+        $response_body = curl_exec($curl);
+        $curl_error    = curl_error($curl);
+        $http_code     = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        curl_close($curl);
+
+        if ($curl_error) {
+            echo json_encode(['status' => false, 'message' => 'CURL Error: ' . $curl_error]);
+            return;
+        }
+
+        $response_json = json_decode($response_body, true);
+
+        if (isset($response_json['code']) && $response_json['code'] == 0) {
+            echo json_encode([
+                'status' => true,
+                'data' => $response_json['data'] ?? [],
+                'message' => 'Berhasil mengambil data marketplace creators'
+            ]);
+        } else {
+            echo json_encode([
+                'status' => false,
+                'message' => 'Gagal mengambil data marketplace creators: ' . ($response_json['message'] ?? 'Unknown error'),
+                'raw' => $response_json,
+                'http_code' => $http_code
+            ]);
+        }
+    }
+
+
+
+    public function get_shop_product_performance_detail()
+    {
+        header('Content-Type: application/json');
+
+        $shop_id = $_GET['shop_id'] ?? '';
+        $product_id = $_GET['product_id'] ?? '';
+        $start_date = $_GET['start_date'] ?? '';
+        $end_date = $_GET['end_date'] ?? '';
+        $granularity = $_GET['granularity'] ?? 'ALL';
+        $currency = $_GET['currency'] ?? 'LOCAL';
+
+        if (!$shop_id || !$product_id || !$start_date || !$end_date) {
+            echo json_encode(['status' => false, 'message' => 'shop_id, product_id, start_date, dan end_date wajib diisi']);
+            return;
+        }
+
+        $config_row = $this->mymodel->selectDataOne('marketplace_config', ['shop_id' => $shop_id]);
+        if (!$config_row) {
+            echo json_encode(['status' => false, 'message' => 'Config toko tidak ditemukan']);
+            return;
+        }
+
+        $config       = json_decode($config_row['val'], true);
+        $app_key      = $config['app_key'] ?? '';
+        $access_token = $config['access_token'] ?? '';
+        $shop_cipher  = $config['shop']['cipher'] ?? '';
+        $app_secret   = $this->app_secret_tiktok;
+        $shop_id_val  = $config['shop']['id'] ?? $shop_id;
+
+        if (!$app_key || !$access_token || !$shop_cipher || !$app_secret) {
+            echo json_encode(['status' => false, 'message' => 'Config tidak lengkap']);
+            return;
+        }
+
+        $timest = time();
+        $endpoint_path = '/analytics/202509/shop_products/' . $product_id . '/performance';
+
+        $params = [
+            'granularity' => $granularity,
+            'currency' => $currency,
+            'start_date_ge' => $start_date,
+            'end_date_lt' => $end_date,
+            'app_key' => $app_key,
+            'shop_cipher' => $shop_cipher,
+            'shop_id' => $shop_id_val,
+            'timestamp' => $timest,
+        ];
+
+        $pr = [
+            'secret' => $app_secret,
+            'timest' => $timest,
+            'get'    => $params,
+            'post'   => '',
+            'url'    => 'https://open-api.tiktokglobalshop.com' . $endpoint_path
+        ];
+
+        $sign = $this->tiktok_signature_generator($pr);
+        $params['sign'] = $sign;
+
+        $request_url = 'https://open-api.tiktokglobalshop.com' . $endpoint_path . '?' . http_build_query($params);
+
+        $curl = curl_init();
+        curl_setopt_array($curl, [
+            CURLOPT_URL            => $request_url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_ENCODING       => '',
+            CURLOPT_MAXREDIRS      => 10,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST  => 'GET',
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'x-tts-access-token: ' . $access_token
+            ],
+        ]);
+
+        $response_body = curl_exec($curl);
+        $curl_error    = curl_error($curl);
+        $http_code     = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        curl_close($curl);
+
+        if ($curl_error) {
+            echo json_encode(['status' => false, 'message' => 'CURL Error: ' . $curl_error]);
+            return;
+        }
+
+        $response_json = json_decode($response_body, true);
+
+        if (isset($response_json['code']) && $response_json['code'] == 0) {
+            echo json_encode([
+                'status' => true,
+                'data' => $response_json['data'] ?? [],
+                'message' => 'Berhasil mengambil detail performa produk'
+            ]);
+        } else {
+            echo json_encode([
+                'status' => false,
+                'message' => 'Gagal mengambil detail performa produk: ' . ($response_json['message'] ?? 'Unknown error'),
+                'raw' => $response_json
+            ]);
         }
     }
 }
