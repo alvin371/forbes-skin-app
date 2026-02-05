@@ -25,6 +25,17 @@ class Api extends CI_Controller
         parent::__construct();
         $this->load->helper('env');
         $this->app_secret_tiktok = env('TIKTOK_APP_SECRET', '');
+        $config = $this->mymodel->selectWithQuery("SELECT * FROM endorse_config");
+        $config_map = array();
+        if (is_array($config)) {
+            foreach ($config as $row) {
+                if (isset($row['title'])) {
+                    $config_map[$row['title']] = isset($row['value']) ? $row['value'] : null;
+                }
+            }
+        }
+        $this->fyp_views = isset($config_map['fyp_views']) ? intval($config_map['fyp_views']) : 0;
+        $this->fyp_percentage = isset($config_map['fyp_persentase']) ? intval($config_map['fyp_persentase']) : 0;
     }
 
     function sync()
@@ -6187,34 +6198,6 @@ class Api extends CI_Controller
                     $dt['id'] = $this->db->insert_id();
                 }
 
-                // Step 2: Automatically trigger detail sync to populate full order data
-                // Call webhook refresh to populate order details (customer, products, payment info)
-                // Return full JSON response with sync data
-                try {
-                    // Call the existing marketplace_order_detail function to populate complete order data
-                    $detail_url = base_url() . 'api/v2/marketplace-order-detail?marketplace=' . urlencode($marketplace) . '&order_id=' . urlencode($id_marketplace) . '&shop_id=' . urlencode($config['shop_id']) . '&mode=sync';
-
-                    $curl_detail = curl_init();
-                    curl_setopt_array($curl_detail, array(
-                        CURLOPT_URL => $detail_url,
-                        CURLOPT_RETURNTRANSFER => true,
-                        CURLOPT_ENCODING => '',
-                        CURLOPT_MAXREDIRS => 10,
-                        CURLOPT_TIMEOUT => 30,
-                        CURLOPT_FOLLOWLOCATION => true,
-                        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-                        CURLOPT_CUSTOMREQUEST => 'GET',
-                    ));
-                    $detail_response = curl_exec($curl_detail);
-                    curl_close($curl_detail);
-
-                    // Log if detail sync fails (but don't stop the main sync process)
-                    if (!$detail_response) {
-                        error_log("Sync: Failed to fetch details for order $id_marketplace");
-                    }
-                } catch (Exception $e) {
-                    error_log("Sync: Error fetching order details - " . $e->getMessage());
-                }
             }
             if ($is_break) {
                 break;
