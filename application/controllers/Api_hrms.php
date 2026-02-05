@@ -1921,4 +1921,673 @@ class Api_hrms extends CI_Controller
         }
         return $list;
     }
+
+    // =========================================
+    // OVERTIME API METHODS
+    // =========================================
+
+    /**
+     * Get active overtime types
+     * GET /api/hrms/overtime/types
+     */
+    public function overtime_types()
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        $this->load->model('OvertimeTypeModel');
+        $types = $this->OvertimeTypeModel->get_active();
+
+        $items = array();
+        foreach ($types as $type) {
+            $items[] = array(
+                'id' => (int) $type['id'],
+                'code' => $type['code'],
+                'name' => $type['name'],
+                'description' => $type['description'],
+                'requiresAttachment' => (int) $type['requires_attachment'] === 1,
+            );
+        }
+
+        return $this->respond(200, array('data' => $items));
+    }
+
+    /**
+     * Get overtime requests or create new one
+     * GET /api/hrms/overtime - List requests
+     * POST /api/hrms/overtime - Create request
+     */
+    public function overtime()
+    {
+        $method = $this->input->method(TRUE);
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->user_requires_attendance((int) $user['id'])) {
+            return $this->respond(403, array('message' => 'Attendance is not required for this account.'));
+        }
+
+        if ($method === 'GET') {
+            return $this->overtime_list($user);
+        }
+
+        if ($method !== 'POST') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        return $this->overtime_create($user);
+    }
+
+    /**
+     * List overtime requests for user
+     */
+    private function overtime_list($user)
+    {
+        $this->load->model('OvertimeRequestModel');
+
+        $filters = array();
+        $status = $this->input->get('status', TRUE);
+        $month = $this->input->get('month', TRUE);
+
+        if ($status) {
+            $filters['status'] = $status;
+        }
+        if ($month) {
+            $filters['month'] = $month;
+        }
+
+        $requests = $this->OvertimeRequestModel->get_by_user($user['id'], $filters);
+
+        $items = array();
+        foreach ($requests as $request) {
+            $items[] = array(
+                'id' => (int) $request['id'],
+                'requestNo' => $request['request_no'],
+                'overtimeTypeId' => (int) $request['overtime_type_id'],
+                'overtimeTypeName' => $request['overtime_type_name'] ?? null,
+                'overtimeDate' => $request['overtime_date'],
+                'startTime' => $request['start_time'],
+                'endTime' => $request['end_time'],
+                'durationHours' => (float) $request['duration_hours'],
+                'reason' => $request['reason'],
+                'status' => $this->map_overtime_status($request['status']),
+                'statusRaw' => $request['status'],
+                'attachmentPath' => $this->absolute_attachment_url($request['attachment_path']),
+            );
+        }
+
+        return $this->respond(200, array('data' => $items));
+    }
+
+    /**
+     * Create overtime request
+     */
+    private function overtime_create($user)
+    {
+        $this->load->model('OvertimeTypeModel');
+        $this->load->model('OvertimeRequestModel');
+        $this->load->library('OvertimeCalculatorService');
+        $this->load->library('OvertimeWorkflowEngine');
+
+        $input = $this->json_input();
+        $errors = array();
+
+        // Validate overtime_type_id
+        $overtimeTypeId = (int) ($input['overtime_type_id'] ?? 0);
+        $overtimeType = null;
+        if ($overtimeTypeId <= 0) {
+            $errors['overtime_type_id'] = 'Overtime type is required.';
+        } else {
+            $overtimeType = $this->OvertimeTypeModel->get_by_id($overtimeTypeId);
+            if (!$overtimeType || (int) $overtimeType['is_active'] !== 1) {
+                $errors['overtime_type_id'] = 'Overtime type is invalid.';
+            }
+        }
+
+        // Validate overtime_date
+        $overtimeDate = trim((string) ($input['overtime_date'] ?? ''));
+        if ($overtimeDate === '' || !$this->is_valid_date($overtimeDate)) {
+            $errors['overtime_date'] = 'Valid overtime date is required.';
+        }
+
+        // Validate times
+        $startTime = trim((string) ($input['start_time'] ?? ''));
+        $endTime = trim((string) ($input['end_time'] ?? ''));
+        if ($startTime === '' || !$this->overtimecalculatorservice->is_valid_time($startTime)) {
+            $errors['start_time'] = 'Valid start time is required.';
+        }
+        if ($endTime === '' || !$this->overtimecalculatorservice->is_valid_time($endTime)) {
+            $errors['end_time'] = 'Valid end time is required.';
+        }
+
+        // Calculate duration
+        $durationHours = 0;
+        if (empty($errors['start_time']) && empty($errors['end_time'])) {
+            $durationHours = $this->overtimecalculatorservice->calculate_duration($startTime, $endTime);
+            if ($durationHours <= 0) {
+                $errors['end_time'] = 'End time must be after start time.';
+            }
+        }
+
+        // Validate reason
+        $reason = trim((string) ($input['reason'] ?? ''));
+        if ($reason === '') {
+            $errors['reason'] = 'Reason is required.';
+        }
+
+        // Check overlap
+        if (empty($errors) && $this->OvertimeRequestModel->has_overlap($user['id'], $overtimeDate, $startTime, $endTime)) {
+            $errors['overtime_date'] = 'An overtime request already exists for this time period.';
+        }
+
+        // Validate attachment if required
+        $attachmentPath = trim((string) ($input['attachment_path'] ?? $input['attachment'] ?? ''));
+        if ($overtimeType && (int) $overtimeType['requires_attachment'] === 1) {
+            if (empty($_FILES['attachment']['name']) && $attachmentPath === '') {
+                $errors['attachment'] = 'Attachment is required for this overtime type.';
+            }
+        }
+
+        // WiFi BSSID validation for mobile
+        $bssid = trim((string) ($input['bssid'] ?? ''));
+        if ($bssid !== '') {
+            $office = $this->Office_model->get_active_office();
+            if ($office && !empty($office['allowed_bssids'])) {
+                $allowedBssids = array_map('trim', preg_split('/\r\n|\r|\n|,/', $office['allowed_bssids']));
+                $allowedBssids = array_map('strtoupper', array_filter($allowedBssids));
+                if (!in_array(strtoupper($bssid), $allowedBssids)) {
+                    $errors['bssid'] = 'You must be connected to office WiFi to submit overtime request.';
+                }
+            }
+        }
+
+        if (!empty($errors)) {
+            return $this->respond(422, array('message' => 'Validation failed.', 'errors' => $errors));
+        }
+
+        // Generate request number
+        $requestNo = $this->OvertimeRequestModel->generate_request_no();
+
+        // Handle attachment upload
+        if (!empty($_FILES['attachment']['name'])) {
+            $upload = $this->handle_overtime_attachment_upload($requestNo, 'attachment');
+            if (isset($upload['error'])) {
+                return $this->respond(422, array('message' => $upload['error']));
+            }
+            $attachmentPath = $upload['path'];
+        }
+
+        // Get active office
+        $office = $this->Office_model->get_active_office();
+
+        $now = date('Y-m-d H:i:s');
+
+        // Insert overtime request
+        $this->db->trans_start();
+
+        $requestId = $this->OvertimeRequestModel->insert(array(
+            'request_no' => $requestNo,
+            'user_id' => $user['id'],
+            'overtime_type_id' => $overtimeTypeId,
+            'office_id' => $office ? $office['id'] : null,
+            'overtime_date' => $overtimeDate,
+            'start_time' => $startTime,
+            'end_time' => $endTime,
+            'duration_hours' => $durationHours,
+            'reason' => $reason,
+            'attachment_path' => $attachmentPath !== '' ? $attachmentPath : null,
+            'status' => 'SUBMITTED',
+            'submitted_at' => $now,
+            'created_by' => $user['id'],
+        ));
+
+        $this->db->trans_complete();
+
+        if (!$requestId) {
+            return $this->respond(500, array('message' => 'Failed to create overtime request.'));
+        }
+
+        // Initialize workflow
+        $workflowResult = $this->overtimeworkflowengine->initializeWorkflow($requestId);
+
+        $status = 'SUBMITTED';
+        if ($workflowResult['success']) {
+            $status = 'IN_REVIEW';
+        }
+
+        return $this->respond(201, array(
+            'id' => (int) $requestId,
+            'requestNo' => $requestNo,
+            'status' => $this->map_overtime_status($status),
+            'statusRaw' => $status,
+            'durationHours' => $durationHours,
+        ));
+    }
+
+    /**
+     * Get overtime request detail with approval progress
+     * GET /api/hrms/overtime/{id}
+     */
+    public function overtime_detail($id)
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->user_requires_attendance((int) $user['id'])) {
+            return $this->respond(403, array('message' => 'Attendance is not required for this account.'));
+        }
+
+        $this->load->model('OvertimeRequestModel');
+        $this->load->model('OvertimeApprovalStepModel');
+        $this->load->model('OvertimeApprovalInstanceModel');
+
+        $request = $this->OvertimeRequestModel->get_by_id((int) $id);
+        if (!$request) {
+            return $this->respond(404, array('message' => 'Overtime request not found.'));
+        }
+
+        if ((int) $request['user_id'] !== (int) $user['id']) {
+            return $this->respond(403, array('message' => 'You do not have access to this overtime request.'));
+        }
+
+        // Get approvals
+        $approvals = $this->OvertimeApprovalStepModel->get_by_overtime_request((int) $id);
+        $approvalsPayload = array();
+        foreach ($approvals as $approval) {
+            $approvalsPayload[] = array(
+                'id' => (int) $approval['id'],
+                'stepNo' => (int) $approval['step_no'],
+                'stepName' => $approval['step_name'],
+                'approverId' => $approval['assigned_approver_id'] ? (int) $approval['assigned_approver_id'] : null,
+                'approverName' => $approval['approver_name'] ?? null,
+                'action' => $approval['action'],
+                'actionAt' => $approval['action_at'],
+                'notes' => $approval['notes'],
+            );
+        }
+
+        // Get instance for total steps
+        $instance = $this->OvertimeApprovalInstanceModel->get_by_overtime_request((int) $id);
+
+        $requester = $this->db->select('id, full_name, email')
+            ->get_where('user', array('id' => (int) $request['user_id']))
+            ->row_array();
+
+        return $this->respond(200, array(
+            'id' => (int) $request['id'],
+            'requestNo' => $request['request_no'],
+            'requester' => array(
+                'id' => (int) ($requester['id'] ?? 0),
+                'name' => $requester['full_name'] ?? null,
+                'email' => $requester['email'] ?? null,
+            ),
+            'overtimeTypeId' => (int) $request['overtime_type_id'],
+            'overtimeTypeName' => $request['overtime_type_name'] ?? null,
+            'overtimeTypeCode' => $request['overtime_type_code'] ?? null,
+            'requiresAttachment' => (int) ($request['requires_attachment'] ?? 0),
+            'overtimeDate' => $request['overtime_date'],
+            'startTime' => $request['start_time'],
+            'endTime' => $request['end_time'],
+            'durationHours' => (float) $request['duration_hours'],
+            'reason' => $request['reason'],
+            'status' => $this->map_overtime_status($request['status']),
+            'statusRaw' => $request['status'],
+            'currentStep' => (int) $request['current_step'],
+            'totalSteps' => $instance ? (int) $instance['total_steps'] : 1,
+            'attachmentPath' => $this->absolute_attachment_url($request['attachment_path']),
+            'createdAt' => $request['created_at'],
+            'updatedAt' => $request['updated_at'],
+            'approvals' => $approvalsPayload,
+        ));
+    }
+
+    /**
+     * Cancel overtime request
+     * POST /api/hrms/overtime/{id}/cancel
+     */
+    public function overtime_cancel($id)
+    {
+        if ($this->input->method(TRUE) !== 'POST') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->user_requires_attendance((int) $user['id'])) {
+            return $this->respond(403, array('message' => 'Attendance is not required for this account.'));
+        }
+
+        $this->load->library('OvertimeWorkflowEngine');
+
+        $result = $this->overtimeworkflowengine->cancelWorkflow((int) $id, (int) $user['id']);
+
+        if (!$result['success']) {
+            return $this->respond(409, array('message' => $result['message']));
+        }
+
+        return $this->respond(200, array(
+            'message' => $result['message'],
+            'id' => (int) $id,
+            'status' => 'CANCELLED',
+        ));
+    }
+
+    /**
+     * Get user's overtime summary
+     * GET /api/hrms/overtime/summary?month=YYYY-MM
+     */
+    public function overtime_summary()
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->user_requires_attendance((int) $user['id'])) {
+            return $this->respond(403, array('message' => 'Attendance is not required for this account.'));
+        }
+
+        $this->load->model('OvertimeRequestModel');
+        $this->load->model('OvertimeLedgerModel');
+
+        $month = $this->input->get('month', TRUE);
+        $month = $month ?: date('Y-m');
+
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            return $this->respond(422, array('message' => 'Invalid month format. Use YYYY-MM.'));
+        }
+
+        $year = (int) substr($month, 0, 4);
+        $monthNum = (int) substr($month, 5, 2);
+
+        // Get summary from requests
+        $requestSummary = $this->OvertimeRequestModel->get_user_monthly_summary($user['id'], $month);
+
+        // Get approved hours from ledger
+        $ledgerSummary = $this->OvertimeLedgerModel->get_monthly_summary($user['id'], $year, $monthNum);
+
+        // Get requests for the month
+        $requests = $this->OvertimeRequestModel->get_by_user($user['id'], array('month' => $month));
+
+        $items = array();
+        foreach ($requests as $request) {
+            $items[] = array(
+                'id' => (int) $request['id'],
+                'requestNo' => $request['request_no'],
+                'overtimeTypeName' => $request['overtime_type_name'] ?? null,
+                'overtimeDate' => $request['overtime_date'],
+                'durationHours' => (float) $request['duration_hours'],
+                'status' => $this->map_overtime_status($request['status']),
+                'statusRaw' => $request['status'],
+            );
+        }
+
+        return $this->respond(200, array(
+            'summary' => array(
+                'month' => $month,
+                'totalHours' => (float) ($requestSummary['total_hours'] ?? 0),
+                'approvedHours' => (float) ($ledgerSummary['total_hours'] ?? 0),
+                'pendingHours' => (float) ($requestSummary['pending_hours'] ?? 0),
+                'requestCount' => (int) ($requestSummary['request_count'] ?? 0),
+            ),
+            'requests' => $items,
+        ));
+    }
+
+    /**
+     * Get pending overtime approvals inbox
+     * GET /api/hrms/overtime/approvals/inbox
+     */
+    public function overtime_approvals_inbox()
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        $this->load->model('OvertimeApprovalStepModel');
+
+        $steps = $this->OvertimeApprovalStepModel->get_pending_for_approver((int) $user['id']);
+
+        $items = array();
+        foreach ($steps as $step) {
+            $items[] = array(
+                'stepId' => (int) $step['id'],
+                'requestNo' => $step['request_no'],
+                'requesterId' => (int) $step['requester_id'],
+                'requesterName' => $step['requester_name'],
+                'overtimeTypeName' => $step['overtime_type_name'],
+                'overtimeDate' => $step['overtime_date'],
+                'startTime' => $step['start_time'],
+                'endTime' => $step['end_time'],
+                'durationHours' => (float) $step['duration_hours'],
+                'reason' => $step['reason'],
+                'stepNo' => (int) $step['step_no'],
+                'totalSteps' => (int) $step['total_steps'],
+                'currentStep' => (int) $step['current_step'],
+            );
+        }
+
+        return $this->respond(200, array('data' => $items));
+    }
+
+    /**
+     * Get count of pending overtime approvals
+     * GET /api/hrms/overtime/approvals/inbox/count
+     */
+    public function overtime_approvals_inbox_count()
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        $this->load->model('OvertimeApprovalStepModel');
+
+        $count = $this->OvertimeApprovalStepModel->count_pending_for_approver((int) $user['id']);
+
+        return $this->respond(200, array('count' => $count));
+    }
+
+    /**
+     * Approve overtime approval step
+     * POST /api/hrms/overtime/approvals/{stepId}/approve
+     */
+    public function overtime_approval_approve($stepId)
+    {
+        if ($this->input->method(TRUE) !== 'POST') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        $this->load->library('OvertimeWorkflowEngine');
+
+        $input = $this->json_input();
+        $notes = trim((string) ($input['notes'] ?? ''));
+
+        $result = $this->overtimeworkflowengine->processApproval(
+            (int) $stepId,
+            (int) $user['id'],
+            'APPROVED',
+            $notes !== '' ? $notes : null
+        );
+
+        if (!$result['success']) {
+            return $this->respond(409, array('message' => $result['message']));
+        }
+
+        return $this->respond(200, array(
+            'success' => true,
+            'message' => $result['message'],
+            'isFinal' => $result['is_final'] ?? false,
+            'nextStep' => $result['next_step'] ?? null,
+        ));
+    }
+
+    /**
+     * Reject overtime approval step
+     * POST /api/hrms/overtime/approvals/{stepId}/reject
+     */
+    public function overtime_approval_reject($stepId)
+    {
+        if ($this->input->method(TRUE) !== 'POST') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        $this->load->library('OvertimeWorkflowEngine');
+
+        $input = $this->json_input();
+        $notes = trim((string) ($input['notes'] ?? ''));
+
+        if ($notes === '') {
+            return $this->respond(422, array(
+                'message' => 'Validation failed.',
+                'errors' => array('notes' => 'Rejection reason is required.')
+            ));
+        }
+
+        $result = $this->overtimeworkflowengine->processApproval(
+            (int) $stepId,
+            (int) $user['id'],
+            'REJECTED',
+            $notes
+        );
+
+        if (!$result['success']) {
+            return $this->respond(409, array('message' => $result['message']));
+        }
+
+        return $this->respond(200, array(
+            'success' => true,
+            'message' => $result['message'],
+            'isFinal' => true,
+        ));
+    }
+
+    /**
+     * Get overtime approval history for approver
+     * GET /api/hrms/overtime/approvals/history
+     */
+    public function overtime_approvals_history()
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        $this->load->model('OvertimeApprovalStepModel');
+
+        $limit = (int) $this->input->get('limit', TRUE);
+        $limit = $limit > 0 ? min($limit, 100) : 50;
+
+        $steps = $this->OvertimeApprovalStepModel->get_history_for_approver((int) $user['id'], $limit);
+
+        $items = array();
+        foreach ($steps as $step) {
+            $items[] = array(
+                'stepId' => (int) $step['id'],
+                'requestNo' => $step['request_no'],
+                'requesterId' => (int) $step['requester_id'],
+                'requesterName' => $step['requester_name'],
+                'overtimeTypeName' => $step['overtime_type_name'],
+                'overtimeDate' => $step['overtime_date'],
+                'durationHours' => (float) $step['duration_hours'],
+                'action' => $step['action'],
+                'actionAt' => $step['action_at'],
+                'notes' => $step['notes'],
+            );
+        }
+
+        return $this->respond(200, array('data' => $items));
+    }
+
+    /**
+     * Handle overtime attachment upload
+     */
+    private function handle_overtime_attachment_upload($requestNo, $fieldName)
+    {
+        $uploadDir = FCPATH . 'writable/uploads/overtime/' . $requestNo . '/';
+        if (!is_dir($uploadDir)) {
+            if (!mkdir($uploadDir, 0755, true)) {
+                return array('error' => 'Failed to create attachment directory.');
+            }
+        }
+
+        $config['upload_path'] = $uploadDir;
+        $config['allowed_types'] = 'pdf|jpg|jpeg|png';
+        $config['max_size'] = 2048;
+        $config['encrypt_name'] = true;
+
+        $this->load->library('upload', $config);
+        if (!$this->upload->do_upload($fieldName)) {
+            return array('error' => strip_tags($this->upload->display_errors('', '')));
+        }
+
+        $file = $this->upload->data();
+        $relativePath = 'writable/uploads/overtime/' . $requestNo . '/' . $file['file_name'];
+
+        return array('path' => $relativePath);
+    }
+
+    /**
+     * Map overtime status for display
+     */
+    private function map_overtime_status($status)
+    {
+        switch ($status) {
+            case 'SUBMITTED':
+            case 'IN_REVIEW':
+                return 'Pending';
+            case 'APPROVED':
+                return 'Approved';
+            case 'REJECTED':
+                return 'Rejected';
+            case 'CANCELLED':
+                return 'Cancelled';
+            default:
+                return $status;
+        }
+    }
 }
