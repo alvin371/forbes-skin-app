@@ -60,7 +60,7 @@ class OvertimeWorkflowEngine
             );
         }
 
-        // Resolve the DEFAULT route
+        // Resolve the overtime route
         $route = $this->CI->overtimerouteresolver->resolve(
             $request['user_id'],
             $request['overtime_type_id'],
@@ -69,11 +69,20 @@ class OvertimeWorkflowEngine
         );
 
         if (!$route) {
-            // No route found - should not happen with DEFAULT route
-            log_message('error', 'OvertimeWorkflowEngine: No DEFAULT route found for overtime request ' . $overtimeRequestId);
+            log_message('error', 'OvertimeWorkflowEngine: No matching route found for overtime request ' . $overtimeRequestId);
             return array(
                 'success' => false,
+                'code' => 'NO_ROUTE',
                 'message' => 'No approval route configured. Please contact HR.',
+            );
+        }
+
+        if (empty($route['steps'])) {
+            log_message('error', 'OvertimeWorkflowEngine: Route has no steps for overtime request ' . $overtimeRequestId);
+            return array(
+                'success' => false,
+                'code' => 'NO_STEPS',
+                'message' => 'Approval route has no steps. Please contact HR.',
             );
         }
 
@@ -83,7 +92,8 @@ class OvertimeWorkflowEngine
         // Create approval instance with route snapshot
         $instanceData = array(
             'overtime_request_id' => $overtimeRequestId,
-            'route_version_id' => $route['route_version_id'],
+            'route_version_id' => $route['route_id'],
+            'route_id' => $route['route_id'],
             'route_snapshot' => json_encode($route),
             'total_steps' => $route['total_steps'],
             'current_step' => 1,
