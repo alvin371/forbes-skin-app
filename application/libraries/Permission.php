@@ -330,6 +330,7 @@ class Permission
             'meta_account' => 'meta_account',
             'milestone' => 'milestone',
             'overview' => 'overview',
+            'overtime' => 'overtime',
             'payment' => 'payment',
             'position' => 'position',
             'product' => 'product',

@@ -182,11 +182,25 @@ if (!function_exists('sidebar_registry')) {
                 'sort_order' => 520,
                 'permissions' => ['view', 'create', 'edit', 'delete'],
             ],
+            'overtime' => [
+                'display_name' => 'OVERTIME REQUESTS',
+                'controller' => 'overtime',
+                'category' => 'HR Management',
+                'sort_order' => 525,
+                'permissions' => ['view', 'create', 'delete'],
+            ],
             'leave_approvals' => [
                 'display_name' => 'LEAVE APPROVALS',
                 'controller' => 'leaveapprovalcontroller',
                 'category' => 'HR Management',
                 'sort_order' => 530,
+                'permissions' => ['view', 'approve'],
+            ],
+            'approval_inbox' => [
+                'display_name' => 'APPROVAL INBOX',
+                'controller' => 'approvalinboxcontroller',
+                'category' => 'HR Management',
+                'sort_order' => 535,
                 'permissions' => ['view', 'approve'],
             ],
             'offices' => [
