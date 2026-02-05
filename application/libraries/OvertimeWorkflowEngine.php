@@ -486,22 +486,6 @@ class OvertimeWorkflowEngine
             return true;
         }
 
-        // Check if user has same role as the assigned approver
-        if ($step['assigned_approver_id']) {
-            $assignedUser = $this->db->query("
-                SELECT role_text FROM user WHERE id = ?
-            ", array($step['assigned_approver_id']))->row_array();
-
-            $currentUser = $this->db->query("
-                SELECT role_text FROM user WHERE id = ?
-            ", array($userId))->row_array();
-
-            if ($assignedUser && $currentUser &&
-                $assignedUser['role_text'] == $currentUser['role_text']) {
-                return true;
-            }
-        }
-
         return false;
     }
 

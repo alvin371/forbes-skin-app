@@ -1645,7 +1645,13 @@ if (!$_SESSION['is_login']) {
             await markRead(notificationId);
 
             // Route based on related_table for precise navigation
-            if (relatedTable === 'leave_requests' && relatedId) {
+            if (relatedTable === 'overtime_requests' && relatedId) {
+                if (title.includes('Perlu Disetujui')) {
+                    window.location.href = '<?= base_url("approvals/overtime") ?>';
+                } else {
+                    window.location.href = '<?= base_url("overtime/") ?>' + relatedId;
+                }
+            } else if (relatedTable === 'leave_requests' && relatedId) {
                 window.location.href = '<?= base_url("approvals/inbox/detail/") ?>' + relatedId;
             } else if (title.includes('Review')) {
                 window.location.href = '<?= base_url("review-endorse?keyword_category=SPV&keyword=") ?>' +
