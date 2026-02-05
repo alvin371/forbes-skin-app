@@ -164,7 +164,41 @@ Response 200:
       "OfficeWifi-1",
       "OfficeWifi-2"
     ]
-  }
+  },
+  "offices": [
+    {
+      "office": {
+        "id": 1,
+        "name": "HQ Office",
+        "lat": -6.2000000,
+        "lng": 106.8166667,
+        "radius_m": 150,
+        "min_accuracy_m": 50,
+        "allowed_ip_cidrs": "203.0.113.0/24"
+      },
+      "attendance": {
+        "min_accuracy_m": 50,
+        "radius_m": 150,
+        "requires_ip": true,
+        "response_times": [
+          "08:00",
+          "17:00"
+        ],
+        "history_days": 30,
+        "recap_months": 6
+      },
+      "wifi": {
+        "allowed_bssids": [
+          "aa:bb:cc:dd:ee:ff",
+          "11:22:33:44:55:66"
+        ],
+        "allowed_ssids": [
+          "OfficeWifi-1",
+          "OfficeWifi-2"
+        ]
+      }
+    }
+  ]
 }
 ```
 Notes:
@@ -209,6 +243,23 @@ Response 200:
   "ok": true,
   "type": "IN",
   "distanceMeters": 120.12,
+  "notes": [
+    "Late check-in by 20 minutes."
+  ],
+  "flags": {
+    "late": true,
+    "early_checkout": false,
+    "special_schedule": false
+  },
+  "minutes": {
+    "late": 20,
+    "early_checkout": null
+  },
+  "schedule": {
+    "start_time": "08:00",
+    "end_time": "17:00",
+    "source": "office"
+  },
   "office": {
     "id": 1,
     "name": "HQ Office"
@@ -235,6 +286,23 @@ Response 200:
   "ok": true,
   "type": "OUT",
   "distanceMeters": 120.12,
+  "notes": [
+    "Early checkout by 25 minutes."
+  ],
+  "flags": {
+    "late": false,
+    "early_checkout": true,
+    "special_schedule": false
+  },
+  "minutes": {
+    "late": null,
+    "early_checkout": 25
+  },
+  "schedule": {
+    "start_time": "08:00",
+    "end_time": "17:00",
+    "source": "office"
+  },
   "office": {
     "id": 1,
     "name": "HQ Office"
@@ -278,7 +346,9 @@ Response 200:
   "absent_count": 1,
   "leave_days": 2,
   "start_time": "08:00",
-  "end_time": "17:00"
+  "end_time": "17:00",
+  "schedule_source": "office",
+  "special_schedule": false
 }
 ```
 
@@ -299,6 +369,8 @@ Response 200:
       "leave_days": 2,
       "start_time": "08:00",
       "end_time": "17:00",
+      "schedule_source": "office",
+      "special_schedule": false,
       "user": {
         "id": 123,
         "name": "Jane Doe",
@@ -323,7 +395,9 @@ Response 200:
     "absent_count": 1,
     "leave_days": 2,
     "start_time": "08:00",
-    "end_time": "17:00"
+    "end_time": "17:00",
+    "schedule_source": "office",
+    "special_schedule": false
   },
   "daily": [
     {
@@ -333,7 +407,8 @@ Response 200:
       "last_out": "2025-01-02 17:02:00",
       "late": false,
       "early_checkout": false,
-      "holiday_name": null
+      "holiday_name": null,
+      "notes": []
     }
   ]
 }

@@ -76,6 +76,20 @@ foreach ($store as $k => $v) {
 					appendSyncDebug("Response length: " + str.length);
 					appendSyncDebug("Response has success token: " + (str.indexOf("success") != -1));
 					appendSyncDebug("Response preview: " + str.substring(0, 300).replace(/\s+/g, " "));
+					try {
+						var tmp = $("<div>").html(response);
+						var debugText = tmp.find(".sync-debug pre").text();
+						if (debugText) {
+							appendSyncDebug("Server debug:");
+							debugText.split("\n").forEach(function(line) {
+								if (line.trim() !== "") {
+									appendSyncDebug(line);
+								}
+							});
+						}
+					} catch (e) {
+						appendSyncDebug("Failed to parse server debug.");
+					}
 					if (str.indexOf("success") != -1) {
 						$(".form-message").hide().html(response).slideDown("fast");
 						$(".btn-send-sync")

@@ -4,10 +4,13 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 class AttendanceController extends CI_Controller
 {
     private $cooldownSeconds = 60;
+    private $lateGraceMinutes = 15;
+    private $earlyGraceMinutes = 15;
 
     public function __construct()
     {
         parent::__construct();
+        $this->load->database();
         $this->load->model('Office_model');
         $this->load->model('Attendance_log_model');
         $this->load->helper('attendance');
@@ -45,7 +48,7 @@ class AttendanceController extends CI_Controller
         }
 
         $ipAddress = $this->input->ip_address();
-        $result = $this->attendanceeligibilityservice->evaluate($lat, $lng, $accuracy, $ipAddress, $officeOverride ?: null);
+        $result = $this->attendanceeligibilityservice->evaluate($lat, $lng, $accuracy, $ipAddress, $officeOverride ?: null, null);
         if (isset($result['error'])) {
             return $this->respond(500, array('status' => 'error', 'message' => 'Active office is not configured.'));
         }
@@ -108,7 +111,7 @@ class AttendanceController extends CI_Controller
         }
 
         $ipAddress = $this->input->ip_address();
-        $result = $this->attendanceeligibilityservice->evaluate($lat, $lng, $accuracy, $ipAddress);
+        $result = $this->attendanceeligibilityservice->evaluate($lat, $lng, $accuracy, $ipAddress, null, null);
         if (isset($result['error'])) {
             return $this->respond(500, array('status' => 'error', 'message' => 'Active office is not configured.'));
         }
@@ -125,6 +128,13 @@ class AttendanceController extends CI_Controller
         $office = $result['office'];
         $distance = $result['computed']['distance_m'];
         $method = $office['has_ip_rule'] ? 'GEOFENCE+IP' : 'GEOFENCE';
+        $now = date('Y-m-d H:i:s');
+        $officeRecord = $this->Office_model->get_by_id($office['id']);
+        $userRecord = $this->get_user_record($userId);
+        $schedule = $this->resolve_attendance_times($officeRecord ?: $office, $userRecord);
+        $noteData = $this->build_attendance_notes($type, $now, $schedule['start'], $schedule['end']);
+        $flags = $noteData['flags'];
+        $flags['special_schedule'] = $schedule['source'] === 'user';
 
         $insertData = array(
             'user_id' => $userId,
@@ -137,7 +147,9 @@ class AttendanceController extends CI_Controller
             'method' => $method,
             'ip_address' => $ipAddress,
             'user_agent' => $this->input->user_agent(),
-            'created_at' => date('Y-m-d H:i:s'),
+            'notes' => $noteData['notes'],
+            'special_schedule' => $flags['special_schedule'],
+            'created_at' => $now,
         );
 
         if (!$this->Attendance_log_model->insert($insertData)) {
@@ -148,12 +160,192 @@ class AttendanceController extends CI_Controller
             'status' => 'ok',
             'message' => 'Attendance confirmed',
             'distance_m' => round($distance, 2),
+            'notes' => $noteData['notes'],
+            'flags' => $flags,
+            'minutes' => $noteData['minutes'],
+            'schedule' => array(
+                'start_time' => $schedule['start'],
+                'end_time' => $schedule['end'],
+                'source' => $schedule['source'],
+            ),
             'office' => array(
                 'id' => (int) $office['id'],
                 'name' => $office['name'],
             ),
             'type' => $type,
         ));
+    }
+
+    private function get_user_record($userId)
+    {
+        $sessionUser = $_SESSION['user'] ?? null;
+        if (is_array($sessionUser) && isset($sessionUser['id']) && (int) $sessionUser['id'] === (int) $userId) {
+            if (isset($sessionUser['attendance_response_times']) || isset($sessionUser['attendance_start_time']) || isset($sessionUser['attendance_end_time'])) {
+                return $sessionUser;
+            }
+        }
+
+        return $this->db->get_where('user', array('id' => (int) $userId))->row_array();
+    }
+
+    private function resolve_attendance_times($office, $user = null)
+    {
+        $start = '08:00';
+        $end = '17:00';
+        $source = 'default';
+
+        if ($office && !empty($office['attendance_response_times'])) {
+            $times = $this->parse_response_times($office['attendance_response_times']);
+            list($officeStart, $officeEnd) = $this->select_time_pair($times);
+            if ($officeStart) {
+                $start = $officeStart;
+            }
+            if ($officeEnd) {
+                $end = $officeEnd;
+            }
+            $source = 'office';
+        }
+
+        $userTimes = $this->resolve_user_attendance_times($user);
+        if ($userTimes) {
+            if (!empty($userTimes['start'])) {
+                $start = $userTimes['start'];
+            }
+            if (!empty($userTimes['end'])) {
+                $end = $userTimes['end'];
+            }
+            $source = 'user';
+        }
+
+        return array('start' => $start, 'end' => $end, 'source' => $source);
+    }
+
+    private function resolve_user_attendance_times($user)
+    {
+        if (!$user || !is_array($user)) {
+            return null;
+        }
+
+        $start = null;
+        $end = null;
+
+        $rawTimes = trim((string) ($user['attendance_response_times'] ?? ''));
+        if ($rawTimes !== '') {
+            $times = $this->parse_response_times($rawTimes);
+            list($start, $end) = $this->select_time_pair($times);
+        }
+
+        $startOverride = trim((string) ($user['attendance_start_time'] ?? ''));
+        if ($this->is_valid_time($startOverride)) {
+            $start = $startOverride;
+        }
+
+        $endOverride = trim((string) ($user['attendance_end_time'] ?? ''));
+        if ($this->is_valid_time($endOverride)) {
+            $end = $endOverride;
+        }
+
+        if ($start === null && $end === null) {
+            return null;
+        }
+
+        return array('start' => $start, 'end' => $end);
+    }
+
+    private function parse_response_times($text)
+    {
+        $items = preg_split('/\r\n|\r|\n|,/', (string) $text);
+        $list = array();
+        foreach ($items as $item) {
+            $item = trim($item);
+            if ($item !== '') {
+                $list[] = $item;
+            }
+        }
+        return $list;
+    }
+
+    private function select_time_pair($times)
+    {
+        $start = null;
+        $end = null;
+        if (!is_array($times)) {
+            return array($start, $end);
+        }
+
+        foreach ($times as $time) {
+            $time = trim((string) $time);
+            if ($this->is_valid_time($time)) {
+                if ($start === null) {
+                    $start = $time;
+                } elseif ($end === null) {
+                    $end = $time;
+                    break;
+                }
+            }
+        }
+
+        return array($start, $end);
+    }
+
+    private function is_valid_time($time)
+    {
+        return $time !== '' && preg_match('/^\d{2}:\d{2}$/', $time);
+    }
+
+    private function minutes_after_start($timestamp, $startTime)
+    {
+        $start = strtotime(substr($timestamp, 0, 10) . ' ' . $startTime . ':00');
+        if ($start === false) {
+            return null;
+        }
+        $delta = strtotime($timestamp) - $start;
+        return (int) floor($delta / 60);
+    }
+
+    private function minutes_before_end($timestamp, $endTime)
+    {
+        $end = strtotime(substr($timestamp, 0, 10) . ' ' . $endTime . ':00');
+        if ($end === false) {
+            return null;
+        }
+        $delta = $end - strtotime($timestamp);
+        return (int) floor($delta / 60);
+    }
+
+    private function build_attendance_notes($type, $timestamp, $startTime, $endTime)
+    {
+        $notes = array();
+        $flags = array(
+            'late' => false,
+            'early_checkout' => false,
+        );
+        $minutes = array(
+            'late' => null,
+            'early_checkout' => null,
+        );
+
+        if ($type === 'IN') {
+            $lateMinutes = $this->minutes_after_start($timestamp, $startTime);
+            if ($lateMinutes !== null && $lateMinutes > $this->lateGraceMinutes) {
+                $flags['late'] = true;
+                $minutes['late'] = $lateMinutes;
+                $notes[] = 'Late check-in by ' . $lateMinutes . ' minutes.';
+            }
+        } elseif ($type === 'OUT') {
+            $earlyMinutes = $this->minutes_before_end($timestamp, $endTime);
+            if ($earlyMinutes !== null && $earlyMinutes > $this->earlyGraceMinutes) {
+                $flags['early_checkout'] = true;
+                $minutes['early_checkout'] = $earlyMinutes;
+                $notes[] = 'Early checkout by ' . $earlyMinutes . ' minutes.';
+            }
+        }
+
+        return array(
+            'notes' => $notes,
+            'flags' => $flags,
+            'minutes' => $minutes,
+        );
     }
 
     private function build_office_override()

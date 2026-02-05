@@ -34,6 +34,18 @@ class SchemaBootstrap extends CI_Controller
             $results[] = 'attendance_logs exists';
         }
 
+        if ($this->db->table_exists('attendance_logs')) {
+            if (!$this->db->field_exists('notes', 'attendance_logs')) {
+                $this->db->query("ALTER TABLE attendance_logs ADD COLUMN notes TEXT NULL");
+                $results[] = 'attendance_logs.notes added';
+            }
+
+            if (!$this->db->field_exists('special_schedule', 'attendance_logs')) {
+                $this->db->query("ALTER TABLE attendance_logs ADD COLUMN special_schedule TINYINT(1) NOT NULL DEFAULT 0");
+                $results[] = 'attendance_logs.special_schedule added';
+            }
+        }
+
         if ($this->db->table_exists('offices')) {
             if (!$this->db->field_exists('is_active', 'offices')) {
                 $this->db->query("ALTER TABLE offices ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 0");
@@ -337,6 +349,15 @@ class SchemaBootstrap extends CI_Controller
             'user_agent' => array(
                 'type' => 'TEXT',
                 'null' => TRUE,
+            ),
+            'notes' => array(
+                'type' => 'TEXT',
+                'null' => TRUE,
+            ),
+            'special_schedule' => array(
+                'type' => 'TINYINT',
+                'constraint' => 1,
+                'default' => 0,
             ),
             'created_at' => array(
                 'type' => 'DATETIME',

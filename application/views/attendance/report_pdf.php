@@ -11,6 +11,8 @@
         th { background: #f0f0f0; }
         .summary { margin-top: 12px; }
         .summary span { margin-right: 16px; }
+        .flagged { background: #fff1f0; }
+        .special { margin-top: 8px; display: inline-block; background: #fff1f0; border: 1px solid #ffa39e; color: #a8071a; padding: 4px 8px; }
     </style>
 </head>
 <body>
@@ -28,6 +30,11 @@
             <span>Absent: <?php echo $report['summary']['absent_count']; ?></span>
             <span>Leave: <?php echo $report['summary']['leave_days']; ?></span>
         </div>
+        <?php if (!empty($report['summary']['special_schedule'])): ?>
+            <div class="special">
+                Special Schedule: <?php echo htmlspecialchars(($report['summary']['start_time'] ?? '-') . ' - ' . ($report['summary']['end_time'] ?? '-')); ?>
+            </div>
+        <?php endif; ?>
     <?php endif; ?>
 
     <table>
@@ -39,11 +46,21 @@
                 <th>Last Out</th>
                 <th>Late</th>
                 <th>Early Checkout</th>
+                <th>Notes</th>
             </tr>
         </thead>
         <tbody>
             <?php foreach ($report['daily'] as $row): ?>
-                <tr>
+                <?php
+                    $isFlagged = !empty($row['late']) || !empty($row['early_checkout']);
+                    $notesValue = $row['notes'] ?? array();
+                    if (is_array($notesValue)) {
+                        $notesText = implode(' ', $notesValue);
+                    } else {
+                        $notesText = (string) $notesValue;
+                    }
+                ?>
+                <tr class="<?php echo $isFlagged ? 'flagged' : ''; ?>">
                     <td><?php echo htmlspecialchars($row['date']); ?></td>
                     <td>
                         <?php echo htmlspecialchars($row['status']); ?>
@@ -55,6 +72,7 @@
                     <td><?php echo htmlspecialchars($row['last_out'] ?? '-'); ?></td>
                     <td><?php echo $row['late'] ? 'Yes' : 'No'; ?></td>
                     <td><?php echo $row['early_checkout'] ? 'Yes' : 'No'; ?></td>
+                    <td><?php echo $notesText !== '' ? htmlspecialchars($notesText) : '-'; ?></td>
                 </tr>
             <?php endforeach; ?>
         </tbody>

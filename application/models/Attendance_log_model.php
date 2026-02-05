@@ -10,6 +10,18 @@ class Attendance_log_model extends CI_Model
 
     public function insert($data)
     {
+        if (array_key_exists('notes', $data)) {
+            if (is_array($data['notes'])) {
+                $data['notes'] = !empty($data['notes']) ? json_encode(array_values($data['notes'])) : null;
+            } elseif ($data['notes'] === '') {
+                $data['notes'] = null;
+            }
+        }
+
+        if (array_key_exists('special_schedule', $data)) {
+            $data['special_schedule'] = !empty($data['special_schedule']) ? 1 : 0;
+        }
+
         return $this->db->insert('attendance_logs', $data);
     }
 

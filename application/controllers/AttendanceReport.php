@@ -5,6 +5,9 @@ require_once APPPATH . 'core/BaseController.php';
 
 class AttendanceReport extends BaseController
 {
+    private $lateGraceMinutes = 15;
+    private $earlyGraceMinutes = 15;
+
     public function __construct()
     {
         parent::__construct();
@@ -31,11 +34,12 @@ class AttendanceReport extends BaseController
         }
 
         $office = $this->Office_model->get_active_office();
-        $report = $this->build_monthly_report($targetUserId, $month, $office);
+        $targetUser = $this->get_user($targetUserId);
+        $report = $this->build_monthly_report($targetUserId, $month, $office, $targetUser);
         $summaries = array();
         if ($isAdminHr && !$this->input->get('user_id', TRUE)) {
             foreach ($this->get_attendance_users() as $member) {
-                $memberReport = $this->build_monthly_report((int) $member['id'], $month, $office);
+                $memberReport = $this->build_monthly_report((int) $member['id'], $month, $office, $member);
                 if (!empty($memberReport['summary'])) {
                     $summaries[(int) $member['id']] = $memberReport['summary'];
                 }
@@ -48,7 +52,7 @@ class AttendanceReport extends BaseController
         $data['report'] = $report;
         $data['summaries'] = $summaries;
         $data['users'] = $isAdminHr ? $this->get_attendance_users() : array();
-        $data['target_user'] = $this->get_user($targetUserId);
+        $data['target_user'] = $targetUser;
         $data['selected_user_id'] = $this->input->get('user_id', TRUE) ? (int) $this->input->get('user_id', TRUE) : 0;
         $data['content'] = $this->load->view('attendance/report', $data, true);
         $this->load->view('TemplateDashboard', $data);
@@ -68,8 +72,8 @@ class AttendanceReport extends BaseController
         }
 
         $office = $this->Office_model->get_active_office();
-        $report = $this->build_monthly_report($targetUserId, $month, $office);
         $user = $this->get_user($targetUserId);
+        $report = $this->build_monthly_report($targetUserId, $month, $office, $user);
 
         $data['month'] = $month;
         $data['report'] = $report;
@@ -140,7 +144,7 @@ class AttendanceReport extends BaseController
         return $this->db->get()->result_array();
     }
 
-    private function build_monthly_report($userId, $month, $office)
+    private function build_monthly_report($userId, $month, $office, $user = null)
     {
         if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
             return array('error' => 'Invalid month format.');
@@ -162,7 +166,7 @@ class AttendanceReport extends BaseController
         $leaveDays = $this->get_approved_leave_days($userId, $startDate, $endDate);
         $logs = $this->get_attendance_logs($userId, $startDate, $endDate);
 
-        $times = $this->resolve_attendance_times($office);
+        $times = $this->resolve_attendance_times($office, $user);
         $startTime = $times['start'];
         $endTime = $times['end'];
 
@@ -217,6 +221,8 @@ class AttendanceReport extends BaseController
                 $absentCount++;
             }
 
+            $notes = $this->build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout);
+
             $daily[] = array(
                 'date' => $day,
                 'status' => $status,
@@ -225,6 +231,7 @@ class AttendanceReport extends BaseController
                 'late' => $isLate,
                 'early_checkout' => $isEarlyCheckout,
                 'holiday_name' => $holidayName,
+                'notes' => $notes,
             );
         }
 
@@ -237,6 +244,8 @@ class AttendanceReport extends BaseController
             'leave_days' => $leaveCount,
             'start_time' => $startTime,
             'end_time' => $endTime,
+            'schedule_source' => $times['source'],
+            'special_schedule' => $times['source'] === 'user',
         );
 
         return array(
@@ -301,21 +310,135 @@ class AttendanceReport extends BaseController
         return array_values(array_unique($days));
     }
 
-    private function resolve_attendance_times($office)
+    private function resolve_attendance_times($office, $user = null)
     {
         $start = '08:00';
         $end = '17:00';
+        $source = 'default';
+
         if ($office && !empty($office['attendance_response_times'])) {
             $times = $this->parse_response_times($office['attendance_response_times']);
-            if (!empty($times[0])) {
-                $start = $times[0];
+            list($officeStart, $officeEnd) = $this->select_time_pair($times);
+            if ($officeStart) {
+                $start = $officeStart;
             }
-            if (!empty($times[1])) {
-                $end = $times[1];
+            if ($officeEnd) {
+                $end = $officeEnd;
             }
+            $source = 'office';
+        }
+
+        $userTimes = $this->resolve_user_attendance_times($user);
+        if ($userTimes) {
+            if (!empty($userTimes['start'])) {
+                $start = $userTimes['start'];
+            }
+            if (!empty($userTimes['end'])) {
+                $end = $userTimes['end'];
+            }
+            $source = 'user';
+        }
+
+        return array('start' => $start, 'end' => $end, 'source' => $source);
+    }
+
+    private function resolve_user_attendance_times($user)
+    {
+        if (!$user || !is_array($user)) {
+            return null;
+        }
+
+        $start = null;
+        $end = null;
+
+        $rawTimes = trim((string) ($user['attendance_response_times'] ?? ''));
+        if ($rawTimes !== '') {
+            $times = $this->parse_response_times($rawTimes);
+            list($start, $end) = $this->select_time_pair($times);
+        }
+
+        $startOverride = trim((string) ($user['attendance_start_time'] ?? ''));
+        if ($this->is_valid_time($startOverride)) {
+            $start = $startOverride;
+        }
+
+        $endOverride = trim((string) ($user['attendance_end_time'] ?? ''));
+        if ($this->is_valid_time($endOverride)) {
+            $end = $endOverride;
+        }
+
+        if ($start === null && $end === null) {
+            return null;
         }
 
         return array('start' => $start, 'end' => $end);
+    }
+
+    private function select_time_pair($times)
+    {
+        $start = null;
+        $end = null;
+        if (!is_array($times)) {
+            return array($start, $end);
+        }
+
+        foreach ($times as $time) {
+            $time = trim((string) $time);
+            if ($this->is_valid_time($time)) {
+                if ($start === null) {
+                    $start = $time;
+                } elseif ($end === null) {
+                    $end = $time;
+                    break;
+                }
+            }
+        }
+
+        return array($start, $end);
+    }
+
+    private function is_valid_time($time)
+    {
+        return $time !== '' && preg_match('/^\d{2}:\d{2}$/', $time);
+    }
+
+    private function minutes_after_start($timestamp, $startTime)
+    {
+        $start = strtotime(substr($timestamp, 0, 10) . ' ' . $startTime . ':00');
+        if ($start === false) {
+            return null;
+        }
+        $delta = strtotime($timestamp) - $start;
+        return (int) floor($delta / 60);
+    }
+
+    private function minutes_before_end($timestamp, $endTime)
+    {
+        $end = strtotime(substr($timestamp, 0, 10) . ' ' . $endTime . ':00');
+        if ($end === false) {
+            return null;
+        }
+        $delta = $end - strtotime($timestamp);
+        return (int) floor($delta / 60);
+    }
+
+    private function build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout)
+    {
+        $notes = array();
+        if ($isLate && $firstIn) {
+            $lateMinutes = $this->minutes_after_start($firstIn, $startTime);
+            if ($lateMinutes !== null) {
+                $notes[] = 'Late check-in by ' . $lateMinutes . ' minutes.';
+            }
+        }
+        if ($isEarlyCheckout && $lastOut) {
+            $earlyMinutes = $this->minutes_before_end($lastOut, $endTime);
+            if ($earlyMinutes !== null) {
+                $notes[] = 'Early checkout by ' . $earlyMinutes . ' minutes.';
+            }
+        }
+
+        return $notes;
     }
 
     private function parse_response_times($text)
@@ -343,14 +466,14 @@ class AttendanceReport extends BaseController
     private function is_late($timestamp, $startTime)
     {
         $start = strtotime(substr($timestamp, 0, 10) . ' ' . $startTime . ':00');
-        $threshold = $start + (30 * 60);
+        $threshold = $start + ($this->lateGraceMinutes * 60);
         return strtotime($timestamp) > $threshold;
     }
 
     private function is_early_checkout($timestamp, $endTime)
     {
         $end = strtotime(substr($timestamp, 0, 10) . ' ' . $endTime . ':00');
-        $threshold = $end - (30 * 60);
+        $threshold = $end - ($this->earlyGraceMinutes * 60);
         return strtotime($timestamp) < $threshold;
     }
 }

@@ -15,7 +15,19 @@ class Office_model extends CI_Model
 
     public function get_active_office()
     {
-        return $this->db->get_where('offices', array('is_active' => 1))->row_array();
+        $this->db->from('offices');
+        $this->db->where('is_active', 1);
+        $this->db->order_by('id', 'ASC');
+        $this->db->limit(1);
+        return $this->db->get()->row_array();
+    }
+
+    public function get_active_offices()
+    {
+        $this->db->from('offices');
+        $this->db->where('is_active', 1);
+        $this->db->order_by('id', 'ASC');
+        return $this->db->get()->result_array();
     }
 
     public function get_all()
@@ -26,12 +38,14 @@ class Office_model extends CI_Model
     public function set_active($officeId)
     {
         $officeId = (int) $officeId;
-        $this->db->trans_start();
-        $this->db->update('offices', array('is_active' => 0));
         $this->db->where('id', $officeId);
-        $this->db->update('offices', array('is_active' => 1));
-        $this->db->trans_complete();
+        return $this->db->update('offices', array('is_active' => 1));
+    }
 
-        return $this->db->trans_status();
+    public function set_inactive($officeId)
+    {
+        $officeId = (int) $officeId;
+        $this->db->where('id', $officeId);
+        return $this->db->update('offices', array('is_active' => 0));
     }
 }

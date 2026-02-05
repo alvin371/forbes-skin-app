@@ -2975,6 +2975,9 @@ class Transaction extends BaseController
             'start_date' => $start_date,
             'until_date' => $until_date,
         );
+        if ($debug) {
+            $query_params['debug'] = '1';
+        }
         $url = $this->template->endpoint_url() . 'api/marketplace/order?' . http_build_query($query_params);
         $debug_add('endpoint_url', $url);
 
@@ -3033,6 +3036,32 @@ class Transaction extends BaseController
         } else {
             $msg = (is_array($response) && isset($response['msg'])) ? $response['msg'] : 'Sync gagal. Response tidak valid.';
             $output = $this->template->alert_danger($msg);
+        }
+
+        if ($debug && is_array($response) && isset($response['debug']) && is_array($response['debug'])) {
+            if (isset($response['debug']['tiktok_requests_count'])) {
+                $debug_add('tiktok_requests_total', $response['debug']['tiktok_requests_count']);
+            }
+            if (isset($response['debug']['tiktok_requests']) && is_array($response['debug']['tiktok_requests'])) {
+                $max_debug = 5;
+                $idx = 0;
+                foreach ($response['debug']['tiktok_requests'] as $req) {
+                    if ($idx >= $max_debug) {
+                        break;
+                    }
+                    $debug_add('tiktok_request_url_' . ($idx + 1), isset($req['url']) ? $req['url'] : '');
+                    if (isset($req['post'])) {
+                        $debug_add('tiktok_request_post_' . ($idx + 1), json_encode($req['post']));
+                    }
+                    if (isset($req['curl'])) {
+                        $debug_add('tiktok_request_curl_' . ($idx + 1), "\n" . $req['curl']);
+                    }
+                    $idx++;
+                }
+                if (count($response['debug']['tiktok_requests']) > $max_debug) {
+                    $debug_add('tiktok_requests_truncated', 'true');
+                }
+            }
         }
 
         if ($debug) {

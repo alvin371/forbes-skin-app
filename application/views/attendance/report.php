@@ -46,12 +46,17 @@
                                 <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Early Checkout</th>
                                 <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Absent</th>
                                 <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Leave</th>
+                                <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Special Schedule</th>
                                 <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php foreach ($users as $user): ?>
                                 <?php $summaryData = $summaries[$user['id']] ?? null; ?>
+                                <?php
+                                    $summaryHasSpecial = !empty($summaryData['special_schedule']);
+                                    $scheduleText = $summaryHasSpecial ? ($summaryData['start_time'] ?? '-') . ' - ' . ($summaryData['end_time'] ?? '-') : null;
+                                ?>
                                 <tr style="border-bottom: 1px solid #f0f0f0; transition: background-color 0.3s;">
                                     <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);"><?php echo htmlspecialchars($user['full_name']); ?></td>
                                     <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);"><?php echo $summaryData['present_days'] ?? '-'; ?></td>
@@ -59,6 +64,14 @@
                                     <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);"><?php echo $summaryData['early_checkout_count'] ?? '-'; ?></td>
                                     <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);"><?php echo $summaryData['absent_count'] ?? '-'; ?></td>
                                     <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);"><?php echo $summaryData['leave_days'] ?? '-'; ?></td>
+                                    <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);">
+                                        <?php if ($summaryHasSpecial): ?>
+                                            <span style="background-color: #fff1f0; color: #cf1322; border: 1px solid #ffa39e; padding: 0 8px; height: 22px; display: inline-flex; align-items: center; border-radius: 2px; font-size: 12px; margin-right: 6px;">Special</span>
+                                            <span style="font-size: 12px; color: rgba(0,0,0,0.65);"><?php echo htmlspecialchars($scheduleText); ?></span>
+                                        <?php else: ?>
+                                            <span style="color: rgba(0,0,0,0.45);">Normal</span>
+                                        <?php endif; ?>
+                                    </td>
                                     <td style="padding: 12px 8px; font-size: 14px;">
                                         <a href="<?php echo site_url('attendance/report?month=' . urlencode($month) . '&user_id=' . (int) $user['id']); ?>" style="color: #1890ff; font-size: 16px;" title="View">
                                             <i class="bi bi-eye"></i>
@@ -73,6 +86,14 @@
                 <?php if (!empty($target_user)): ?>
                     <div style="margin-bottom: 16px; padding: 12px; background-color: #fafafa; border-radius: 2px; border: 1px solid #d9d9d9;">
                         <strong style="font-size: 14px; color: rgba(0,0,0,0.85);">User:</strong> <span style="font-size: 14px; color: rgba(0,0,0,0.65);"><?php echo htmlspecialchars($target_user['full_name'] ?? ''); ?></span>
+                    </div>
+                <?php endif; ?>
+                <?php if (!empty($report['summary']['special_schedule'])): ?>
+                    <div style="margin-bottom: 16px; padding: 12px; background-color: #fff1f0; border-radius: 2px; border: 1px solid #ffa39e; color: #a8071a; display: flex; align-items: center; gap: 8px;">
+                        <span style="background-color: #cf1322; color: #fff; padding: 2px 8px; border-radius: 2px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px;">Special Schedule</span>
+                        <span style="font-size: 14px;">
+                            <?php echo htmlspecialchars(($report['summary']['start_time'] ?? '-') . ' - ' . ($report['summary']['end_time'] ?? '-')); ?>
+                        </span>
                     </div>
                 <?php endif; ?>
                 <?php if (!empty($report['summary'])): ?>
@@ -126,11 +147,22 @@
                                 <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Last Out</th>
                                 <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Late</th>
                                 <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Early Checkout</th>
+                                <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Notes</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php foreach ($report['daily'] as $row): ?>
-                                <tr style="border-bottom: 1px solid #f0f0f0; transition: background-color 0.3s;">
+                                <?php
+                                    $isFlagged = !empty($row['late']) || !empty($row['early_checkout']);
+                                    $rowStyle = $isFlagged ? 'background-color: #fff1f0;' : '';
+                                    $notesValue = $row['notes'] ?? array();
+                                    if (is_array($notesValue)) {
+                                        $notesText = implode(' ', $notesValue);
+                                    } else {
+                                        $notesText = (string) $notesValue;
+                                    }
+                                ?>
+                                <tr style="border-bottom: 1px solid #f0f0f0; transition: background-color 0.3s; <?php echo $rowStyle; ?>">
                                     <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);"><?php echo htmlspecialchars($row['date']); ?></td>
                                     <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);">
                                         <?php echo htmlspecialchars($row['status']); ?>
@@ -154,6 +186,13 @@
                                             <span style="background-color: #fffbe6; color: #faad14; border: 1px solid #ffe58f; padding: 0 8px; height: 22px; display: inline-flex; align-items: center; border-radius: 2px; font-size: 12px;">Yes</span>
                                         <?php else: ?>
                                             <span style="color: rgba(0,0,0,0.45);">No</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);">
+                                        <?php if ($notesText !== ''): ?>
+                                            <?php echo htmlspecialchars($notesText); ?>
+                                        <?php else: ?>
+                                            <span style="color: rgba(0,0,0,0.45);">-</span>
                                         <?php endif; ?>
                                     </td>
                                 </tr>

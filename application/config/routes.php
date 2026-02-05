@@ -61,6 +61,7 @@ $route['admin/offices/(:num)/edit'] = 'admin/offices/edit/$1';
 $route['admin/offices/(:num)'] = 'admin/offices/update/$1';
 $route['admin/offices/(:num)/delete'] = 'admin/offices/delete/$1';
 $route['admin/offices/(:num)/activate'] = 'admin/offices/activate/$1';
+$route['admin/offices/(:num)/deactivate'] = 'admin/offices/deactivate/$1';
 
 $route['admin/leave-types'] = 'admin/LeaveTypesController/index';
 $route['admin/leave-types/create'] = 'admin/LeaveTypesController/create';

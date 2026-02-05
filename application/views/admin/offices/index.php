@@ -68,8 +68,17 @@
                                             <?php if (!empty($csrf_name) && !empty($csrf_hash)): ?>
                                                 <input type="hidden" name="<?php echo $csrf_name; ?>" value="<?php echo $csrf_hash; ?>">
                                             <?php endif; ?>
-                                            <button type="submit" style="background: none; border: none; padding: 0; cursor: pointer; color: #52c41a; font-size: 16px;" title="Set Active">
+                                            <button type="submit" style="background: none; border: none; padding: 0; cursor: pointer; color: #52c41a; font-size: 16px;" title="Activate">
                                                 <i class="bi bi-check-circle"></i>
+                                            </button>
+                                        </form>
+                                    <?php else: ?>
+                                        <form method="post" action="<?php echo site_url('admin/offices/' . $office['id'] . '/deactivate'); ?>" style="display:inline;">
+                                            <?php if (!empty($csrf_name) && !empty($csrf_hash)): ?>
+                                                <input type="hidden" name="<?php echo $csrf_name; ?>" value="<?php echo $csrf_hash; ?>">
+                                            <?php endif; ?>
+                                            <button type="submit" style="background: none; border: none; padding: 0; cursor: pointer; color: #faad14; font-size: 16px;" title="Deactivate">
+                                                <i class="bi bi-slash-circle"></i>
                                             </button>
                                         </form>
                                     <?php endif; ?>
