@@ -3046,25 +3046,42 @@ class Api_v2 extends CI_Controller
                 $shop_name = $v['shop_name'];
 
                 $page_size = 100;
-                $cursor = "";
+                $page_token = "";
 
                 for ($i = 0; $i <= 100; $i++) {
 
-                    $url = 'https://open-api.tiktokglobalshop.com/api/orders/search?access_token=' . $access_token . '&app_key=' . $app_key . '&shop_id=' . $shop_id . '&sign={{sign}}&timestamp={{timestamp}}&version=202212';
-                    $urlParts = parse_url($url);
-                    $paramGET = [];
-                    parse_str($urlParts['query'], $paramGET);
-                    $timest = strtotime('now');
-                    $pr = array();
-                    $pr['secret'] = $app_secret;
-                    $pr['timest'] = $timest;
-                    $pr['get'] = $paramGET;
-                    $pr['post'] = '{"cursor":"' . $cursor . '","page_size":' . $page_size . ',"sort_by":"CREATE_TIME","create_time_from":' . $start_time . ',"create_time_to":' . $until_time . ',"sort_type":2}';
-                    $pr['url'] = $url;
+                    $endpoint_path = '/order/202309/orders/search';
+                    $timest = time();
+
+                    $queryParams = array(
+                        'app_key' => $app_key,
+                        'shop_cipher' => $shop_cipher,
+                        'sort_field' => 'create_time',
+                        'sort_order' => 'DESC',
+                        'timestamp' => $timest,
+                        'page_size' => $page_size,
+                    );
+                    if ($page_token !== '') {
+                        $queryParams['page_token'] = $page_token;
+                    }
+
+                    $body_payload = array(
+                        'create_time_ge' => $start_time,
+                        'create_time_lt' => $until_time,
+                    );
+                    $body_json = json_encode($body_payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+                    $pr = array(
+                        'secret' => $app_secret,
+                        'timest' => $timest,
+                        'get' => $queryParams,
+                        'post' => $body_json,
+                        'url' => 'https://open-api.tiktokglobalshop.com' . $endpoint_path,
+                    );
                     $sign = $this->tiktok_signature_generator($pr);
 
-                    $url = str_replace('{{sign}}', $sign, $url);
-                    $url = str_replace('{{timestamp}}', $timest, $url);
+                    $queryParams['sign'] = $sign;
+                    $url = 'https://open-api.tiktokglobalshop.com' . $endpoint_path . '?' . http_build_query($queryParams);
 
                     $curl = curl_init();
                     curl_setopt_array($curl, array(
@@ -3076,9 +3093,9 @@ class Api_v2 extends CI_Controller
                         CURLOPT_FOLLOWLOCATION => true,
                         CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
                         CURLOPT_CUSTOMREQUEST => 'POST',
-                        CURLOPT_POSTFIELDS => $pr['post'],
+                        CURLOPT_POSTFIELDS => $body_json,
                         CURLOPT_HTTPHEADER => array(
-                            'Content-Type: application/json',
+                            'content-type: application/json',
                             'x-tts-access-token: ' . $access_token
                         ),
                     ));
@@ -3095,17 +3112,14 @@ class Api_v2 extends CI_Controller
                         if (count($debug_data['tiktok_requests']) < $debug_max) {
                             $debug_data['tiktok_requests'][] = array(
                                 'shop_id' => strval($shop_id),
-                                'access_token' => strval($access_token),
                                 'app_key' => strval($app_key),
-                                'app_secret' => strval($app_secret),
-                                'sign' => strval($sign),
                                 'timestamp' => strval($timest),
                                 'url' => strval($url),
                                 'shop_name' => strval($shop_name),
-                                'cursor' => $cursor,
+                                'page_token' => $page_token,
                                 'page_size' => $page_size,
-                                'create_time_from' => $start_time,
-                                'create_time_to' => $until_time,
+                                'create_time_ge' => $start_time,
+                                'create_time_lt' => $until_time,
                                 'http_code' => $http_code,
                                 'curl_error' => $curl_error ? $curl_error : '',
                                 'response_code' => isset($response['code']) ? $response['code'] : null,
@@ -3118,13 +3132,18 @@ class Api_v2 extends CI_Controller
                         }
                     }
 
-                    $cursor = $response['data']['next_cursor'];
+                    $orders = array();
+                    if (isset($response['data']['orders']) && is_array($response['data']['orders'])) {
+                        $orders = $response['data']['orders'];
+                    } else if (isset($response['data']['order_list']) && is_array($response['data']['order_list'])) {
+                        $orders = $response['data']['order_list'];
+                    }
 
-                    if (empty($response['data']['order_list'])) {
+                    if (empty($orders)) {
                         break;
                     }
 
-                    foreach ($response['data']['order_list'] as $k2 => $v2) {
+                    foreach ($orders as $k2 => $v2) {
                         $order_id = $v2['order_id'];
                         $this->db->select('id');
                         $trx = $this->mymodel->selectDataOne('transaction', array('order_id' => $order_id, 'marketplace' => $marketplace));
@@ -3137,22 +3156,41 @@ class Api_v2 extends CI_Controller
                         $dt['shop_name'] = strval($shop_name);
                         $dt['marketplace'] = $marketplace;
                         $dt['order_id'] = $order_id;
-                        if (in_array($v2['order_status'], array('100'))) {
+                        $status_raw = $v2['order_status'] ?? ($v2['status'] ?? '');
+                        $status_upper = strtoupper(strval($status_raw));
+                        if (in_array($status_upper, array('UNPAID'))) {
                             $order_status = 'UNPAID';
-                        } else if (in_array($v2['order_status'], array('112', '105'))) {
+                        } else if (in_array($status_upper, array('AWAITING_COLLECTION', 'ON_HOLD'))) {
                             $order_status = 'PROCESSED';
-                        } else if (in_array($v2['order_status'], array('returned'))) {
+                        } else if (in_array($status_upper, array('RETURNED'))) {
                             $order_status = 'RETURN';
-                        } else if (in_array($v2['order_status'], array('140'))) {
+                        } else if (in_array($status_upper, array('CANCELLED'))) {
                             $order_status = 'CANCELLED';
-                        } else if (in_array($v2['order_status'], array('130',))) {
+                        } else if (in_array($status_upper, array('COMPLETED'))) {
                             $order_status = 'COMPLETED';
-                        } else if (in_array($v2['order_status'], array('122'))) {
+                        } else if (in_array($status_upper, array('DELIVERED'))) {
                             $order_status = 'DELIVERED';
-                        } else if (in_array($v2['order_status'], array('121', '114'))) {
+                        } else if (in_array($status_upper, array('IN_TRANSIT', 'PARTIALLY_SHIPPING'))) {
                             $order_status = 'SHIPPED';
                             $dt['is_shipped'] = 1;
-                        } else if (in_array($v2['order_status'], array('111'))) {
+                        } else if (in_array($status_upper, array('AWAITING_SHIPMENT'))) {
+                            $order_status = 'READY_TO_SHIP';
+                        } else if (in_array($status_raw, array('100'))) {
+                            $order_status = 'UNPAID';
+                        } else if (in_array($status_raw, array('112', '105'))) {
+                            $order_status = 'PROCESSED';
+                        } else if (in_array($status_raw, array('returned'))) {
+                            $order_status = 'RETURN';
+                        } else if (in_array($status_raw, array('140'))) {
+                            $order_status = 'CANCELLED';
+                        } else if (in_array($status_raw, array('130',))) {
+                            $order_status = 'COMPLETED';
+                        } else if (in_array($status_raw, array('122'))) {
+                            $order_status = 'DELIVERED';
+                        } else if (in_array($status_raw, array('121', '114'))) {
+                            $order_status = 'SHIPPED';
+                            $dt['is_shipped'] = 1;
+                        } else if (in_array($status_raw, array('111'))) {
                             $order_status = 'READY_TO_SHIP';
                         }
                         $dt['order_status'] = strval($order_status);
@@ -3165,6 +3203,13 @@ class Api_v2 extends CI_Controller
                             $this->db->insert('transaction', $dt);
                         }
                     }
+
+                    $next_page_token = $response['data']['next_page_token'] ?? '';
+                    if ($next_page_token !== '') {
+                        $page_token = $next_page_token;
+                        continue;
+                    }
+                    break;
                 }
             } else if ($v['opt'] == "SHOPEE") {
                 $marketplace = "SHOPEE";
