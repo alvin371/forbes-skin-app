@@ -240,6 +240,23 @@ class Seed extends CI_Controller
             $modules_added++;
         }
 
+        // Add overtime_approval_routes module
+        $existing = $this->db->get_where('modules', array('name' => 'overtime_approval_routes'))->row_array();
+        if (!$existing) {
+            $this->db->insert('modules', array(
+                'name' => 'overtime_approval_routes',
+                'display_name' => 'Overtime Approval Routes',
+                'controller' => 'admin/OvertimeApprovalRoutesController',
+                'icon' => 'bi-diagram-3',
+                'parent_id' => null,
+                'sort_order' => 102,
+                'is_active' => 1,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ));
+            $modules_added++;
+        }
+
         // Add approval_inbox module
         $existing = $this->db->get_where('modules', array('name' => 'approval_inbox'))->row_array();
         if (!$existing) {
@@ -259,6 +276,7 @@ class Seed extends CI_Controller
 
         // Get module IDs
         $approval_routes_module = $this->db->get_where('modules', array('name' => 'approval_routes'))->row_array();
+        $overtime_approval_routes_module = $this->db->get_where('modules', array('name' => 'overtime_approval_routes'))->row_array();
         $approval_inbox_module = $this->db->get_where('modules', array('name' => 'approval_inbox'))->row_array();
 
         if ($this->db->table_exists('roles') && $this->db->table_exists('role_permissions')) {
@@ -281,6 +299,29 @@ class Seed extends CI_Controller
                         $this->db->insert('role_permissions', array(
                             'role_id' => $role['id'],
                             'module_id' => $approval_routes_module['id'],
+                            'can_view' => 1,
+                            'can_create' => 1,
+                            'can_edit' => 1,
+                            'can_delete' => 1,
+                            'can_approve' => 1,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ));
+                        $permissions_added++;
+                    }
+                }
+
+                // Add overtime_approval_routes permission
+                if ($overtime_approval_routes_module) {
+                    $existing_perm = $this->db->get_where('role_permissions', array(
+                        'role_id' => $role['id'],
+                        'module_id' => $overtime_approval_routes_module['id']
+                    ))->row_array();
+
+                    if (!$existing_perm) {
+                        $this->db->insert('role_permissions', array(
+                            'role_id' => $role['id'],
+                            'module_id' => $overtime_approval_routes_module['id'],
                             'can_view' => 1,
                             'can_create' => 1,
                             'can_edit' => 1,

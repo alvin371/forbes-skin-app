@@ -152,6 +152,14 @@ $route['admin/approval-routes/detail/(:num)'] = 'admin/ApprovalRoutesController/
 $route['admin/approval-routes/preview'] = 'admin/ApprovalRoutesController/preview';
 $route['admin/approval-routes/bulk'] = 'admin/ApprovalRoutesController/bulk_create';
 $route['admin/approval-routes/bulk-store'] = 'admin/ApprovalRoutesController/bulk_store';
+$route['admin/overtime-approval-routes'] = 'admin/OvertimeApprovalRoutesController/index';
+$route['admin/overtime-approval-routes/create'] = 'admin/OvertimeApprovalRoutesController/create';
+$route['admin/overtime-approval-routes/store'] = 'admin/OvertimeApprovalRoutesController/store';
+$route['admin/overtime-approval-routes/(:num)/edit'] = 'admin/OvertimeApprovalRoutesController/edit/$1';
+$route['admin/overtime-approval-routes/(:num)/update'] = 'admin/OvertimeApprovalRoutesController/update/$1';
+$route['admin/overtime-approval-routes/(:num)/deactivate'] = 'admin/OvertimeApprovalRoutesController/deactivate/$1';
+$route['admin/overtime-approval-routes/(:num)/activate'] = 'admin/OvertimeApprovalRoutesController/activate/$1';
+$route['admin/overtime-approval-routes/(:num)/delete'] = 'admin/OvertimeApprovalRoutesController/delete/$1';
 
 $route['diagnostic/check-leave-data'] = 'DiagnosticController/check_leave_data';
 $route['fix/leave-status'] = 'FixLeaveStatusController/update_status';

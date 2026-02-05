@@ -2158,6 +2158,11 @@ class Api_hrms extends CI_Controller
         // Initialize workflow
         $workflowResult = $this->overtimeworkflowengine->initializeWorkflow($requestId);
 
+        if (!$workflowResult['success'] && isset($workflowResult['code']) && in_array($workflowResult['code'], array('NO_ROUTE', 'NO_STEPS'), true)) {
+            $this->OvertimeRequestModel->delete($requestId);
+            return $this->respond(422, array('message' => $workflowResult['message']));
+        }
+
         $status = 'SUBMITTED';
         if ($workflowResult['success']) {
             $status = 'IN_REVIEW';

@@ -199,10 +199,18 @@ class Overtime extends BaseController
 
         if ($workflowResult['success']) {
             $this->session->set_flashdata('success', 'Overtime request submitted and sent for approval.');
-        } else {
-            $this->session->set_flashdata('warning', 'Request saved, but approval workflow could not be started: ' . $workflowResult['message']);
+            redirect('overtime');
+            return;
         }
 
+        if (isset($workflowResult['code']) && in_array($workflowResult['code'], array('NO_ROUTE', 'NO_STEPS'), true)) {
+            $this->OvertimeRequestModel->delete($requestId);
+            $this->session->set_flashdata('error', 'Pengajuan lembur gagal: ' . $workflowResult['message']);
+            redirect('overtime/create');
+            return;
+        }
+
+        $this->session->set_flashdata('warning', 'Request saved, but approval workflow could not be started: ' . $workflowResult['message']);
         redirect('overtime');
     }
 
