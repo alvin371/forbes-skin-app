@@ -258,6 +258,7 @@ if (!function_exists('sidebar_registry')) {
                 'category' => 'HR Management',
                 'sort_order' => 610,
                 'permissions' => ['view', 'approve'],
+                'is_active' => 0,
             ],
             'quest_level' => [
                 'display_name' => 'QUEST LEVELS',
@@ -265,6 +266,7 @@ if (!function_exists('sidebar_registry')) {
                 'category' => 'HR Management',
                 'sort_order' => 620,
                 'permissions' => ['view', 'create', 'edit', 'delete'],
+                'is_active' => 0,
             ],
             'position' => [
                 'display_name' => 'POSITIONS',
@@ -272,6 +274,7 @@ if (!function_exists('sidebar_registry')) {
                 'category' => 'HR Management',
                 'sort_order' => 630,
                 'permissions' => ['view', 'create', 'edit', 'delete'],
+                'is_active' => 0,
             ],
             'benefit' => [
                 'display_name' => 'BENEFITS',
@@ -279,6 +282,7 @@ if (!function_exists('sidebar_registry')) {
                 'category' => 'HR Management',
                 'sort_order' => 640,
                 'permissions' => ['view', 'create', 'edit', 'delete'],
+                'is_active' => 0,
             ],
             'quest' => [
                 'display_name' => 'QUEST MANAGEMENT',
@@ -286,6 +290,7 @@ if (!function_exists('sidebar_registry')) {
                 'category' => 'HR Management',
                 'sort_order' => 650,
                 'permissions' => ['view', 'create', 'edit', 'delete'],
+                'is_active' => 0,
             ],
             'milestone' => [
                 'display_name' => 'MILESTONE & LEADERBOARD',
@@ -293,6 +298,7 @@ if (!function_exists('sidebar_registry')) {
                 'category' => 'HR Management',
                 'sort_order' => 660,
                 'permissions' => ['view', 'create', 'edit', 'delete'],
+                'is_active' => 0,
             ],
 
             // Account
@@ -355,7 +361,14 @@ if (!function_exists('sidebar_registry_categories')) {
 if (!function_exists('sidebar_registry_names')) {
     function sidebar_registry_names()
     {
-        return array_keys(sidebar_registry());
+        $names = [];
+        foreach (sidebar_registry() as $name => $config) {
+            if (isset($config['is_active']) && (int) $config['is_active'] !== 1) {
+                continue;
+            }
+            $names[] = $name;
+        }
+        return $names;
     }
 }
 
@@ -364,6 +377,9 @@ if (!function_exists('sidebar_registry_permissions')) {
     {
         $permissions = [];
         foreach (sidebar_registry() as $name => $config) {
+            if (isset($config['is_active']) && (int) $config['is_active'] !== 1) {
+                continue;
+            }
             $permissions[$name] = $config['permissions'];
         }
         return $permissions;
@@ -398,7 +414,7 @@ if (!function_exists('sidebar_registry_sync')) {
                 'name' => $name,
                 'display_name' => $config['display_name'],
                 'sort_order' => $config['sort_order'],
-                'is_active' => 1,
+                'is_active' => array_key_exists('is_active', $config) ? (int) $config['is_active'] : 1,
             ];
 
             if (!empty($config['controller'])) {

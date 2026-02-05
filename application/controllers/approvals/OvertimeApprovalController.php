@@ -75,13 +75,13 @@ class OvertimeApprovalController extends CI_Controller
         $data['step'] = $step;
         $data['all_steps'] = $this->OvertimeApprovalStepModel->get_by_overtime_request($step['overtime_request_id']);
 
-        $requester = $this->db->query(""
+        $requester = $this->db->query("
             SELECT u.*, up.position_id, p.name as position_name
             FROM user u
             LEFT JOIN user_profile up ON u.id = up.user_id
             LEFT JOIN positions p ON up.position_id = p.id
             WHERE u.id = ?
-        "", array($data['overtime_request']['user_id']))->row_array();
+        ", array($data['overtime_request']['user_id']))->row_array();
         $data['requester'] = $requester;
 
         $data['title'] = 'Detail Approval Lembur: ' . $data['overtime_request']['request_no'] . ' - ' . $this->template->title();

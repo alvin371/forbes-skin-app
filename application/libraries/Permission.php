@@ -16,6 +16,27 @@ class Permission
     {
         $this->CI =& get_instance();
         $this->CI->load->model('mymodel');
+        $this->CI->load->helper('sidebar_registry');
+    }
+
+    /**
+     * Check if module is active in sidebar registry.
+     *
+     * @param string $module_name Module name
+     * @return bool
+     */
+    private function is_module_active($module_name)
+    {
+        if (empty($module_name) || !function_exists('sidebar_registry')) {
+            return true;
+        }
+
+        $registry = sidebar_registry();
+        if (isset($registry[$module_name]) && array_key_exists('is_active', $registry[$module_name])) {
+            return (int) $registry[$module_name]['is_active'] === 1;
+        }
+
+        return true;
     }
     
     /**
@@ -33,6 +54,11 @@ class Permission
         
         if (isset($this->user_permissions_cache[$cache_key])) {
             return $this->user_permissions_cache[$cache_key];
+        }
+
+        if (!$this->is_module_active($module_name)) {
+            $this->user_permissions_cache[$cache_key] = false;
+            return false;
         }
         
         // Check if permission tables exist first
@@ -77,6 +103,10 @@ class Permission
      */
     public function has_module_access($user_id, $controller)
     {
+        if (!$this->is_module_active($controller)) {
+            return false;
+        }
+
         try {
             $result = $this->CI->mymodel->selectWithQuery("
                 SELECT COUNT(*) as count
@@ -102,7 +132,7 @@ class Permission
     public function get_user_permissions($user_id)
     {
         try {
-            return $this->CI->mymodel->selectWithQuery("
+            $permissions = $this->CI->mymodel->selectWithQuery("
                 SELECT 
                     module_name,
                     module_display_name,
@@ -119,6 +149,9 @@ class Permission
                 AND (can_view = 1 OR can_create = 1 OR can_edit = 1 OR can_delete = 1 OR can_approve = 1)
                 ORDER BY module_name
             ");
+            return array_values(array_filter($permissions, function ($perm) {
+                return $this->is_module_active($perm['module_name'] ?? '');
+            }));
         } catch (Exception $e) {
             // Return basic permissions for fallback
             return [];
@@ -152,7 +185,11 @@ class Permission
             AND (ump.can_view = 1 OR ump.can_create = 1 OR ump.can_edit = 1 OR ump.can_delete = 1)
             ORDER BY m.sort_order, m.display_name
         ", [$user_id]);
-        
+
+        $permissions = array_values(array_filter($permissions, function ($module) {
+            return $this->is_module_active($module['name'] ?? '');
+        }));
+
         return $this->build_module_tree($permissions);
     }
     
