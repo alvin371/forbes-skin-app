@@ -18,11 +18,15 @@ class Api_hrms extends CI_Controller
         $this->load->model('LeaveRequestModel');
         $this->load->model('LeaveApprovalModel');
         $this->load->model('ApprovalRouteModel');
+        $this->load->model('ApprovalStepModel');
+        $this->load->model('LeaveLedgerModel');
         $this->load->model('Performance_model');
         $this->load->library('AttendanceEligibilityService');
         $this->load->library('LeaveCalculatorService');
         $this->load->library('LeaveOverlapService');
         $this->load->library('RequestNoGenerator');
+        $this->load->library('ApprovalWorkflowEngine');
+        $this->load->library('LeaveQuotaService');
         $this->load->helper('attendance');
     }
 
@@ -647,6 +651,16 @@ class Api_hrms extends CI_Controller
         }
 
         $input = $this->json_input();
+        $submitNowRaw = $input['submit_now'] ?? $input['submitNow'] ?? null;
+        $submitNow = true;
+        if ($submitNowRaw !== null) {
+            if (is_bool($submitNowRaw)) {
+                $submitNow = $submitNowRaw;
+            } else {
+                $submitNow = !in_array((string) $submitNowRaw, array('0', 'false', 'FALSE'), true);
+            }
+        }
+
         list($errors, $clean, $leaveType) = $this->validate_leave_request($input, $user['id']);
         if (!empty($errors)) {
             return $this->respond(422, array('message' => 'Validation failed.', 'errors' => $errors));
@@ -672,8 +686,6 @@ class Api_hrms extends CI_Controller
         }
 
         $now = date('Y-m-d H:i:s');
-        $route = $this->ApprovalRouteModel->get_active_by_user($user['id']);
-        $hasApprover = $route && !empty($route['approver_id']);
         $this->db->trans_start();
         $requestId = $this->LeaveRequestModel->insert(array(
             'request_no' => $requestNo,
@@ -684,27 +696,33 @@ class Api_hrms extends CI_Controller
             'days_count' => $clean['days_count'],
             'reason' => $clean['reason'],
             'attachment_path' => $attachmentPath,
-            'status' => 'PENDING_APPROVAL',
+            'status' => $submitNow ? 'SUBMITTED' : 'DRAFT',
             'current_step' => 1,
             'created_at' => $now,
             'updated_at' => $now,
         ));
-
-        if ($hasApprover) {
-            $this->LeaveApprovalModel->insert(array(
-                'leave_request_id' => $requestId,
-                'step_no' => 1,
-                'approver_id' => (int) $route['approver_id'],
-                'action' => 'PENDING',
-            ));
-        }
         $this->db->trans_complete();
 
-        return $this->respond(201, array(
+        $workflow = null;
+        if ($submitNow && $requestId) {
+            $workflow = $this->approvalworkflowengine->initializeWorkflow($requestId);
+        }
+
+        $request = $this->LeaveRequestModel->get_by_id((int) $requestId);
+        $statusRaw = $request['status'] ?? ($submitNow ? 'SUBMITTED' : 'DRAFT');
+
+        $payload = array(
             'id' => (int) $requestId,
             'requestNo' => $requestNo,
-            'status' => 'Pending',
-        ));
+            'status' => $this->map_leave_status($statusRaw),
+            'statusRaw' => $statusRaw,
+        );
+
+        if ($workflow) {
+            $payload['workflow'] = $workflow;
+        }
+
+        return $this->respond(201, $payload);
     }
 
     public function leave_detail($id)
@@ -731,27 +749,21 @@ class Api_hrms extends CI_Controller
             return $this->respond(403, array('message' => 'You do not have access to this leave request.'));
         }
 
-        $this->db->select('la.id, la.leave_request_id, la.step_no, la.approver_id, la.action, la.action_at, la.notes,
-            approver.full_name as approver_name, approver.email as approver_email');
-        $this->db->from('leave_approvals la');
-        $this->db->join('user approver', 'approver.id = la.approver_id', 'left');
-        $this->db->where('la.leave_request_id', (int) $id);
-        $this->db->order_by('la.step_no', 'ASC');
-        $this->db->order_by('la.id', 'ASC');
-        $approvals = $this->db->get()->result_array();
-
+        $approvalSteps = $this->ApprovalStepModel->get_by_leave_request((int) $id);
         $approvalsPayload = array();
-        foreach ($approvals as $approval) {
+        foreach ($approvalSteps as $step) {
             $approvalsPayload[] = array(
-                'id' => (int) $approval['id'],
-                'leaveRequestId' => (int) $approval['leave_request_id'],
-                'stepNo' => (int) $approval['step_no'],
-                'approverId' => (int) $approval['approver_id'],
-                'approverName' => $approval['approver_name'] ?? null,
-                'approverEmail' => $approval['approver_email'] ?? null,
-                'action' => $approval['action'],
-                'actionAt' => $approval['action_at'],
-                'notes' => $approval['notes'],
+                'id' => (int) $step['id'],
+                'leaveRequestId' => (int) $step['leave_request_id'],
+                'stepNo' => (int) $step['step_no'],
+                'approverId' => (int) $step['assigned_approver_id'],
+                'approverName' => $step['assigned_approver_name'] ?? null,
+                'approverRole' => $step['assigned_approver_role'] ?? null,
+                'action' => $step['action'],
+                'actionAt' => $step['action_at'],
+                'notes' => $step['notes'],
+                'actualApproverId' => isset($step['actual_approver_id']) ? (int) $step['actual_approver_id'] : null,
+                'actualApproverName' => $step['actual_approver_name'] ?? null,
             );
         }
 
@@ -786,6 +798,64 @@ class Api_hrms extends CI_Controller
         ));
     }
 
+    public function leave_submit($id)
+    {
+        if ($this->input->method(TRUE) !== 'POST') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->user_requires_attendance((int) $user['id'])) {
+            return $this->respond(403, array('message' => 'Attendance is not required for this account.'));
+        }
+
+        $request = $this->LeaveRequestModel->get_by_id((int) $id);
+        if (!$request || (int) $request['user_id'] !== (int) $user['id']) {
+            return $this->respond(404, array('message' => 'Leave request not found.'));
+        }
+
+        if (!in_array($request['status'], array('DRAFT', 'NEEDS_ROUTE'), true)) {
+            return $this->respond(409, array('message' => 'This request cannot be submitted.'));
+        }
+
+        $quotaCheck = $this->leavequotaservice->validateQuota(
+            (int) $user['id'],
+            (int) $request['leave_type_id'],
+            (float) $request['days_count'],
+            (int) $request['id']
+        );
+
+        if (!$quotaCheck['valid']) {
+            return $this->respond(409, array(
+                'message' => 'Kuota cuti tidak mencukupi: ' . ($quotaCheck['message'] ?? 'Insufficient quota.'),
+                'quota' => $quotaCheck,
+            ));
+        }
+
+        $result = $this->approvalworkflowengine->initializeWorkflow((int) $request['id']);
+        if (!$result['success']) {
+            return $this->respond(400, array(
+                'message' => 'Failed to submit leave request: ' . ($result['message'] ?? 'Unknown error.'),
+                'workflow' => $result,
+            ));
+        }
+
+        $request = $this->LeaveRequestModel->get_by_id((int) $request['id']);
+        $statusRaw = $request['status'] ?? 'SUBMITTED';
+
+        return $this->respond(200, array(
+            'message' => $result['message'] ?? 'Leave request submitted.',
+            'id' => (int) $request['id'],
+            'status' => $this->map_leave_status($statusRaw),
+            'statusRaw' => $statusRaw,
+            'workflow' => $result,
+        ));
+    }
+
     public function leave_cancel($id)
     {
         if ($this->input->method(TRUE) !== 'POST') {
@@ -806,33 +876,108 @@ class Api_hrms extends CI_Controller
             return $this->respond(404, array('message' => 'Leave request not found.'));
         }
 
-        $cancellableStatuses = array('PENDING_APPROVAL');
+        $cancellableStatuses = array('DRAFT', 'SUBMITTED', 'PENDING_APPROVAL', 'IN_REVIEW', 'NEEDS_ROUTE', 'APPROVED');
         if (!in_array($request['status'], $cancellableStatuses, true)) {
             return $this->respond(409, array('message' => 'This request cannot be cancelled.'));
         }
 
-        $now = date('Y-m-d H:i:s');
-        $this->db->trans_start();
+        $wasApproved = $request['status'] === 'APPROVED';
 
-        $this->LeaveRequestModel->update($request['id'], array(
-            'status' => 'CANCELLED',
-            'updated_at' => $now,
-        ));
+        $result = $this->approvalworkflowengine->cancelWorkflow((int) $request['id'], (int) $user['id']);
+        if (!$result['success']) {
+            $now = date('Y-m-d H:i:s');
+            $this->db->trans_start();
 
-        $this->db->where('leave_request_id', (int) $request['id']);
-        $this->db->where('action', 'PENDING');
-        $this->db->update('leave_approvals', array(
-            'action' => 'REJECTED',
-            'action_at' => $now,
-            'notes' => 'Cancelled by requester.',
-        ));
+            $this->LeaveRequestModel->update($request['id'], array(
+                'status' => 'CANCELLED',
+                'updated_at' => $now,
+            ));
 
-        $this->db->trans_complete();
+            $this->db->where('leave_request_id', (int) $request['id']);
+            $this->db->where('action', 'PENDING');
+            $this->db->update('approval_steps', array(
+                'action' => 'REJECTED',
+                'action_at' => $now,
+                'notes' => 'Cancelled by requester.',
+            ));
+
+            $this->db->trans_complete();
+        }
+
+        if ($wasApproved) {
+            $this->leavequotaservice->restoreQuota(
+                (int) $request['user_id'],
+                (int) $request['leave_type_id'],
+                (int) $request['days_count'],
+                (int) $request['id'],
+                (int) $user['id'],
+                'Pengajuan dibatalkan oleh pemohon'
+            );
+
+            $this->LeaveLedgerModel->delete_by_leave_request((int) $request['id']);
+        }
+
+        $message = $wasApproved ? 'Pengajuan cuti dibatalkan dan kuota dikembalikan.' : 'Pengajuan cuti dibatalkan.';
 
         return $this->respond(200, array(
-            'message' => 'Leave request cancelled.',
+            'message' => $message,
             'id' => (int) $request['id'],
             'status' => 'CANCELLED',
+        ));
+    }
+
+    public function leave_progress($id)
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->user_requires_attendance((int) $user['id'])) {
+            return $this->respond(403, array('message' => 'Attendance is not required for this account.'));
+        }
+
+        $request = $this->LeaveRequestModel->get_by_id((int) $id);
+        if (!$request || (int) $request['user_id'] !== (int) $user['id']) {
+            return $this->respond(404, array('message' => 'Leave request not found.'));
+        }
+
+        $progress = $this->approvalworkflowengine->getWorkflowProgress((int) $id);
+        if (!$progress) {
+            return $this->respond(404, array('message' => 'Approval workflow not found.'));
+        }
+
+        $stepsPayload = array();
+        foreach ($progress['steps'] as $step) {
+            $stepsPayload[] = array(
+                'id' => (int) $step['id'],
+                'stepNo' => (int) $step['step_no'],
+                'stepName' => $step['step_name'] ?? null,
+                'assignedApproverId' => isset($step['assigned_approver_id']) ? (int) $step['assigned_approver_id'] : null,
+                'assignedApproverName' => $step['assigned_approver_name'] ?? null,
+                'assignedApproverRole' => $step['assigned_approver_role'] ?? null,
+                'actualApproverId' => isset($step['actual_approver_id']) ? (int) $step['actual_approver_id'] : null,
+                'actualApproverName' => $step['actual_approver_name'] ?? null,
+                'action' => $step['action'],
+                'actionAt' => $step['action_at'],
+                'notes' => $step['notes'],
+                'version' => isset($step['version']) ? (int) $step['version'] : null,
+            );
+        }
+
+        return $this->respond(200, array(
+            'requestId' => (int) $request['id'],
+            'status' => $this->map_leave_status($request['status']),
+            'statusRaw' => $request['status'],
+            'instance' => $progress['instance'],
+            'currentStep' => (int) $progress['current_step'],
+            'totalSteps' => (int) $progress['total_steps'],
+            'workflowStatus' => $progress['status'],
+            'steps' => $stepsPayload,
         ));
     }
 
@@ -1467,13 +1612,20 @@ class Api_hrms extends CI_Controller
     private function map_leave_status($status)
     {
         switch ($status) {
+            case 'DRAFT':
+                return 'Draft';
+            case 'SUBMITTED':
             case 'PENDING_APPROVAL':
+            case 'IN_REVIEW':
                 return 'Pending';
+            case 'NEEDS_ROUTE':
+                return 'Needs Route';
             case 'APPROVED':
                 return 'Approved';
             case 'REJECTED':
-            case 'CANCELLED':
                 return 'Rejected';
+            case 'CANCELLED':
+                return 'Cancelled';
             default:
                 return $status;
         }

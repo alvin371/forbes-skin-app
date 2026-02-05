@@ -194,6 +194,14 @@ var scopeTypes = <?php echo json_encode($scope_types); ?>;
 var operators = <?php echo json_encode($operators); ?>;
 var approverTypes = <?php echo json_encode($approver_types); ?>;
 
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/\"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
 function addScope() {
     var container = document.getElementById('scopesContainer');
     var html = `
@@ -220,30 +228,101 @@ function removeScope(btn) {
 
 function updateScopeValue(select) {
     var row = select.closest('.scope-row');
-    var valueInput = row.querySelector('input[name="scope_value[]"]');
     var scopeType = select.value;
+    var operatorSelect = row.querySelector('select[name="scope_operator[]"]');
+    var valueEl = row.querySelector('[name="scope_value[]"]');
+    var savedValue = '';
 
-    // For leave_type, show dropdown
+    if (valueEl) {
+        savedValue = valueEl.value || valueEl.getAttribute('data-saved-value') || '';
+    }
+
+    if (scopeType === 'user') {
+        if (operatorSelect && (operatorSelect.value === '' || operatorSelect.value === 'eq')) {
+            operatorSelect.value = 'in';
+        }
+
+        var selectedIds = savedValue
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean);
+        var selectedLookup = {};
+        selectedIds.forEach(id => { selectedLookup[id] = true; });
+
+        var options = users.map(u => {
+            var idStr = String(u.id);
+            var selected = selectedLookup[idStr] ? 'selected' : '';
+            return `<option value="${idStr}" ${selected}>${u.full_name} (${u.role_text || '-'})</option>`;
+        }).join('');
+
+        var html = `<select class="form-select scope-user-multi" multiple style="flex: 1; border-radius: 2px; height: 32px; font-size: 14px;">
+            ${options}
+        </select>
+        <input type="hidden" name="scope_value[]" value="${escapeHtml(selectedIds.join(','))}" data-saved-value="${escapeHtml(savedValue)}">`;
+
+        if (valueEl) {
+            valueEl.outerHTML = html;
+        } else {
+            var deleteBtn = row.querySelector('button');
+            if (deleteBtn) {
+                deleteBtn.insertAdjacentHTML('beforebegin', html);
+            } else {
+                row.insertAdjacentHTML('beforeend', html);
+            }
+        }
+
+        var multi = row.querySelector('.scope-user-multi');
+        var hidden = row.querySelector('input[name="scope_value[]"]');
+        if (multi && hidden) {
+            multi.addEventListener('change', function() {
+                var selected = Array.from(multi.options).filter(o => o.selected).map(o => o.value);
+                hidden.value = selected.join(',');
+            });
+        }
+        return;
+    }
+
+    var multi = row.querySelector('.scope-user-multi');
+    if (multi) {
+        multi.remove();
+    }
+
     if (scopeType === 'leave_type') {
         var html = `<select name="scope_value[]" class="form-select" style="flex: 1; border-radius: 2px; height: 32px; font-size: 14px;">
             <option value="">-- Pilih --</option>
-            ${leaveTypes.map(lt => `<option value="${lt.id}">${lt.name}</option>`).join('')}
+            ${leaveTypes.map(lt => {
+                var selected = String(lt.id) === String(savedValue) ? 'selected' : '';
+                return `<option value="${lt.id}" ${selected}>${lt.name}</option>`;
+            }).join('')}
         </select>`;
-        valueInput.outerHTML = html;
-    } else if (scopeType === 'user') {
-        var html = `<select name="scope_value[]" class="form-select" style="flex: 1; border-radius: 2px; height: 32px; font-size: 14px;">
-            <option value="">-- Pilih --</option>
-            ${users.map(u => `<option value="${u.id}">${u.full_name} (${u.role_text || '-'})</option>`).join('')}
-        </select>`;
-        valueInput.outerHTML = html;
+        if (valueEl) {
+            valueEl.outerHTML = html;
+        }
     } else if (scopeType === 'role') {
         var html = `<select name="scope_value[]" class="form-select" style="flex: 1; border-radius: 2px; height: 32px; font-size: 14px;">
             <option value="">-- Pilih --</option>
-            ${roles.map(r => `<option value="${r.display_name}">${r.display_name}</option>`).join('')}
+            ${roles.map(r => {
+                var selected = String(r.display_name) === String(savedValue) ? 'selected' : '';
+                return `<option value="${r.display_name}" ${selected}>${r.display_name}</option>`;
+            }).join('')}
         </select>`;
-        valueInput.outerHTML = html;
+        if (valueEl) {
+            valueEl.outerHTML = html;
+        }
+    } else {
+        var html = `<input type="text" name="scope_value[]" class="form-control" style="flex: 1; border-radius: 2px; height: 32px; font-size: 14px;" placeholder="Nilai" value="${escapeHtml(savedValue)}">`;
+        if (valueEl) {
+            valueEl.outerHTML = html;
+        }
     }
 }
+
+// Initialize existing scopes on page load
+document.querySelectorAll('select[name="scope_type[]"]').forEach(function(select) {
+    if (select.value) {
+        updateScopeValue(select);
+    }
+});
 
 var stepCounter = <?php echo !empty($route['steps']) ? count($route['steps']) : 1; ?>;
 
