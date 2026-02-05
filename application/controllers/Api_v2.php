@@ -64,15 +64,16 @@ class Api_v2 extends CI_Controller
         $html['msg'] = "Acneno System REST API access has been successful!";
         echo json_encode($html, true);
     }
-    
-    function update_cronjob(){
+
+    function update_cronjob()
+    {
         $platform = 'Tiktok';
         // $data = $this->mymodel->selectWithQuery("SELECT link_upload FROM `endorse` WHERE DATE(created_at) BETWEEN '2025-05-01' AND '2025-05-25' AND platform = 'Tiktok' AND link_upload != '' AND id_campaign = 54 LIMIT 10");
-        
+
         // foreach ($data as $row) {
         //     $link_upload = $row['link_upload'];
         //     $response = $this->template->get_social_media($platform, $link_upload);
-            
+
         //     // Cetak response jika perlu
         //     print_r($response);
         // }
@@ -887,19 +888,19 @@ class Api_v2 extends CI_Controller
     function calculate_buyer($dt)
     {
         $user = $_SESSION['user'];
-    
+
         if (is_string($dt['pesanan'])) {
             $dt['pesanan'] = json_decode($dt['pesanan'], true);
         }
-    
+
         $sku_list = [];
         foreach ($dt['pesanan'] as $item) {
             $sku_cleaned = preg_replace('/^\d+-/', '', $item['sku']);
-            $sku_list[] = "'" . $sku_cleaned . "'"; 
+            $sku_list[] = "'" . $sku_cleaned . "'";
         }
-    
+
         if (!empty($sku_list)) {
-            $sku_values = implode(',', $sku_list); 
+            $sku_values = implode(',', $sku_list);
             $query = "SELECT DISTINCT p.sku, p.brand FROM product p WHERE p.is_varian = 0 AND p.sku IN ($sku_values)";
             $result = $this->mymodel->selectWithQuery($query);
         } else {
@@ -911,7 +912,7 @@ class Api_v2 extends CI_Controller
         $dt['brand'] = implode(', ', array_unique($brand_list));
 
         $data = $this->mymodel->selectDataOne('customer', ['id_buyer' => $dt['id_buyer'], 'marketplace' => $dt['marketplace']]);
-        
+
 
         if (empty($data)) {
             $dtt = [
@@ -1000,7 +1001,7 @@ class Api_v2 extends CI_Controller
             $this->update_stock($id_product);
         }
     }
-    
+
     function calculate_stock($dt)
     {
         $order_id = $dt['order_id'];
@@ -1057,7 +1058,7 @@ class Api_v2 extends CI_Controller
             if ($dts['id_trx']) {
                 $this->db->insert('stock_product_3rd', $dts);
             }
-            
+
             if (in_array($dt['order_status'], array('CANCELLED', 'IN_CANCEL'))) {
                 $dts['date'] = DATE("Y-m-d H:i:s", strtotime($dt['return_at']));
                 $dts['type'] = "In";
@@ -1089,11 +1090,11 @@ class Api_v2 extends CI_Controller
                 }
             }
         }
-        
+
         // if ($dt['order_status'] == 'CANCELLED' && $dt['is_shipped'] == 0) {
         //     $this->db->delete('stock_product_3rd', " id_trx = '$id_trx' AND type_sub = 'POS' ");
         // }
-        
+
         foreach ($dt['stock'] as $k2 => $v2) {
             $dts = array();
             $dts['shipping'] = strval($dt['shipping']);
@@ -1126,7 +1127,7 @@ class Api_v2 extends CI_Controller
             if ($dts['id_trx']) {
                 $this->db->insert('stock', $dts);
             }
-            
+
             if (in_array($dt['order_status'], array('CANCELLED', 'IN_CANCEL'))) {
                 if (empty($dt['return_at'])) {
                     $dt['return_at'] = $dt['cancel_at'];
@@ -1142,7 +1143,7 @@ class Api_v2 extends CI_Controller
                     $this->db->insert('stock', $dts);
                 }
             }
-            
+
             if (in_array($dt['order_status'], array('CANCELLED', 'IN_CANCEL')) && $dt['is_shipped'] == 1) {
                 if (empty($dt['return_at'])) {
                     $dt['return_at'] = $dt['cancel_at'];
@@ -1160,7 +1161,7 @@ class Api_v2 extends CI_Controller
                 }
             }
         }
-        
+
         // if ($dt['order_status'] == 'CANCELLED' && $dt['is_shipped'] == 0) {
         //     $this->db->delete('stock', " id_trx = '$id_trx' AND type_sub = 'POS' ");
         // }
@@ -1172,12 +1173,12 @@ class Api_v2 extends CI_Controller
         $this->update_stock_marketplace($dt);
     }
 
-    
-    function update_stock_marketplace($dt) 
+
+    function update_stock_marketplace($dt)
     {
         $id_product = array_keys($dt['stock']);
         $id_products = implode("','", $id_product);
-    
+
         $products = $this->mymodel->selectWithQuery("SELECT sku, stock as stock_akhir 
                                 FROM product
                                 WHERE id IN ('$id_products') GROUP BY sku");
@@ -1195,18 +1196,18 @@ class Api_v2 extends CI_Controller
                 }
             }
         }
-    
-        $like_clauses = array_map(function($sku) {
+
+        $like_clauses = array_map(function ($sku) {
             return "json_varian LIKE '%$sku%'";
         }, $sku_arr);
         $like_sql = implode(' OR ', $like_clauses);
-    
+
         $products_3rd = $this->mymodel->selectWithQuery("SELECT id_product, marketplace, shop_id, shop_name, json_varian FROM product_3rd WHERE $like_sql");
-    
+
         foreach ($products_3rd as &$p3) {
             $json_varian = json_decode($p3['json_varian'], true);
-            $p3_variants = []; 
-            
+            $p3_variants = [];
+
             if (is_array($json_varian)) {
                 foreach ($json_varian as $varian) {
                     $sku = isset($varian['model_sku']) ? $varian['model_sku'] : ($varian['sku'] ?? '');
@@ -1214,9 +1215,9 @@ class Api_v2 extends CI_Controller
                     $sku_used = '';
                     $stock_total = null;
 
-        
+
                     $stock_map_upper = array_change_key_case($stock_map, CASE_UPPER);
-        
+
                     $bundle_parts = [];
                     if ($sku !== '') {
                         $bundle_parts = preg_split('/[\s&+\/,]+/', strtoupper(trim($sku)));
@@ -1225,52 +1226,50 @@ class Api_v2 extends CI_Controller
                         $bundle_parts = array_map('trim', $bundle_parts);
                         $bundle_parts = array_filter($bundle_parts);
                     }
-        
+
                     if (preg_match('/^(\d+)-(.+)/', $sku, $matches)) {
                         $quantity = (int)$matches[1];
                         $base_sku = strtoupper($matches[2]);
-                        
+
                         if (isset($stock_map_upper[$base_sku])) {
                             $stock_total = floor($stock_map_upper[$base_sku] / $quantity);
                             $sku_used = $sku;
                         }
-                    }
-                    elseif (count($bundle_parts) > 1) {
+                    } elseif (count($bundle_parts) > 1) {
                         $stock_candidates = [];
-                        $sku_in = implode("','", array_map('addslashes', $bundle_parts)); 
+                        $sku_in = implode("','", array_map('addslashes', $bundle_parts));
                         $query = "SELECT sku, stock as stock_akhir 
                                   FROM product 
                                   WHERE UPPER(sku) IN ('$sku_in') 
                                   GROUP BY sku";
-                    
+
                         $result = $this->mymodel->selectWithQuery($query);
-                    
+
                         $stock_lookup = [];
                         foreach ($result as $row) {
                             $stock_lookup[strtoupper($row['sku'])] = $row['stock_akhir'];
                         }
-                    
+
                         foreach ($bundle_parts as $part) {
                             $part_upper = strtoupper($part);
                             if (isset($stock_lookup[$part_upper])) {
                                 $stock_candidates[] = $stock_lookup[$part_upper];
                             }
                         }
-                    
+
                         if (!empty($stock_candidates)) {
                             $stock_total = min($stock_candidates);
                             $sku_used = implode(' + ', $bundle_parts);
                         }
-                    }
-                    else {
+                    } else {
                         $sku_candidate = !empty($bundle_parts) ? $bundle_parts[0] : strtoupper(trim($sku));
-                        
+
                         if (isset($stock_map_upper[$sku_candidate])) {
                             $stock_total = $stock_map_upper[$sku_candidate];
                             $sku_used = $sku_candidate;
                         }
                     }
-        
+
                     if ($stock_total !== null) {
                         $variant_data = [
                             'id_product' => $p3['id_product'],
@@ -1282,12 +1281,12 @@ class Api_v2 extends CI_Controller
                             'stock' => $stock_total,
                             'variant_details' => $varian
                         ];
-                        
+
                         $p3_variants[] = $variant_data;
                     }
                 }
             }
-            
+
             if (empty($p3_variants)) {
                 $p3_variants[] = [
                     'id_product' => $p3['id_product'],
@@ -1299,35 +1298,35 @@ class Api_v2 extends CI_Controller
                     'stock' => 0
                 ];
             }
-            
+
             $p3 = $p3_variants;
         }
         unset($p3);
-        
+
         $flattened_products = [];
         foreach ($products_3rd as $product_variants) {
             foreach ($product_variants as $variant) {
                 $flattened_products[] = $variant;
             }
         }
-        
+
         $arr_product = [
             'SHOPEE' => [],
             'LAZADA' => [],
             'TIKTOK' => [],
         ];
-        
+
         foreach ($flattened_products as $product) {
             $marketplace = strtoupper($product['marketplace']);
             if (isset($arr_product[$marketplace])) {
                 $arr_product[$marketplace][] = $product;
             }
         }
-        
+
         foreach ($arr_product as $marketplace => $products) {
             foreach ($products as $product) {
                 $stock = $product['stock'];
-                
+
                 switch ($marketplace) {
                     case 'SHOPEE':
                         $this->updateShopeeStock($product, $stock);
@@ -1343,27 +1342,27 @@ class Api_v2 extends CI_Controller
         }
     }
 
-    protected function updateShopeeStock($product, $stock) 
+    protected function updateShopeeStock($product, $stock)
     {
         $config = $this->mymodel->selectDataOne('marketplace_config', array('shop_id' => $product['shop_id']));
         if (!$config) return false;
-        
+
         $config = json_decode($config['val'], true);
         $access_token = $config['access_token'];
         $partner_id = $this->partner_id_shopee;
         $partner_key = $this->partner_key_shopee;
         $host = 'https://partner.shopeemobile.com';
-    
+
         $path = "/api/v2/product/update_stock";
         $timest = time();
         $baseString = sprintf("%s%s%s%s%s", $partner_id, $path, $timest, $access_token, $product['shop_id']);
         $sign = hash_hmac('sha256', $baseString, $partner_key);
-        
+
         $variants = json_decode($product['json_varian'], true) ?? [];
-        
+
         $stock_list = [];
-        $target_sku = $product['sku']; 
-        
+        $target_sku = $product['sku'];
+
         foreach ($variants as $variant) {
             if (isset($variant['sku']) && strtoupper(trim($variant['sku'])) === strtoupper(trim($target_sku))) {
                 if (!empty($variant['id_product']) && $variant['id_product'] != '0') {
@@ -1375,11 +1374,11 @@ class Api_v2 extends CI_Controller
                             ]
                         ]
                     ];
-                    break; 
+                    break;
                 }
             }
         }
-        
+
         if (empty($stock_list)) {
             $stock_list[] = [
                 'seller_stock' => [
@@ -1389,18 +1388,18 @@ class Api_v2 extends CI_Controller
                 ]
             ];
         }
-    
+
         $item_id = is_numeric($product['id_product']) ? (int)$product['id_product'] : 0;
         if ($item_id <= 0) {
             echo "Invalid product ID: " . $product['id_product'];
             return false;
         }
-    
+
         $post_data = [
             'item_id' => $item_id,
             'stock_list' => $stock_list
         ];
-    
+
         $curl = curl_init();
         curl_setopt_array($curl, array(
             CURLOPT_URL => $host . $path . '?access_token=' . $config['access_token'] . '&partner_id=' . $partner_id . '&shop_id=' . $product['shop_id'] . '&sign=' . $sign . '&timestamp=' . $timest,
@@ -1416,24 +1415,24 @@ class Api_v2 extends CI_Controller
                 'Content-Type: application/json'
             ),
         ));
-        
+
         $response = curl_exec($curl);
-        
+
         if (curl_errno($curl)) {
             echo 'Curl error: ' . curl_error($curl);
         }
-        
+
         curl_close($curl);
-        
+
         return $response;
     }
-    
-    protected function updateTiktokStock($product, $stock) 
+
+    protected function updateTiktokStock($product, $stock)
     {
-        
+
         $config = $this->mymodel->selectDataOne('marketplace_config', array('shop_id' => $product['shop_id']));
         if (!$config) return false;
-        
+
         $config = json_decode($config['val'], true);
         $marketplace = "TIKTOK";
         $app_key = $config['app_key'];
@@ -1441,11 +1440,11 @@ class Api_v2 extends CI_Controller
         $shop_cipher = $config['shop']['cipher'];
         $shop_id = $product['shop_id'];
         $app_secret = $this->app_secret_tiktok;
-    
+
         $skus = [];
         $target_sku = $product['sku'];
         $variants = json_decode($product['json_varian'], true) ?? [];
-    
+
         foreach ($variants as $variant) {
             if (isset($variant['sku']) && strtoupper(trim($variant['sku'])) === strtoupper(trim($target_sku))) {
                 if (!empty($variant['id_product']) && $variant['id_product'] != '0') {
@@ -1461,7 +1460,7 @@ class Api_v2 extends CI_Controller
                 }
             }
         }
-    
+
         if (empty($skus)) {
             $skus[] = [
                 'id' => (string)$product['id_product'],
@@ -1472,13 +1471,13 @@ class Api_v2 extends CI_Controller
                 ]
             ];
         }
-    
+
         $post_data = [
             'skus' => $skus
         ];
 
         $base_url = 'https://open-api.tiktokglobalshop.com/product/202309/products/'
-          . $product['id_product'] . '/inventory/update';
+            . $product['id_product'] . '/inventory/update';
 
         $timest = time();
 
@@ -1486,7 +1485,7 @@ class Api_v2 extends CI_Controller
 
         $queryParams = [
             'app_key'     => $app_key,
-            'timestamp'   => $timest,     
+            'timestamp'   => $timest,
             'shop_cipher' => $shop_cipher,
         ];
 
@@ -1495,7 +1494,7 @@ class Api_v2 extends CI_Controller
             'timest' => $timest,
             'get'    => $queryParams,
             'url'    => $base_url,
-            'post'   => $body,  
+            'post'   => $body,
         ]);
 
         $queryParams['sign'] = $sign;
@@ -1510,74 +1509,74 @@ class Api_v2 extends CI_Controller
             CURLOPT_POSTFIELDS     => $body,
             CURLOPT_HTTPHEADER     => [
                 'Content-Type: application/json',
-                'x-tts-access-token: ' . $access_token, 
+                'x-tts-access-token: ' . $access_token,
             ],
         ]);
 
         $response = curl_exec($curl);
         $err = curl_error($curl);
-    
+
         curl_close($curl);
-    
+
         return $response;
     }
 
-    
-    protected function updateLazadaStock($product, $stock) 
+
+    protected function updateLazadaStock($product, $stock)
     {
         $config = $this->mymodel->selectDataOne('marketplace_config', array('shop_id' => $product['shop_id']));
         if (!$config) return false;
-        
+
         $config = json_decode($config['val'], true);
         $access_token = $config['access_token'];
-        $app_key = $this->app_key_lazada; 
-        $app_secret = $this->app_secret_lazada; 
-        $url = 'https://api.lazada.co.id/rest'; 
-        
+        $app_key = $this->app_key_lazada;
+        $app_secret = $this->app_secret_lazada;
+        $url = 'https://api.lazada.co.id/rest';
+
         $variants = json_decode($product['json_varian'], true) ?? [];
-        
+
         $sku_payload = '';
-        $target_sku = $product['sku']; 
-        
+        $target_sku = $product['sku'];
+
         foreach ($variants as $variant) {
             if (isset($variant['sku']) && strtoupper(trim($variant['sku'])) === strtoupper(trim($target_sku))) {
                 $sku_id = !empty($variant['id_product']) ? $variant['id_product'] : $product['id_product'];
-                
+
                 $sku_payload = '
                 <Sku>
-                    <ItemId>'.$product['id_product'].'</ItemId>
-                    <SkuId>'.$sku_id.'</SkuId>
-                    <SellerSku>'.htmlspecialchars($variant['sku']).'</SellerSku>
-                    <SellableQuantity>'.(int)$stock.'</SellableQuantity>
+                    <ItemId>' . $product['id_product'] . '</ItemId>
+                    <SkuId>' . $sku_id . '</SkuId>
+                    <SellerSku>' . htmlspecialchars($variant['sku']) . '</SellerSku>
+                    <SellableQuantity>' . (int)$stock . '</SellableQuantity>
                 </Sku>';
-                break; 
+                break;
             }
         }
-        
+
         if (empty($sku_payload)) {
             $sku_payload = '
             <Sku>
-                <ItemId>'.$product['id_product'].'</ItemId>
-                <SkuId>'.$product['id_product'].'</SkuId>
-                <SellerSku>'.htmlspecialchars($product['sku']).'</SellerSku>
-                <SellableQuantity>'.(int)$stock.'</SellableQuantity>
+                <ItemId>' . $product['id_product'] . '</ItemId>
+                <SkuId>' . $product['id_product'] . '</SkuId>
+                <SellerSku>' . htmlspecialchars($product['sku']) . '</SellerSku>
+                <SellableQuantity>' . (int)$stock . '</SellableQuantity>
             </Sku>';
         }
-    
+
         $xml_payload = '<Request>
             <Product>
                 <Skus>
-                    '.$sku_payload.'
+                    ' . $sku_payload . '
                 </Skus>
             </Product>
         </Request>';
-        
+
         echo htmlspecialchars($xml_payload) . "\n";
-    
+
         $c = new LazopClient($url, $app_key, $app_secret);
         $request = new LazopRequest('/product/stock/sellable/update');
         $request->addApiParam('payload', $xml_payload);
-        
+
         $response = $c->execute($request, $access_token);
         $response = json_decode($response, true);
         return $response;
@@ -1695,13 +1694,13 @@ class Api_v2 extends CI_Controller
             $dt['date'] = DATE("Y-m-d H:i:s", $v2['create_time']);
             $dt['shipping'] = strval($v2['shipping_provider']);
             $dt['awb_number'] = strval($v2['tracking_number']);
-            
-            if($v2['is_sample_order'] == true) {
+
+            if ($v2['is_sample_order'] == true) {
                 $dt['c_type'] = "Affiliate";
             } else {
                 $dt['c_type'] = "Pelanggan";
             }
-            
+
             $js = array();
             foreach ($v2['line_items'] as $k4 => $v4) {
                 $js[$k4]['id_product'] = $v4['sku_id'];
@@ -1719,7 +1718,7 @@ class Api_v2 extends CI_Controller
                 $js[$k4]['original_price'] = $v4['original_price'];
                 $js[$k4]['discount'] = $v4['seller_discount'];
             }
-            
+
 
 
             $c_type['akun_type'] = "Pelanggan";
@@ -1805,7 +1804,7 @@ class Api_v2 extends CI_Controller
             } else {
                 $dt['payment_status'] = "Unpaid";
             }
-            
+
             $order_status = "PENDING";
             $dt['is_shipped'] = 0;
             if (in_array($v2['status'], array('UNPAID'))) {
@@ -1826,7 +1825,7 @@ class Api_v2 extends CI_Controller
             } else if (in_array($v2['status'], array('AWAITING_SHIPMENT'))) {
                 $order_status = 'READY_TO_SHIP';
             }
-            
+
             $dt['order_status'] = $order_status;
             $dt['return_at'] = DATE("Y-m-d H:i:s", $v2['cancel_time']);
 
@@ -1874,7 +1873,7 @@ class Api_v2 extends CI_Controller
                 //     $dt['return_at'] = DATE("Y-m-d H:i:s", $v3['create_time']);
                 //     $dt['order_status'] = "RETURN";
                 // }
-                
+
                 $url = 'https://open-api.tiktokglobalshop.com/finance/202501/orders/' . $order_id . '/statement_transactions?access_token=' . $access_token . '&app_key=' . $app_key . '&shop_cipher=' . $shop_cipher . '&shop_id=' . $shop_id . '&sign={{sign}}&timestamp={{timestamp}}';
 
                 $urlParts = parse_url($url);
@@ -1887,7 +1886,7 @@ class Api_v2 extends CI_Controller
                 $pr['get'] = $paramGET;
                 $pr['url'] = $url;
                 $sign = $this->tiktok_signature_generator($pr);
-    
+
                 $url = str_replace('{{sign}}', $sign, $url);
                 $url = str_replace('{{timestamp}}', $timest, $url);
                 $curl = curl_init();
@@ -1904,7 +1903,7 @@ class Api_v2 extends CI_Controller
                         'x-tts-access-token: ' . $access_token
                     ),
                 ));
-    
+
                 $response = curl_exec($curl);
                 $response = json_decode($response, true);
                 if ($response['message'] != 'Success') {
@@ -1914,32 +1913,32 @@ class Api_v2 extends CI_Controller
                     echo json_encode($html, true);
                     die;
                 }
-    
+
                 $payment = $response['data'];
-    
+
                 if ($payment['settlement_amount'] > 0) {
                     $total_komisi_afiliasi = 0;
                     $total_omset_bersih = 0;
                     $total_platform_commission = 0;
                     $total_sfp_service_fee = 0;
-                    
+
                     foreach ($payment['sku_transactions'] as $sku) {
                         $fee_breakdown = $sku['fee_tax_breakdown']['fee'];
                         $total_komisi_afiliasi += abs(doubleval($fee_breakdown['affiliate_commission_amount']));
-                        $total_omset_bersih += doubleval($sku['revenue_breakdown']['subtotal_before_discount_amount']) 
-                                            + doubleval($sku['revenue_breakdown']['seller_discount_amount']);
-                        
+                        $total_omset_bersih += doubleval($sku['revenue_breakdown']['subtotal_before_discount_amount'])
+                            + doubleval($sku['revenue_breakdown']['seller_discount_amount']);
+
                         $total_platform_commission += abs(doubleval($fee_breakdown['platform_commission_amount']));
                         $total_sfp_service_fee += abs(doubleval($fee_breakdown['sfp_service_fee_amount']));
                     }
-                    
+
                     $dt['komisi_afiliasi'] = $total_komisi_afiliasi;
                     $dt['omset_bersih'] = $total_omset_bersih;
                     $dt['marketplace_fee'] = $total_platform_commission + $total_sfp_service_fee;
                     $dt['dana_pencairan'] = doubleval($payment['settlement_amount']);
                     $dt['pencairan_status'] = '';
                     $dt['pencairan_at'] = '';
-                    
+
                     if ($payment['settlement_time']) {
                         $dt['pencairan_status'] = 'Settlement';
                         $dt['pencairan_at'] = DATE("Y-m-d H:i:s", ($payment['settlement_time']));
@@ -2524,7 +2523,7 @@ class Api_v2 extends CI_Controller
                 }
 
                 $dt['order_status'] = $order_status;
-                
+
 
                 // foreach ($response_shipping['result']['module'][0]['package_detail_info_list'][0]['logistic_detail_info_list'] as $k3 => $v3) {
                 //     if ($v3['status_code'] == '1420') {
@@ -2926,15 +2925,16 @@ class Api_v2 extends CI_Controller
         echo json_encode($html, true);
         die;
     }
-    
+
     function marketplace_webhook_update()
     {
         $mode = "";
         $data = array();
         $data = $this->mymodel->selectWithQuery("SELECT id,marketplace,order_id,shop_id FROM transaction WHERE DATE(date) >= '2025-04-01' AND DATE(date) <= '2025-06-10' AND order_status = 'COMPLETED' AND dana_pencairan = 0 AND order_status IN ('SETTLEMENT','COMPLETED') AND customer_price > 0 AND type_sub = 'POS' AND DATE(updated_at) != CURDATE()
             ");
-        
-        print_r($data);die;
+
+        print_r($data);
+        die;
 
         // foreach ($data as $k => $v) {
 
@@ -2978,6 +2978,12 @@ class Api_v2 extends CI_Controller
         header('Content-Type: application/json; charset=utf-8');
 
         $dt = $_GET;
+        $debug = isset($dt['debug']) && $dt['debug'] == '1';
+        $debug_data = array();
+        if ($debug) {
+            $debug_data['tiktok_requests'] = array();
+            $debug_data['tiktok_requests_count'] = 0;
+        }
 
         $marketplace = $dt['marketplace'];
         $marketplace = strtoupper($marketplace);
@@ -3069,9 +3075,40 @@ class Api_v2 extends CI_Controller
                         ),
                     ));
 
-                    $response = curl_exec($curl);
+                    $response_raw = curl_exec($curl);
+                    $curl_error = curl_error($curl);
+                    $http_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
 
-                    $response = json_decode($response, true);
+                    $response = json_decode($response_raw, true);
+
+                    if ($debug) {
+                        $debug_data['tiktok_requests_count']++;
+                        $debug_max = 10;
+                        if (count($debug_data['tiktok_requests']) < $debug_max) {
+                            $debug_data['tiktok_requests'][] = array(
+                                'shop_id' => strval($shop_id),
+                                'access_token' => strval($access_token),
+                                'app_key' => strval($app_key),
+                                'app_secret' => strval($app_secret),
+                                'sign' => strval($sign),
+                                'timestamp' => strval($timest),
+                                'url' => strval($url),
+                                'shop_name' => strval($shop_name),
+                                'cursor' => $cursor,
+                                'page_size' => $page_size,
+                                'create_time_from' => $start_time,
+                                'create_time_to' => $until_time,
+                                'http_code' => $http_code,
+                                'curl_error' => $curl_error ? $curl_error : '',
+                                'response_code' => isset($response['code']) ? $response['code'] : null,
+                                'response_message' => isset($response['message']) ? $response['message'] : null,
+                                'response_request_id' => isset($response['request_id']) ? $response['request_id'] : null,
+                                'response_preview' => is_string($response_raw) ? substr($response_raw, 0, 600) : '',
+                            );
+                        } else {
+                            $debug_data['tiktok_requests_truncated'] = true;
+                        }
+                    }
 
                     $cursor = $response['data']['next_cursor'];
 
@@ -3265,7 +3302,7 @@ class Api_v2 extends CI_Controller
                         $dt['order_status'] = $order_status;
 
                         $dt['customer_price'] = $v2['price'];
-                        
+
                         print_r($dt);
 
                         if ($trx) {
@@ -3288,6 +3325,9 @@ class Api_v2 extends CI_Controller
         $html['status'] = true;
         $html['data'] = array();
         $html['msg'] = 'Sync data order berhasil!';
+        if ($debug) {
+            $html['debug'] = $debug_data;
+        }
         echo json_encode($html, true);
         die;
     }
@@ -5493,7 +5533,7 @@ class Api_v2 extends CI_Controller
         }
 
         $response_json = json_decode($response_body, true);
-        
+
         if (isset($response_json['code']) && $response_json['code'] == 0) {
             echo json_encode([
                 'status' => true,
@@ -5510,64 +5550,64 @@ class Api_v2 extends CI_Controller
     }
 
 
-    
+
     public function tts_ship_packages_bulk()
     {
         header('Content-Type: application/json');
-    
+
         $transaction_ids_input = $_POST['transaction_ids'] ?? [];
         if (is_string($transaction_ids_input)) {
             $transaction_ids = array_filter(array_map('trim', explode(',', $transaction_ids_input)));
         } else {
             $transaction_ids = (array) $transaction_ids_input;
         }
-    
+
         if (empty($transaction_ids)) {
             echo json_encode(['status' => false, 'message' => 'transaction_ids wajib (array atau CSV)']);
             return;
         }
-    
+
         $handover_type = 'PICKUP';
         $pickup_start_time = null;
         $pickup_end_time = null;
-    
+
         if ($handover_type === 'PICKUP') {
             $pickup_start_time_input = $_POST['pickup_start_time'] ?? '';
             $pickup_end_time_input = $_POST['pickup_end_time'] ?? '';
-    
+
             if ($pickup_start_time_input === '' || $pickup_end_time_input === '') {
                 echo json_encode(['status' => false, 'message' => 'pickup_start_time dan pickup_end_time wajib diisi']);
                 return;
             }
-    
+
             if (!ctype_digit((string)$pickup_start_time_input) || !ctype_digit((string)$pickup_end_time_input)) {
                 echo json_encode(['status' => false, 'message' => 'pickup_start_time dan pickup_end_time harus berupa angka detik UNIX']);
                 return;
             }
-    
+
             $pickup_start_time = (int)$pickup_start_time_input;
             $pickup_end_time = (int)$pickup_end_time_input;
-    
+
             if ($pickup_start_time >= $pickup_end_time) {
                 echo json_encode(['status' => false, 'message' => 'pickup_end_time harus lebih besar dari pickup_start_time']);
                 return;
             }
         }
-    
+
         // 1. AMBIL SEMUA DATA TRANSAKSI SEKALIGUS DENGAN JOIN
         $placeholders = implode(',', array_fill(0, count($transaction_ids), '?'));
         $sql = "SELECT t.order_id, t.package_id, t.shop_id, mc.val as config_val 
                 FROM transaction t 
                 LEFT JOIN marketplace_config mc ON t.shop_id = mc.shop_id 
                 WHERE t.order_id IN ($placeholders)";
-        
+
         $transactions = $this->db->query($sql, $transaction_ids)->result_array();
-        
+
         // Kelompokkan transaksi berdasarkan shop_id dan buat lookup
         $transactions_by_shop = [];
         $transaction_lookup = [];
         $missing_transactions = [];
-        
+
         foreach ($transaction_ids as $tx_id) {
             $found = false;
             foreach ($transactions as $tx) {
@@ -5589,15 +5629,15 @@ class Api_v2 extends CI_Controller
                 $missing_transactions[] = $tx_id;
             }
         }
-    
+
         $results = [];
-    
+
         // 2. PROSES SETIAP SHOP DENGAN BATCHING (MAKSIMAL 50 PER REQUEST)
         $successful_updates = [];
-        
+
         foreach ($transactions_by_shop as $shop_id => $shop_data) {
             $config_val = json_decode($shop_data['config_val'] ?? '{}', true);
-            
+
             if (empty($config_val)) {
                 foreach ($shop_data['transactions'] as $tx) {
                     $results[] = [
@@ -5608,13 +5648,13 @@ class Api_v2 extends CI_Controller
                 }
                 continue;
             }
-    
+
             $app_key = $config_val['app_key'] ?? '';
             $access_token = $config_val['access_token'] ?? '';
             $shop_cipher = $config_val['shop']['cipher'] ?? '';
             $app_secret = $this->app_secret_tiktok;
             $shop_id_val = $config_val['shop']['id'] ?? $shop_id;
-    
+
             if (!$app_key || !$access_token || !$shop_cipher || !$app_secret) {
                 foreach ($shop_data['transactions'] as $tx) {
                     $results[] = [
@@ -5625,15 +5665,15 @@ class Api_v2 extends CI_Controller
                 }
                 continue;
             }
-    
+
             // Bagi transactions menjadi chunk maksimal 50
             $transaction_chunks = array_chunk($shop_data['transactions'], 50);
-            
+
             foreach ($transaction_chunks as $chunk_index => $transaction_chunk) {
                 // Siapkan packages data untuk bulk request (maksimal 50)
                 $packages_data = [];
                 $package_to_transaction = [];
-                
+
                 foreach ($transaction_chunk as $tx) {
                     $package_id = $tx['package_id'] ?? '';
                     if (!$package_id) {
@@ -5644,27 +5684,27 @@ class Api_v2 extends CI_Controller
                         ];
                         continue;
                     }
-    
+
                     $package_data = [
                         'id' => $package_id,
                         'handover_method' => $handover_type,
                     ];
-    
+
                     if ($handover_type === 'PICKUP') {
                         $package_data['pickup_slot'] = [
                             'start_time' => (int)$pickup_start_time,
                             'end_time' => (int)$pickup_end_time
                         ];
                     }
-    
+
                     $packages_data[] = $package_data;
                     $package_to_transaction[$package_id] = $tx['order_id'];
                 }
-    
+
                 if (empty($packages_data)) {
                     continue;
                 }
-    
+
                 // Persiapkan request untuk chunk ini
                 $endpoint_path = '/fulfillment/202309/packages/ship';
                 $request_url = 'https://open-api.tiktokglobalshop.com' . $endpoint_path
@@ -5673,15 +5713,15 @@ class Api_v2 extends CI_Controller
                     . '&shop_cipher='  . rawurlencode($shop_cipher)
                     . '&shop_id='      . rawurlencode($shop_id_val)
                     . '&sign={{sign}}&timestamp={{timestamp}}&version=202309';
-    
+
                 $request_body_json = json_encode([
                     'packages' => $packages_data
                 ], JSON_UNESCAPED_SLASHES);
-    
+
                 $urlParts  = parse_url($request_url);
                 $paramGET  = [];
                 parse_str($urlParts['query'], $paramGET);
-    
+
                 $timest = time();
                 $pr = [
                     'secret' => $app_secret,
@@ -5690,11 +5730,11 @@ class Api_v2 extends CI_Controller
                     'post'   => $request_body_json,
                     'url'    => $request_url
                 ];
-    
+
                 $sign = $this->tiktok_signature_generator($pr);
-    
+
                 $request_url_signed = str_replace(['{{sign}}', '{{timestamp}}'], [$sign, $timest], $request_url);
-    
+
                 $curl = curl_init();
                 curl_setopt_array($curl, [
                     CURLOPT_URL            => $request_url_signed,
@@ -5711,12 +5751,12 @@ class Api_v2 extends CI_Controller
                         'x-tts-access-token: ' . $access_token
                     ],
                 ]);
-    
+
                 $response_body = curl_exec($curl);
                 $curl_error = curl_error($curl);
                 $http_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
                 curl_close($curl);
-    
+
                 if ($curl_error) {
                     foreach ($transaction_chunk as $tx) {
                         $results[] = [
@@ -5727,9 +5767,9 @@ class Api_v2 extends CI_Controller
                     }
                     continue;
                 }
-    
+
                 $response_json = json_decode($response_body, true);
-                
+
                 if (isset($response_json['code']) && $response_json['code'] == 0) {
                     // Semua package dalam chunk ini berhasil
                     foreach ($transaction_chunk as $tx) {
@@ -5744,11 +5784,11 @@ class Api_v2 extends CI_Controller
                     }
                 } else {
                     $error_message = $response_json['message'] ?? 'Unknown error';
-                    
+
                     if (isset($response_json['data']['failed_packages'])) {
                         $failed_packages = $response_json['data']['failed_packages'];
                         $success_packages = $response_json['data']['success_packages'] ?? [];
-                        
+
                         // Process failed packages
                         foreach ($failed_packages as $failed_pkg) {
                             $package_id = $failed_pkg['package_id'] ?? '';
@@ -5763,7 +5803,7 @@ class Api_v2 extends CI_Controller
                                 ];
                             }
                         }
-                        
+
                         // Process success packages
                         foreach ($success_packages as $success_pkg) {
                             $package_id = $success_pkg['package_id'] ?? '';
@@ -5792,14 +5832,14 @@ class Api_v2 extends CI_Controller
                         }
                     }
                 }
-    
+
                 // Tambahkan delay kecil antara request untuk menghindari rate limiting
                 if (count($transaction_chunks) > 1 && $chunk_index < count($transaction_chunks) - 1) {
                     usleep(500000); // 0.5 detik delay
                 }
             }
         }
-    
+
         // 3. BATCH UPDATE UNTUK SEMUA TRANSAKSI YANG BERHASIL
         if (!empty($successful_updates)) {
             $placeholders = implode(',', array_fill(0, count($successful_updates), '?'));
@@ -5807,21 +5847,21 @@ class Api_v2 extends CI_Controller
             $params = array_merge([date('Y-m-d H:i:s'), 'PROCESSED'], $successful_updates);
             $this->db->query($update_sql, $params);
         }
-    
+
         // 4. HANDLE TRANSAKSI YANG TIDAK DITEMUKAN
         foreach ($missing_transactions as $tx_id) {
             $results[] = [
-                'transaction_id' => $tx_id, 
-                'status' => false, 
+                'transaction_id' => $tx_id,
+                'status' => false,
                 'message' => 'Transaksi tidak ditemukan'
             ];
         }
-    
+
         echo json_encode(['status' => true, 'results' => $results]);
     }
 
 
-    
+
     public function tts_get_shipping_documents_bulk()
     {
         header('Content-Type: application/json');
@@ -5829,67 +5869,67 @@ class Api_v2 extends CI_Controller
         header('Access-Control-Allow-Methods: POST, GET, OPTIONS');
         header('Access-Control-Allow-Headers: Content-Type');
         header('Content-Type: application/json');
-    
+
         // Handle preflight request
         if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
             exit(0);
         }
-    
+
         $transaction_ids_input = $_POST['transaction_ids'] ?? [];
         if (is_string($transaction_ids_input)) {
             $transaction_ids = array_filter(array_map('trim', explode(',', $transaction_ids_input)));
         } else {
             $transaction_ids = (array) $transaction_ids_input;
         }
-    
+
         if (empty($transaction_ids)) {
             echo json_encode(['status' => false, 'message' => 'transaction_ids wajib (array atau CSV)']);
             return;
         }
-    
+
         // 1. AMBIL SEMUA DATA TRANSAKSI SEKALIGUS
         $placeholders = implode(',', array_fill(0, count($transaction_ids), '?'));
         $sql = "SELECT t.order_id, t.package_id, t.shop_id, mc.val as config_val 
                 FROM transaction t 
                 LEFT JOIN marketplace_config mc ON t.shop_id = mc.shop_id 
                 WHERE t.order_id IN ($placeholders)";
-        
+
         $transactions = $this->db->query($sql, $transaction_ids)->result_array();
-        
+
         // Group by shop_id untuk optimasi lebih lanjut
         $transactions_by_shop = [];
         $transaction_lookup = [];
-        
+
         foreach ($transactions as $tx) {
             $transactions_by_shop[$tx['shop_id']][] = $tx;
             $transaction_lookup[$tx['order_id']] = $tx;
         }
-    
+
         $results = [];
         $doc_type = strtoupper('SHIPPING_LABEL_PICTURE');
         $label_size = 'A6';
-    
+
         foreach ($transactions_by_shop as $shop_id => $shop_transactions) {
             $first_tx = $shop_transactions[0];
             $config_val = json_decode($first_tx['config_val'] ?? '{}', true);
-            
+
             if (empty($config_val)) {
                 foreach ($shop_transactions as $tx) {
                     $results[] = [
-                        'transaction_id' => $tx['order_id'], 
-                        'status' => false, 
+                        'transaction_id' => $tx['order_id'],
+                        'status' => false,
                         'message' => 'Config toko tidak ditemukan'
                     ];
                 }
                 continue;
             }
-    
+
             $app_key = $config_val['app_key'] ?? '';
             $access_token = $config_val['access_token'] ?? '';
             $shop_cipher = $config_val['shop']['cipher'] ?? '';
             $app_secret = $this->app_secret_tiktok;
             $shop_id_val = $config_val['shop']['id'] ?? $shop_id;
-    
+
             if (!$app_key || !$access_token || !$shop_cipher || !$app_secret) {
                 foreach ($shop_transactions as $tx) {
                     $results[] = [
@@ -5900,22 +5940,22 @@ class Api_v2 extends CI_Controller
                 }
                 continue;
             }
-    
+
             // OPTIMASI: Gunakan batch size lebih besar dengan connection limit
             $batch_size = 40; // Increased batch size
             $transaction_batches = array_chunk($shop_transactions, $batch_size);
-            
+
             $successful_updates = [];
-    
+
             foreach ($transaction_batches as $batch_index => $batch_transactions) {
                 $multi_curl = curl_multi_init();
                 $curl_handlers = [];
                 $package_to_tx = [];
-    
+
                 // OPTIMASI: Set konfigurasi multi curl untuk performa lebih baik
                 curl_multi_setopt($multi_curl, CURLMOPT_MAXCONNECTS, 30);
                 curl_multi_setopt($multi_curl, CURLMOPT_MAX_HOST_CONNECTIONS, 10);
-    
+
                 foreach ($batch_transactions as $tx) {
                     $package_id = $tx['package_id'] ?? '';
                     if (!$package_id) {
@@ -5926,7 +5966,7 @@ class Api_v2 extends CI_Controller
                         ];
                         continue;
                     }
-    
+
                     $endpoint_path = '/fulfillment/202309/packages/' . $package_id . '/shipping_documents';
                     $request_url = 'https://open-api.tiktokglobalshop.com' . $endpoint_path
                         . '?app_key=' . rawurlencode($app_key)
@@ -5936,11 +5976,11 @@ class Api_v2 extends CI_Controller
                         . '&sign={{sign}}'
                         . '&timestamp={{timestamp}}'
                         . '&version=202309';
-    
+
                     $urlParts = parse_url($request_url);
                     $paramGET = [];
                     parse_str($urlParts['query'], $paramGET);
-    
+
                     $timest = time();
                     $pr = [
                         'secret' => $app_secret,
@@ -5949,12 +5989,12 @@ class Api_v2 extends CI_Controller
                         'post' => '',
                         'url' => $request_url
                     ];
-    
+
                     $sign = $this->tiktok_signature_generator($pr);
                     $request_url_signed = str_replace(['{{sign}}', '{{timestamp}}'], [$sign, $timest], $request_url);
-    
+
                     $curl = curl_init();
-                    
+
                     // OPTIMASI: Kurang timeout dan optimasi curl options
                     curl_setopt_array($curl, [
                         CURLOPT_URL => $request_url_signed,
@@ -5972,43 +6012,43 @@ class Api_v2 extends CI_Controller
                         CURLOPT_SSL_VERIFYPEER => false, // OPTIONAL: untuk percepatan
                         CURLOPT_SSL_VERIFYHOST => false, // OPTIONAL: untuk percepatan
                     ]);
-    
+
                     $curl_handlers[$package_id] = $curl;
                     $package_to_tx[$package_id] = $tx['order_id'];
                     curl_multi_add_handle($multi_curl, $curl);
                 }
-    
+
                 // OPTIMASI: Eksekusi multi curl dengan timeout lebih agresif
                 $running = null;
                 $start_time = microtime(true);
-                
+
                 do {
                     $status = curl_multi_exec($multi_curl, $running);
                     if ($running) {
                         // Kurangi timeout untuk respons lebih cepat
                         curl_multi_select($multi_curl, 0.05); // Reduced from 0.1 to 0.05
                     }
-                    
+
                     // Timeout safety: maksimal 15 detik per batch
                     if ((microtime(true) - $start_time) > 15) {
                         break;
                     }
                 } while ($running > 0);
-    
+
                 // Process responses untuk batch saat ini
                 foreach ($curl_handlers as $package_id => $curl) {
                     $tx_id = $package_to_tx[$package_id];
                     $response_body = curl_multi_getcontent($curl);
                     $curl_error = curl_error($curl);
                     $http_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-    
+
                     if ($curl_error) {
                         $results[] = ['transaction_id' => $tx_id, 'status' => false, 'message' => $curl_error];
                         continue;
                     }
-    
+
                     $response_json = json_decode($response_body, true);
-                    
+
                     // Handle rate limiting
                     if ($http_code === 429 || (isset($response_json['code']) && $response_json['code'] == 36009002)) {
                         $results[] = [
@@ -6018,7 +6058,7 @@ class Api_v2 extends CI_Controller
                         ];
                         continue;
                     }
-    
+
                     if (isset($response_json['code']) && $response_json['code'] != 0) {
                         $results[] = [
                             'transaction_id' => $tx_id,
@@ -6028,11 +6068,11 @@ class Api_v2 extends CI_Controller
                         ];
                         continue;
                     }
-    
+
                     $document_urls = $response_json['data']['document_urls'] ?? $response_json['data'] ?? [];
-                    
+
                     $successful_updates[] = $tx_id;
-                    
+
                     $results[] = [
                         'transaction_id' => $tx_id,
                         'status' => true,
@@ -6040,38 +6080,38 @@ class Api_v2 extends CI_Controller
                         'package_id' => $package_id,
                         'document_urls' => $document_urls
                     ];
-    
+
                     curl_multi_remove_handle($multi_curl, $curl);
                     curl_close($curl);
                 }
-    
+
                 curl_multi_close($multi_curl);
-    
+
                 // OPTIMASI: Kurangi delay antara batch
                 if (count($transaction_batches) > 1 && $batch_index < count($transaction_batches) - 1) {
                     // Delay minimal antara batch
                     usleep(100000); // Hanya 0.1 detik delay antara batch
                 }
             }
-    
+
             $today = date('Y-m-d H:i:s');
-    
+
             if (!empty($successful_updates)) {
                 $data = array(
                     'print_at' => $today
                 );
-                
+
                 $this->db->where_in('order_id', $successful_updates);
                 $this->db->update('transaction', $data);
             }
         }
-    
+
         foreach ($transaction_ids as $tx_id) {
             if (!isset($transaction_lookup[$tx_id])) {
                 $results[] = ['transaction_id' => $tx_id, 'status' => false, 'message' => 'Transaksi tidak ditemukan'];
             }
         }
-    
+
         echo json_encode(['status' => true, 'results' => $results]);
     }
 
@@ -6084,7 +6124,7 @@ class Api_v2 extends CI_Controller
         $shop_id = $_GET['shop_id'] ?? '';
         $start_date = $_GET['start_date'] ?? '';
         $end_date = $_GET['end_date'] ?? '';
-        
+
         if (!$shop_id || !$start_date || !$end_date) {
             echo json_encode(['status' => false, 'message' => 'shop_id, start_date, dan end_date wajib diisi']);
             return;
@@ -6109,9 +6149,9 @@ class Api_v2 extends CI_Controller
         }
 
         $timest = time();
-        
+
         $endpoint_path = '/analytics/202405/shop/performance';
-        
+
         $params = [
             'sort_order' => 'DESC',
             'sort_field' => 'gmv',
@@ -6122,7 +6162,7 @@ class Api_v2 extends CI_Controller
             'app_key' => $app_key,
             'shop_cipher' => $shop_cipher,
             'shop_id' => $shop_id_val,
-            'timestamp' => $timest, 
+            'timestamp' => $timest,
         ];
 
         if (!empty($_GET['page_token'])) {
@@ -6138,9 +6178,9 @@ class Api_v2 extends CI_Controller
         ];
 
         $sign = $this->tiktok_signature_generator($pr);
-        
+
         $params['sign'] = $sign;
-        
+
         $request_url = 'https://open-api.tiktokglobalshop.com' . $endpoint_path . '?' . http_build_query($params);
 
         // Eksekusi request
@@ -6171,7 +6211,7 @@ class Api_v2 extends CI_Controller
         }
 
         $response_json = json_decode($response_body, true);
-        
+
         if (isset($response_json['code']) && $response_json['code'] == 0) {
             echo json_encode([
                 'status' => true,

@@ -25,9 +25,10 @@
 <?php
 
 $arr = array();
+$debug_param = (isset($_GET['debug']) && $_GET['debug'] == '1') ? '&debug=1' : '';
 foreach ($store as $k => $v) {
 ?>
-	<form action="<?= base_url() ?>transaction/sync-process?marketplace=<?= $v['marketplace'] ?>&shop_id=<?= $v['id'] ?>&start_date=<?= $_GET['start_date'] ?>&until_date=<?= $_GET['until_date'] ?>" method="POST" id="form-modal-sync-<?= $k ?>"></form>
+	<form action="<?= base_url() ?>transaction/sync-process?marketplace=<?= $v['marketplace'] ?>&shop_id=<?= $v['id'] ?>&start_date=<?= $_GET['start_date'] ?>&until_date=<?= $_GET['until_date'] ?><?= $debug_param ?>" method="POST" id="form-modal-sync-<?= $k ?>"></form>
 	<form action="<?= base_url() ?>marketplace-account/refresh-token-process?marketplace=<?= $v['marketplace'] ?>&shop_id=<?= $v['id'] ?>" method="POST" id="form-modal-refresh-<?= $k ?>"></form>
 
 	<script type="text/javascript">
