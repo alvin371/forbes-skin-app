@@ -2930,15 +2930,56 @@ class Transaction extends BaseController
     {
 
         $dt = $_GET;
-        $marketplace = $dt['marketplace'];
-        $shop_id = $dt['shop_id'];
-        $start_date = $dt['until_date'];
-        $until_date = $dt['until_date'];
+        $debug = isset($dt['debug']) && $dt['debug'] == '1';
+        $debug_steps = array();
+        $debug_add = function ($label, $value = null) use (&$debug_steps) {
+            if ($value === null || $value === '') {
+                $debug_steps[] = $label;
+                return;
+            }
+            if (is_array($value) || is_object($value)) {
+                $value = json_encode($value);
+            }
+            $debug_steps[] = $label . ': ' . $value;
+        };
+
+        $marketplace = isset($dt['marketplace']) ? $dt['marketplace'] : '';
+        $shop_id = isset($dt['shop_id']) ? $dt['shop_id'] : '';
+        $start_date = isset($dt['start_date']) ? $dt['start_date'] : (isset($dt['until_date']) ? $dt['until_date'] : '');
+        $until_date = isset($dt['until_date']) ? $dt['until_date'] : '';
+
+        $debug_add('sync_process_start', date('Y-m-d H:i:s'));
+        $debug_add('params_marketplace', $marketplace);
+        $debug_add('params_shop_id', $shop_id);
+        $debug_add('params_start_date', $start_date);
+        $debug_add('params_until_date', $until_date);
+
+        if ($marketplace === '' || $shop_id === '' || $until_date === '') {
+            $msg = 'Parameter tidak lengkap!';
+            $debug_add('error', $msg);
+            $output = $this->template->alert_danger($msg);
+            if ($debug) {
+                $debug_html = '<div class="sync-debug" style="margin-top:10px;border:1px solid #e0e0e0;padding:8px;background:#fafafa;"><div style="font-weight:600;margin-bottom:6px;">Debug Log</div><pre style="white-space:pre-wrap;margin:0;">' . htmlspecialchars(implode("\n", $debug_steps)) . '</pre></div>';
+                echo $output . $debug_html;
+                die;
+            }
+            echo $output;
+            die;
+        }
 
         $curl = curl_init();
 
+        $query_params = array(
+            'marketplace' => $marketplace,
+            'shop_id' => $shop_id,
+            'start_date' => $start_date,
+            'until_date' => $until_date,
+        );
+        $url = $this->template->endpoint_url() . 'api/marketplace/order?' . http_build_query($query_params);
+        $debug_add('endpoint_url', $url);
+
         curl_setopt_array($curl, array(
-            CURLOPT_URL => $this->template->endpoint_url() . 'api/marketplace/order?marketplace=' . $marketplace . '&shop_id=' . $shop_id . '&start_date=' . $start_date . '&until_date=' . $until_date,
+            CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_ENCODING => '',
             CURLOPT_MAXREDIRS => 10,
@@ -2951,19 +2992,56 @@ class Transaction extends BaseController
             ),
         ));
 
-        $response = curl_exec($curl);
+        $response_raw = curl_exec($curl);
+        $curl_errno = curl_errno($curl);
+        $curl_error = curl_error($curl);
+        $http_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
 
         curl_close($curl);
-        $response = json_decode($response, true);
-        if ($response['status'] == true) {
-            $msg = $response['msg'];
-            echo $this->template->alert_success($msg);
-            die;
-        } else {
-            $msg = $response['msg'];
-            echo $this->template->alert_danger($msg);
+
+        $debug_add('curl_http_code', $http_code);
+        if ($curl_errno) {
+            $debug_add('curl_errno', $curl_errno);
+            $debug_add('curl_error', $curl_error);
+        }
+        $debug_add('response_length', is_string($response_raw) ? strlen($response_raw) : 0);
+
+        if ($response_raw === false || $curl_errno) {
+            $msg = 'Gagal terhubung ke endpoint.';
+            $output = $this->template->alert_danger($msg);
+            if ($debug) {
+                $debug_html = '<div class="sync-debug" style="margin-top:10px;border:1px solid #e0e0e0;padding:8px;background:#fafafa;"><div style="font-weight:600;margin-bottom:6px;">Debug Log</div><pre style="white-space:pre-wrap;margin:0;">' . htmlspecialchars(implode("\n", $debug_steps)) . '</pre></div>';
+                echo $output . $debug_html;
+                die;
+            }
+            echo $output;
             die;
         }
+
+        $response = json_decode($response_raw, true);
+        $json_error = json_last_error();
+        if ($json_error !== JSON_ERROR_NONE) {
+            $debug_add('json_error', function_exists('json_last_error_msg') ? json_last_error_msg() : $json_error);
+        } else if (is_array($response)) {
+            $debug_add('response_keys', implode(',', array_keys($response)));
+        }
+        $debug_add('response_preview', substr($response_raw, 0, 800));
+
+        if (is_array($response) && isset($response['status']) && $response['status'] == true) {
+            $msg = isset($response['msg']) ? $response['msg'] : 'Sync berhasil.';
+            $output = $this->template->alert_success($msg);
+        } else {
+            $msg = (is_array($response) && isset($response['msg'])) ? $response['msg'] : 'Sync gagal. Response tidak valid.';
+            $output = $this->template->alert_danger($msg);
+        }
+
+        if ($debug) {
+            $debug_html = '<div class="sync-debug" style="margin-top:10px;border:1px solid #e0e0e0;padding:8px;background:#fafafa;"><div style="font-weight:600;margin-bottom:6px;">Debug Log</div><pre style="white-space:pre-wrap;margin:0;">' . htmlspecialchars(implode("\n", $debug_steps)) . '</pre></div>';
+            echo $output . $debug_html;
+            die;
+        }
+        echo $output;
+        die;
     }
 
     public function import_resi()
