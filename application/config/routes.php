@@ -204,6 +204,18 @@ $route['api/hrms/performance/submissions'] = 'Api_hrms/performance_submissions';
 $route['api/hrms/performance/submissions/(:num)'] = 'Api_hrms/performance_submission_detail/$1';
 $route['api/hrms/performance/submissions/(:num)/cancel'] = 'Api_hrms/performance_submission_cancel/$1';
 
+// Overtime API Routes
+$route['api/hrms/overtime/types'] = 'Api_hrms/overtime_types';
+$route['api/hrms/overtime'] = 'Api_hrms/overtime';
+$route['api/hrms/overtime/summary'] = 'Api_hrms/overtime_summary';
+$route['api/hrms/overtime/(:num)'] = 'Api_hrms/overtime_detail/$1';
+$route['api/hrms/overtime/(:num)/cancel'] = 'Api_hrms/overtime_cancel/$1';
+$route['api/hrms/overtime/approvals/inbox'] = 'Api_hrms/overtime_approvals_inbox';
+$route['api/hrms/overtime/approvals/inbox/count'] = 'Api_hrms/overtime_approvals_inbox_count';
+$route['api/hrms/overtime/approvals/(:num)/approve'] = 'Api_hrms/overtime_approval_approve/$1';
+$route['api/hrms/overtime/approvals/(:num)/reject'] = 'Api_hrms/overtime_approval_reject/$1';
+$route['api/hrms/overtime/approvals/history'] = 'Api_hrms/overtime_approvals_history';
+
 $route['api/attendance/confirm'] = 'AttendanceController/confirm';
 $route['api/attendance/status'] = 'AttendanceController/status';
 $route['attendance'] = 'AttendancePageController/index';
