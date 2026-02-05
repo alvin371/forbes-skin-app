@@ -3151,7 +3151,10 @@ class Api_v2 extends CI_Controller
                     }
 
                     foreach ($orders as $k2 => $v2) {
-                        $order_id = $v2['order_id'];
+                        $order_id = $v2['order_id'] ?? ($v2['id'] ?? '');
+                        if ($order_id === '') {
+                            continue;
+                        }
                         $this->db->select('id');
                         $trx = $this->mymodel->selectDataOne('transaction', array('order_id' => $order_id, 'marketplace' => $marketplace));
 

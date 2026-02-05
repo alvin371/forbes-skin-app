@@ -2932,7 +2932,7 @@ class Transaction extends BaseController
         $dt = $_GET;
         $marketplace = $dt['marketplace'];
         $shop_id = $dt['shop_id'];
-        $start_date = $dt['until_date'];
+        $start_date = isset($dt['start_date']) ? $dt['start_date'] : $dt['until_date'];
         $until_date = $dt['until_date'];
         $debug = isset($dt['debug']) && $dt['debug'] == '1';
         if (strtoupper($marketplace) === 'TIKTOK') {
