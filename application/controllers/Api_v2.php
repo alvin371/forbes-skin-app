@@ -2953,12 +2953,6 @@ class Api_v2 extends CI_Controller
         header('Content-Type: application/json; charset=utf-8');
 
         $dt = $_GET;
-        $debug = isset($dt['debug']) && $dt['debug'] == '1';
-        $debug_data = array();
-        if ($debug) {
-            $debug_data['tiktok_requests'] = array();
-            $debug_data['tiktok_requests_count'] = 0;
-        }
 
         $marketplace = $dt['marketplace'];
         $marketplace = strtoupper($marketplace);
@@ -3032,35 +3026,6 @@ class Api_v2 extends CI_Controller
 
                     $url = str_replace('{{sign}}', $sign, $url);
                     $url = str_replace('{{timestamp}}', $timest, $url);
-
-                    if ($debug) {
-                        $debug_data['tiktok_requests_count']++;
-                        $debug_max = 10;
-                        if (count($debug_data['tiktok_requests']) < $debug_max) {
-                            $post_payload = json_decode($pr['post'], true);
-                            if ($post_payload === null) {
-                                $post_payload = $pr['post'];
-                            }
-                            $post_json = is_string($post_payload)
-                                ? $post_payload
-                                : json_encode($post_payload, JSON_UNESCAPED_SLASHES);
-                            $curl_cmd = "curl -X POST '" . $url . "' \\\n"
-                                . "  -H 'Content-Type: application/json' \\\n"
-                                . "  -H 'x-tts-access-token: " . $access_token . "' \\\n"
-                                . "  -d '" . $post_json . "'";
-                            $debug_data['tiktok_requests'][] = array(
-                                'shop_id' => strval($shop_id),
-                                'shop_name' => strval($shop_name),
-                                'cursor' => $cursor,
-                                'page_size' => $page_size,
-                                'url' => $url,
-                                'post' => $post_payload,
-                                'curl' => $curl_cmd,
-                            );
-                        } else {
-                            $debug_data['tiktok_requests_truncated'] = true;
-                        }
-                    }
 
                     $curl = curl_init();
                     curl_setopt_array($curl, array(
@@ -3298,9 +3263,6 @@ class Api_v2 extends CI_Controller
         $html['status'] = true;
         $html['data'] = array();
         $html['msg'] = 'Sync data order berhasil!';
-        if ($debug) {
-            $html['debug'] = $debug_data;
-        }
         echo json_encode($html, true);
         die;
     }

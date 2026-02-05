@@ -2,22 +2,6 @@
 
 ?>
 <div class="form-message"></div>
-<div class="sync-debug-log" style="display:none;margin-top:10px;border:1px solid #e0e0e0;padding:8px;background:#fafafa;font-family:monospace;white-space:pre-wrap;"></div>
-<script type="text/javascript">
-	if (typeof window.appendSyncDebug !== "function") {
-		window.appendSyncDebug = function(message) {
-			var $log = $(".sync-debug-log");
-			if (!$log.length) {
-				return;
-			}
-			var stamp = new Date().toISOString().replace("T", " ").replace("Z", "");
-			if ($log.is(":hidden")) {
-				$log.show();
-			}
-			$log.append("[" + stamp + "] " + message + "\n");
-		};
-	}
-</script>
 <form action="<?= base_url() ?>product-3rd/sync-process" method="POST" id="form-modal">
 	<input type="hidden" name="id" value="<?= $data['id'] ?>">
 	<p class="mb-0">Apakah kamu yakin ingin melakukan sync data produk?</p>
@@ -43,15 +27,13 @@
 $arr = array();
 foreach ($store as $k => $v) {
 ?>
-	<form action="<?= base_url() ?>transaction/sync-process?marketplace=<?= $v['marketplace'] ?>&shop_id=<?= $v['id'] ?>&start_date=<?= $_GET['start_date'] ?>&until_date=<?= $_GET['until_date'] ?>&debug=1" method="POST" id="form-modal-sync-<?= $k ?>"></form>
+	<form action="<?= base_url() ?>transaction/sync-process?marketplace=<?= $v['marketplace'] ?>&shop_id=<?= $v['id'] ?>&start_date=<?= $_GET['start_date'] ?>&until_date=<?= $_GET['until_date'] ?>" method="POST" id="form-modal-sync-<?= $k ?>"></form>
 	<form action="<?= base_url() ?>marketplace-account/refresh-token-process?marketplace=<?= $v['marketplace'] ?>&shop_id=<?= $v['id'] ?>" method="POST" id="form-modal-refresh-<?= $k ?>"></form>
 
 	<script type="text/javascript">
 		$("#form-modal-sync-<?= $k ?>").submit(function() {
 			var form = $(this);
 			var mydata = new FormData(this);
-			appendSyncDebug("Sync start: <?= $v['opt'] ?> (<?= $v['marketplace'] ?>, shop_id=<?= $v['id'] ?>)");
-			appendSyncDebug("Request URL: " + form.attr("action"));
 			$.ajax({
 				type: "POST",
 				url: form.attr("action"),
@@ -67,29 +49,10 @@ foreach ($store as $k => $v) {
 						)
 						.attr("disabled", true);
 					form.find(".form-message").slideUp().html("");
-					appendSyncDebug("Sending request...");
 				},
 				success: function(response, textStatus, xhr) {
 					var str = response;
 					console.log(str);
-					appendSyncDebug("AJAX success (" + xhr.status + " " + xhr.statusText + ")");
-					appendSyncDebug("Response length: " + str.length);
-					appendSyncDebug("Response has success token: " + (str.indexOf("success") != -1));
-					appendSyncDebug("Response preview: " + str.substring(0, 300).replace(/\s+/g, " "));
-					try {
-						var tmp = $("<div>").html(response);
-						var debugText = tmp.find(".sync-debug pre").text();
-						if (debugText) {
-							appendSyncDebug("Server debug:");
-							debugText.split("\n").forEach(function(line) {
-								if (line.trim() !== "") {
-									appendSyncDebug(line);
-								}
-							});
-						}
-					} catch (e) {
-						appendSyncDebug("Failed to parse server debug.");
-					}
 					if (str.indexOf("success") != -1) {
 						$(".form-message").hide().html(response).slideDown("fast");
 						$(".btn-send-sync")
@@ -101,14 +64,10 @@ foreach ($store as $k => $v) {
 						$(".btn-send-sync")
 							.removeClass("disabled")
 							.html("Sync Data")
-							.attr("disabled", false);
+						.attr("disabled", false);
 					}
 				},
 				error: function(xhr, textStatus, errorThrown) {
-					appendSyncDebug("AJAX error (" + xhr.status + " " + errorThrown + ")");
-					if (xhr && xhr.responseText) {
-						appendSyncDebug("Error response preview: " + xhr.responseText.substring(0, 300).replace(/\s+/g, " "));
-					}
 					$(".btn-send-sync")
 						.removeClass("disabled")
 						.html("Sync Data")
