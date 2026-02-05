@@ -2935,6 +2935,9 @@ class Transaction extends BaseController
         $start_date = $dt['until_date'];
         $until_date = $dt['until_date'];
         $debug = isset($dt['debug']) && $dt['debug'] == '1';
+        if (strtoupper($marketplace) === 'TIKTOK') {
+            $debug = true;
+        }
 
         $curl = curl_init();
 
@@ -2959,17 +2962,24 @@ class Transaction extends BaseController
 
         $response_raw = curl_exec($curl);
         $curl_error = curl_error($curl);
+        $http_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
 
         curl_close($curl);
         $response = json_decode($response_raw, true);
 
         $debug_html = '';
         if ($debug) {
+            $meta = array(
+                'endpoint_url' => $url,
+                'http_code' => $http_code,
+                'curl_error' => $curl_error ? $curl_error : '',
+                'response_length' => is_string($response_raw) ? strlen($response_raw) : 0,
+            );
             $debug_payload = '';
             if (is_array($response) && isset($response['debug'])) {
-                $debug_payload = json_encode($response['debug'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+                $debug_payload = json_encode(array('meta' => $meta, 'tiktok_debug' => $response['debug']), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
             } else if (is_string($response_raw)) {
-                $debug_payload = substr($response_raw, 0, 1200);
+                $debug_payload = json_encode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n\n" . substr($response_raw, 0, 1200);
             }
             if ($debug_payload !== '') {
                 $debug_html = '<div class="sync-debug" style="margin-top:10px;border:1px solid #e0e0e0;padding:8px;background:#fafafa;"><div style="font-weight:600;margin-bottom:6px;">Debug Log</div><pre style="white-space:pre-wrap;margin:0;">' . htmlspecialchars($debug_payload) . '</pre></div>';
