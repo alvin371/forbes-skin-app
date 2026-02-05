@@ -104,6 +104,30 @@ class Api_v2 extends CI_Controller
         }
         return null;
     }
+
+    private function worker_auth_guard()
+    {
+        $ip_allowlist = env('WORKER_IP_ALLOWLIST', '');
+        if ($ip_allowlist) {
+            $allowed = array_map('trim', explode(',', $ip_allowlist));
+            $remote = $_SERVER['REMOTE_ADDR'] ?? '';
+            if ($remote === '' || !in_array($remote, $allowed, true)) {
+                echo json_encode(array('status' => false, 'msg' => 'Unauthorized'), true);
+                die;
+            }
+        }
+
+        $secret = env('WORKER_SHARED_SECRET', '');
+        if ($secret) {
+            $header = $_SERVER['HTTP_X_WORKER_SECRET'] ?? '';
+            if ($header === '' || !hash_equals($secret, $header)) {
+                echo json_encode(array('status' => false, 'msg' => 'Unauthorized'), true);
+                die;
+            }
+        }
+
+        return true;
+    }
     function interpolateVar($value, $env)
     {
         foreach ($env as $key => $val) {
@@ -2977,6 +3001,466 @@ class Api_v2 extends CI_Controller
         // $html['msg'] = 'Refresh order data success!';
         // echo json_encode($html, true);
         // die;
+    }
+
+    function marketplace_config()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        $this->worker_auth_guard();
+
+        $dt = $_GET;
+        $marketplace = strtoupper($dt['marketplace'] ?? '');
+        $shop_id = $dt['shop_id'] ?? '';
+
+        $qry = "status = 'Aktif'";
+        if ($shop_id) {
+            $qry .= " AND shop_id = '$shop_id' ";
+        }
+        if ($marketplace) {
+            $qry .= " AND opt = '$marketplace' ";
+        }
+
+        $data = $this->mymodel->selectWithQuery("SELECT shop_id, shop_name, opt, val
+        FROM marketplace_config
+        WHERE $qry");
+
+        $result = array();
+        foreach ($data as $row) {
+            $config = json_decode($row['val'] ?? '', true);
+            if (empty($config)) {
+                continue;
+            }
+            $result[] = array(
+                'shop_id' => strval($row['shop_id']),
+                'shop_name' => strval($row['shop_name']),
+                'marketplace' => strval($row['opt']),
+                'app_key' => $config['app_key'] ?? '',
+                'access_token' => $config['access_token'] ?? '',
+                'shop_cipher' => $config['shop']['cipher'] ?? '',
+            );
+        }
+
+        echo json_encode(array(
+            'status' => true,
+            'data' => $result,
+            'msg' => 'OK',
+        ), true);
+        die;
+    }
+
+    function marketplace_order_ingest()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        $this->worker_auth_guard();
+
+        $raw = file_get_contents('php://input');
+        $payload = json_decode($raw, true);
+        if (!is_array($payload)) {
+            echo json_encode(array('status' => false, 'msg' => 'Payload tidak valid'), true);
+            die;
+        }
+
+        $marketplace = strtoupper($payload['marketplace'] ?? '');
+        if ($marketplace !== 'TIKTOK') {
+            echo json_encode(array('status' => false, 'msg' => 'Marketplace tidak didukung'), true);
+            die;
+        }
+
+        $orders = $payload['orders'] ?? array();
+        if (!is_array($orders) || empty($orders)) {
+            echo json_encode(array('status' => true, 'msg' => 'Tidak ada order untuk diproses'), true);
+            die;
+        }
+
+        $shop_id = $payload['shop_id'] ?? '';
+        $shop_name = $payload['shop_name'] ?? '';
+        $start_date = $payload['start_date'] ?? DATE("Y-m-01");
+        $start_date = DATE("Y-m-d", strtotime($start_date)) . ' 00:00:00';
+
+        $product = $this->mymodel->selectWithQuery("SELECT * FROM product
+        ORDER BY sku ASC
+        ");
+        $arr_product = array();
+        foreach ($product as $k => $v) {
+            $arr_product[$v['id']] = $v;
+        }
+
+        foreach ($orders as $k2 => $v2) {
+            $order_id = $v2['order_id'] ?? ($v2['id'] ?? '');
+            if ($order_id === '') {
+                continue;
+            }
+            $this->db->select('id');
+            $trx = $this->mymodel->selectDataOne('transaction', array('order_id' => $order_id, 'marketplace' => $marketplace));
+
+            $dt = array();
+            $dt['type'] = "Out";
+            $dt['type_sub'] = "POS";
+            $dt['marketplace'] = strval($marketplace);
+            $dt['shop_id'] = strval($shop_id);
+            $dt['shop_name'] = strval($shop_name);
+            $dt['marketplace'] = $marketplace;
+            $dt['order_id'] = $order_id;
+            $dt['is_manual'] = 0;
+
+            $create_time = isset($v2['create_time']) ? intval($v2['create_time']) : 0;
+            if ($create_time > 0) {
+                $dt['date'] = DATE("Y-m-d H:i:s", $create_time);
+            }
+
+            if (isset($v2['is_sample_order'])) {
+                $dt['c_type'] = $v2['is_sample_order'] ? "Affiliate" : "Pelanggan";
+            }
+
+            if (!empty($v2['shipping_provider'])) {
+                $dt['shipping'] = strval($v2['shipping_provider']);
+            } else if (!empty($v2['delivery_option_name'])) {
+                $dt['shipping'] = strval($v2['delivery_option_name']);
+            }
+            if (!empty($v2['tracking_number'])) {
+                $dt['awb_number'] = strval($v2['tracking_number']);
+            }
+
+            if (isset($v2['is_cod'])) {
+                $dt['payment_type'] = $v2['is_cod'] ? "COD" : "TF";
+            }
+            if (!empty($v2['paid_time'])) {
+                $dt['payment_status'] = "Paid";
+                $dt['pay_at'] = DATE("Y-m-d H:i:s", intval($v2['paid_time']));
+            } else if (isset($v2['paid_time'])) {
+                $dt['payment_status'] = "Unpaid";
+            }
+            if (!empty($v2['rts_time'])) {
+                $dt['rts_at'] = DATE("Y-m-d H:i:s", intval($v2['rts_time']));
+            } else if (!empty($v2['rts_sla_time'])) {
+                $dt['rts_at'] = DATE("Y-m-d H:i:s", intval($v2['rts_sla_time']));
+            }
+            if (!empty($v2['cancel_time'])) {
+                $dt['return_at'] = DATE("Y-m-d H:i:s", intval($v2['cancel_time']));
+            }
+
+            $buyer_id = $v2['buyer_user_id'] ?? ($v2['user_id'] ?? '');
+            if ($buyer_id !== '') {
+                $dt['id_buyer'] = strval($buyer_id);
+            }
+            $buyer_username = $v2['buyer_nickname'] ?? ($v2['buyer_email'] ?? '');
+            if ($buyer_username !== '') {
+                $dt['c_username'] = strval($buyer_username);
+            }
+
+            if (!empty($v2['recipient_address']) && is_array($v2['recipient_address'])) {
+                $recipient = $v2['recipient_address'];
+                if (!empty($recipient['name'])) {
+                    $dt['customer_text'] = strval($recipient['name']);
+                }
+                if (!empty($recipient['phone_number'])) {
+                    $dt['phone'] = strval($recipient['phone_number']);
+                }
+                if (!empty($recipient['full_address'])) {
+                    $dt['address'] = strval($recipient['full_address']);
+                    $dt['address_2'] = strval($recipient['full_address']);
+                }
+                if (!empty($recipient['postal_code'])) {
+                    $dt['postal_code'] = strval($recipient['postal_code']);
+                }
+                if (!empty($recipient['district_info']) && is_array($recipient['district_info'])) {
+                    $dt['province_text'] = strval($recipient['district_info'][1]['address_name'] ?? '');
+                    $dt['city_text'] = strval($recipient['district_info'][2]['address_name'] ?? '');
+                    $dt['subdistrict_text'] = strval($recipient['district_info'][3]['address_name'] ?? '');
+                }
+            }
+
+            if (!empty($v2['payment']) && is_array($v2['payment'])) {
+                $payment = $v2['payment'];
+                if (isset($payment['total_amount'])) {
+                    $dt['customer_price'] = doubleval($payment['total_amount']);
+                }
+                if (isset($payment['original_total_product_price'])) {
+                    $dt['omset_kotor'] = doubleval($payment['original_total_product_price']);
+                }
+                if (isset($payment['seller_discount']) && isset($payment['original_total_product_price'])) {
+                    $dt['diskon_penjual'] = doubleval($payment['seller_discount']);
+                    $dt['omset_bersih'] = doubleval($payment['original_total_product_price'] - $payment['seller_discount']);
+                }
+            }
+
+            if (!empty($v2['line_items']) && is_array($v2['line_items'])) {
+                $js = array();
+                foreach ($v2['line_items'] as $k4 => $v4) {
+                    $js[$k4]['id_product'] = $v4['sku_id'] ?? '';
+                    $js[$k4]['sku'] = $v4['seller_sku'] ?? '';
+                    $name = $v4['sku_name'] ?? '';
+                    if ($name === "Default") {
+                        $name = "";
+                    }
+                    $js[$k4]['name'] = $name;
+                    $js[$k4]['id_product_parent'] = $v4['product_id'] ?? '';
+                    $js[$k4]['sku_parent'] = "";
+                    $js[$k4]['name_parent'] = $v4['product_name'] ?? '';
+                    $js[$k4]['qty'] = isset($v4['quantity']) ? strval($v4['quantity']) : '1';
+                    $js[$k4]['price'] = $v4['sale_price'] ?? '';
+                    $js[$k4]['original_price'] = $v4['original_price'] ?? '';
+                    $js[$k4]['discount'] = $v4['seller_discount'] ?? '';
+                }
+
+                $price_total_hpp = 0;
+                $json = array();
+                $brand_selected = "MG";
+                $arr_brand = array();
+                foreach ($js as $k4 => $v4) {
+                    $id_product = $v4['id_product'];
+                    $id_product_parent = $v4['id_product_parent'];
+                    $this->db->select('json');
+                    $conf = $this->mymodel->selectDataOne('product_variant_3rd', array('id_product' => $id_product, 'id_product_parent' => $id_product_parent));
+                    if (empty($conf) && $v4['sku']) {
+                        $conf = $this->mymodel->selectDataOne('product_variant_3rd', array('sku' => $v4['sku']));
+                    }
+                    $conf = json_decode($conf['json'] ?? '', true);
+                    if (empty($conf)) {
+                        $js[$k4]['is_empty'] = true;
+                        continue;
+                    }
+                    foreach ($conf as $k5 => $v5) {
+                        if (empty($arr_product[$v5['product']])) {
+                            continue;
+                        }
+                        $product = $arr_product[$v5['product']];
+                        $arr_brand[$product['brand']] += 1;
+                        $price = 0;
+                        if (($dt['c_type'] ?? '') == "Pelanggan") {
+                            $price = $product['price_normal'];
+                        } else if (($dt['c_type'] ?? '') == "Distributor") {
+                            $price = $product['price_distributor'];
+                        } else if (($dt['c_type'] ?? '') == "Reseller") {
+                            $price = $product['price_reseller'];
+                        } else {
+                            $price = $product['price_normal'];
+                        }
+                        $json[$product['id']]['sku'] = $product['sku'];
+                        $json[$product['id']]['hpp'] = $product['price_buy'];
+                        $json[$product['id']]['product'] = $product['id'];
+                        $json[$product['id']]['product_text'] = $product['name'];
+                        $json[$product['id']]['product_sub'] = $product['sub_name'];
+                        $json[$product['id']]['brand'] = $product['brand'];
+                        $json[$product['id']]['price'] = $price;
+                        $json[$product['id']]['qty'] += (doubleval($v5['qty']) * doubleval($v4['qty']));
+                        $json[$product['id']]['price_total'] += (doubleval($json[$product['id']]['qty']) * doubleval($price));
+                        $json[$product['id']]['price_total_hpp'] += (doubleval($json[$product['id']]['qty']) * doubleval($json[$product['id']]['hpp']));
+
+                        $price_total_hpp += (doubleval($json[$product['id']]['qty']) * doubleval($json[$product['id']]['hpp']));
+                    }
+                }
+
+                if (!empty($arr_brand)) {
+                    $max = 0;
+                    foreach ($arr_brand as $k5 => $v5) {
+                        if ($v5 >= $max) {
+                            $max = $v5;
+                            $brand_selected = $k5;
+                        }
+                    }
+                    $dt['brand'] = $brand_selected;
+                }
+
+                $dt['pesanan'] = json_encode($js, true);
+                $dt['pesanan_count'] = count($js);
+                $dt['json'] = json_encode($json, true);
+                $dt['hpp'] = doubleval($price_total_hpp);
+            }
+
+            $status_raw = $v2['order_status'] ?? ($v2['status'] ?? '');
+            $status_upper = strtoupper(strval($status_raw));
+            if (in_array($status_upper, array('UNPAID'))) {
+                $order_status = 'UNPAID';
+            } else if (in_array($status_upper, array('AWAITING_COLLECTION', 'ON_HOLD'))) {
+                $order_status = 'PROCESSED';
+            } else if (in_array($status_upper, array('RETURNED'))) {
+                $order_status = 'RETURN';
+            } else if (in_array($status_upper, array('CANCELLED'))) {
+                $order_status = 'CANCELLED';
+            } else if (in_array($status_upper, array('COMPLETED'))) {
+                $order_status = 'COMPLETED';
+            } else if (in_array($status_upper, array('DELIVERED'))) {
+                $order_status = 'DELIVERED';
+            } else if (in_array($status_upper, array('IN_TRANSIT', 'PARTIALLY_SHIPPING'))) {
+                $order_status = 'SHIPPED';
+                $dt['is_shipped'] = 1;
+            } else if (in_array($status_upper, array('AWAITING_SHIPMENT'))) {
+                $order_status = 'READY_TO_SHIP';
+            } else if (in_array($status_raw, array('100'))) {
+                $order_status = 'UNPAID';
+            } else if (in_array($status_raw, array('112', '105'))) {
+                $order_status = 'PROCESSED';
+            } else if (in_array($status_raw, array('returned'))) {
+                $order_status = 'RETURN';
+            } else if (in_array($status_raw, array('140'))) {
+                $order_status = 'CANCELLED';
+            } else if (in_array($status_raw, array('130',))) {
+                $order_status = 'COMPLETED';
+            } else if (in_array($status_raw, array('122'))) {
+                $order_status = 'DELIVERED';
+            } else if (in_array($status_raw, array('121', '114'))) {
+                $order_status = 'SHIPPED';
+                $dt['is_shipped'] = 1;
+            } else if (in_array($status_raw, array('111'))) {
+                $order_status = 'READY_TO_SHIP';
+            }
+            $dt['order_status'] = strval($order_status);
+            if ($trx) {
+                $dt['updated_at'] = DATE("Y-m-d H:i:s");
+                $this->db->update('transaction', $dt, array('id' => $trx['id']));
+            } else if ($dt['order_status'] !== 'CANCELLED') {
+                if (empty($dt['date'])) {
+                    $dt['date'] = DATE("Y-m-d 23:00:00", strtotime($start_date));
+                }
+                $dt['created_at'] = DATE("Y-m-d H:i:s");
+                $this->db->insert('transaction', $dt);
+            }
+        }
+
+        echo json_encode(array(
+            'status' => true,
+            'msg' => 'Sync data order berhasil!',
+        ), true);
+        die;
+    }
+
+    function marketplace_product_ingest()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        $this->worker_auth_guard();
+
+        $raw = file_get_contents('php://input');
+        $payload = json_decode($raw, true);
+        if (!is_array($payload)) {
+            echo json_encode(array('status' => false, 'msg' => 'Payload tidak valid'), true);
+            die;
+        }
+
+        $marketplace = strtoupper($payload['marketplace'] ?? '');
+        if ($marketplace !== 'TIKTOK') {
+            echo json_encode(array('status' => false, 'msg' => 'Marketplace tidak didukung'), true);
+            die;
+        }
+
+        $products = $payload['products'] ?? array();
+        if (!is_array($products) || empty($products)) {
+            echo json_encode(array('status' => true, 'msg' => 'Tidak ada produk untuk diproses'), true);
+            die;
+        }
+
+        $shop_id = $payload['shop_id'] ?? '';
+        $shop_name = $payload['shop_name'] ?? '';
+        $created_by = $_SESSION['user']['id'] ?? '0';
+
+        foreach ($products as $v2) {
+            $id_product = $v2['id'] ?? '';
+            if ($id_product === '') {
+                continue;
+            }
+            $this->db->select('id');
+            $product = $this->mymodel->selectDataOne('product_3rd', array('id_product' => $id_product, 'marketplace' => $marketplace));
+
+            $dt = array();
+            $dt['marketplace'] = $marketplace;
+            $dt['id_product'] = $id_product;
+            $dt['name'] = strval($v2['title'] ?? '');
+            $dt['desc'] = strval($v2['description'] ?? '');
+            $dt['sku'] = strval($v2['sku'] ?? '');
+            $dt['shop_name'] = $shop_name;
+            $dt['shop_id'] = $shop_id;
+
+            $img_url = $v2['main_images'][0]['thumb_urls'][0] ?? '';
+            if ($img_url) {
+                $file_name = $id_product . '.jpg';
+                $img_dir = './assets/img/product_3rd/' . $file_name;
+                file_put_contents($img_dir, file_get_contents($img_url));
+                $dt['img'] = $file_name;
+            }
+
+            if ($product) {
+                $dt['updated_at'] = DATE("Y-m-d H:i:s");
+                $this->db->update('product_3rd', $dt, array('id' => $product['id']));
+            } else {
+                $dt['created_by'] = strval($created_by);
+                $dt['created_at'] = DATE("Y-m-d H:i:s");
+                $this->db->insert('product_3rd', $dt);
+                $product['id'] = $this->db->insert_id();
+            }
+
+            $item = $v2['skus'] ?? array();
+            $item_list = array();
+            if (empty($item)) {
+                $varian['sku'] = '';
+                $varian['name'] = '';
+                $varian['id_product'] = '0';
+                $varian['sku_parent'] = $dt['sku'];
+                $varian['parent_name'] = $dt['name'];
+                $varian['id_product_parent'] = $dt['id_product'];
+                $varian['id_parent'] = $product['id'];
+                $varian['img'] = $dt['img'] ?? '';
+                $item_list[] = $varian;
+            } else {
+                foreach ($item as $k3 => $v3) {
+                    $varian['sku'] = $v3['seller_sku'] ?? '';
+                    $varian['name'] = strval($v3['sales_attributes'][0]['value_name'] ?? '');
+                    $varian['id_product'] = $v3['id'] ?? '';
+                    $varian['sku_parent'] = $dt['sku'];
+                    $varian['parent_name'] = $dt['name'];
+                    $varian['id_product_parent'] = $dt['id_product'];
+                    $varian['id_parent'] = $product['id'];
+                    $img_url = $v3['sales_attributes'][0]['sku_img']['thumb_urls'][0] ?? '';
+                    if ($img_url) {
+                        $file_name = $varian['id_product'] . '.jpg';
+                        $img_dir = './assets/img/product_3rd/' . $file_name;
+                        file_put_contents($img_dir, file_get_contents($img_url));
+                        $varian['img'] = $file_name;
+                    }
+                    $item_list[] = $varian;
+                }
+            }
+
+            $dt['json_varian'] = json_encode($item_list, true);
+            $dt['count_varian'] = count($item_list);
+            $dt['updated_at'] = DATE("Y-m-d H:i:s");
+            $this->db->update('product_3rd', $dt, array('id' => $product['id']));
+
+            foreach ($item_list as $k4 => $v4) {
+                $id_product = $v4['id_product'];
+                $id_product_parent = $v4['id_product_parent'];
+                $this->db->select('id');
+                $product_variant = $this->mymodel->selectDataOne('product_variant_3rd', array('id_product' => $id_product, 'id_product_parent' => $id_product_parent, 'marketplace' => $marketplace));
+                $dtt = array();
+                foreach ($v4 as $k5 => $v5) {
+                    $dtt[$k5] = strval($v5);
+                }
+                $dtt['marketplace'] = $marketplace;
+                $dtt['shop_name'] = $shop_name;
+                $dtt['shop_id'] = $shop_id;
+
+                if ($dtt['sku']) {
+                    $dat = $this->mymodel->selectDataOne('product_variant_3rd', array('sku' => $dtt['sku']));
+                    if ($dat) {
+                        $dtt['json'] = strval($dat['json']);
+                    }
+                }
+
+                if ($product_variant) {
+                    $dtt['updated_at'] = DATE("Y-m-d H:i:s");
+                    $this->db->update('product_variant_3rd', $dtt, array('id' => $product_variant['id']));
+                } else {
+                    $dtt['created_by'] = strval($created_by);
+                    $dtt['created_at'] = DATE("Y-m-d H:i:s");
+                    $this->db->insert('product_variant_3rd', $dtt);
+                }
+            }
+        }
+
+        echo json_encode(array(
+            'status' => true,
+            'msg' => 'Sync data produk berhasil!',
+        ), true);
+        die;
     }
 
     function marketplace_order()
