@@ -964,6 +964,8 @@ class Api extends CI_Controller
                     $pr['timest'] = $timest;
                     $pr['get'] = $paramGET;
                     $pr['url'] = $url;
+                    $post_body = '{"order_id_list":[' . $list_id . ']}';
+                    $pr['post'] = $post_body;
                     $sign = $this->tiktok_signature_generator($pr);
 
                     $url = str_replace('{{sign}}', $sign, $url);
@@ -980,7 +982,7 @@ class Api extends CI_Controller
                         CURLOPT_FOLLOWLOCATION => true,
                         CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
                         CURLOPT_CUSTOMREQUEST => 'POST',
-                        CURLOPT_POSTFIELDS => '{"order_id_list":[' . $list_id . ']}',
+                        CURLOPT_POSTFIELDS => $post_body,
                         CURLOPT_HTTPHEADER => array(
                             'Content-Type: application/json',
                             'x-tts-access-token: ' . $access_token
@@ -3644,34 +3646,42 @@ class Api extends CI_Controller
 
     function tiktok_signature_generator($dt)
     {
-        $secret = $dt['secret'];
-        $ts = $dt['timest'];
-        $queryParam = $dt['get'];
+        $secret = $dt['secret'] ?? '';
+        $ts = $dt['timest'] ?? null;
+        $queryParam = $dt['get'] ?? [];
+
         $param = [];
         foreach ($queryParam as $key => $value) {
-            if ($key == "timestamp") {
-                $v = $ts;
-            } else {
-                $v = $value;
-                if ($v == null || $v == "{{" . $key . "}}") {
-                    $v = $this->getEnvVar($key);
-                }
+            if ($key === 'sign' || $key === 'access_token') {
+                continue;
             }
-            $param[$key] = $v;
+            if ($key === 'timestamp' && $ts !== null) {
+                $value = $ts;
+            } else if ($value === null || $value === '{{' . $key . '}}') {
+                $value = $this->getEnvVar($key);
+            }
+            $param[$key] = $value;
         }
-        unset($param["sign"]);
-        unset($param["access_token"]);
-        $sortedObj = $this->objKeySort($param);
+
+        ksort($param);
+
         $path = parse_url($dt['url'], PHP_URL_PATH);
-        $signstring = $secret . $path;
-        foreach ($sortedObj as $key => $value) {
-            $signstring .= $key . $value;
+        $input = $path;
+        foreach ($param as $key => $value) {
+            $input .= $key . $value;
         }
-        $signstring .= '{}' . $secret;
-        // echo $signstring;
-        // die;
-        $sign = hash_hmac("sha256", $signstring, $secret);
-        return $sign;
+
+        $body = $dt['post'] ?? '';
+        if (is_array($body) || is_object($body)) {
+            $body = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+        if ($body !== null && $body !== '') {
+            $input .= $body;
+        }
+
+        $input = $secret . $input . $secret;
+
+        return hash_hmac('sha256', $input, $secret);
     }
 
     public function marketplace_callback_tiktok()
@@ -5532,6 +5542,8 @@ class Api extends CI_Controller
             $pr['timest'] = $timest;
             $pr['get'] = $paramGET;
             $pr['url'] = $url;
+            $post_body = '{"cursor":"' . $cursor . '","page_size":100,"sort_by":"CREATE_TIME","create_time_from":' . $start_time . ',"create_time_to":' . $until_time . ',"sort_type":2}';
+            $pr['post'] = $post_body;
             $sign = $this->tiktok_signature_generator($pr);
 
             $url = str_replace('{{sign}}', $sign, $url);
@@ -6110,7 +6122,7 @@ class Api extends CI_Controller
                 CURLOPT_FOLLOWLOCATION => true,
                 CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
                 CURLOPT_CUSTOMREQUEST => 'POST',
-                CURLOPT_POSTFIELDS => '{"cursor":"' . $cursor . '","page_size":100,"sort_by":"CREATE_TIME","create_time_from":' . $start_time . ',"create_time_to":' . $until_time . ',"sort_type":2}',
+                CURLOPT_POSTFIELDS => $post_body,
                 CURLOPT_HTTPHEADER => array(
                     'Content-Type: application/json',
                     'x-tts-access-token: ' . $access_token

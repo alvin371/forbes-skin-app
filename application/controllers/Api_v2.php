@@ -114,34 +114,42 @@ class Api_v2 extends CI_Controller
 
     function tiktok_signature_generator($dt)
     {
-        $secret = $dt['secret'];
-        $ts = $dt['timest'];
-        $queryParam = $dt['get'];
+        $secret = $dt['secret'] ?? '';
+        $ts = $dt['timest'] ?? null;
+        $queryParam = $dt['get'] ?? [];
+
         $param = [];
         foreach ($queryParam as $key => $value) {
-            if ($key == "timestamp") {
-                $v = $ts;
-            } else {
-                $v = $value;
-                if ($v == null || $v == "{{" . $key . "}}") {
-                    $v = $this->getEnvVar($key);
-                }
+            if ($key === 'sign' || $key === 'access_token') {
+                continue;
             }
-            $param[$key] = $v;
+            if ($key === 'timestamp' && $ts !== null) {
+                $value = $ts;
+            } else if ($value === null || $value === '{{' . $key . '}}') {
+                $value = $this->getEnvVar($key);
+            }
+            $param[$key] = $value;
         }
-        unset($param["sign"]);
-        unset($param["access_token"]);
-        $sortedObj = $this->objKeySort($param);
-        $path = parse_url($dt['url'], PHP_URL_PATH);
-        $signstring = $secret . $path;
-        foreach ($sortedObj as $key => $value) {
-            $signstring .= $key . $value;
-        }
-        // $signstring .=  $secret;
-        $signstring .= $dt['post'] . $secret;
 
-        $sign = hash_hmac("sha256", $signstring, $secret);
-        return $sign;
+        ksort($param);
+
+        $path = parse_url($dt['url'], PHP_URL_PATH);
+        $input = $path;
+        foreach ($param as $key => $value) {
+            $input .= $key . $value;
+        }
+
+        $body = $dt['post'] ?? '';
+        if (is_array($body) || is_object($body)) {
+            $body = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+        if ($body !== null && $body !== '') {
+            $input .= $body;
+        }
+
+        $input = $secret . $input . $secret;
+
+        return hash_hmac('sha256', $input, $secret);
     }
 
     public function marketplace_callback_shopee()
