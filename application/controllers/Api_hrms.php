@@ -4,6 +4,8 @@ defined('BASEPATH') or exit('No direct script access allowed');
 class Api_hrms extends CI_Controller
 {
     private $cooldownSeconds = 60;
+    private $lateGraceMinutes = 15;
+    private $earlyGraceMinutes = 15;
 
     public function __construct()
     {
@@ -335,39 +337,21 @@ class Api_hrms extends CI_Controller
         if (!$user) {
             return null;
         }
-        $office = $this->Office_model->get_active_office();
-        if (!$office) {
+        $offices = $this->Office_model->get_active_offices();
+        if (empty($offices)) {
             return $this->respond(404, array('message' => 'Active office is not configured.'));
         }
-
-        $allowedBssids = $this->parse_allowed_bssids($office['allowed_bssids'] ?? '');
-        $allowedSsids = $this->parse_allowed_ssids($office['allowed_ssids'] ?? '');
-        $responseTimes = $this->parse_response_times($office['attendance_response_times'] ?? '');
-        $historyDays = isset($office['attendance_history_days']) ? (int) $office['attendance_history_days'] : 30;
-        $recapMonths = isset($office['attendance_recap_months']) ? (int) $office['attendance_recap_months'] : 6;
+        $primaryConfig = $this->build_office_config($offices[0]);
+        $officeConfigs = array();
+        foreach ($offices as $office) {
+            $officeConfigs[] = $this->build_office_config($office);
+        }
 
         return $this->respond(200, array(
-            'office' => array(
-                'id' => (int) $office['id'],
-                'name' => $office['name'],
-                'lat' => (float) $office['lat'],
-                'lng' => (float) $office['lng'],
-                'radius_m' => (int) $office['radius_m'],
-                'min_accuracy_m' => (int) $office['min_accuracy_m'],
-                'allowed_ip_cidrs' => $office['allowed_ip_cidrs'] ?? '',
-            ),
-            'attendance' => array(
-                'min_accuracy_m' => (int) $office['min_accuracy_m'],
-                'radius_m' => (int) $office['radius_m'],
-                'requires_ip' => !empty(trim((string) ($office['allowed_ip_cidrs'] ?? ''))),
-                'response_times' => $responseTimes,
-                'history_days' => $historyDays,
-                'recap_months' => $recapMonths,
-            ),
-            'wifi' => array(
-                'allowed_bssids' => $allowedBssids,
-                'allowed_ssids' => $allowedSsids,
-            ),
+            'office' => $primaryConfig['office'],
+            'attendance' => $primaryConfig['attendance'],
+            'wifi' => $primaryConfig['wifi'],
+            'offices' => $officeConfigs,
         ));
     }
 
@@ -381,15 +365,28 @@ class Api_hrms extends CI_Controller
         if (!$user) {
             return null;
         }
-        $office = $this->Office_model->get_active_office();
-        if (!$office) {
+        $offices = $this->Office_model->get_active_offices();
+        if (empty($offices)) {
             return $this->respond(404, array('message' => 'Active office is not configured.'));
         }
 
         $payload = $this->json_input();
         $wifiProof = $payload['wifiProof'] ?? null;
 
-        $ok = $this->wifi_proof_ok($office, $wifiProof);
+        $hasWifiRules = false;
+        $ok = false;
+        foreach ($offices as $office) {
+            if ($this->has_wifi_rules($office)) {
+                $hasWifiRules = true;
+                if ($this->wifi_proof_ok($office, $wifiProof)) {
+                    $ok = true;
+                    break;
+                }
+            }
+        }
+        if (!$hasWifiRules) {
+            $ok = true;
+        }
         return $this->respond(200, array('ok' => $ok));
     }
 
@@ -440,7 +437,7 @@ class Api_hrms extends CI_Controller
         $month = $month ?: date('Y-m');
 
         $office = $this->Office_model->get_active_office();
-        $report = $this->build_monthly_report((int) $user['id'], $month, $office);
+        $report = $this->build_monthly_report((int) $user['id'], $month, $office, $user);
         if (isset($report['error'])) {
             return $this->respond(400, array('message' => $report['error']));
         }
@@ -470,7 +467,7 @@ class Api_hrms extends CI_Controller
         $users = $this->get_attendance_users();
         $items = array();
         foreach ($users as $member) {
-            $report = $this->build_monthly_report((int) $member['id'], $month, $office);
+            $report = $this->build_monthly_report((int) $member['id'], $month, $office, $member);
             if (!isset($report['summary'])) {
                 continue;
             }
@@ -505,7 +502,7 @@ class Api_hrms extends CI_Controller
         $month = $month ?: date('Y-m');
         $office = $this->Office_model->get_active_office();
 
-        $report = $this->build_monthly_report((int) $user['id'], $month, $office);
+        $report = $this->build_monthly_report((int) $user['id'], $month, $office, $user);
         if (isset($report['error'])) {
             return $this->respond(400, array('message' => $report['error']));
         }
@@ -1320,7 +1317,7 @@ class Api_hrms extends CI_Controller
         }
 
         $ipAddress = $this->input->ip_address();
-        $result = $this->attendanceeligibilityservice->evaluate($lat, $lng, $accuracy, $ipAddress);
+        $result = $this->attendanceeligibilityservice->evaluate($lat, $lng, $accuracy, $ipAddress, null, $wifiProof);
         if (isset($result['error'])) {
             return $this->respond(500, array('message' => 'Active office is not configured.'));
         }
@@ -1359,6 +1356,11 @@ class Api_hrms extends CI_Controller
         }
 
         $distance = $result['computed']['distance_m'];
+        $now = date('Y-m-d H:i:s');
+        $schedule = $this->resolve_attendance_times($officeRecord ?: $office, $user);
+        $noteData = $this->build_attendance_notes($type, $now, $schedule['start'], $schedule['end']);
+        $flags = $noteData['flags'];
+        $flags['special_schedule'] = $schedule['source'] === 'user';
         $insertData = array(
             'user_id' => (int) $user['id'],
             'office_id' => (int) $office['id'],
@@ -1370,7 +1372,9 @@ class Api_hrms extends CI_Controller
             'method' => $method,
             'ip_address' => $ipAddress,
             'user_agent' => $this->input->user_agent(),
-            'created_at' => date('Y-m-d H:i:s'),
+            'notes' => $noteData['notes'],
+            'special_schedule' => $flags['special_schedule'],
+            'created_at' => $now,
         );
 
         if (!$this->Attendance_log_model->insert($insertData)) {
@@ -1381,6 +1385,14 @@ class Api_hrms extends CI_Controller
             'ok' => true,
             'type' => $type,
             'distanceMeters' => round($distance, 2),
+            'notes' => $noteData['notes'],
+            'flags' => $flags,
+            'minutes' => $noteData['minutes'],
+            'schedule' => array(
+                'start_time' => $schedule['start'],
+                'end_time' => $schedule['end'],
+                'source' => $schedule['source'],
+            ),
             'office' => array(
                 'id' => (int) $office['id'],
                 'name' => $office['name'],
@@ -1675,6 +1687,39 @@ class Api_hrms extends CI_Controller
         return $list;
     }
 
+    private function build_office_config($office)
+    {
+        $allowedBssids = $this->parse_allowed_bssids($office['allowed_bssids'] ?? '');
+        $allowedSsids = $this->parse_allowed_ssids($office['allowed_ssids'] ?? '');
+        $responseTimes = $this->parse_response_times($office['attendance_response_times'] ?? '');
+        $historyDays = isset($office['attendance_history_days']) ? (int) $office['attendance_history_days'] : 30;
+        $recapMonths = isset($office['attendance_recap_months']) ? (int) $office['attendance_recap_months'] : 6;
+
+        return array(
+            'office' => array(
+                'id' => (int) $office['id'],
+                'name' => $office['name'],
+                'lat' => (float) $office['lat'],
+                'lng' => (float) $office['lng'],
+                'radius_m' => (int) $office['radius_m'],
+                'min_accuracy_m' => (int) $office['min_accuracy_m'],
+                'allowed_ip_cidrs' => $office['allowed_ip_cidrs'] ?? '',
+            ),
+            'attendance' => array(
+                'min_accuracy_m' => (int) $office['min_accuracy_m'],
+                'radius_m' => (int) $office['radius_m'],
+                'requires_ip' => !empty(trim((string) ($office['allowed_ip_cidrs'] ?? ''))),
+                'response_times' => $responseTimes,
+                'history_days' => $historyDays,
+                'recap_months' => $recapMonths,
+            ),
+            'wifi' => array(
+                'allowed_bssids' => $allowedBssids,
+                'allowed_ssids' => $allowedSsids,
+            ),
+        );
+    }
+
     private function has_wifi_rules($office)
     {
         $allowedBssids = $office['allowed_bssids'] ?? '';
@@ -1847,7 +1892,7 @@ class Api_hrms extends CI_Controller
         return $this->db->get()->result_array();
     }
 
-    private function build_monthly_report($userId, $month, $office)
+    private function build_monthly_report($userId, $month, $office, $user = null)
     {
         if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
             return array('error' => 'Invalid month format.');
@@ -1869,7 +1914,7 @@ class Api_hrms extends CI_Controller
         $leaveDays = $this->get_approved_leave_days($userId, $startDate, $endDate);
         $logs = $this->get_attendance_logs($userId, $startDate, $endDate);
 
-        $times = $this->resolve_attendance_times($office);
+        $times = $this->resolve_attendance_times($office, $user);
         $startTime = $times['start'];
         $endTime = $times['end'];
 
@@ -1924,6 +1969,8 @@ class Api_hrms extends CI_Controller
                 $absentCount++;
             }
 
+            $notes = $this->build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout);
+
             $daily[] = array(
                 'date' => $day,
                 'status' => $status,
@@ -1932,6 +1979,7 @@ class Api_hrms extends CI_Controller
                 'late' => $isLate,
                 'early_checkout' => $isEarlyCheckout,
                 'holiday_name' => $holidayName,
+                'notes' => $notes,
             );
         }
 
@@ -1944,6 +1992,8 @@ class Api_hrms extends CI_Controller
             'leave_days' => $leaveCount,
             'start_time' => $startTime,
             'end_time' => $endTime,
+            'schedule_source' => $times['source'],
+            'special_schedule' => $times['source'] === 'user',
         );
 
         return array(
@@ -2008,21 +2058,170 @@ class Api_hrms extends CI_Controller
         return array_values(array_unique($days));
     }
 
-    private function resolve_attendance_times($office)
+    private function resolve_attendance_times($office, $user = null)
     {
         $start = '08:00';
         $end = '17:00';
+        $source = 'default';
+
         if ($office && !empty($office['attendance_response_times'])) {
             $times = $this->parse_response_times($office['attendance_response_times']);
-            if (!empty($times[0])) {
-                $start = $times[0];
+            list($officeStart, $officeEnd) = $this->select_time_pair($times);
+            if ($officeStart) {
+                $start = $officeStart;
             }
-            if (!empty($times[1])) {
-                $end = $times[1];
+            if ($officeEnd) {
+                $end = $officeEnd;
             }
+            $source = 'office';
+        }
+
+        $userTimes = $this->resolve_user_attendance_times($user);
+        if ($userTimes) {
+            if (!empty($userTimes['start'])) {
+                $start = $userTimes['start'];
+            }
+            if (!empty($userTimes['end'])) {
+                $end = $userTimes['end'];
+            }
+            $source = 'user';
+        }
+
+        return array('start' => $start, 'end' => $end, 'source' => $source);
+    }
+
+    private function resolve_user_attendance_times($user)
+    {
+        if (!$user || !is_array($user)) {
+            return null;
+        }
+
+        $start = null;
+        $end = null;
+
+        $rawTimes = trim((string) ($user['attendance_response_times'] ?? ''));
+        if ($rawTimes !== '') {
+            $times = $this->parse_response_times($rawTimes);
+            list($start, $end) = $this->select_time_pair($times);
+        }
+
+        $startOverride = trim((string) ($user['attendance_start_time'] ?? ''));
+        if ($this->is_valid_time($startOverride)) {
+            $start = $startOverride;
+        }
+
+        $endOverride = trim((string) ($user['attendance_end_time'] ?? ''));
+        if ($this->is_valid_time($endOverride)) {
+            $end = $endOverride;
+        }
+
+        if ($start === null && $end === null) {
+            return null;
         }
 
         return array('start' => $start, 'end' => $end);
+    }
+
+    private function select_time_pair($times)
+    {
+        $start = null;
+        $end = null;
+        if (!is_array($times)) {
+            return array($start, $end);
+        }
+
+        foreach ($times as $time) {
+            $time = trim((string) $time);
+            if ($this->is_valid_time($time)) {
+                if ($start === null) {
+                    $start = $time;
+                } elseif ($end === null) {
+                    $end = $time;
+                    break;
+                }
+            }
+        }
+
+        return array($start, $end);
+    }
+
+    private function is_valid_time($time)
+    {
+        return $time !== '' && preg_match('/^\d{2}:\d{2}$/', $time);
+    }
+
+    private function minutes_after_start($timestamp, $startTime)
+    {
+        $start = strtotime(substr($timestamp, 0, 10) . ' ' . $startTime . ':00');
+        if ($start === false) {
+            return null;
+        }
+        $delta = strtotime($timestamp) - $start;
+        return (int) floor($delta / 60);
+    }
+
+    private function minutes_before_end($timestamp, $endTime)
+    {
+        $end = strtotime(substr($timestamp, 0, 10) . ' ' . $endTime . ':00');
+        if ($end === false) {
+            return null;
+        }
+        $delta = $end - strtotime($timestamp);
+        return (int) floor($delta / 60);
+    }
+
+    private function build_attendance_notes($type, $timestamp, $startTime, $endTime)
+    {
+        $notes = array();
+        $flags = array(
+            'late' => false,
+            'early_checkout' => false,
+        );
+        $minutes = array(
+            'late' => null,
+            'early_checkout' => null,
+        );
+
+        if ($type === 'IN') {
+            $lateMinutes = $this->minutes_after_start($timestamp, $startTime);
+            if ($lateMinutes !== null && $lateMinutes > $this->lateGraceMinutes) {
+                $flags['late'] = true;
+                $minutes['late'] = $lateMinutes;
+                $notes[] = 'Late check-in by ' . $lateMinutes . ' minutes.';
+            }
+        } elseif ($type === 'OUT') {
+            $earlyMinutes = $this->minutes_before_end($timestamp, $endTime);
+            if ($earlyMinutes !== null && $earlyMinutes > $this->earlyGraceMinutes) {
+                $flags['early_checkout'] = true;
+                $minutes['early_checkout'] = $earlyMinutes;
+                $notes[] = 'Early checkout by ' . $earlyMinutes . ' minutes.';
+            }
+        }
+
+        return array(
+            'notes' => $notes,
+            'flags' => $flags,
+            'minutes' => $minutes,
+        );
+    }
+
+    private function build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout)
+    {
+        $notes = array();
+        if ($isLate && $firstIn) {
+            $lateMinutes = $this->minutes_after_start($firstIn, $startTime);
+            if ($lateMinutes !== null) {
+                $notes[] = 'Late check-in by ' . $lateMinutes . ' minutes.';
+            }
+        }
+        if ($isEarlyCheckout && $lastOut) {
+            $earlyMinutes = $this->minutes_before_end($lastOut, $endTime);
+            if ($earlyMinutes !== null) {
+                $notes[] = 'Early checkout by ' . $earlyMinutes . ' minutes.';
+            }
+        }
+
+        return $notes;
     }
 
     private function is_weekend_day($weekday, $weekendType)
@@ -2037,14 +2236,14 @@ class Api_hrms extends CI_Controller
     private function is_late($timestamp, $startTime)
     {
         $start = strtotime(substr($timestamp, 0, 10) . ' ' . $startTime . ':00');
-        $threshold = $start + (30 * 60);
+        $threshold = $start + ($this->lateGraceMinutes * 60);
         return strtotime($timestamp) > $threshold;
     }
 
     private function is_early_checkout($timestamp, $endTime)
     {
         $end = strtotime(substr($timestamp, 0, 10) . ' ' . $endTime . ':00');
-        $threshold = $end - (30 * 60);
+        $threshold = $end - ($this->earlyGraceMinutes * 60);
         return strtotime($timestamp) < $threshold;
     }
 

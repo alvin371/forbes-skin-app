@@ -134,7 +134,7 @@
             <div style="margin-bottom: 16px;">
                 <label style="font-size: 14px; color: rgba(0,0,0,0.85);">
                     <input type="checkbox" name="is_active" value="1" <?php echo ((int) $office['is_active'] === 1) ? 'checked' : ''; ?> style="margin-right: 8px;">
-                    Set as active office
+                    Mark as active office (multiple allowed)
                 </label>
             </div>
 

@@ -140,7 +140,14 @@
                         return;
                     }
                     if (result.data && result.data.status === 'ok') {
-                        setResponse(result.data.message + ' (Distance: ' + result.data.distance_m + ' m)', false);
+                        var message = result.data.message + ' (Distance: ' + result.data.distance_m + ' m)';
+                        if (Array.isArray(result.data.notes) && result.data.notes.length) {
+                            message += ' | ' + result.data.notes.join(' ');
+                        }
+                        if (result.data.flags && result.data.flags.special_schedule && result.data.schedule) {
+                            message += ' | Special schedule: ' + result.data.schedule.start_time + ' - ' + result.data.schedule.end_time;
+                        }
+                        setResponse(message, false);
                     } else {
                         var message = result.data && result.data.message ? result.data.message : 'Failed to confirm attendance.';
                         setResponse(message, true);

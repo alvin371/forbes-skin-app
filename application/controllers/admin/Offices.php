@@ -5,7 +5,7 @@ require_once APPPATH . 'core/BaseController.php';
 
 class Offices extends BaseController
 {
-    protected $public_methods = ['index', 'create', 'edit', 'update', 'delete', 'activate'];
+    protected $public_methods = ['index', 'create', 'edit', 'update', 'delete', 'activate', 'deactivate'];
 
     public function __construct()
     {
@@ -108,10 +108,6 @@ class Offices extends BaseController
         $this->db->where('id', $office['id']);
         $this->db->update('offices', $updateData);
 
-        if ($clean['is_active']) {
-            $this->Office_model->set_active($office['id']);
-        }
-
         $this->session->set_flashdata('message', 'Office updated.');
         redirect('admin/offices');
     }
@@ -143,7 +139,29 @@ class Offices extends BaseController
         }
 
         $this->Office_model->set_active($office['id']);
-        $this->session->set_flashdata('message', 'Active office updated.');
+        $this->db->where('id', (int) $office['id']);
+        $this->db->update('offices', array('updated_at' => date('Y-m-d H:i:s')));
+        $this->session->set_flashdata('message', 'Office status updated.');
+        redirect('admin/offices');
+    }
+
+    public function deactivate($id)
+    {
+        if ($this->input->method(TRUE) !== 'POST') {
+            show_error('Method not allowed', 405);
+            return;
+        }
+
+        $office = $this->Office_model->get_by_id($id);
+        if (!$office) {
+            show_404();
+            return;
+        }
+
+        $this->Office_model->set_inactive($office['id']);
+        $this->db->where('id', (int) $office['id']);
+        $this->db->update('offices', array('updated_at' => date('Y-m-d H:i:s')));
+        $this->session->set_flashdata('message', 'Office status updated.');
         redirect('admin/offices');
     }
 
@@ -183,10 +201,6 @@ class Offices extends BaseController
 
         $this->db->insert('offices', $insertData);
         $officeId = $this->db->insert_id();
-
-        if ($clean['is_active']) {
-            $this->Office_model->set_active($officeId);
-        }
 
         $this->session->set_flashdata('message', 'Office created.');
         redirect('admin/offices');

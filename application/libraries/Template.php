@@ -7,6 +7,10 @@ class Template
     function endpoint_url()
     {
         // return 'https://endpoint.acnenosystem.com/';
+        $endpoint = env('ENDPOINT_URL', '');
+        if ($endpoint) {
+            return rtrim($endpoint, '/') . '/';
+        }
         return base_url();
     }
 
