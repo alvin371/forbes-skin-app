@@ -3019,15 +3019,16 @@ class Api_v2 extends CI_Controller
 
 
 
-        $start_date = $_GET['start_date'];
-        $until_date = $_GET['until_date'];
-        if (empty($start_date) || empty($until_date)) {
-            $start_date = DATE("Y-m-d 00:00:00");
-            $until_date = DATE("Y-m-d 00:00:00");
-        } else {
-            $start_date .= '00:00:00';
-            $until_date .= '00:00:00';
+        $start_date = $_GET['start_date'] ?? '';
+        $until_date = $_GET['until_date'] ?? '';
+        if (empty($start_date)) {
+            $start_date = DATE("Y-m-01");
         }
+        if (empty($until_date)) {
+            $until_date = DATE("Y-m-d");
+        }
+        $start_date .= ' 00:00:00';
+        $until_date .= ' 00:00:00';
 
         $start_time = strtotime($start_date);
         $until_time = $until_date . '';
@@ -3057,7 +3058,7 @@ class Api_v2 extends CI_Controller
                         'app_key' => $app_key,
                         'shop_cipher' => $shop_cipher,
                         'sort_field' => 'create_time',
-                        'sort_order' => 'DESC',
+                        'sort_order' => 'ASC',
                         'timestamp' => $timest,
                         'page_size' => $page_size,
                     );
@@ -3065,9 +3066,12 @@ class Api_v2 extends CI_Controller
                         $queryParams['page_token'] = $page_token;
                     }
 
+                    $now_time = time();
                     $body_payload = array(
                         'create_time_ge' => $start_time,
-                        'create_time_lt' => $until_time,
+                        'create_time_lt' => $now_time,
+                        'update_time_ge' => $start_time,
+                        'update_time_lt' => $now_time,
                     );
                     $body_json = json_encode($body_payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
@@ -3119,12 +3123,15 @@ class Api_v2 extends CI_Controller
                                 'page_token' => $page_token,
                                 'page_size' => $page_size,
                                 'create_time_ge' => $start_time,
-                                'create_time_lt' => $until_time,
+                                'create_time_lt' => $now_time,
+                                'update_time_ge' => $start_time,
+                                'update_time_lt' => $now_time,
                                 'http_code' => $http_code,
                                 'curl_error' => $curl_error ? $curl_error : '',
                                 'response_code' => isset($response['code']) ? $response['code'] : null,
                                 'response_message' => isset($response['message']) ? $response['message'] : null,
                                 'response_request_id' => isset($response['request_id']) ? $response['request_id'] : null,
+                                'response_total_count' => isset($response['data']['total_count']) ? $response['data']['total_count'] : null,
                                 'response_preview' => is_string($response_raw) ? substr($response_raw, 0, 600) : '',
                             );
                         } else {
