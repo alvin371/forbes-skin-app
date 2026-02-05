@@ -1,112 +1,164 @@
-# Transaction Sync (TikTok Marketplace)
+# TikTok Transaction Sync (forbes-skin-app)
 
-This document explains how the **Transaction** module syncs order data from a **specific TikTok Shop (marketplace)**.
+This document is the **full reference** for how TikTok order sync works for `/transaction` in **forbes-skin-app**.  
+It is aligned to **bhskin-application** as the source of truth.
 
 ## Scope
-The sync described here is for **TikTok Shop orders** and is triggered from the Transaction UI. It fetches orders from TikTok, then inserts or updates records in the local `transaction` table.
+This covers **all related parts** of TikTok order sync:
+- UI and routes
+- Controller flow
+- Internal API flow
+- TikTok API request shape + signature
+- Mapping into `transaction` table
+- Debug/logging and common failure reasons
+- Detail refresh behavior
 
-## Entry Points
-- UI modal: `application/views/transaction/sync.php`
-- Controller: `application/controllers/Transaction.php` (`sync()` and `sync_process()`)
-- Internal API: `application/controllers/Api_v2.php` (`marketplace_order()`)
+## Entry Points (UI -> Internal API)
+Transaction page: `application/controllers/Transaction.php` (`index`)  
+Default date range: `start_date` = first day of current month, `until_date` = today
 
-## High-Level Flow
-1. **Open the Transaction page** with a date range (`start_date`, `until_date`).
-2. The **Sync modal** loads **active marketplace stores** from `marketplace_config`.
-3. Click **Sync Data** on a specific store (TikTok) to send a request:
-   `transaction/sync-process?marketplace=TIKTOK&shop_id=...&start_date=YYYY-MM-DD&until_date=YYYY-MM-DD`
-4. `Transaction::sync_process()` calls the internal API endpoint:
-   `api/marketplace/order`.
-5. `Api_v2::marketplace_order()` detects `marketplace = TIKTOK`, calls TikTok Shop API, and updates/inserts orders into `transaction`.
+Sync modal: `application/views/transaction/sync.php`  
+Uses stores from `marketplace_config` where `status = 'Aktif'`.
 
-## Detailed TikTok Sync Steps
-### 1) Store selection (specific TikTok shop)
-- The modal lists stores from `marketplace_config` with `status = 'Aktif'`.
-- Each store carries:
-  - `shop_id`
-  - `shop_name`
-  - `opt` (marketplace name, e.g. `TIKTOK`)
-  - `val` JSON config (TikTok credentials)
+Sync action URL:
+`transaction/sync-process?marketplace=TIKTOK&shop_id=...&start_date=YYYY-MM-DD&until_date=YYYY-MM-DD`
 
-### 2) Sync request parameters
-`Transaction::sync_process()` uses:
-- `marketplace` (must be `TIKTOK`)
-- `shop_id` (the store you want to sync)
-- `start_date` (YYYY-MM-DD)
-- `until_date` (YYYY-MM-DD)
-
-### 3) Internal API call
-`Transaction::sync_process()` calls:
+Internal API call:
 ```
-{endpoint_url}/api/marketplace/order?marketplace=TIKTOK&shop_id=...&start_date=YYYY-MM-DD&until_date=YYYY-MM-DD
+{endpoint_url}/api/marketplace/order?marketplace=TIKTOK&shop_id=...&start_date=YYYY-MM-DD&until_date=YYYY-MM-DD&debug=1
 ```
-`endpoint_url` comes from `Template::endpoint_url()`.
+`endpoint_url` is from `Template::endpoint_url()`.
 
-### 4) TikTok API request
-Inside `Api_v2::marketplace_order()`:
-- Reads TikTok credentials:
-  - `TIKTOK_APP_KEY`, `TIKTOK_APP_SECRET` (env)
-  - `access_token`, `shop.cipher` from `marketplace_config.val`
-- Builds a signed request to:
-  `https://open-api.tiktokglobalshop.com/api/orders/search`
-- Sends a `POST` body containing:
-  - `cursor`, `page_size`
-  - `create_time_from`, `create_time_to`
-  - `sort_by`, `sort_type`
+## TikTok Sync: Internal API Flow
+**Source file:** `application/controllers/Api_v2.php`  
+**Function:** `marketplace_order()`
 
-**Date range handling**:
-- `start_date` => `YYYY-MM-DD 00:00:00`
-- `until_date` => `YYYY-MM-DD 00:00:00`, then **+1 day** (inclusive range)
+### 1) Configuration and credentials
+`marketplace_config.val` (JSON) contains `app_key`, `access_token`, `shop.cipher`.
 
-**Example TikTok API call (curl)**  
-Note: `sign` is generated in code (`tiktok_signature_generator`) and depends on query + body + secret.
+`.env` contains `TIKTOK_APP_KEY`, `TIKTOK_APP_SECRET`.
+
+Controller loads env via `require_once application/helpers/env_helper.php`.
+
+### 2) Date range conversion
+Input: `start_date` and `until_date` (YYYY-MM-DD).
+
+Converted to Unix timestamps:
+- `start_time` = `start_date 00:00:00`
+- `until_time` = `(until_date + 1 day) 00:00:00`
+
+This makes the range **inclusive** of `until_date`.
+
+### 3) TikTok orders/search request
+Endpoint:
+`https://open-api.tiktokglobalshop.com/order/202309/orders/search`
+
+Query params: `app_key`, `shop_cipher`, `sort_field=create_time`, `sort_order=ASC`, `timestamp`, `page_size=100`, `page_token` (optional), `sign` (HMAC-SHA256)
+
+Headers: `content-type: application/json`, `x-tts-access-token: <access_token>`
+
+Body (JSON): `create_time_ge`, `create_time_lt`, `update_time_ge`, `update_time_lt`
+
+Pagination: `next_page_token` from response becomes `page_token`.  
+Loop runs up to 100 pages or stops when `orders` is empty.
+
+Example curl:
 ```bash
 curl -X POST \
-  'https://open-api.tiktokglobalshop.com/api/orders/search?access_token=YOUR_ACCESS_TOKEN&app_key=YOUR_APP_KEY&shop_id=YOUR_SHOP_ID&sign=YOUR_SIGN&timestamp=YOUR_TIMESTAMP&version=202212' \
-  -H 'Content-Type: application/json' \
-  -H 'x-tts-access-token: YOUR_ACCESS_TOKEN' \
+  'https://open-api.tiktokglobalshop.com/order/202309/orders/search?app_key=APP_KEY&shop_cipher=SHOP_CIPHER&sort_field=create_time&sort_order=ASC&timestamp=1623812664&page_size=20&sign=SIGN' \
+  -H 'x-tts-access-token: ACCESS_TOKEN' \
+  -H 'content-type: application/json' \
   -d '{
-    "cursor": "",
-    "page_size": 100,
-    "sort_by": "CREATE_TIME",
-    "create_time_from": 1706745600,
-    "create_time_to": 1706832000,
-    "sort_type": 2
+    "create_time_ge": 1623812664,
+    "create_time_lt": 1623899064,
+    "update_time_ge": 1623812664,
+    "update_time_lt": 1623899064
   }'
 ```
 
-### 5) Order mapping and persistence
-For each order in `order_list`:
-- Find existing transaction by `order_id + marketplace`.
-- Map TikTok status to internal `order_status`:
-  - `100` -> `UNPAID`
-  - `112`, `105` -> `PROCESSED`
-  - `140` -> `CANCELLED`
-  - `130` -> `COMPLETED`
-  - `122` -> `DELIVERED`
-  - `121`, `114` -> `SHIPPED` (also sets `is_shipped = 1`)
-  - `111` -> `READY_TO_SHIP`
-- If existing: **update** `transaction`.
-- If new and not cancelled: **insert** into `transaction`.
+### 4) TikTok signature generation
+**Function:** `Api_v2::tiktok_signature_generator()`  
+**Rules (aligned with TikTok docs):**
+1. Take all query parameters **except** `sign` and `access_token`
+2. Sort by key (ascending)
+3. Build string: `{path}{key}{value}{key}{value}...`
+4. Append request body (JSON) if present
+5. Wrap with secret: `secret + input + secret`
+6. HMAC-SHA256 with `secret`
 
-## Notes And Quirks
-- In `Transaction::sync_process`, `start_date` is currently set from `until_date`.
-- That means the API receives the same start and end date, so the sync is effectively a single-day sync.
+The function reads: `path` from URL, `get` params, `post` body string, `secret` = `TIKTOK_APP_SECRET`.
 
-## Token Refresh
-If the TikTok access token is expired, use the **Refresh Token** button. It hits:
-`marketplace-account/refresh-token-process?marketplace=TIKTOK&shop_id=...`
+### 5) Response handling
+Response is decoded from JSON.
+Orders are read from `data.orders` (preferred) or `data.order_list` (fallback).
 
-## Requirements / Configuration
-- `.env`:
-  - `TIKTOK_APP_KEY`
-  - `TIKTOK_APP_SECRET`
-- `marketplace_config` table:
-  - `opt = 'TIKTOK'`
-  - `status = 'Aktif'`
-  - `val` JSON contains `app_key`, `access_token`, and `shop.cipher`
+If no orders, the page loop stops.
+
+### 6) Mapping to `transaction`
+For each order, the sync fills these fields in `transaction`:
+- `order_id` = `order_id` or `id`
+- `marketplace` = `TIKTOK`
+- `shop_id`, `shop_name`
+- `is_manual` = `0`
+- `date` from `create_time`
+- `c_type` from `is_sample_order`
+- `shipping` from `shipping_provider` or `delivery_option_name`
+- `awb_number` from `tracking_number`
+- `payment_type` from `is_cod`
+- `payment_status` + `pay_at` from `paid_time`
+- `rts_at` from `rts_time` (fallback `rts_sla_time`)
+- `return_at` from `cancel_time`
+- `c_username` from `buyer_nickname` (fallback `buyer_email`)
+- `id_buyer` from `buyer_user_id` (fallback `user_id`)
+- `customer_text`, `phone`, `address`, `postal_code`, region fields from `recipient_address`
+- `customer_price`, `omset_kotor`, `diskon_penjual`, `omset_bersih` from `payment`
+
+#### Line items → `pesanan`
+If `line_items` exists it fills `pesanan`, `pesanan_count`, `json`, `hpp`, and sets `brand` using item majority.
+
+If `line_items` is missing, product-related fields remain empty and the UI will show `0` or `-`.
+
+### 7) Status mapping
+TikTok status → internal `order_status`:
+- `UNPAID` → `UNPAID`
+- `ON_HOLD`, `AWAITING_COLLECTION` → `PROCESSED`
+- `AWAITING_SHIPMENT` → `READY_TO_SHIP`
+- `IN_TRANSIT`, `PARTIALLY_SHIPPING` → `SHIPPED` (+ `is_shipped = 1`)
+- `DELIVERED` → `DELIVERED`
+- `COMPLETED` → `COMPLETED`
+- `CANCELLED` → `CANCELLED`
+
+### 8) Insert vs update
+- If transaction exists (`order_id + marketplace`): **update**
+- If not exists and status is not cancelled: **insert**
+- `created_at` and `updated_at` are set accordingly
+
+## Detail Refresh (Full Order Data)
+Syncing **orders/search** does not always return full details.  
+For full data (products, finance, return status), use:
+`/transaction/refresh` → `Transaction::refresh_process()` → `Api_v2::marketplace_order_detail()`
+
+Detail endpoint:
+`https://open-api.tiktokglobalshop.com/order/202309/orders?ids=<order_id>`
+
+This flow also writes product mapping + `json`, computes `hpp`/`omset`/`marketplace_fee`, and fills address and payment detail.
+
+## Debugging
+`Transaction::sync_process()` always enables debug for TikTok.
+Debug includes: final endpoint URL, HTTP status, cURL error, TikTok request URL, response code/message/request_id, and a preview of the payload.
+
+The debug block is appended to the Sync modal response.
+
+## Common Failure Reasons
+- Invalid `sign` (most common)
+- Wrong `app_key` / `app_secret`
+- Wrong `access_token`
+- `timestamp` too far from current time
+- Request body mismatch in signature generation
 
 ## Related Files
 - `application/controllers/Transaction.php`
 - `application/views/transaction/sync.php`
 - `application/controllers/Api_v2.php`
+- `application/controllers/Api.php` (proxy for `orders/search`, not used by sync)
+- `application/helpers/env_helper.php`

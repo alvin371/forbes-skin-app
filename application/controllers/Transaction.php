@@ -2939,6 +2939,103 @@ class Transaction extends BaseController
             $debug = true;
         }
 
+        if (strtoupper($marketplace) === 'TIKTOK') {
+            $worker_mode = strtolower(env('TIKTOK_WORKER_MODE', 'node'));
+            if ($worker_mode === 'rust') {
+                $worker_url = env('TIKTOK_WORKER_URL', 'http://tiktok-worker:8081');
+                $worker_url = rtrim($worker_url, '/') . '/sync/orders';
+                $payload = json_encode(array(
+                    'shop_id' => $shop_id,
+                    'start_date' => $start_date,
+                    'until_date' => $until_date,
+                    'debug' => $debug ? true : false,
+                ));
+
+                $curl = curl_init();
+                curl_setopt_array($curl, array(
+                    CURLOPT_URL => $worker_url,
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_ENCODING => '',
+                    CURLOPT_MAXREDIRS => 10,
+                    CURLOPT_TIMEOUT => 0,
+                    CURLOPT_FOLLOWLOCATION => true,
+                    CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+                    CURLOPT_CUSTOMREQUEST => 'POST',
+                    CURLOPT_POSTFIELDS => $payload,
+                    CURLOPT_HTTPHEADER => array(
+                        'Content-Type: application/json',
+                    ),
+                ));
+
+                $response_raw = curl_exec($curl);
+                $curl_error = curl_error($curl);
+                curl_close($curl);
+
+                if ($response_raw === false || $curl_error) {
+                    $msg = 'Sync gagal: tidak ada respons dari worker. Silakan coba lagi.';
+                    echo $this->template->alert_danger($msg);
+                    die;
+                }
+
+                $response = json_decode($response_raw, true);
+                $debug_html = '';
+                if ($debug && is_array($response) && isset($response['data'])) {
+                    $debug_payload = json_encode($response['data'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+                    $debug_html = '<div class="sync-debug" style="margin-top:10px;border:1px solid #e0e0e0;padding:8px;background:#fafafa;"><div style="font-weight:600;margin-bottom:6px;">Debug Log</div><pre style="white-space:pre-wrap;margin:0;">' . htmlspecialchars($debug_payload) . '</pre></div>';
+                }
+
+                if (!is_array($response)) {
+                    $msg = 'Sync gagal: response tidak valid dari worker.';
+                    echo $this->template->alert_danger($msg);
+                    die;
+                }
+
+                if (isset($response['status']) && $response['status'] == true) {
+                    $msg = isset($response['msg']) && $response['msg'] !== '' ? $response['msg'] : 'Sync berhasil.';
+                    echo $this->template->alert_success($msg) . $debug_html;
+                    die;
+                }
+
+                $msg = isset($response['msg']) && $response['msg'] !== '' ? $response['msg'] : 'Sync gagal. Silakan cek koneksi/token marketplace.';
+                echo $this->template->alert_danger($msg) . $debug_html;
+                die;
+            }
+
+            $worker = FCPATH . 'services/tiktok-worker/worker.js';
+            $api_base = $this->template->endpoint_url();
+            $cmd = 'node ' . escapeshellarg($worker)
+                . ' orders'
+                . ' --shop_id=' . escapeshellarg($shop_id)
+                . ' --start_date=' . escapeshellarg($start_date)
+                . ' --until_date=' . escapeshellarg($until_date)
+                . ' --api-base=' . escapeshellarg($api_base);
+            if ($debug) {
+                $cmd .= ' --debug=1';
+            }
+
+            $output = array();
+            $exit_code = 0;
+            exec($cmd, $output, $exit_code);
+            $response_raw = trim(implode("\n", $output));
+            $response = json_decode($response_raw, true);
+
+            if (!is_array($response)) {
+                $msg = 'Sync gagal: response tidak valid dari worker.';
+                echo $this->template->alert_danger($msg);
+                die;
+            }
+
+            if (isset($response['status']) && $response['status'] == true) {
+                $msg = isset($response['msg']) && $response['msg'] !== '' ? $response['msg'] : 'Sync berhasil.';
+                echo $this->template->alert_success($msg);
+                die;
+            }
+
+            $msg = isset($response['msg']) && $response['msg'] !== '' ? $response['msg'] : 'Sync gagal. Silakan cek koneksi/token marketplace.';
+            echo $this->template->alert_danger($msg);
+            die;
+        }
+
         $curl = curl_init();
 
         $url = $this->template->endpoint_url() . 'api/marketplace/order?marketplace=' . $marketplace . '&shop_id=' . $shop_id . '&start_date=' . $start_date . '&until_date=' . $until_date;

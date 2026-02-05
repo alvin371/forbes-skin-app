@@ -172,6 +172,39 @@ class Product_3rd extends CI_Controller
         $marketplace = $dt['marketplace'];
         $shop_id = $dt['shop_id'];
 
+        if (strtoupper($marketplace) === 'TIKTOK') {
+            $worker_mode = strtolower(env('TIKTOK_WORKER_MODE', 'node'));
+            if ($worker_mode === 'node') {
+                $worker = FCPATH . 'services/tiktok-worker/worker.js';
+                $api_base = $this->template->endpoint_url();
+                $cmd = 'node ' . escapeshellarg($worker)
+                    . ' products'
+                    . ' --shop_id=' . escapeshellarg($shop_id)
+                    . ' --api-base=' . escapeshellarg($api_base);
+
+                $output = array();
+                $exit_code = 0;
+                exec($cmd, $output, $exit_code);
+                $response_raw = trim(implode("\n", $output));
+                $response = json_decode($response_raw, true);
+
+                if (!is_array($response)) {
+                    $msg = 'Sync gagal: response tidak valid dari worker.';
+                    echo $this->template->alert_danger($msg);
+                    die;
+                }
+
+                if (isset($response['status']) && $response['status'] == true) {
+                    $msg = $response['msg'] ?? 'Sync data produk berhasil!';
+                    echo $this->template->alert_success($msg);
+                    die;
+                } else {
+                    $msg = $response['msg'] ?? 'Sync data produk gagal.';
+                    echo $this->template->alert_danger($msg);
+                    die;
+                }
+            }
+        }
 
         $curl = curl_init();
 

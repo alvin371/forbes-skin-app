@@ -29,6 +29,20 @@ services:
     networks:
       - hrms-network
 
+  tiktok-worker:
+    build:
+      context: ./services/tiktok-worker-rust
+      dockerfile: Dockerfile
+    container_name: tiktok-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - APP_API_BASE=http://app
+      - WORKER_PORT=8081
+    networks:
+      - hrms-network
+
 networks:
   hrms-network:
     driver: bridge
