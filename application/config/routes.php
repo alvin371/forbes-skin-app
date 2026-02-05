@@ -130,6 +130,16 @@ $route['approvals/inbox/quick-approve'] = 'approvals/ApprovalInboxController/qui
 $route['approvals/inbox/quick-reject'] = 'approvals/ApprovalInboxController/quick_reject';
 $route['approvals/inbox/pending-count'] = 'approvals/ApprovalInboxController/pending_count';
 
+// Overtime Approval Routes - Inbox
+$route['approvals/overtime'] = 'approvals/OvertimeApprovalController/index';
+$route['approvals/overtime/detail/(:num)'] = 'approvals/OvertimeApprovalController/detail/$1';
+$route['approvals/overtime/approve/(:num)'] = 'approvals/OvertimeApprovalController/approve/$1';
+$route['approvals/overtime/reject/(:num)'] = 'approvals/OvertimeApprovalController/reject/$1';
+$route['approvals/overtime/history'] = 'approvals/OvertimeApprovalController/history';
+$route['approvals/overtime/quick-approve'] = 'approvals/OvertimeApprovalController/quick_approve';
+$route['approvals/overtime/quick-reject'] = 'approvals/OvertimeApprovalController/quick_reject';
+$route['approvals/overtime/pending-count'] = 'approvals/OvertimeApprovalController/pending_count';
+
 // Admin Approval Routes Management
 $route['admin/approval-routes'] = 'admin/ApprovalRoutesController/index';
 $route['admin/approval-routes/create'] = 'admin/ApprovalRoutesController/create';
