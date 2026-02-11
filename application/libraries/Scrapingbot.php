@@ -100,8 +100,17 @@ class Scrapingbot
 
         $data = json_decode($response, true);
 
-        if ($httpCode == 200 && isset($data['status'])) {
-            if ($data['status'] === 'success') {
+        if ($httpCode == 200 && is_array($data)) {
+            // ScrapingBot returns raw data array on success (e.g. [{"type":"profile",...}])
+            if (isset($data[0]) && !isset($data['status'])) {
+                return [
+                    'status' => 'success',
+                    'data'   => $data,
+                    'msg'    => 'Scrape completed'
+                ];
+            }
+
+            if (isset($data['status']) && $data['status'] === 'success') {
                 return [
                     'status' => 'success',
                     'data'   => $data['response'] ?? $data,
@@ -109,7 +118,7 @@ class Scrapingbot
                 ];
             }
 
-            if ($data['status'] === 'pending') {
+            if (isset($data['status']) && $data['status'] === 'pending') {
                 return [
                     'status' => 'pending',
                     'data'   => null,
