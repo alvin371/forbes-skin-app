@@ -344,8 +344,12 @@ class Template
             return $result;
         }
 
-        // ScrapingBot sometimes returns a list of items with {type:"profile", ...}
+        // ScrapingBot may return a flat array of video objects with embedded profile info
+        // Save the full array as posts BEFORE unwrapping to a single item
+        $allPosts = [];
         if (isset($data[0]) && is_array($data[0])) {
+            $allPosts = $data;
+
             $profileItem = null;
             foreach ($data as $item) {
                 if (is_array($item) && ($item['type'] ?? null) === 'profile') {
@@ -379,8 +383,8 @@ class Template
         $result['profile']['img']         = strval($data['avatar'] ?? ($data['profile_pic_url_hd'] ?? ($data['avatar_thumb'] ?? '')));
         $result['profile']['full_name']   = strval($data['nickname'] ?? ($data['unique_id'] ?? ''));
 
-        // Parse video stats from top_videos
-        $videos = $data['top_videos'] ?? ($data['videos'] ?? []);
+        // Parse video stats from top_videos — use saved $allPosts as fallback for flat array format
+        $videos = $data['top_videos'] ?? ($data['videos'] ?? ($allPosts ?: []));
         $videos = array_slice($videos, 0, 10);
 
         foreach ($videos as $k => $v) {
@@ -419,8 +423,12 @@ class Template
             return $result;
         }
 
-        // ScrapingBot sometimes returns a list of items with {type:"profile", ...}
+        // ScrapingBot sometimes returns a flat array of post objects with embedded profile info
+        // Save the full array as posts BEFORE unwrapping to a single item
+        $allPosts = [];
         if (isset($data[0]) && is_array($data[0])) {
+            $allPosts = $data;
+
             $profileItem = null;
             foreach ($data as $item) {
                 if (is_array($item) && ($item['type'] ?? null) === 'profile') {
@@ -440,15 +448,15 @@ class Template
             $data = $profile;
         }
 
-        // Parse profile info
-        $result['profile']['account_id']  = strval($data['id'] ?? ($data['pk'] ?? ''));
+        // Parse profile info — check ScrapingBot field names first, then legacy names
+        $result['profile']['account_id']  = strval($data['author_id'] ?? ($data['id'] ?? ($data['pk'] ?? '')));
         $result['profile']['follower']    = intval($data['follower_count'] ?? ($data['followers'] ?? 0));
-        $result['profile']['media_count'] = intval($data['post_count'] ?? ($data['media_count'] ?? 0));
-        $result['profile']['img']         = strval($data['profile_picture'] ?? ($data['profile_pic_url'] ?? ''));
-        $result['profile']['full_name']   = strval($data['full_name'] ?? ($data['username'] ?? ''));
+        $result['profile']['media_count'] = intval($data['posts_count'] ?? ($data['post_count'] ?? ($data['media_count'] ?? 0)));
+        $result['profile']['img']         = strval($data['profile_image_link'] ?? ($data['profile_picture'] ?? ($data['profile_pic_url'] ?? '')));
+        $result['profile']['full_name']   = strval($data['profile_name'] ?? ($data['full_name'] ?? ($data['username'] ?? '')));
 
-        // Parse post stats
-        $posts = $data['posts'] ?? ($data['edge_owner_to_timeline_media']['edges'] ?? []);
+        // Parse post stats — use saved $allPosts as fallback for flat array format
+        $posts = $data['posts'] ?? ($data['edge_owner_to_timeline_media']['edges'] ?? ($allPosts ?: []));
         $posts = array_slice($posts, 0, 12);
 
         foreach ($posts as $k => $v) {
