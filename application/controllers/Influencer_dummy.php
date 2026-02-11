@@ -78,6 +78,29 @@ class Influencer_dummy extends CI_Controller {
         $data['filter_pic'] = $this->mymodel->selectWithQuery("SELECT DISTINCT pic FROM influencer_dummy");
         $data['filter_niche'] = $this->mymodel->selectWithQuery("SELECT DISTINCT niche FROM influencer_dummy");
 
+        // Check queue statuses for displayed influencer IDs
+        $data['queue_statuses'] = [];
+        if (!empty($data['influencers'])) {
+            $displayed_ids = array_map(function($inf) { return $inf->id; }, $data['influencers']);
+            $placeholders = implode(',', $displayed_ids);
+            $queue_rows = $this->db->query("
+                SELECT sq1.entity_id, sq1.status
+                FROM scraping_queue sq1
+                INNER JOIN (
+                    SELECT entity_id, MAX(id) as max_id
+                    FROM scraping_queue
+                    WHERE entity_type = 'influencer_dummy'
+                    AND entity_id IN ($placeholders)
+                    GROUP BY entity_id
+                ) sq2 ON sq1.id = sq2.max_id
+                WHERE sq1.status IN ('pending', 'submitted')
+            ")->result_array();
+
+            foreach ($queue_rows as $row) {
+                $data['queue_statuses'][$row['entity_id']] = $row['status'];
+            }
+        }
+
         $data['template'] = $this->template;
         $data['title'] = 'Influencer Dummy - ' . $this->template->title();
         $data['content'] = $this->load->view('influencer_dummy/index', $data, true);
@@ -579,6 +602,81 @@ class Influencer_dummy extends CI_Controller {
             $msg = 'Nonaktifkan data berhasil!';
             echo $this->template->alert_success($msg);
         }
+    }
+
+    /**
+     * Check queue status for given influencer_dummy IDs
+     * Returns status map and updated data for completed items
+     */
+    public function check_queue_status()
+    {
+        header('Content-Type: application/json');
+
+        $ids_param = $this->input->post('ids');
+        if (empty($ids_param)) {
+            echo json_encode(['status' => 'error', 'message' => 'No IDs provided']);
+            return;
+        }
+
+        // Accept comma-separated string or array
+        if (is_array($ids_param)) {
+            $ids = array_map('intval', $ids_param);
+        } else {
+            $ids = array_map('intval', explode(',', $ids_param));
+        }
+        $ids = array_filter($ids);
+
+        if (empty($ids)) {
+            echo json_encode(['status' => 'error', 'message' => 'No valid IDs']);
+            return;
+        }
+
+        // Get latest queue entry for each entity_id
+        $placeholders = implode(',', $ids);
+        $queue_results = $this->db->query("
+            SELECT sq1.entity_id, sq1.status, sq1.error_message
+            FROM scraping_queue sq1
+            INNER JOIN (
+                SELECT entity_id, MAX(id) as max_id
+                FROM scraping_queue
+                WHERE entity_type = 'influencer_dummy'
+                AND entity_id IN ($placeholders)
+                GROUP BY entity_id
+            ) sq2 ON sq1.id = sq2.max_id
+        ")->result_array();
+
+        $result = [];
+        $completed_ids = [];
+
+        foreach ($queue_results as $row) {
+            $eid = $row['entity_id'];
+            $result[$eid] = [
+                'queue_status' => $row['status'],
+                'error_message' => $row['error_message'] ?? null,
+            ];
+            if ($row['status'] === 'completed') {
+                $completed_ids[] = $eid;
+            }
+        }
+
+        // For completed items, fetch updated engagement data
+        if (!empty($completed_ids)) {
+            $this->db->where_in('id', $completed_ids);
+            $influencers = $this->db->get('influencer_dummy')->result_array();
+
+            foreach ($influencers as $inf) {
+                $id = $inf['id'];
+                $result[$id]['data'] = [
+                    'follower' => (int)($inf['follower'] ?? 0),
+                    'cpm' => floatval($inf['cpm_2'] ?? 0),
+                    'avg_view' => floatval($inf['avg_view_2'] ?? 0),
+                    'er' => floatval($inf['er'] ?? 0),
+                    'ratecard' => floatval($inf['ratecard'] ?? 0),
+                ];
+            }
+        }
+
+        echo json_encode(['status' => 'success', 'results' => $result]);
     }
 
     public function add_form()
