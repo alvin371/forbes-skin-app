@@ -344,11 +344,39 @@ class Template
             return $result;
         }
 
+        // ScrapingBot sometimes returns a list of items with {type:"profile", ...}
+        if (isset($data[0]) && is_array($data[0])) {
+            $profileItem = null;
+            foreach ($data as $item) {
+                if (is_array($item) && ($item['type'] ?? null) === 'profile') {
+                    $profileItem = $item;
+                    break;
+                }
+            }
+            $data = $profileItem ?? $data[0];
+        }
+
+        // Some providers wrap profile details under "profile"
+        if (isset($data['profile']) && is_array($data['profile'])) {
+            // Preserve any posts array if present at top level
+            $profile = $data['profile'];
+            if (empty($profile['top_videos']) && !empty($data['top_videos'])) {
+                $profile['top_videos'] = $data['top_videos'];
+            }
+            if (empty($profile['videos']) && !empty($data['videos'])) {
+                $profile['videos'] = $data['videos'];
+            }
+            if (empty($profile['top_videos']) && !empty($data['posts'])) {
+                $profile['top_videos'] = $data['posts'];
+            }
+            $data = $profile;
+        }
+
         // Parse profile info
-        $result['profile']['account_id']  = strval($data['sec_uid'] ?? ($data['id'] ?? ''));
-        $result['profile']['follower']    = intval($data['follower_count'] ?? ($data['followers'] ?? 0));
+        $result['profile']['account_id']  = strval($data['sec_uid'] ?? ($data['secu_id'] ?? ($data['influencer_id'] ?? ($data['id'] ?? ''))));
+        $result['profile']['follower']    = intval($data['follower_count'] ?? ($data['followers'] ?? ($data['follower'] ?? 0)));
         $result['profile']['media_count'] = intval($data['videos_count'] ?? ($data['video_count'] ?? 0));
-        $result['profile']['img']         = strval($data['avatar'] ?? ($data['avatar_thumb'] ?? ''));
+        $result['profile']['img']         = strval($data['avatar'] ?? ($data['profile_pic_url_hd'] ?? ($data['avatar_thumb'] ?? '')));
         $result['profile']['full_name']   = strval($data['nickname'] ?? ($data['unique_id'] ?? ''));
 
         // Parse video stats from top_videos
@@ -389,6 +417,27 @@ class Template
 
         if (empty($data)) {
             return $result;
+        }
+
+        // ScrapingBot sometimes returns a list of items with {type:"profile", ...}
+        if (isset($data[0]) && is_array($data[0])) {
+            $profileItem = null;
+            foreach ($data as $item) {
+                if (is_array($item) && ($item['type'] ?? null) === 'profile') {
+                    $profileItem = $item;
+                    break;
+                }
+            }
+            $data = $profileItem ?? $data[0];
+        }
+
+        // Some providers wrap profile details under "profile"
+        if (isset($data['profile']) && is_array($data['profile'])) {
+            $profile = $data['profile'];
+            if (empty($profile['posts']) && !empty($data['posts'])) {
+                $profile['posts'] = $data['posts'];
+            }
+            $data = $profile;
         }
 
         // Parse profile info
@@ -488,6 +537,12 @@ class Template
         }
 
         $table = ($entityType === 'influencer_dummy') ? 'influencer_dummy' : $entityType;
+
+        // Guard: don't overwrite good data with empty/zero results
+        if (empty($parsed['profile']['account_id']) && $parsed['profile']['follower'] <= 0) {
+            log_message('error', "ScrapingBot: Empty parse result for {$entityType}#{$entityId}, skipping update");
+            return false;
+        }
 
         // Update profile data
         $profileUpdate = [

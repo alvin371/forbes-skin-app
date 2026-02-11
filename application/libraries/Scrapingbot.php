@@ -103,6 +103,16 @@ class Scrapingbot
         if ($httpCode == 200 && is_array($data)) {
             // ScrapingBot returns raw data array on success (e.g. [{"type":"profile",...}])
             if (isset($data[0]) && !isset($data['status'])) {
+                // Detect error responses disguised as success: [{"message":"Something went wrong",...}]
+                $firstItem = $data[0];
+                if (isset($firstItem['message']) && ($firstItem['type'] ?? null) !== 'profile') {
+                    return [
+                        'status' => 'error',
+                        'data'   => null,
+                        'msg'    => 'Scrape returned error: ' . $firstItem['message']
+                    ];
+                }
+
                 return [
                     'status' => 'success',
                     'data'   => $data,
@@ -125,6 +135,24 @@ class Scrapingbot
                     'msg'    => 'Scrape still processing'
                 ];
             }
+
+            // Some responses use a message string without status when still processing
+            if (isset($data['message']) && stripos($data['message'], 'not finished') !== false) {
+                return [
+                    'status' => 'pending',
+                    'data'   => null,
+                    'msg'    => 'Scrape still processing'
+                ];
+            }
+        }
+
+        // Non-JSON or unexpected responses that indicate "not finished" should be treated as pending
+        if (is_string($response) && stripos($response, 'not finished') !== false) {
+            return [
+                'status' => 'pending',
+                'data'   => null,
+                'msg'    => 'Scrape still processing'
+            ];
         }
 
         return [
