@@ -2934,10 +2934,6 @@ class Transaction extends BaseController
         $shop_id = $dt['shop_id'];
         $start_date = isset($dt['start_date']) ? $dt['start_date'] : $dt['until_date'];
         $until_date = $dt['until_date'];
-        $debug = isset($dt['debug']) && $dt['debug'] == '1';
-        if (strtoupper($marketplace) === 'TIKTOK') {
-            $debug = true;
-        }
 
         if (strtoupper($marketplace) === 'TIKTOK') {
             $worker_mode = strtolower(env('TIKTOK_WORKER_MODE', 'node'));
@@ -2948,7 +2944,6 @@ class Transaction extends BaseController
                     'shop_id' => $shop_id,
                     'start_date' => $start_date,
                     'until_date' => $until_date,
-                    'debug' => $debug ? true : false,
                 ));
 
                 $curl = curl_init();
@@ -2978,11 +2973,6 @@ class Transaction extends BaseController
                 }
 
                 $response = json_decode($response_raw, true);
-                $debug_html = '';
-                if ($debug && is_array($response) && isset($response['data'])) {
-                    $debug_payload = json_encode($response['data'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-                    $debug_html = '<div class="sync-debug" style="margin-top:10px;border:1px solid #e0e0e0;padding:8px;background:#fafafa;"><div style="font-weight:600;margin-bottom:6px;">Debug Log</div><pre style="white-space:pre-wrap;margin:0;">' . htmlspecialchars($debug_payload) . '</pre></div>';
-                }
 
                 if (!is_array($response)) {
                     $msg = 'Sync gagal: response tidak valid dari worker.';
@@ -2992,35 +2982,48 @@ class Transaction extends BaseController
 
                 if (isset($response['status']) && $response['status'] == true) {
                     $msg = isset($response['msg']) && $response['msg'] !== '' ? $response['msg'] : 'Sync berhasil.';
-                    echo $this->template->alert_success($msg) . $debug_html;
+                    echo $this->template->alert_success($msg);
                     die;
                 }
 
                 $msg = isset($response['msg']) && $response['msg'] !== '' ? $response['msg'] : 'Sync gagal. Silakan cek koneksi/token marketplace.';
-                echo $this->template->alert_danger($msg) . $debug_html;
+                echo $this->template->alert_danger($msg);
                 die;
             }
 
             $worker = FCPATH . 'services/tiktok-worker/worker.js';
             $api_base = $this->template->endpoint_url();
-            $cmd = 'node ' . escapeshellarg($worker)
+            $node_bin = env('NODE_BIN', 'node');
+            $cmd = escapeshellarg($node_bin) . ' ' . escapeshellarg($worker)
                 . ' orders'
                 . ' --shop_id=' . escapeshellarg($shop_id)
                 . ' --start_date=' . escapeshellarg($start_date)
                 . ' --until_date=' . escapeshellarg($until_date)
-                . ' --api-base=' . escapeshellarg($api_base);
-            if ($debug) {
-                $cmd .= ' --debug=1';
-            }
+                . ' --api-base=' . escapeshellarg($api_base) . ' 2>&1';
 
             $output = array();
             $exit_code = 0;
             exec($cmd, $output, $exit_code);
             $response_raw = trim(implode("\n", $output));
+            if ($response_raw === '') {
+                $msg = 'Sync gagal: worker tidak menghasilkan respons. Pastikan Node terinstall dan fungsi exec diaktifkan.';
+                echo $this->template->alert_danger($msg);
+                die;
+            }
+
             $response = json_decode($response_raw, true);
+            if (!is_array($response)) {
+                $last_start = strrpos($response_raw, '{');
+                $last_end = strrpos($response_raw, '}');
+                if ($last_start !== false && $last_end !== false && $last_end > $last_start) {
+                    $json_chunk = substr($response_raw, $last_start, $last_end - $last_start + 1);
+                    $response = json_decode($json_chunk, true);
+                }
+            }
 
             if (!is_array($response)) {
-                $msg = 'Sync gagal: response tidak valid dari worker.';
+                error_log('TikTok worker invalid response: ' . $response_raw);
+                $msg = 'Sync gagal: response tidak valid dari worker. Cek Node binary/path.';
                 echo $this->template->alert_danger($msg);
                 die;
             }
@@ -3039,10 +3042,6 @@ class Transaction extends BaseController
         $curl = curl_init();
 
         $url = $this->template->endpoint_url() . 'api/marketplace/order?marketplace=' . $marketplace . '&shop_id=' . $shop_id . '&start_date=' . $start_date . '&until_date=' . $until_date;
-        if ($debug) {
-            $url .= '&debug=1';
-        }
-
         curl_setopt_array($curl, array(
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
@@ -3059,50 +3058,29 @@ class Transaction extends BaseController
 
         $response_raw = curl_exec($curl);
         $curl_error = curl_error($curl);
-        $http_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-
         curl_close($curl);
         $response = json_decode($response_raw, true);
 
-        $debug_html = '';
-        if ($debug) {
-            $meta = array(
-                'endpoint_url' => $url,
-                'http_code' => $http_code,
-                'curl_error' => $curl_error ? $curl_error : '',
-                'response_length' => is_string($response_raw) ? strlen($response_raw) : 0,
-            );
-            $debug_payload = '';
-            if (is_array($response) && isset($response['debug'])) {
-                $debug_payload = json_encode(array('meta' => $meta, 'tiktok_debug' => $response['debug']), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-            } else if (is_string($response_raw)) {
-                $debug_payload = json_encode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n\n" . substr($response_raw, 0, 1200);
-            }
-            if ($debug_payload !== '') {
-                $debug_html = '<div class="sync-debug" style="margin-top:10px;border:1px solid #e0e0e0;padding:8px;background:#fafafa;"><div style="font-weight:600;margin-bottom:6px;">Debug Log</div><pre style="white-space:pre-wrap;margin:0;">' . htmlspecialchars($debug_payload) . '</pre></div>';
-            }
-        }
-
         if ($response_raw === false || $curl_error) {
             $msg = 'Sync gagal: tidak ada respons dari server. Silakan coba lagi.';
-            echo $this->template->alert_danger($msg) . $debug_html;
+            echo $this->template->alert_danger($msg);
             die;
         }
 
         if (!is_array($response)) {
             $msg = 'Sync gagal: response tidak valid dari server.';
-            echo $this->template->alert_danger($msg) . $debug_html;
+            echo $this->template->alert_danger($msg);
             die;
         }
 
         if (isset($response['status']) && $response['status'] == true) {
             $msg = isset($response['msg']) && $response['msg'] !== '' ? $response['msg'] : 'Sync berhasil.';
-            echo $this->template->alert_success($msg) . $debug_html;
+            echo $this->template->alert_success($msg);
             die;
         }
 
         $msg = isset($response['msg']) && $response['msg'] !== '' ? $response['msg'] : 'Sync gagal. Silakan cek koneksi/token marketplace.';
-        echo $this->template->alert_danger($msg) . $debug_html;
+        echo $this->template->alert_danger($msg);
         die;
     }
 

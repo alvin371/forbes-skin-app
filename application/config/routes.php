@@ -50,6 +50,9 @@ defined('BASEPATH') or exit('No direct script access allowed');
 |		my-controller/my-method	-> my_controller/my_method
 */
 
+$route['privacy-policy'] = 'PublicController/privacy_policy';
+$route['support'] = 'PublicController/support';
+
 $route['auth'] = 'auth';
 $route['login'] = 'auth/login';
 $route['signup'] = 'auth/signup';
@@ -270,6 +273,9 @@ $route['api/cronjob/endorse-campaign'] = 'Api_v2/cronjob_endorse_campaign';
 $route['api/cronjob/endorse'] = 'Api_v2/cronjob_endorse';
 $route['api/cronjob/influencer'] = 'Api_v2/cronjob_influencer';
 $route['api/cronjob/influencer-dummy'] = 'Api_v2/cronjob_influencer_dummy';
+$route['api/cronjob/scraping-submit'] = 'Api_v2/cronjob_scraping_submit';
+$route['api/cronjob/scraping-poll'] = 'Api_v2/cronjob_scraping_poll';
+$route['api/cronjob/scraping-enqueue'] = 'Api_v2/cronjob_scraping_enqueue';
 $route['cronjob/update-customer'] = 'Api/cronjob_update_customer';
 
 $route['api/webhook'] = 'Api_v2/webhook';

@@ -177,19 +177,35 @@ class Product_3rd extends CI_Controller
             if ($worker_mode === 'node') {
                 $worker = FCPATH . 'services/tiktok-worker/worker.js';
                 $api_base = $this->template->endpoint_url();
-                $cmd = 'node ' . escapeshellarg($worker)
+                $node_bin = env('NODE_BIN', 'node');
+                $cmd = escapeshellarg($node_bin) . ' ' . escapeshellarg($worker)
                     . ' products'
                     . ' --shop_id=' . escapeshellarg($shop_id)
-                    . ' --api-base=' . escapeshellarg($api_base);
+                    . ' --api-base=' . escapeshellarg($api_base) . ' 2>&1';
 
                 $output = array();
                 $exit_code = 0;
                 exec($cmd, $output, $exit_code);
                 $response_raw = trim(implode("\n", $output));
+                if ($response_raw === '') {
+                    $msg = 'Sync gagal: worker tidak menghasilkan respons. Pastikan Node terinstall dan fungsi exec diaktifkan.';
+                    echo $this->template->alert_danger($msg);
+                    die;
+                }
+
                 $response = json_decode($response_raw, true);
+                if (!is_array($response)) {
+                    $last_start = strrpos($response_raw, '{');
+                    $last_end = strrpos($response_raw, '}');
+                    if ($last_start !== false && $last_end !== false && $last_end > $last_start) {
+                        $json_chunk = substr($response_raw, $last_start, $last_end - $last_start + 1);
+                        $response = json_decode($json_chunk, true);
+                    }
+                }
 
                 if (!is_array($response)) {
-                    $msg = 'Sync gagal: response tidak valid dari worker.';
+                    error_log('TikTok worker invalid response: ' . $response_raw);
+                    $msg = 'Sync gagal: response tidak valid dari worker. Cek Node binary/path.';
                     echo $this->template->alert_danger($msg);
                     die;
                 }
