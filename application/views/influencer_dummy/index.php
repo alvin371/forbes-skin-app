@@ -390,6 +390,46 @@
         }
     }
 
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+
+    .queue-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 8px;
+        border-radius: 2px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .queue-badge-syncing {
+        background-color: #e6f7ff;
+        border: 1px solid #91d5ff;
+        color: #1890ff;
+        animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    .queue-badge-syncing .spinner-border {
+        width: 12px;
+        height: 12px;
+        border-width: 2px;
+    }
+
+    .queue-badge-failed {
+        background-color: #fff1f0;
+        border: 1px solid #ffa39e;
+        color: #f5222d;
+    }
+
+    .queue-badge-success {
+        background-color: #f6ffed;
+        border: 1px solid #b7eb8f;
+        color: #52c41a;
+    }
+
     tr.new-row {
         background-color: #f6ffed !important;
         transition: background-color 3s ease;
@@ -821,12 +861,21 @@
                                 </div>
                             </td>
 
-                            <td class="text-start engagement-cell">
-                                <div class="engagement-content">
+                            <?php $q_status = isset($queue_statuses[$inf->id]) ? $queue_statuses[$inf->id] : null; ?>
+                            <td class="text-start engagement-cell" <?= $q_status ? 'data-queue-status="'.$q_status.'"' : '' ?>>
+                                <div class="engagement-content" <?= $q_status ? 'style="display:none"' : '' ?>>
                                     <p class="mb-1 text-black fw-bold">CPM : <?= $this->template->separator_only($inf->cpm_2, '0', '.', '.') ?></p>
                                     <p class="mb-1 text-black fw-bold">Avg View : <?= $this->template->separator_only($inf->avg_view_2, '2', '.', ',') ?></p>
                                     <p class="mb-1 text-black">ER : <?= number_format($inf->er, '2', ',', '.') ?></p>
                                 </div>
+                                <?php if ($q_status): ?>
+                                <div class="queue-status-display">
+                                    <span class="queue-badge queue-badge-syncing">
+                                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                                        Sedang diproses...
+                                    </span>
+                                </div>
+                                <?php endif; ?>
                             </td>
 
                             <td class="editable" data-field="ratecard" data-ratecard="<?= $inf->ratecard ?>">
@@ -1121,15 +1170,73 @@ $(document).ready(function() {
             .map(item => item.trim())
             .filter(item => item !== '0' && item !== '');
 
-        console.log('Refreshing data for ListId:', cleanIds);
-
         if (cleanIds.length === 0) {
             Swal.fire('Error', 'Tidak ada ID valid', 'error');
             return;
         }
 
-        cleanIds.forEach(singleId => {
-            syncInfluencerData(singleId);
+        // Filter out already-queued IDs
+        cleanIds = cleanIds.filter(id => !pendingRefreshIds.has(String(id)));
+
+        if (cleanIds.length === 0) {
+            Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'Semua data sudah dalam antrian', showConfirmButton: false, timer: 2000 });
+            return;
+        }
+
+        // Show syncing badge on all rows
+        cleanIds.forEach(function(id) {
+            const row = $(`tr[data-id="${id}"]`);
+            const engagementCell = row.find('.engagement-cell');
+            engagementCell.find('.engagement-content').hide();
+            engagementCell.find('.queue-status-display').remove();
+            engagementCell.append(`
+                <div class="queue-status-display">
+                    <span class="queue-badge queue-badge-syncing">
+                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                        Sedang diproses...
+                    </span>
+                </div>
+            `);
+        });
+
+        // Single batch request
+        $.ajax({
+            url: '<?= site_url("influencer_dummy/refresh_data") ?>/' + cleanIds.join(','),
+            type: 'GET',
+            dataType: 'json',
+            success: function(response) {
+                if (response.status === 'success') {
+                    cleanIds.forEach(function(id) {
+                        pendingRefreshIds.add(String(id));
+                    });
+                    startPoller();
+
+                    Swal.fire({
+                        toast: true,
+                        position: 'top-end',
+                        icon: 'success',
+                        title: response.message || `${cleanIds.length} data di-enqueue`,
+                        showConfirmButton: false,
+                        timer: 3000
+                    });
+                } else {
+                    // Restore on failure
+                    cleanIds.forEach(function(id) {
+                        const row = $(`tr[data-id="${id}"]`);
+                        row.find('.queue-status-display').remove();
+                        row.find('.engagement-content').show();
+                    });
+                    Swal.fire('Error', response.message || 'Gagal', 'error');
+                }
+            },
+            error: function() {
+                cleanIds.forEach(function(id) {
+                    const row = $(`tr[data-id="${id}"]`);
+                    row.find('.queue-status-display').remove();
+                    row.find('.engagement-content').show();
+                });
+                Swal.fire('Error', 'Gagal menghubungi server', 'error');
+            }
         });
     };
 
@@ -1588,32 +1695,37 @@ $(document).ready(function() {
         this.setSelectionRange(caret, caret);
     });
 
+    // Track IDs that are pending refresh
+    var pendingRefreshIds = new Set();
+    var pollerInterval = null;
+
     function syncInfluencerData(id) {
-        console.log('syncInfluencerData called with ID:', id);
-
         const row = $(`tr[data-id="${id}"]`);
-        console.log('Found row:', row.length);
-
         if (row.length === 0) {
-            console.error('Row not found for ID:', id);
-            Swal.fire({
-                icon: 'error',
-                title: 'Error',
-                text: 'Baris data tidak ditemukan (ID: ' + id + ')',
-                showConfirmButton: true
-            });
+            Swal.fire({ icon: 'error', title: 'Error', text: 'Baris data tidak ditemukan (ID: ' + id + ')' });
             return;
         }
 
-        const urlCell = row.find('td[data-field="url"]');
-        const input = urlCell.find('.editable-input');
+        // Check if already queued
+        if (pendingRefreshIds.has(String(id))) {
+            Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'Data sudah dalam antrian', showConfirmButton: false, timer: 2000 });
+            return;
+        }
+
         const engagementCell = row.find('.engagement-cell');
         const engagementContent = engagementCell.find('.engagement-content');
-        const engagementFollower = engagementCell.find('.engagement-follower');
 
+        // Show syncing state immediately
         engagementContent.hide();
-        engagementCell.append('<div class="engagement-loading"></div>');
-        input.prop('disabled', true).addClass('loading');
+        engagementCell.find('.queue-status-display').remove();
+        engagementCell.append(`
+            <div class="queue-status-display">
+                <span class="queue-badge queue-badge-syncing">
+                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                    Sedang diproses...
+                </span>
+            </div>
+        `);
 
         $.ajax({
             url: '<?= site_url("influencer_dummy/sync_external_process") ?>',
@@ -1621,68 +1733,166 @@ $(document).ready(function() {
             data: { id: id },
             dataType: 'json',
             success: function(response) {
-                console.log('Sync response:', response);
-
                 if (response.status === 'success') {
-                    urlCell.attr('data-follower', response.data.follower || 0);
+                    // Add to pending set and start poller
+                    pendingRefreshIds.add(String(id));
+                    startPoller();
 
-                    engagementContent.html(`
-                        <p class="mb-1 text-black fw-bold">CPM : ${formatNumber(response.data.cpm)}</p>
-                        <p class="mb-1 text-black fw-bold">Avg View : ${formatNumber(response.data.avg_view)}</p>
-                        <p class="mb-1 text-black">ER : ${formatNumber(response.data.er)}</p>
-                    `);
-
-                    engagementFollower.text(response.data.follower?.toLocaleString('id-ID') || '0');
-                    const usernameFollower = row.find('td[data-field="url"] .engagement-followers p');
-                    usernameFollower.text(`${response.data.follower?.toLocaleString('id-ID') || '0'}`);
-
-                    if (response.data.ratecard) {
-                        const ratecardCell = row.find('td[data-field="ratecard"] .view-mode');
-                        ratecardCell.text(formatNumber(response.data.ratecard.toString()));
-                    }
-
-                    if (response.data.username) {
-                        const usernameCell = row.find('td[data-field="username"] .view-mode');
-                        usernameCell.text(response.data.username);
-                    }
-
-                    // Show success toast
                     Swal.fire({
                         toast: true,
                         position: 'top-end',
-                        icon: 'success',
-                        title: 'Data engagement berhasil diperbarui!',
+                        icon: 'info',
+                        title: 'Data di-enqueue, akan diperbarui otomatis',
                         showConfirmButton: false,
-                        timer: 2000
+                        timer: 3000
                     });
                 } else {
-                    console.error('Sync failed:', response);
+                    // Show error, restore engagement content
+                    engagementCell.find('.queue-status-display').remove();
+                    engagementContent.show();
+
                     Swal.fire({
                         icon: 'error',
                         title: 'Gagal Refresh',
-                        text: response.message || 'Terjadi kesalahan saat mengambil data',
-                        showConfirmButton: true
+                        text: response.message || 'Terjadi kesalahan saat mengambil data'
                     });
                 }
             },
             error: function(xhr, status, error) {
-                console.error('Sync AJAX error:', {xhr, status, error});
+                engagementCell.find('.queue-status-display').remove();
+                engagementContent.show();
+
                 Swal.fire({
                     icon: 'error',
                     title: 'Error',
-                    text: 'Gagal menghubungi server: ' + error,
-                    showConfirmButton: true
+                    text: 'Gagal menghubungi server: ' + error
                 });
-            },
-            complete: function() {
-                engagementCell.find('.engagement-loading').remove();
-                engagementContent.show();
-                input.prop('disabled', false).removeClass('loading');
-                table.row(row).invalidate().draw(false);
             }
         });
     }
 
+
+    // Poller: checks queue status every 15s for pending items
+    function startPoller() {
+        if (pollerInterval) return; // Already running
+        pollerInterval = setInterval(pollQueueStatus, 15000);
+    }
+
+    function stopPoller() {
+        if (pollerInterval) {
+            clearInterval(pollerInterval);
+            pollerInterval = null;
+        }
+    }
+
+    function pollQueueStatus() {
+        if (pendingRefreshIds.size === 0) {
+            stopPoller();
+            return;
+        }
+
+        const ids = Array.from(pendingRefreshIds).join(',');
+
+        $.ajax({
+            url: '<?= site_url("influencer_dummy/check_queue_status") ?>',
+            type: 'POST',
+            data: { ids: ids },
+            dataType: 'json',
+            success: function(response) {
+                if (response.status !== 'success' || !response.results) return;
+
+                $.each(response.results, function(entityId, info) {
+                    const row = $(`tr[data-id="${entityId}"]`);
+                    if (row.length === 0) return;
+
+                    const engagementCell = row.find('.engagement-cell');
+                    const engagementContent = engagementCell.find('.engagement-content');
+
+                    if (info.queue_status === 'completed') {
+                        // Remove from pending set
+                        pendingRefreshIds.delete(String(entityId));
+
+                        // Update engagement metrics
+                        engagementCell.find('.queue-status-display').remove();
+
+                        if (info.data) {
+                            const d = info.data;
+                            engagementContent.html(`
+                                <p class="mb-1 text-black fw-bold">CPM : ${formatNumber(d.cpm)}</p>
+                                <p class="mb-1 text-black fw-bold">Avg View : ${formatNumber(d.avg_view)}</p>
+                                <p class="mb-1 text-black">ER : ${formatNumber(d.er)}</p>
+                            `);
+
+                            // Update follower count
+                            row.find('td[data-field="url"]').attr('data-follower', d.follower || 0);
+                            row.find('td[data-field="url"] .engagement-followers p').text((d.follower || 0).toLocaleString('id-ID'));
+
+                            if (d.ratecard) {
+                                row.find('td[data-field="ratecard"] .view-mode').text(formatNumber(d.ratecard.toString()));
+                            }
+                        }
+
+                        engagementContent.show();
+
+                        // Flash green briefly
+                        engagementCell.append('<div class="queue-status-display"><span class="queue-badge queue-badge-success">Berhasil diperbarui</span></div>');
+                        setTimeout(function() {
+                            engagementCell.find('.queue-status-display').remove();
+                        }, 3000);
+
+                        table.row(row).invalidate().draw(false);
+
+                        Swal.fire({
+                            toast: true,
+                            position: 'top-end',
+                            icon: 'success',
+                            title: `Data ${row.find('td[data-field="url"] .view-mode').text().trim()} berhasil diperbarui!`,
+                            showConfirmButton: false,
+                            timer: 3000
+                        });
+
+                    } else if (info.queue_status === 'failed') {
+                        // Remove from pending set
+                        pendingRefreshIds.delete(String(entityId));
+
+                        // Show error state
+                        engagementCell.find('.queue-status-display').remove();
+                        engagementContent.show();
+                        engagementCell.append(`
+                            <div class="queue-status-display">
+                                <span class="queue-badge queue-badge-failed">
+                                    Gagal sync
+                                </span>
+                            </div>
+                        `);
+                    }
+                    // pending/submitted: keep showing syncing badge (no change)
+                });
+
+                // Stop poller if no more pending items
+                if (pendingRefreshIds.size === 0) {
+                    stopPoller();
+                }
+            },
+            error: function() {
+                // Silent fail, will retry on next interval
+            }
+        });
+    }
+
+    // Initialize poller for items already in queue on page load
+    (function initQueuePoller() {
+        $('[data-queue-status]').each(function() {
+            const row = $(this).closest('tr');
+            const id = row.data('id');
+            if (id) {
+                pendingRefreshIds.add(String(id));
+            }
+        });
+        if (pendingRefreshIds.size > 0) {
+            startPoller();
+        }
+    })();
 
     $('#influencerTable tbody').on('click', '.sync-url', function(e) {
         e.preventDefault();
@@ -1819,14 +2029,14 @@ $(document).ready(function() {
         $('tr.new-row').removeClass('new-row');
     });
 
-    // Bulk refresh all visible rows
+    // Bulk refresh all visible rows via single batch request
     $('#refreshAllVisible').click(function() {
         const visibleRows = table.rows({ page: 'current' }).nodes();
         const visibleIds = [];
 
         $(visibleRows).each(function() {
             const id = $(this).data('id');
-            if (id) {
+            if (id && !pendingRefreshIds.has(String(id))) {
                 visibleIds.push(id);
             }
         });
@@ -1835,7 +2045,7 @@ $(document).ready(function() {
             Swal.fire({
                 icon: 'warning',
                 title: 'Tidak ada data',
-                text: 'Tidak ada data yang dapat direfresh',
+                text: pendingRefreshIds.size > 0 ? 'Semua data sudah dalam antrian' : 'Tidak ada data yang dapat direfresh',
                 showConfirmButton: true
             });
             return;
@@ -1855,98 +2065,80 @@ $(document).ready(function() {
             }
         }).then((result) => {
             if (result.isConfirmed) {
-                let completed = 0;
-                let failed = 0;
-                const total = visibleIds.length;
+                // Disable button during request
+                $('#refreshAllVisible').prop('disabled', true).html('<div class="spinner-border spinner-border-sm me-1" role="status"><span class="visually-hidden">Loading...</span></div> Enqueueing...');
 
-                // Disable button during refresh
-                $('#refreshAllVisible').prop('disabled', true).html('<div class="spinner-border spinner-border-sm me-1" role="status"><span class="visually-hidden">Loading...</span></div> Refreshing...');
-
-                // Show progress toast
-                const Toast = Swal.mixin({
-                    toast: true,
-                    position: 'top-end',
-                    showConfirmButton: false,
-                    timer: 3000,
-                    timerProgressBar: true
-                });
-
-                // Process each ID sequentially
-                const processNext = (index) => {
-                    if (index >= visibleIds.length) {
-                        // All done
-                        $('#refreshAllVisible').prop('disabled', false).html('<i class="bi bi-arrow-clockwise me-1"></i> Refresh All');
-
-                        Swal.fire({
-                            icon: failed > 0 ? 'warning' : 'success',
-                            title: 'Refresh Selesai',
-                            html: `<p>Berhasil: ${completed} data</p>${failed > 0 ? `<p>Gagal: ${failed} data</p>` : ''}`,
-                            showConfirmButton: true
-                        });
-                        return;
-                    }
-
-                    const currentId = visibleIds[index];
-
-                    // Update progress
-                    Toast.fire({
-                        icon: 'info',
-                        title: `Refreshing ${index + 1} of ${total}...`
-                    });
-
-                    // Call sync function
-                    const row = $(`tr[data-id="${currentId}"]`);
-                    const urlCell = row.find('td[data-field="url"]');
+                // Show syncing badge on all rows immediately
+                visibleIds.forEach(function(id) {
+                    const row = $(`tr[data-id="${id}"]`);
                     const engagementCell = row.find('.engagement-cell');
                     const engagementContent = engagementCell.find('.engagement-content');
-
                     engagementContent.hide();
-                    engagementCell.append('<div class="engagement-loading"></div>');
+                    engagementCell.find('.queue-status-display').remove();
+                    engagementCell.append(`
+                        <div class="queue-status-display">
+                            <span class="queue-badge queue-badge-syncing">
+                                <span class="spinner-border spinner-border-sm" role="status"></span>
+                                Sedang diproses...
+                            </span>
+                        </div>
+                    `);
+                });
 
-                    $.ajax({
-                        url: '<?= site_url("influencer_dummy/sync_external_process") ?>',
-                        type: 'POST',
-                        data: { id: currentId },
-                        dataType: 'json',
-                        success: function(response) {
-                            if (response.status === 'success') {
-                                urlCell.attr('data-follower', response.data.follower || 0);
+                // Single batch request
+                $.ajax({
+                    url: '<?= site_url("influencer_dummy/refresh_data") ?>/' + visibleIds.join(','),
+                    type: 'GET',
+                    dataType: 'json',
+                    success: function(response) {
+                        if (response.status === 'success') {
+                            // Add all IDs to pending set
+                            visibleIds.forEach(function(id) {
+                                pendingRefreshIds.add(String(id));
+                            });
+                            startPoller();
 
-                                engagementContent.html(`
-                                    <p class="mb-1 text-black fw-bold">CPM : ${formatNumber(response.data.cpm)}</p>
-                                    <p class="mb-1 text-black fw-bold">Avg View : ${formatNumber(response.data.avg_view)}</p>
-                                    <p class="mb-1 text-black">ER : ${formatNumber(response.data.er)}</p>
-                                `);
+                            Swal.fire({
+                                toast: true,
+                                position: 'top-end',
+                                icon: 'success',
+                                title: response.message || `${visibleIds.length} data di-enqueue, akan diperbarui otomatis`,
+                                showConfirmButton: false,
+                                timer: 4000
+                            });
+                        } else {
+                            // Restore engagement content on failure
+                            visibleIds.forEach(function(id) {
+                                const row = $(`tr[data-id="${id}"]`);
+                                row.find('.queue-status-display').remove();
+                                row.find('.engagement-content').show();
+                            });
 
-                                const usernameFollower = row.find('td[data-field="url"] .engagement-followers p');
-                                usernameFollower.text(`${response.data.follower?.toLocaleString('id-ID') || '0'}`);
-
-                                if (response.data.ratecard) {
-                                    const ratecardCell = row.find('td[data-field="ratecard"] .view-mode');
-                                    ratecardCell.text(formatNumber(response.data.ratecard.toString()));
-                                }
-
-                                completed++;
-                            } else {
-                                failed++;
-                            }
-                        },
-                        error: function() {
-                            failed++;
-                        },
-                        complete: function() {
-                            engagementCell.find('.engagement-loading').remove();
-                            engagementContent.show();
-                            table.row(row).invalidate().draw(false);
-
-                            // Process next after a short delay to avoid overwhelming the API
-                            setTimeout(() => processNext(index + 1), 500);
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Gagal',
+                                text: response.message || 'Gagal memasukkan data ke antrian'
+                            });
                         }
-                    });
-                };
+                    },
+                    error: function(xhr, status, error) {
+                        // Restore engagement content on error
+                        visibleIds.forEach(function(id) {
+                            const row = $(`tr[data-id="${id}"]`);
+                            row.find('.queue-status-display').remove();
+                            row.find('.engagement-content').show();
+                        });
 
-                // Start processing
-                processNext(0);
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Error',
+                            text: 'Gagal menghubungi server: ' + error
+                        });
+                    },
+                    complete: function() {
+                        $('#refreshAllVisible').prop('disabled', false).html('<i class="bi bi-arrow-clockwise me-1"></i> Refresh All');
+                    }
+                });
             }
         });
     });

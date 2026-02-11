@@ -132,11 +132,10 @@ class Scrapingbot
      * @param int    $maxVideos Number of recent videos to include (default 10)
      * @return array startScrape result
      */
-    public function scrapeTiktokProfile($url, $maxVideos = 10)
+    public function scrapeTiktokProfile($url)
     {
         return $this->startScrape('tiktokProfile', [
-            'url'             => $url,
-            'max_video_count' => $maxVideos,
+            'url' => $url,
         ]);
     }
 
@@ -150,7 +149,7 @@ class Scrapingbot
     public function scrapeInstagramProfile($account, $postsNumber = 12)
     {
         return $this->startScrape('instagramProfile', [
-            'username'     => $account,
+            'account'      => $account,
             'posts_number' => $postsNumber,
         ]);
     }
@@ -175,8 +174,7 @@ class Scrapingbot
             return [
                 'scraper' => 'tiktokProfile',
                 'params'  => [
-                    'url'             => 'https://www.tiktok.com/@' . $username,
-                    'max_video_count' => 10,
+                    'url' => 'https://www.tiktok.com/@' . $username,
                 ],
             ];
         }
@@ -191,7 +189,7 @@ class Scrapingbot
             return [
                 'scraper' => 'instagramProfile',
                 'params'  => [
-                    'username'     => $username,
+                    'account'      => $username,
                     'posts_number' => 12,
                 ],
             ];
