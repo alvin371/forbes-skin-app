@@ -3470,12 +3470,6 @@ class Api_v2 extends CI_Controller
         header('Content-Type: application/json; charset=utf-8');
 
         $dt = $_GET;
-        $debug = isset($dt['debug']) && $dt['debug'] == '1';
-        $debug_data = array();
-        if ($debug) {
-            $debug_data['tiktok_requests'] = array();
-            $debug_data['tiktok_requests_count'] = 0;
-        }
 
         $marketplace = $dt['marketplace'];
         $marketplace = strtoupper($marketplace);
@@ -3589,39 +3583,7 @@ class Api_v2 extends CI_Controller
                     ));
 
                     $response_raw = curl_exec($curl);
-                    $curl_error = curl_error($curl);
-                    $http_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-
                     $response = json_decode($response_raw, true);
-
-                    if ($debug) {
-                        $debug_data['tiktok_requests_count']++;
-                        $debug_max = 10;
-                        if (count($debug_data['tiktok_requests']) < $debug_max) {
-                            $debug_data['tiktok_requests'][] = array(
-                                'shop_id' => strval($shop_id),
-                                'app_key' => strval($app_key),
-                                'timestamp' => strval($timest),
-                                'url' => strval($url),
-                                'shop_name' => strval($shop_name),
-                                'page_token' => $page_token,
-                                'page_size' => $page_size,
-                                'create_time_ge' => $start_time,
-                                'create_time_lt' => $until_time ?: $now_time,
-                                'update_time_ge' => $start_time,
-                                'update_time_lt' => $until_time ?: $now_time,
-                                'http_code' => $http_code,
-                                'curl_error' => $curl_error ? $curl_error : '',
-                                'response_code' => isset($response['code']) ? $response['code'] : null,
-                                'response_message' => isset($response['message']) ? $response['message'] : null,
-                                'response_request_id' => isset($response['request_id']) ? $response['request_id'] : null,
-                                'response_total_count' => isset($response['data']['total_count']) ? $response['data']['total_count'] : null,
-                                'response_preview' => is_string($response_raw) ? substr($response_raw, 0, 600) : '',
-                            );
-                        } else {
-                            $debug_data['tiktok_requests_truncated'] = true;
-                        }
-                    }
 
                     $orders = array();
                     if (isset($response['data']['orders']) && is_array($response['data']['orders'])) {
@@ -4041,9 +4003,6 @@ class Api_v2 extends CI_Controller
         $html['status'] = true;
         $html['data'] = array();
         $html['msg'] = 'Sync data order berhasil!';
-        if ($debug) {
-            $html['debug'] = $debug_data;
-        }
         echo json_encode($html, true);
         die;
     }
@@ -4660,38 +4619,41 @@ class Api_v2 extends CI_Controller
 
     function cronjob_influencer()
     {
-
-
-        $user = $_SESSION['user'];
-
-        $mode = strval($_GET['mode']);
+        $mode = isset($_GET['mode']) ? strval($_GET['mode']) : '';
 
         $target = DATE("Y-m-d 11:00:00");
         $now = DATE("Y-m-d H:i:s");
         if ($mode != 'true') {
-            if ($now >= $target) {
-                // SKIP
-            } else {
+            if ($now < $target) {
                 header('Content-Type: application/json; charset=utf-8');
-                $html = array();
-                $html['status'] = false;
-                $html['data'] = array();
-                $html['msg'] = "Acneno System influencer cronjob will be processed at " . $target . "!";
-                echo json_encode($html, true);
+                echo json_encode([
+                    'status' => false,
+                    'data' => [],
+                    'msg' => "Acneno System influencer cronjob will be processed at " . $target . "!"
+                ]);
                 die;
             }
         }
-        $today = DATE("Y-m-d");
-        $today = DATE('Y-m-d', strtotime($today . " -7 days"));
-        $todayy = $today;
-        $list = $this->mymodel->selectWithQuery("SELECT * FROM influencer WHERE status = 'Aktif' AND DATE(sync_at) <= '$today' OR DATE(sync_at) IS NULL AND url != '' LIMIT 10");
-        foreach ($list as $kl => $vl) {
-            $id = $vl['id'];
-            $query = $vl;
 
-            $endorse = $this->mymodel->selectWithQuery("SELECT COUNT(id) as frequency, SUM(total_cost) as total_cost, SUM(views) as views, 
-            AVG(views) as avg_views, 
-            AVG(likes+comment+share_save) as avg_interaksi, 
+        // Now uses queue-based approach: enqueue influencers needing sync
+        $today = DATE("Y-m-d");
+        $sync_date = DATE('Y-m-d', strtotime($today . " -7 days"));
+
+        $list = $this->mymodel->selectWithQuery("
+            SELECT id, type, url FROM influencer
+            WHERE status = 'Aktif'
+            AND (DATE(sync_at) <= '$sync_date' OR sync_at IS NULL)
+            AND url != ''
+            LIMIT 10
+        ");
+
+        $enqueued = 0;
+        foreach ($list as $vl) {
+            // Update endorse aggregation (this is local DB work, no API needed)
+            $id = $vl['id'];
+            $endorse = $this->mymodel->selectWithQuery("SELECT COUNT(id) as frequency, SUM(total_cost) as total_cost, SUM(views) as views,
+            AVG(views) as avg_views,
+            AVG(likes+comment+share_save) as avg_interaksi,
             SUM(likes) as likes,
             SUM(share_save) as share,
             SUM(comment) as comment
@@ -4701,14 +4663,8 @@ class Api_v2 extends CI_Controller
             $endorse = $endorse[0];
 
             $dt = array();
-            $dt['sync_at'] = DATE("Y-m-d H:i:s");
             $dt['frequency'] = $endorse['frequency'];
             $dt['total_cost'] = $endorse['total_cost'];
-            $dt['view'] = $endorse['views'];
-            $dt['like'] = $endorse['likes'];
-            $dt['comment'] = $endorse['comment'];
-            $dt['collect'] = $endorse['collect'];
-            $dt['share'] = $endorse['share'];
             $dt['avg_view'] = $endorse['avg_views'];
             $dt['avg_interaksi'] = $endorse['avg_interaksi'];
             if ($endorse['total_cost'] > 0 && $endorse['views'] > 0) {
@@ -4716,146 +4672,37 @@ class Api_v2 extends CI_Controller
             } else {
                 $dt['cpm'] = 0;
             }
-
             $this->db->update('influencer', $dt, array('id' => $id));
 
-            $url = $query['url'];
-
-            $response = $this->template->get_account_id($query['type'], $query['url']);
-            // print_r($response);die;
-            if ($response['status'] == false) {
-                // $msg = $response['msg'];
-                // echo $this->template->alert_danger($msg);
-                // die;
-            } else {
-                $dt['updated_at'] = DATE("Y-m-d H:i:s");
-                $dt['updated_by'] = strval($user['id']);
-                $dt['account_id'] = $response['data']['account_id'];
-                // print_r($response);die;
-                $dt['img'] = $response['data']['img'];
-                $dt['follower'] = $response['data']['follower'];
-                $dt['media_count'] = $response['data']['media_count'];
-                // print_r($dt);die;
-                $this->db->update('influencer', $dt, array('id' => $id));
-
-                if ($query['type'] == "Tiktok") {
-                    $url = $query['url'];
-                    $uri = explode("/", parse_url($url, PHP_URL_PATH));
-                    $username = $uri[1];
-                    $username = str_replace('@', '', $username);
-                    $response = $this->template->get_post_list($query['type'], $response['data']['account_id']);
-                } else {
-                    $response = $this->template->get_post_list($query['type'], $response['data']['account_id']);
-                }
-
-                if ($response['status'] == false) {
-                    // $msg = $response['msg'];
-                    // echo $this->template->alert_danger($msg);
-                    // die;
-                } else {
-                    $dt = array();
-                    $dt['updated_at'] = DATE("Y-m-d H:i:s");
-                    $dt['updated_by'] = strval($user['id']);
-                    $dt['like'] = 0;
-                    $dt['comment'] = 0;
-                    $dt['collect'] = 0;
-                    $dt['share'] = 0;
-                    $dt['view'] = 0;
-                    // print_r($response['data']);
-                    $i = 0;
-                    foreach ($response['data'] as $k => $v) {
-                        $dt['like'] += $v['like'];
-                        $dt['comment'] += $v['comment'];
-                        $dt['collect'] += $v['collect'];
-                        $dt['share'] += $v['share'];
-                        $dt['view'] += $v['view'];
-                        if ($i >= 10) {
-                            break;
-                        }
-                        $i++;
-                    }
-                    if ($dt['view'] > 0) {
-                        $dt['avg_view'] = $dt['view'] / 10;
-                    }
-                    if (($dt['like'] + $dt['comment'] + $dt['collect'] + $dt['share'])  > 0) {
-                        $dt['avg_interaksi'] = ($dt['like'] + $dt['comment'] + $dt['collect'] + $dt['share']) / 10;
-                    }
-                    if ($dt['view'] > 0 && $dt['avg_interaksi'] > 0) {
-                        $dt['er'] = $dt['avg_interaksi'] / $dt['avg_view'] * 100;
-                    }
-                    $dt['sync_at'] = DATE("Y-m-d H:i:s");
-                    // $this->db->update('influencer', $dt, array('id' => $id));
-
-                    $today = DATE("Y-m-d");
-                    $logs = $this->mymodel->selectWithQuery("SELECT id FROM influencer_logs WHERE id_influencer = '$id' AND DATE(date) = '$today' ");
-                    $logs = $logs[0];
-                    if ($logs) {
-                        $dt['updated_at'] = DATE("Y-m-d H:i:s");
-                        $this->db->update('influencer_logs', $dt, array('id' => $logs['id']));
-                    } else {
-                        $dt['id_influencer'] = $id;
-                        $dt['date'] = $today;
-                        $dt['status'] = "Aktif";
-                        $dt['created_at'] = DATE("Y-m-d H:i:s");
-                        $this->db->insert('influencer_logs', $dt);
-                    }
-
-                    $dt_2 = array();
-                    $dt_2['sync_at'] = $dt['sync_at'];
-                    $dt_2['frequency_2'] = $i;
-                    $dt_2['er'] = $dt['er'];
-                    $dt_2['updated_at'] = DATE("Y-m-d H:i:s");
-                    $dt_2['updated_by'] = strval($user['id']);
-                    $dt_2['view_2'] = $dt['view'];
-                    $dt_2['like_2'] = $dt['like'];
-                    $dt_2['collect_2'] = $dt['collect'];
-                    $dt_2['share_2'] = $dt['share'];
-                    $dt_2['comment_2'] = $dt['comment'];
-                    $dt_2['avg_view_2'] = $dt['view'] / $i;
-                    $dt_2['avg_interaksi_2'] = ($dt['like'] + $dt['comment'] + $dt['collect'] + $dt['share']) / $i;
-
-                    if ($query['ratecard'] > 0 && $dt['view'] > 0) {
-                        $dt_2['cpm_2'] = $query['ratecard'] / $dt_2['avg_view_2'] * 1000;
-                    } else {
-                        $dt_2['cpm_2'] = 0;
-                    }
-
-                    $this->db->update('influencer', $dt_2, array('id' => $id));
-
-                    // $msg = "Refresh data berhasil!";
-                    // echo $this->template->alert_success($msg);
-                    // die;
-                }
-            }
+            // Enqueue for ScrapingBot async processing
+            $result = $this->template->enqueue_scrape('influencer', $vl['id'], $vl['type'], $vl['url'], 5);
+            if ($result['status']) $enqueued++;
         }
+
         header('Content-Type: application/json; charset=utf-8');
-        $html = array();
-        $html['status'] = true;
-        $html['data'] = array();
-        $html['msg'] = count($list) . " data influencer yg di sync <= $todayy berhasil diperbarui";
-        echo json_encode($html, true);
+        echo json_encode([
+            'status' => true,
+            'data' => [],
+            'msg' => $enqueued . " of " . count($list) . " influencer records enqueued for sync (sync_at <= $sync_date)"
+        ]);
         die;
     }
 
     function cronjob_influencer_dummy()
     {
-        $user = isset($_SESSION['user']) ? $_SESSION['user'] : null;
-
         $mode = isset($_GET['mode']) ? strval($_GET['mode']) : '';
 
         $target = DATE("Y-m-d 01:00:00");
         $now = DATE("Y-m-d H:i:s");
 
         if ($mode != 'true') {
-            if ($now >= $target) {
-                // SKIP - proceed with execution
-            } else {
+            if ($now < $target) {
                 header('Content-Type: application/json; charset=utf-8');
-                $html = array();
-                $html['status'] = false;
-                $html['data'] = array();
-                $html['msg'] = "Influencer dummy cronjob will be processed at " . $target . "!";
-                echo json_encode($html, true);
+                echo json_encode([
+                    'status' => false,
+                    'data' => [],
+                    'msg' => "Influencer dummy cronjob will be processed at " . $target . "!"
+                ]);
                 die;
             }
         }
@@ -4863,99 +4710,28 @@ class Api_v2 extends CI_Controller
         $today = DATE("Y-m-d");
         $sync_date = DATE('Y-m-d', strtotime($today . " -7 days"));
 
-        // Get influencer_dummy records that need syncing
-        $list = $this->mymodel->selectWithQuery("SELECT * FROM influencer_dummy WHERE status = 'Aktif' AND (DATE(sync_at) <= '$sync_date' OR sync_at IS NULL) AND url != '' LIMIT 10");
+        // Now uses queue-based approach: enqueue dummy influencers needing sync
+        $list = $this->mymodel->selectWithQuery("
+            SELECT id, type, url FROM influencer_dummy
+            WHERE status = 'Aktif'
+            AND (DATE(sync_at) <= '$sync_date' OR sync_at IS NULL)
+            AND url != ''
+            LIMIT 10
+        ");
 
-        $processed = 0;
-        foreach ($list as $kl => $vl) {
-            $id = $vl['id'];
-            $query = $vl;
-            $url = $query['url'];
-            $type = $query['type'] ? $query['type'] : 'Tiktok';
-            $ratecard = is_numeric($query['ratecard']) ? $query['ratecard'] : 0;
-
-            // Get account ID and basic stats
-            $response = $this->template->get_account_id($type, $url);
-
-            if ($response['status'] == false) {
-                continue;
-            }
-
-            $dt = array();
-            $dt['updated_at'] = DATE("Y-m-d H:i:s");
-            if ($user) {
-                $dt['updated_by'] = strval($user['id']);
-            }
-            $dt['account_id'] = $response['data']['account_id'];
-            $dt['img'] = $response['data']['img'];
-            $dt['follower'] = $response['data']['follower'];
-            $dt['media_count'] = $response['data']['media_count'];
-
-            $this->db->update('influencer_dummy', $dt, array('id' => $id));
-
-            // Get post list data
-            if ($type == "Tiktok") {
-                preg_match('/@([a-zA-Z0-9._]+)/', $url, $matches);
-                $username = $matches[1] ?? '';
-                if (empty($username)) {
-                    continue;
-                }
-                $response = $this->template->get_post_list($type, $dt['account_id']);
-            } else {
-                $response = $this->template->get_post_list($type, $dt['account_id']);
-            }
-
-            if ($response['status'] == false) {
-                continue;
-            }
-
-            $like = $comment = $collect = $share = $view = 0;
-            $i = 0;
-
-            foreach ($response['data'] as $k => $v) {
-                $like += $v['like'];
-                $comment += $v['comment'];
-                $collect += $v['collect'];
-                $share += $v['share'];
-                $view += $v['view'];
-                if ($i >= 10) {
-                    break;
-                }
-                $i++;
-            }
-
-            $avg_view = $i ? $view / $i : 0;
-            $avg_interaksi = $i ? ($like + $comment + $collect + $share) / $i : 0;
-            $er = ($avg_view > 0) ? ($avg_interaksi / $avg_view * 100) : 0;
-            $cpm = ($ratecard > 0 && $avg_view > 0) ? ($ratecard / $avg_view * 1000) : 0;
-
-            $dt_2 = array();
-            $dt_2['sync_at'] = DATE("Y-m-d H:i:s");
-            $dt_2['updated_at'] = DATE("Y-m-d H:i:s");
-            if ($user) {
-                $dt_2['updated_by'] = strval($user['id']);
-            }
-            $dt_2['frequency_2'] = $i;
-            $dt_2['view_2'] = $view;
-            $dt_2['like_2'] = $like;
-            $dt_2['collect_2'] = $collect;
-            $dt_2['share_2'] = $share;
-            $dt_2['comment_2'] = $comment;
-            $dt_2['avg_view_2'] = $avg_view;
-            $dt_2['avg_interaksi_2'] = $avg_interaksi;
-            $dt_2['er'] = $er;
-            $dt_2['cpm_2'] = $cpm;
-
-            $this->db->update('influencer_dummy', $dt_2, array('id' => $id));
-            $processed++;
+        $enqueued = 0;
+        foreach ($list as $vl) {
+            $type = $vl['type'] ? $vl['type'] : 'Tiktok';
+            $result = $this->template->enqueue_scrape('influencer_dummy', $vl['id'], $type, $vl['url'], 5);
+            if ($result['status']) $enqueued++;
         }
 
         header('Content-Type: application/json; charset=utf-8');
-        $html = array();
-        $html['status'] = true;
-        $html['data'] = array();
-        $html['msg'] = $processed . " data influencer dummy yg di sync <= $sync_date berhasil diperbarui";
-        echo json_encode($html, true);
+        echo json_encode([
+            'status' => true,
+            'data' => [],
+            'msg' => $enqueued . " of " . count($list) . " influencer dummy records enqueued for sync (sync_at <= $sync_date)"
+        ]);
         die;
     }
 
@@ -7285,5 +7061,252 @@ class Api_v2 extends CI_Controller
                 'raw' => $response_json
             ]);
         }
+    }
+
+    // =====================================================================
+    // ScrapingBot Queue Cronjobs
+    // =====================================================================
+
+    /**
+     * Cronjob A - Submit pending scrape jobs to ScrapingBot
+     * Runs every 5 minutes
+     * Picks pending queue items, POSTs to ScrapingBot, stores responseId
+     */
+    function cronjob_scraping_submit()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+
+        $this->load->library('scrapingbot');
+        $this->load->model('mymodel');
+
+        // Pick pending items ordered by priority
+        $items = $this->mymodel->selectWithQuery("
+            SELECT * FROM scraping_queue
+            WHERE status = 'pending'
+            ORDER BY priority DESC, created_at ASC
+            LIMIT 5
+        ");
+
+        $submitted = 0;
+        $errors = [];
+
+        foreach ($items as $item) {
+            $params = json_decode($item['scrape_url'], true);
+            if (!$params) {
+                $this->db->update('scraping_queue', [
+                    'status'        => 'failed',
+                    'error_message' => 'Invalid scrape_url JSON',
+                    'completed_at'  => date('Y-m-d H:i:s'),
+                ], ['id' => $item['id']]);
+                $errors[] = "Item #{$item['id']}: invalid params";
+                continue;
+            }
+
+            $result = $this->scrapingbot->startScrape($item['scraper'], $params);
+
+            if ($result['status'] && !empty($result['responseId'])) {
+                $this->db->update('scraping_queue', [
+                    'status'       => 'submitted',
+                    'response_id'  => $result['responseId'],
+                    'submitted_at' => date('Y-m-d H:i:s'),
+                ], ['id' => $item['id']]);
+                $submitted++;
+            } else {
+                $attempts = intval($item['attempts']) + 1;
+                $newStatus = ($attempts >= intval($item['max_attempts'])) ? 'failed' : 'pending';
+
+                $this->db->update('scraping_queue', [
+                    'attempts'      => $attempts,
+                    'status'        => $newStatus,
+                    'error_message' => $result['msg'],
+                    'completed_at'  => ($newStatus === 'failed') ? date('Y-m-d H:i:s') : null,
+                ], ['id' => $item['id']]);
+                $errors[] = "Item #{$item['id']}: " . $result['msg'];
+            }
+        }
+
+        echo json_encode([
+            'status'    => true,
+            'submitted' => $submitted,
+            'total'     => count($items),
+            'errors'    => $errors,
+            'msg'       => "$submitted of " . count($items) . " items submitted to ScrapingBot",
+        ]);
+        die;
+    }
+
+    /**
+     * Cronjob B - Poll submitted scrape jobs for results
+     * Runs every 1 minute
+     * Checks submitted items, parses results, updates entities
+     */
+    function cronjob_scraping_poll()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+
+        $this->load->library('scrapingbot');
+        $this->load->model('mymodel');
+
+        // Pick submitted items that haven't exceeded max attempts
+        $items = $this->mymodel->selectWithQuery("
+            SELECT * FROM scraping_queue
+            WHERE status = 'submitted'
+            AND attempts < max_attempts
+            ORDER BY submitted_at ASC
+            LIMIT 10
+        ");
+
+        $completed = 0;
+        $pending = 0;
+        $failed = 0;
+
+        foreach ($items as $item) {
+            $result = $this->scrapingbot->pollResult($item['scraper'], $item['response_id']);
+
+            if ($result['status'] === 'success') {
+                // Store result data
+                $this->db->update('scraping_queue', [
+                    'status'       => 'completed',
+                    'result_data'  => json_encode($result['data']),
+                    'completed_at' => date('Y-m-d H:i:s'),
+                    'attempts'     => intval($item['attempts']) + 1,
+                ], ['id' => $item['id']]);
+
+                // Process the result and update the entity
+                $item['result_data'] = json_encode($result['data']);
+                $this->template->process_scrape_result($item, $result['data']);
+
+                $completed++;
+
+            } elseif ($result['status'] === 'pending') {
+                // Still processing, increment attempts
+                $this->db->update('scraping_queue', [
+                    'attempts' => intval($item['attempts']) + 1,
+                ], ['id' => $item['id']]);
+                $pending++;
+
+            } else {
+                // Error
+                $attempts = intval($item['attempts']) + 1;
+                $newStatus = ($attempts >= intval($item['max_attempts'])) ? 'failed' : 'submitted';
+
+                $this->db->update('scraping_queue', [
+                    'attempts'      => $attempts,
+                    'status'        => $newStatus,
+                    'error_message' => $result['msg'],
+                    'completed_at'  => ($newStatus === 'failed') ? date('Y-m-d H:i:s') : null,
+                ], ['id' => $item['id']]);
+                $failed++;
+            }
+        }
+
+        echo json_encode([
+            'status'    => true,
+            'completed' => $completed,
+            'pending'   => $pending,
+            'failed'    => $failed,
+            'total'     => count($items),
+            'msg'       => "Poll results: $completed completed, $pending pending, $failed failed",
+        ]);
+        die;
+    }
+
+    /**
+     * Cronjob C - Enqueue influencers/dummies needing sync
+     * Runs every 30 minutes
+     * Finds records where sync_at is older than threshold, inserts into queue
+     */
+    function cronjob_scraping_enqueue()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+
+        $this->load->model('mymodel');
+
+        $enqueued = 0;
+        $skipped = 0;
+
+        // Tier 1 (Hot): sync_at IS NULL or new records - priority 10
+        $tier1_influencer = $this->mymodel->selectWithQuery("
+            SELECT id, type, url FROM influencer
+            WHERE status = 'Aktif' AND url != ''
+            AND sync_at IS NULL
+            LIMIT 20
+        ");
+        foreach ($tier1_influencer as $row) {
+            $result = $this->template->enqueue_scrape('influencer', $row['id'], $row['type'], $row['url'], 10);
+            if ($result['status']) $enqueued++; else $skipped++;
+        }
+
+        $tier1_dummy = $this->mymodel->selectWithQuery("
+            SELECT id, type, url FROM influencer_dummy
+            WHERE status = 'Aktif' AND url != ''
+            AND sync_at IS NULL
+            LIMIT 20
+        ");
+        foreach ($tier1_dummy as $row) {
+            $result = $this->template->enqueue_scrape('influencer_dummy', $row['id'], $row['type'], $row['url'], 10);
+            if ($result['status']) $enqueued++; else $skipped++;
+        }
+
+        // Tier 2 (Active): Has active endorsement campaign - every 3 days, priority 7
+        $three_days_ago = date('Y-m-d', strtotime('-3 days'));
+        $tier2 = $this->mymodel->selectWithQuery("
+            SELECT DISTINCT i.id, i.type, i.url FROM influencer i
+            INNER JOIN endorse e ON e.influencer = i.id
+            INNER JOIN endorse_campaign ec ON e.id_campaign = ec.id
+            WHERE i.status = 'Aktif' AND i.url != ''
+            AND ec.status = 'Aktif'
+            AND (DATE(i.sync_at) <= '$three_days_ago' OR i.sync_at IS NULL)
+            LIMIT 20
+        ");
+        foreach ($tier2 as $row) {
+            $result = $this->template->enqueue_scrape('influencer', $row['id'], $row['type'], $row['url'], 7);
+            if ($result['status']) $enqueued++; else $skipped++;
+        }
+
+        // Tier 3 (Regular): Active influencer, synced > 7 days ago - priority 5
+        $seven_days_ago = date('Y-m-d', strtotime('-7 days'));
+        $tier3_influencer = $this->mymodel->selectWithQuery("
+            SELECT id, type, url FROM influencer
+            WHERE status = 'Aktif' AND url != ''
+            AND DATE(sync_at) <= '$seven_days_ago'
+            LIMIT 10
+        ");
+        foreach ($tier3_influencer as $row) {
+            $result = $this->template->enqueue_scrape('influencer', $row['id'], $row['type'], $row['url'], 5);
+            if ($result['status']) $enqueued++; else $skipped++;
+        }
+
+        $tier3_dummy = $this->mymodel->selectWithQuery("
+            SELECT id, type, url FROM influencer_dummy
+            WHERE status = 'Aktif' AND url != ''
+            AND DATE(sync_at) <= '$seven_days_ago'
+            LIMIT 10
+        ");
+        foreach ($tier3_dummy as $row) {
+            $result = $this->template->enqueue_scrape('influencer_dummy', $row['id'], $row['type'], $row['url'], 5);
+            if ($result['status']) $enqueued++; else $skipped++;
+        }
+
+        // Tier 4 (Cold): Active but synced > 14 days ago - priority 3
+        $fourteen_days_ago = date('Y-m-d', strtotime('-14 days'));
+        $tier4 = $this->mymodel->selectWithQuery("
+            SELECT id, type, url FROM influencer
+            WHERE status = 'Aktif' AND url != ''
+            AND DATE(sync_at) <= '$fourteen_days_ago'
+            LIMIT 5
+        ");
+        foreach ($tier4 as $row) {
+            $result = $this->template->enqueue_scrape('influencer', $row['id'], $row['type'], $row['url'], 3);
+            if ($result['status']) $enqueued++; else $skipped++;
+        }
+
+        echo json_encode([
+            'status'   => true,
+            'enqueued' => $enqueued,
+            'skipped'  => $skipped,
+            'msg'      => "$enqueued records enqueued, $skipped skipped (already in queue or invalid)",
+        ]);
+        die;
     }
 }

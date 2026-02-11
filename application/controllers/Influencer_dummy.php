@@ -162,11 +162,11 @@ class Influencer_dummy extends CI_Controller {
     }
 
     /**
-     * Internal method to sync engagement data from external APIs
-     * Extracted from sync_external_process for reusability
+     * Internal method to sync engagement data via async queue (ScrapingBot)
+     * Enqueues the record for background processing
      *
      * @param int $id The influencer_dummy record ID
-     * @return array Status and data from sync operation
+     * @return array Status and data from enqueue operation
      */
     private function _sync_engagement_data($id)
     {
@@ -180,97 +180,23 @@ class Influencer_dummy extends CI_Controller {
             $data = $query[0];
             $url = $data['url'];
             $type = $data['type'] ? $data['type'] : 'Tiktok';
-            $ratecard = $data['ratecard'];
 
-            $user = $this->session->userdata('user');
-
-            // Get account ID and basic info
-            $response = $this->template->get_account_id($type, $url);
-
-            if (!$response['status']) {
-                return ['status' => 'error', 'message' => 'Gagal mengambil account ID.'];
+            if (empty($url)) {
+                return ['status' => 'error', 'message' => 'URL belum diisi.'];
             }
 
-            $update1 = [
-                'updated_at' => date("Y-m-d H:i:s"),
-                'updated_by' => strval($user['id']),
-                'account_id' => $response['data']['account_id'],
-                'img' => $response['data']['img'],
-                'follower' => $response['data']['follower'],
-                'media_count' => $response['data']['media_count']
-            ];
+            // Enqueue for async ScrapingBot processing with high priority
+            $result = $this->template->enqueue_scrape('influencer_dummy', $id, $type, $url, 10);
 
-            // Extract full_name from API response if available
-            if (isset($response['data']['full_name'])) {
-                $update1['full_name'] = $response['data']['full_name'];
-            } elseif (isset($response['data']['nickname'])) {
-                $update1['full_name'] = $response['data']['nickname'];
-            } elseif (isset($response['data']['display_name'])) {
-                $update1['full_name'] = $response['data']['display_name'];
+            if ($result['status']) {
+                return [
+                    'status' => 'success',
+                    'message' => 'Data sedang diproses. ' . $result['msg'],
+                    'data' => []
+                ];
             }
 
-            $this->db->update('influencer_dummy', $update1, ['id' => $id]);
-
-            // Get post list
-            if ($type === "Tiktok") {
-                preg_match('/@([a-zA-Z0-9._]+)/', $url, $matches);
-                $username = $matches[1] ?? '';
-                $response = $this->template->get_post_list($type, $update1['account_id']);
-            } else {
-                $response = $this->template->get_post_list($type, $update1['account_id']);
-            }
-
-            if (!$response['status']) {
-                return ['status' => 'error', 'message' => 'Gagal mengambil data postingan.'];
-            }
-
-            // Calculate engagement metrics
-            $like = $comment = $collect = $share = $view = 0;
-            $i = 0;
-
-            foreach ($response['data'] as $post) {
-                $like += $post['like'];
-                $comment += $post['comment'];
-                $collect += $post['collect'];
-                $share += $post['share'];
-                $view += $post['view'];
-                $i++;
-                if ($i >= 10) break;
-            }
-
-            $avg_view = $i ? $view / $i : 0;
-            $avg_interaksi = $i ? ($like + $comment + $collect + $share) / $i : 0;
-            $er = ($avg_view > 0) ? ($avg_interaksi / $avg_view * 100) : 0;
-
-            $update2 = [
-                'sync_at' => date("Y-m-d H:i:s"),
-                'updated_at' => date("Y-m-d H:i:s"),
-                'updated_by' => strval($user['id']),
-                'frequency_2' => $i,
-                'view_2' => $view,
-                'like_2' => $like,
-                'collect_2' => $collect,
-                'share_2' => $share,
-                'comment_2' => $comment,
-                'avg_view_2' => $avg_view,
-                'avg_interaksi_2' => $avg_interaksi,
-                'er' => $er,
-                'cpm_2' => ($ratecard > 0 && $avg_view > 0) ? ($ratecard / $avg_view * 1000) : 0
-            ];
-
-            $this->db->update('influencer_dummy', $update2, ['id' => $id]);
-
-            return [
-                'status' => 'success',
-                'message' => 'Sync data berhasil!',
-                'data' => [
-                    'follower' => $update1['follower'],
-                    'cpm' => $update2['cpm_2'],
-                    'er' => $update2['er'],
-                    'avg_view' => $update2['avg_view_2'],
-                    'ratecard' => $ratecard
-                ]
-            ];
+            return ['status' => 'error', 'message' => $result['msg']];
         } catch (Exception $e) {
             return ['status' => 'error', 'message' => 'Exception: ' . $e->getMessage()];
         }
@@ -459,182 +385,65 @@ class Influencer_dummy extends CI_Controller {
         $data = $query[0];
         $url = $data['url'];
         $type = $data['type'] ? $data['type'] : 'Tiktok';
-        $ratecard = $data['ratecard'];
 
-        $user = $this->session->userdata('user');
-
-        $response = $this->template->get_account_id($type, $url);
-
-        if (!$response['status']) {
+        if (empty($url)) {
             echo json_encode([
                 'status' => 'error',
-                'message' => 'Gagal mengambil account ID.'
+                'message' => 'URL belum diisi.'
             ]);
             exit;
         }
 
-        $update1 = [
-            'updated_at' => date("Y-m-d H:i:s"),
-            'updated_by' => strval($user['id']),
-            'account_id' => $response['data']['account_id'],
-            'img' => $response['data']['img'],
-            'follower' => $response['data']['follower'],
-            'media_count' => $response['data']['media_count']
-        ];
-        $this->db->update('influencer_dummy', $update1, ['id' => $id]);
+        // Enqueue for async ScrapingBot processing with high priority (manual refresh)
+        $result = $this->template->enqueue_scrape('influencer_dummy', $id, $type, $url, 10);
 
-        if ($type === "Tiktok") {
-            preg_match('/@([a-zA-Z0-9._]+)/', $url, $matches);
-            $username = $matches[1] ?? '';
-            $response = $this->template->get_post_list($type, $update1['account_id']);
+        if ($result['status']) {
+            echo json_encode([
+                'status' => 'success',
+                'message' => 'Refresh data sedang diproses. Data akan diperbarui dalam beberapa menit.'
+            ]);
         } else {
-            $response = $this->template->get_post_list($type, $update1['account_id']);
-        }
-
-        if (!$response['status']) {
             echo json_encode([
                 'status' => 'error',
-                'message' => 'Gagal mengambil data postingan.'
+                'message' => $result['msg']
             ]);
-            exit;
         }
-
-        $like = $comment = $collect = $share = $view = 0;
-        $i = 0;
-
-        foreach ($response['data'] as $post) {
-            $like += $post['like'];
-            $comment += $post['comment'];
-            $collect += $post['collect'];
-            $share += $post['share'];
-            $view += $post['view'];
-            $i++;
-            if ($i >= 10) break;
-        }
-
-        $avg_view = $i ? $view / $i : 0;
-        $avg_interaksi = $i ? ($like + $comment + $collect + $share) / $i : 0;
-        $er = ($avg_view > 0) ? ($avg_interaksi / $avg_view * 100) : 0;
-
-        $update2 = [
-            'sync_at' => date("Y-m-d H:i:s"),
-            'updated_at' => date("Y-m-d H:i:s"),
-            'updated_by' => strval($user['id']),
-            'frequency_2' => $i,
-            'view_2' => $view,
-            'like_2' => $like,
-            'collect_2' => $collect,
-            'share_2' => $share,
-            'comment_2' => $comment,
-            'avg_view_2' => $avg_view,
-            'avg_interaksi_2' => $avg_interaksi,
-            'er' => $er,
-            'cpm_2' => ($ratecard > 0 && $avg_view > 0) ? ($ratecard / $avg_view * 1000) : 0
-        ];
-
-        $this->db->update('influencer_dummy', $update2, ['id' => $id]);
-
-        echo json_encode([
-            'status' => 'success',
-            'message' => 'Refresh data berhasil!',
-            'data' => [
-                'follower' => $update1['follower'],
-                'cpm' => $update2['cpm_2'],
-                'er' => $update2['er'],
-                'avg_view' => $update2['avg_view_2'],
-                'ratecard' => $ratecard
-            ]
-        ]);
         exit;
     }
 
     public function refresh_data($list_id)
     {
         try {
-            $ids = explode(',', str_replace("'", "", $list_id)); 
-            $user = $this->session->userdata('user');
-            if (!$user || !isset($user['id'])) return;
+            $ids = explode(',', str_replace("'", "", $list_id));
 
+            $enqueued = 0;
             foreach ($ids as $id) {
-                $query = $this->mymodel->selectWithQuery("SELECT * FROM influencer_dummy WHERE id = '$id'");
+                $id = trim($id);
+                if (empty($id)) continue;
+
+                $query = $this->mymodel->selectWithQuery("SELECT id, type, url FROM influencer_dummy WHERE id = '$id'");
                 if (!$query || count($query) === 0) continue;
 
                 $data = $query[0];
-                $url = $data['url'];
-                $type = $data['type'];
-                $ratecard = is_numeric($data['ratecard']) ? $data['ratecard'] : 0;
+                $type = $data['type'] ? $data['type'] : 'Tiktok';
 
-                $response = $this->template->get_account_id($type, $url);
-                if (!$response['status'] || !isset($response['data']['account_id'])) continue;
+                if (empty($data['url'])) continue;
 
-                $update1 = [
-                    'updated_at' => date("Y-m-d H:i:s"),
-                    'updated_by' => strval($user['id']),
-                    'account_id' => $response['data']['account_id'],
-                    'img' => $response['data']['img'],
-                    'follower' => $response['data']['follower'],
-                    'media_count' => $response['data']['media_count']
-                ];
-                $this->db->update('influencer_dummy', $update1, ['id' => $id]);
-
-                if ($type === "Tiktok") {
-                    preg_match('/@([a-zA-Z0-9_]+)/', $url, $matches);
-                    $username = $matches[1] ?? '';
-                    if (empty($username)) continue;
-                    $response = $this->template->get_post_list($type, $update1['account_id']);
-                } else {
-                    $response = $this->template->get_post_list($type, $update1['account_id']);
-                }
-
-                if (!$response['status']) continue;
-
-                $like = $comment = $collect = $share = $view = 0;
-                $i = 0;
-                foreach ($response['data'] as $post) {
-                    $like += $post['like'];
-                    $comment += $post['comment'];
-                    $collect += $post['collect'];
-                    $share += $post['share'];
-                    $view += $post['view'];
-                    if (++$i >= 10) break;
-                }
-
-                $avg_view = $i ? $view / $i : 0;
-                $avg_interaksi = $i ? ($like + $comment + $collect + $share) / $i : 0;
-                $er = ($avg_view > 0) ? ($avg_interaksi / $avg_view * 100) : 0;
-                $cpm = ($ratecard > 0 && $avg_view > 0) ? ($ratecard / $avg_view * 1000) : 0;
-
-                $update2 = [
-                    'sync_at' => date("Y-m-d H:i:s"),
-                    'updated_at' => date("Y-m-d H:i:s"),
-                    'updated_by' => strval($user['id']),
-                    'frequency_2' => $i,
-                    'view_2' => $view,
-                    'like_2' => $like,
-                    'collect_2' => $collect,
-                    'share_2' => $share,
-                    'comment_2' => $comment,
-                    'avg_view_2' => $avg_view,
-                    'avg_interaksi_2' => $avg_interaksi,
-                    'er' => $er,
-                    'cpm_2' => $cpm
-                ];
-                $this->db->update('influencer_dummy', $update2, ['id' => $id]);
-
-                echo json_encode([
-                    'status' => 'success',
-                    'message' => 'Refresh data berhasil!',
-                    'data' => [
-                        'follower' => $update1['follower'],
-                        'cpm' => $update2['cpm_2'],
-                        'er' => $update2['er'],
-                        'avg_view' => $update2['avg_view_2'],
-                        'ratecard' => $ratecard
-                    ]
-                ]);
+                // Enqueue for async ScrapingBot processing
+                $result = $this->template->enqueue_scrape('influencer_dummy', $data['id'], $type, $data['url'], 10);
+                if ($result['status']) $enqueued++;
             }
+
+            echo json_encode([
+                'status' => 'success',
+                'message' => "$enqueued data sedang diproses. Data akan diperbarui dalam beberapa menit."
+            ]);
         } catch (Exception $e) {
             log_message('error', 'Refresh Data Error: ' . $e->getMessage());
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Terjadi kesalahan: ' . $e->getMessage()
+            ]);
         }
     }
 
