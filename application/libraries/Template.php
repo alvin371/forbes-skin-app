@@ -755,17 +755,16 @@ class Template
                     $jsonData = json_decode($jsonContent, true)['__DEFAULT_SCOPE__']['webapp.video-detail']['itemInfo']['itemStruct'];
                     $response["status"] = true;
                     $response["msg"] = "";
-                    if (intval($jsonData['stats']['playCount']) > 0) {
-                        $response["data"]["like"] = intval($jsonData['stats']['diggCount']);
-                        $response["data"]["share"] = intval($jsonData['stats']['shareCount']);
-                        $response["data"]["comment"] = intval($jsonData['stats']['commentCount']);
-                        $response["data"]["collect"] = intval($jsonData['stats']['collectCount']);
-                        $response["data"]["view"] = intval($jsonData['stats']['playCount']);
+                    if (isset($jsonData['stats'])) {
+                        $response["data"]["like"] = intval($jsonData['stats']['diggCount'] ?? 0);
+                        $response["data"]["share"] = intval($jsonData['stats']['shareCount'] ?? 0);
+                        $response["data"]["comment"] = intval($jsonData['stats']['commentCount'] ?? 0);
+                        $response["data"]["collect"] = intval($jsonData['stats']['collectCount'] ?? 0);
+                        $response["data"]["view"] = intval($jsonData['stats']['playCount'] ?? 0);
                         $response['data']['created_at'] = DATE("Y-m-d", $jsonData['createTime']);
                     } else {
-                        // Photo/slideshow post - no RapidAPI fallback, accept data gap
                         $response["status"] = false;
-                        $response["msg"] = "Photo/slideshow post - data tidak tersedia via HTML scrape";
+                        $response["msg"] = "Stats data tidak ditemukan untuk " . $url;
                         $response["data"] = array();
                     }
                 } else {
