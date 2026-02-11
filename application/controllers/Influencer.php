@@ -556,6 +556,10 @@ class Influencer extends BaseController
         $dt = array();
         $dt['frequency'] = $endorse['frequency'];
         $dt['total_cost'] = $endorse['total_cost'];
+        $dt['view'] = $endorse['views'];
+        $dt['like'] = $endorse['likes'];
+        $dt['comment'] = $endorse['comment'];
+        $dt['share'] = $endorse['share'];
         $dt['avg_view'] = $endorse['avg_views'];
         $dt['avg_interaksi'] = $endorse['avg_interaksi'];
         if ($endorse['total_cost'] > 0 && $endorse['views'] > 0) {
@@ -569,7 +573,7 @@ class Influencer extends BaseController
         $result = $this->template->enqueue_scrape('influencer', $id, $query['type'], $query['url'], 10);
 
         if ($result['status']) {
-            $msg = "Refresh data sedang diproses. Data akan diperbarui dalam beberapa menit.";
+            $msg = "Data internal berhasil diperbarui. Data eksternal sedang diproses, akan diperbarui dalam beberapa menit.";
             echo $this->template->alert_success($msg);
         } else {
             $msg = $result['msg'];
@@ -758,7 +762,10 @@ class Influencer extends BaseController
             $id = $vl['id'];
             $endorse = $this->mymodel->selectWithQuery("SELECT COUNT(id) as frequency, SUM(total_cost) as total_cost, SUM(views) as views,
             AVG(views) as avg_views,
-            AVG(likes+comment+share_save) as avg_interaksi
+            AVG(likes+comment+share_save) as avg_interaksi,
+            SUM(likes) as likes,
+            SUM(share_save) as share,
+            SUM(comment) as comment
             FROM endorse WHERE influencer = '$id' AND link_upload != ''
             ");
             $endorse = $endorse[0];
@@ -766,6 +773,10 @@ class Influencer extends BaseController
             $dt = array();
             $dt['frequency'] = $endorse['frequency'];
             $dt['total_cost'] = $endorse['total_cost'];
+            $dt['view'] = $endorse['views'];
+            $dt['like'] = $endorse['likes'];
+            $dt['comment'] = $endorse['comment'];
+            $dt['share'] = $endorse['share'];
             $dt['avg_view'] = $endorse['avg_views'];
             $dt['avg_interaksi'] = $endorse['avg_interaksi'];
             if ($endorse['total_cost'] > 0 && $endorse['views'] > 0) {

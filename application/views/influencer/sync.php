@@ -2,6 +2,7 @@
 <form action="<?= base_url() ?>/influencer/sync-process" method="POST" id="form-modal">
 	<input type="hidden" name="id" value="<?= $data['id'] ?>">
 	<p>Apakah kamu yakin ingin melakukan refresh data?</p>
+	<small class="text-muted">Data internal (views, likes, dll) akan langsung diperbarui. Data eksternal (followers, following) diproses dalam beberapa menit.</small>
 	<div class="col-md-12 mt-3">
 		<button type="submit" class="btn btn-primary btn-send">Refresh Data</button>
 	</div>
