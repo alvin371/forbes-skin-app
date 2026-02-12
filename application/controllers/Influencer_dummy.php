@@ -417,19 +417,34 @@ class Influencer_dummy extends CI_Controller {
             exit;
         }
 
-        // Enqueue for async ScrapingBot processing with high priority (manual refresh)
-        $result = $this->template->enqueue_scrape('influencer_dummy', $id, $type, $url, 10);
-
-        if ($result['status']) {
-            echo json_encode([
-                'status' => 'success',
-                'message' => 'Refresh data sedang diproses. Data akan diperbarui dalam beberapa menit.'
-            ]);
+        if ($type == 'Tiktok') {
+            // Synchronous via RapidAPI
+            $result = $this->template->syncTiktokProfile('influencer_dummy', $id, $type, $url);
+            if ($result['status']) {
+                echo json_encode([
+                    'status' => 'success',
+                    'message' => 'Data berhasil disinkronkan.'
+                ]);
+            } else {
+                echo json_encode([
+                    'status' => 'error',
+                    'message' => $result['msg']
+                ]);
+            }
         } else {
-            echo json_encode([
-                'status' => 'error',
-                'message' => $result['msg']
-            ]);
+            // Instagram: async via ScrapingBot
+            $result = $this->template->enqueue_scrape('influencer_dummy', $id, $type, $url, 10);
+            if ($result['status']) {
+                echo json_encode([
+                    'status' => 'success',
+                    'message' => 'Refresh data sedang diproses. Data akan diperbarui dalam beberapa menit.'
+                ]);
+            } else {
+                echo json_encode([
+                    'status' => 'error',
+                    'message' => $result['msg']
+                ]);
+            }
         }
         exit;
     }
@@ -452,14 +467,18 @@ class Influencer_dummy extends CI_Controller {
 
                 if (empty($data['url'])) continue;
 
-                // Enqueue for async ScrapingBot processing
-                $result = $this->template->enqueue_scrape('influencer_dummy', $data['id'], $type, $data['url'], 10);
+                // TikTok: sync via RapidAPI, Instagram: async via ScrapingBot
+                if ($type == 'Tiktok') {
+                    $result = $this->template->syncTiktokProfile('influencer_dummy', $data['id'], $type, $data['url']);
+                } else {
+                    $result = $this->template->enqueue_scrape('influencer_dummy', $data['id'], $type, $data['url'], 10);
+                }
                 if ($result['status']) $enqueued++;
             }
 
             echo json_encode([
                 'status' => 'success',
-                'message' => "$enqueued data sedang diproses. Data akan diperbarui dalam beberapa menit."
+                'message' => "$enqueued data berhasil diproses."
             ]);
         } catch (Exception $e) {
             log_message('error', 'Refresh Data Error: ' . $e->getMessage());
