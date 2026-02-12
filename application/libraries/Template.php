@@ -322,6 +322,119 @@ class Template
     }
 
     /**
+     * Retry wrapper around curlRequest with validation callback
+     */
+    function curlRequestWithRetry($url, $headers, $isValidResponse, $maxRetry = 3, $delayMs = 300)
+    {
+        $lastResponse = null;
+        for ($attempt = 1; $attempt <= $maxRetry; $attempt++) {
+            $lastResponse = $this->curlRequest($url, $headers);
+            if (is_callable($isValidResponse) && $isValidResponse($lastResponse)) {
+                return $lastResponse;
+            }
+            if ($attempt < $maxRetry) {
+                usleep($delayMs * 1000);
+            }
+        }
+        return $lastResponse;
+    }
+
+    /**
+     * Get RapidAPI headers for TikTok API requests
+     */
+    function getRapidApiHeaders()
+    {
+        return [
+            "x-rapidapi-host: " . env('RAPIDAPI_HOST', 'tiktok-api23.p.rapidapi.com'),
+            "x-rapidapi-key: " . env('RAPIDAPI_KEY', ''),
+        ];
+    }
+
+    /**
+     * Get TikTok user info via RapidAPI /api/user/info endpoint
+     */
+    function getDataFromFirstEndpoint($username)
+    {
+        $url = "https://" . env('RAPIDAPI_HOST', 'tiktok-api23.p.rapidapi.com') . "/api/user/info?uniqueId=" . urlencode($username);
+        $headers = $this->getRapidApiHeaders();
+
+        $response = $this->curlRequestWithRetry($url, $headers, function ($resp) {
+            $ok = isset($resp['status_code']) ? intval($resp['status_code']) === 0
+                : (isset($resp['statusCode']) && intval($resp['statusCode']) === 0);
+            return $ok && !empty($resp['userInfo']['user']['secUid']);
+        });
+
+        if (empty($response['userInfo']['user']['secUid'])) {
+            return [
+                "status" => false,
+                "msg" => "Data tidak ditemukan dari user info endpoint",
+                "data" => [],
+                "source" => "first_endpoint"
+            ];
+        }
+
+        $user = $response['userInfo']['user'];
+        $stats = $response['userInfo']['stats'];
+
+        return [
+            "status" => true,
+            "msg" => "",
+            "data" => [
+                "account_id"  => $user['secUid'],
+                "username"    => $user['uniqueId'] ?? $username,
+                "img"         => $user['avatarLarger'] ?? '',
+                "follower"    => intval($stats['followerCount'] ?? 0),
+                "media_count" => intval($stats['videoCount'] ?? 0),
+            ],
+            "source" => "first_endpoint"
+        ];
+    }
+
+    /**
+     * Search TikTok user via RapidAPI /api/search/account endpoint (fallback)
+     */
+    function getDataFromSearchEndpoint($username)
+    {
+        $keyword = urlencode($username);
+        $url = "https://" . env('RAPIDAPI_HOST', 'tiktok-api23.p.rapidapi.com') . "/api/search/account?keyword=$keyword&cursor=0&search_id=0";
+        $headers = $this->getRapidApiHeaders();
+
+        $response = $this->curlRequestWithRetry($url, $headers, function ($resp) {
+            $ok = isset($resp['status_code']) ? intval($resp['status_code']) === 0
+                : (isset($resp['statusCode']) && intval($resp['statusCode']) === 0);
+            return $ok && !empty($resp['user_list'][0]['user_info']);
+        });
+
+        if (empty($response['user_list'][0]['user_info'])) {
+            return [
+                "status" => false,
+                "msg" => "Data tidak ditemukan dari search endpoint",
+                "data" => [],
+                "source" => "search_endpoint"
+            ];
+        }
+
+        $userInfo = $response['user_list'][0]['user_info'];
+        $imgUrl = '';
+        if (!empty($userInfo['avatar_thumb']['url_list'][0])) {
+            $imgUrl = $userInfo['avatar_thumb']['url_list'][0];
+        }
+
+        return [
+            "status" => true,
+            "msg" => "",
+            "data" => [
+                "account_id"  => $userInfo['sec_uid'] ?? '',
+                "username"    => $userInfo['unique_id'] ?? $username,
+                "img"         => $imgUrl,
+                "follower"    => intval($userInfo['follower_count'] ?? 0),
+                "media_count" => intval($userInfo['item_count'] ?? 0),
+            ],
+            "source" => "search_endpoint"
+        ];
+    }
+
+    /**
      * Parse ScrapingBot tiktokProfile response into standard data structure
      *
      * @param array $data Raw ScrapingBot tiktokProfile response
@@ -648,8 +761,133 @@ class Template
     }
 
     /**
-     * Get account ID - now queues async scrape via ScrapingBot
-     * Returns queued status for async processing
+     * Synchronous TikTok profile sync via RapidAPI
+     * Combines get_account_id + get_post_list + metrics calculation + DB update
+     *
+     * @param string $entityType 'influencer' or 'influencer_dummy'
+     * @param int    $entityId   Entity record ID
+     * @param string $type       Platform type (should be 'Tiktok')
+     * @param string $url        Profile URL
+     * @return array ['status' => bool, 'msg' => string]
+     */
+    function syncTiktokProfile($entityType, $entityId, $type, $url)
+    {
+        $CI =& get_instance();
+
+        // Step 1: Get account ID (profile data)
+        $profileResult = $this->get_account_id($type, $url);
+        if (!$profileResult['status'] || empty($profileResult['data'])) {
+            return ['status' => false, 'msg' => $profileResult['msg'] ?: 'Gagal mengambil data profil TikTok'];
+        }
+
+        $profileData = $profileResult['data'];
+        $table = ($entityType === 'influencer_dummy') ? 'influencer_dummy' : $entityType;
+
+        // Step 2: Update profile data
+        $profileUpdate = [
+            'account_id'  => $profileData['account_id'],
+            'img'         => $profileData['img'],
+            'follower'    => $profileData['follower'],
+            'media_count' => $profileData['media_count'],
+            'updated_at'  => date('Y-m-d H:i:s'),
+            'updated_by'  => '1', // system
+        ];
+
+        if (!empty($profileData['username'])) {
+            $profileUpdate['full_name'] = $profileData['username'];
+        }
+
+        $CI->db->update($table, $profileUpdate, ['id' => $entityId]);
+
+        // Step 3: Get post list for engagement metrics
+        $postResult = $this->get_post_list($type, $profileData['account_id']);
+        if ($postResult['status'] && !empty($postResult['data'])) {
+            $like = $comment = $collect = $share = $view = 0;
+            $i = 0;
+
+            foreach ($postResult['data'] as $post) {
+                $like    += $post['like'];
+                $comment += $post['comment'];
+                $collect += $post['collect'];
+                $share   += $post['share'];
+                $view    += $post['view'];
+                $i++;
+                if ($i >= 10) break;
+            }
+
+            $avg_view = $i ? $view / $i : 0;
+            $avg_interaksi = $i ? ($like + $comment + $collect + $share) / $i : 0;
+            $er = ($avg_view > 0) ? ($avg_interaksi / $avg_view * 100) : 0;
+
+            // Get ratecard for CPM calculation
+            $record = $CI->db->select('ratecard')->where('id', $entityId)->get($table)->row_array();
+            $ratecard = floatval($record['ratecard'] ?? 0);
+            $cpm_2 = ($ratecard > 0 && $avg_view > 0) ? ($ratecard / $avg_view * 1000) : 0;
+
+            $metricsUpdate = [
+                'sync_at'          => date('Y-m-d H:i:s'),
+                'updated_at'       => date('Y-m-d H:i:s'),
+                'updated_by'       => '1',
+                'frequency_2'      => $i,
+                'view_2'           => $view,
+                'like_2'           => $like,
+                'collect_2'        => $collect,
+                'share_2'          => $share,
+                'comment_2'        => $comment,
+                'avg_view_2'       => $avg_view,
+                'avg_interaksi_2'  => $avg_interaksi,
+                'er'               => $er,
+                'cpm_2'            => $cpm_2,
+            ];
+
+            $CI->db->update($table, $metricsUpdate, ['id' => $entityId]);
+
+            // Update influencer_logs if entity is influencer
+            if ($entityType === 'influencer') {
+                $today = date('Y-m-d');
+                $logs = $CI->db->select('id')
+                    ->where('id_influencer', $entityId)
+                    ->where('DATE(date)', $today)
+                    ->get('influencer_logs')
+                    ->row_array();
+
+                $logData = [
+                    'like'           => $like,
+                    'comment'        => $comment,
+                    'collect'        => $collect,
+                    'share'          => $share,
+                    'view'           => $view,
+                    'avg_view'       => $avg_view,
+                    'avg_interaksi'  => $avg_interaksi,
+                    'er'             => $er,
+                    'sync_at'        => date('Y-m-d H:i:s'),
+                ];
+
+                if ($logs) {
+                    $logData['updated_at'] = date('Y-m-d H:i:s');
+                    $CI->db->update('influencer_logs', $logData, ['id' => $logs['id']]);
+                } else {
+                    $logData['id_influencer'] = $entityId;
+                    $logData['date'] = $today;
+                    $logData['status'] = 'Aktif';
+                    $logData['created_at'] = date('Y-m-d H:i:s');
+                    $CI->db->insert('influencer_logs', $logData);
+                }
+            }
+        } else {
+            // No post data, still mark sync_at
+            $CI->db->update($table, [
+                'sync_at'    => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+                'updated_by' => '1',
+            ], ['id' => $entityId]);
+        }
+
+        return ['status' => true, 'msg' => 'Data TikTok berhasil disinkronkan'];
+    }
+
+    /**
+     * Get account ID - TikTok uses RapidAPI (sync), Instagram uses ScrapingBot (async)
      *
      * @param string $type Platform type
      * @param string $url  Profile URL
@@ -671,8 +909,17 @@ class Template
             ];
         }
 
-        if ($type == "Tiktok" || $type == "Instagram") {
-            // If entity info provided, enqueue for async processing
+        if ($type == "Tiktok") {
+            // Synchronous via RapidAPI
+            $result = $this->getDataFromFirstEndpoint($username);
+            if (!$result['status']) {
+                $result = $this->getDataFromSearchEndpoint($username);
+            }
+            return $result;
+        }
+
+        if ($type == "Instagram") {
+            // Async via ScrapingBot queue
             if ($entityType && $entityId) {
                 $queueResult = $this->enqueue_scrape($entityType, $entityId, $type, $url, $priority);
                 return [
@@ -683,7 +930,6 @@ class Template
                 ];
             }
 
-            // No entity info = cannot queue, return not available
             return [
                 "status" => false,
                 "msg"    => "Gunakan async queue untuk mengambil data.",
@@ -708,9 +954,49 @@ class Template
      */
     function get_post_list($type, $account_id)
     {
-        // In the new ScrapingBot flow, post data comes from the same profile scrape
-        // This method is kept for backward compatibility
-        // The queue-based system handles both profile + posts in one scrape
+        if ($type == "Tiktok") {
+            $host = env('RAPIDAPI_HOST', 'tiktok-api23.p.rapidapi.com');
+            $url = "https://$host/api/user/posts?secUid=" . urlencode($account_id) . "&count=10&cursor=0";
+            $headers = $this->getRapidApiHeaders();
+            $headers[] = "Accept: application/json";
+
+            $response = $this->curlRequestWithRetry($url, $headers, function ($resp) {
+                $data_block = $resp['data'] ?? [];
+                $ok = isset($data_block['status_code']) ? intval($data_block['status_code']) === 0
+                    : (isset($data_block['statusCode']) && intval($data_block['statusCode']) === 0);
+                return $ok && !empty($data_block['itemList']);
+            });
+
+            $data_block = $response['data'] ?? [];
+            if (empty($data_block['itemList'])) {
+                return [
+                    "status" => false,
+                    "msg" => "Data post tidak ditemukan",
+                    "data" => []
+                ];
+            }
+
+            $posts = [];
+            $items = array_slice($data_block['itemList'], 0, 10);
+            foreach ($items as $k => $item) {
+                $stats = $item['stats'] ?? [];
+                $posts[$k] = [
+                    'like'    => intval($stats['diggCount'] ?? 0),
+                    'share'   => intval($stats['shareCount'] ?? 0),
+                    'comment' => intval($stats['commentCount'] ?? 0),
+                    'collect' => intval($stats['collectCount'] ?? 0),
+                    'view'    => intval($stats['playCount'] ?? 0),
+                ];
+            }
+
+            return [
+                "status" => true,
+                "msg" => "",
+                "data" => $posts
+            ];
+        }
+
+        // Instagram: post data comes from profile scrape (async queue)
         return [
             "status" => false,
             "msg"    => "Data post didapat dari profile scrape (async queue).",
@@ -726,50 +1012,48 @@ class Template
         $response["data"] = array();
         if ($type == "Tiktok") {
             if ($url) {
-                $curl = curl_init();
-                curl_setopt_array($curl, array(
-                    CURLOPT_URL => $url,
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_ENCODING => '',
-                    CURLOPT_MAXREDIRS => 10,
-                    CURLOPT_TIMEOUT => 0,
-                    CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:100.0) Gecko/20100101 Firefox/100.0',
-                    CURLOPT_FOLLOWLOCATION => true,
-                    CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-                    CURLOPT_CUSTOMREQUEST => 'GET',
-                    CURLOPT_HTTPHEADER => array(
-                        'Cookie: tt_chain_token=+O8Mw9RH4nKrX/ACdOBhXw==; tt_csrf_token=27TtpaB8-Wftkj0rFR_w6LdtcAp4tdDCFfBY; ttwid=1%7CdJI7LAdiTNKwSISqHad9wDTJ6G_70WU_PGro2isx-ac%7C1705385087%7C518efef116162148489d7f25fa3c7b06633a23c824590f04ea0226d5c2b6f092'
-                    ),
-                ));
+                // Extract videoId from URL
+                $video_id = null;
+                if (preg_match('/\/video\/(\d+)/', $url, $matches)) {
+                    $video_id = $matches[1];
+                } elseif (preg_match('/\/photo\/(\d+)/', $url, $matches)) {
+                    $video_id = $matches[1];
+                } elseif (preg_match('/(\d{10,25})/', $url, $matches)) {
+                    $video_id = $matches[1];
+                }
 
-                $responsee = curl_exec($curl);
+                if (empty($video_id)) {
+                    $response["status"] = false;
+                    $response["msg"] = "Video ID tidak ditemukan dari URL: " . $url;
+                    $response["data"] = array();
+                    return $response;
+                }
 
-                curl_close($curl);
+                $host = env('RAPIDAPI_HOST', 'tiktok-api23.p.rapidapi.com');
+                $detail_url = "https://$host/api/post/detail?videoId=$video_id";
+                $headers = $this->getRapidApiHeaders();
 
-                $html = "$responsee";
+                $apiResp = $this->curlRequestWithRetry($detail_url, $headers, function ($resp) {
+                    $ok = isset($resp['status_code']) ? intval($resp['status_code']) === 0
+                        : (isset($resp['statusCode']) && intval($resp['statusCode']) === 0);
+                    return $ok && !empty($resp['itemInfo']['itemStruct']['stats']['playCount']);
+                });
 
-                $pattern = '/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application\/json">(.*?)<\/script>/s';
-                preg_match($pattern, $html, $matches);
-                if (isset($matches[1])) {
-                    $jsonContent = $matches[1];
-                    $jsonData = json_decode($jsonContent, true)['__DEFAULT_SCOPE__']['webapp.video-detail']['itemInfo']['itemStruct'];
+                $itemStruct = $apiResp['itemInfo']['itemStruct'] ?? null;
+                if ($itemStruct && !empty($itemStruct['stats'])) {
                     $response["status"] = true;
                     $response["msg"] = "";
-                    if (isset($jsonData['stats'])) {
-                        $response["data"]["like"] = intval($jsonData['stats']['diggCount'] ?? 0);
-                        $response["data"]["share"] = intval($jsonData['stats']['shareCount'] ?? 0);
-                        $response["data"]["comment"] = intval($jsonData['stats']['commentCount'] ?? 0);
-                        $response["data"]["collect"] = intval($jsonData['stats']['collectCount'] ?? 0);
-                        $response["data"]["view"] = intval($jsonData['stats']['playCount'] ?? 0);
-                        $response['data']['created_at'] = DATE("Y-m-d", $jsonData['createTime']);
-                    } else {
-                        $response["status"] = false;
-                        $response["msg"] = "Stats data tidak ditemukan untuk " . $url;
-                        $response["data"] = array();
+                    $response["data"]["like"] = intval($itemStruct['stats']['diggCount'] ?? 0);
+                    $response["data"]["share"] = intval($itemStruct['stats']['shareCount'] ?? 0);
+                    $response["data"]["comment"] = intval($itemStruct['stats']['commentCount'] ?? 0);
+                    $response["data"]["collect"] = intval($itemStruct['stats']['collectCount'] ?? 0);
+                    $response["data"]["view"] = intval($itemStruct['stats']['playCount'] ?? 0);
+                    if (!empty($itemStruct['createTime'])) {
+                        $response['data']['created_at'] = DATE("Y-m-d", $itemStruct['createTime']);
                     }
                 } else {
                     $response["status"] = false;
-                    $response["msg"] = "Response tiktok " . $url . " tidak ditemukan";
+                    $response["msg"] = "Stats data tidak ditemukan untuk " . $url;
                     $response["data"] = array();
                 }
             } else {

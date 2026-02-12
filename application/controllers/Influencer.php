@@ -569,15 +569,26 @@ class Influencer extends BaseController
         }
         $this->db->update('influencer', $dt, array('id' => $id));
 
-        // Enqueue for async ScrapingBot processing with high priority (manual refresh)
-        $result = $this->template->enqueue_scrape('influencer', $id, $query['type'], $query['url'], 10);
-
-        if ($result['status']) {
-            $msg = "Data internal berhasil diperbarui. Data eksternal sedang diproses, akan diperbarui dalam beberapa menit.";
-            echo $this->template->alert_success($msg);
+        if ($query['type'] == 'Tiktok') {
+            // Synchronous via RapidAPI
+            $result = $this->template->syncTiktokProfile('influencer', $id, $query['type'], $query['url']);
+            if ($result['status']) {
+                $msg = "Data berhasil disinkronkan.";
+                echo $this->template->alert_success($msg);
+            } else {
+                $msg = $result['msg'];
+                echo $this->template->alert_danger($msg);
+            }
         } else {
-            $msg = $result['msg'];
-            echo $this->template->alert_danger($msg);
+            // Instagram: async via ScrapingBot
+            $result = $this->template->enqueue_scrape('influencer', $id, $query['type'], $query['url'], 10);
+            if ($result['status']) {
+                $msg = "Data internal berhasil diperbarui. Data eksternal sedang diproses, akan diperbarui dalam beberapa menit.";
+                echo $this->template->alert_success($msg);
+            } else {
+                $msg = $result['msg'];
+                echo $this->template->alert_danger($msg);
+            }
         }
         die;
     }
@@ -786,8 +797,12 @@ class Influencer extends BaseController
             }
             $this->db->update('influencer', $dt, array('id' => $id));
 
-            // Enqueue for async processing
-            $result = $this->template->enqueue_scrape('influencer', $vl['id'], $vl['type'], $vl['url'], 5);
+            // TikTok: sync via RapidAPI, Instagram: async via ScrapingBot
+            if ($vl['type'] == 'Tiktok') {
+                $result = $this->template->syncTiktokProfile('influencer', $vl['id'], $vl['type'], $vl['url']);
+            } else {
+                $result = $this->template->enqueue_scrape('influencer', $vl['id'], $vl['type'], $vl['url'], 5);
+            }
             if ($result['status']) $enqueued++;
         }
 
