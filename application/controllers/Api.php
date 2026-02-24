@@ -2972,12 +2972,19 @@ class Api extends CI_Controller
 
             $query = $this->mymodel->selectWithQuery("SELECT id
             FROM endorse_logs
-            WHERE id_endorse = '$id_endorse' AND date = '$today' ");
-            $query = $query[0];
+            WHERE id_endorse = '$id_endorse' AND date = '$today'
+            ORDER BY id DESC
+            LIMIT 1");
+            $query = !empty($query) ? $query[0] : null;
             $query_yesterday = $this->mymodel->selectWithQuery("SELECT * 
             FROM endorse_logs
-            WHERE id_endorse = '$id_endorse' AND date < '$today' AND views > 0 ORDER BY date DESC LIMIT 1 ");
-            $query_yesterday = $query_yesterday[0];
+            WHERE id_endorse = '$id_endorse' AND date < '$today' AND views_after > 0 ORDER BY date DESC LIMIT 1 ");
+            $query_yesterday = !empty($query_yesterday) ? $query_yesterday[0] : array();
+
+            $prev_likes = intval($query_yesterday['likes_after'] ?? 0);
+            $prev_comment = intval($query_yesterday['comment_after'] ?? 0);
+            $prev_share_save = intval($query_yesterday['share_save_after'] ?? 0);
+            $prev_views = intval($query_yesterday['views_after'] ?? 0);
 
 
             $dt = array();
@@ -2998,89 +3005,99 @@ class Api extends CI_Controller
 
             $this->db->update('endorse', $dts, array('id' => $v['id']));
 
+            $dt['likes'] = $prev_likes;
+            $dt['comment'] = $prev_comment;
+            $dt['share_save'] = $prev_share_save;
+            $dt['views'] = $prev_views;
+
             if ($response['data']['view'] > 0) {
                 $dt['likes'] = $response['data']['like'];
                 $dt['comment'] = $response['data']['comment'];
                 $dt['share_save'] = doubleval($response['data']['share']) + doubleval($response['data']['collect']);
                 $dt['views'] = $response['data']['view'];
+            }
 
-                if ($dt['views'] >= 50000) {
-                    $id_influencer = $vl['influencer'];
-                    $creator = $this->mymodel->selectWithQuery("SELECT follower
-                    FROM influencer WHERE id = '$id_influencer'");
-                    $creator = $creator[0];
-                    $percentage = 0;
-                    $follower = intval($creator['follower']);
-                    if ($follower > 0) {
-                        $batas = intval($follower * 30 / 100);
-                        if ($dt['views'] >= $batas) {
-                            $dt['is_fyp'] = "1";
-                        }
-                    } else {
+            // Keep views cumulative and non-decreasing per content.
+            if (intval($dt['views']) < $prev_views) {
+                $dt['views'] = $prev_views;
+            }
+
+            if ($dt['views'] >= 50000) {
+                $id_influencer = $vl['influencer'];
+                $creator = $this->mymodel->selectWithQuery("SELECT follower
+                FROM influencer WHERE id = '$id_influencer'");
+                $creator = $creator[0];
+                $percentage = 0;
+                $follower = intval($creator['follower']);
+                if ($follower > 0) {
+                    $batas = intval($follower * 30 / 100);
+                    if ($dt['views'] >= $batas) {
                         $dt['is_fyp'] = "1";
                     }
-                }
-
-                $dtt = $dt;
-                unset($dt['is_fyp']);
-                unset($dtt['id_endorse']);
-                unset($dtt['id_campaign']);
-                unset($dtt['date']);
-                $dtt['updated_at'] = DATE("Y-m-d H:i:s");
-
-                $this->db->update('endorse', $dtt, array('id' => $id_endorse));
-
-
-                if ($v['total_cost'] > 0 && $dt['views'] > 0) {
-                    $dt['cpm'] = doubleval($v['total_cost']) / doubleval($dt['views']) * 1000;
                 } else {
-                    $dt['cpm'] = 0;
+                    $dt['is_fyp'] = "1";
                 }
+            }
 
-                $dtt = array();
-                $dtt['likes'] = doubleval($dt['likes']);
-                $dtt['comment'] = doubleval($dt['comment']);
-                $dtt['share_save'] = doubleval($dt['share_save']);
-                $dtt['views'] = doubleval($dt['views']);
-                $dtt['cpm'] = doubleval($dt['cpm']);
+            $dtt = $dt;
+            unset($dt['is_fyp']);
+            unset($dtt['id_endorse']);
+            unset($dtt['id_campaign']);
+            unset($dtt['date']);
+            $dtt['updated_at'] = DATE("Y-m-d H:i:s");
 
-                $dt['total_cost'] = doubleval($v['total_cost']);
+            $this->db->update('endorse', $dtt, array('id' => $id_endorse));
 
-                $dt['link_upload'] = strval($v['link_upload']);
-                $dt['platform'] = strval($v['platform']);
 
-                $dt['likes_after'] = intval($dt['likes']);
-                $dt['comment_after'] = intval($dt['comment']);
-                $dt['share_save_after'] = intval($dt['share_save']);
-                $dt['views_after'] = intval($dt['views']);
+            if ($v['total_cost'] > 0 && $dt['views'] > 0) {
+                $dt['cpm'] = doubleval($v['total_cost']) / doubleval($dt['views']) * 1000;
+            } else {
+                $dt['cpm'] = 0;
+            }
 
-                if ($v['total_cost'] > 0 && $dt['views_after'] > 0) {
-                    $dt['cpm_after'] = doubleval($v['total_cost']) / doubleval($dt['views_after']) * 1000;
-                } else {
-                    $dt['cpm_after'] = 0;
-                }
+            $dtt = array();
+            $dtt['likes'] = doubleval($dt['likes']);
+            $dtt['comment'] = doubleval($dt['comment']);
+            $dtt['share_save'] = doubleval($dt['share_save']);
+            $dtt['views'] = doubleval($dt['views']);
+            $dtt['cpm'] = doubleval($dt['cpm']);
 
-                $dt['likes'] -= intval($query_yesterday['likes_after']);
-                $dt['comment'] -= intval($query_yesterday['comment_after']);
-                $dt['share_save'] -= intval($query_yesterday['share_save_after']);
-                $dt['views'] -= intval($query_yesterday['views_after']);
+            $dt['total_cost'] = doubleval($v['total_cost']);
 
-                if ($v['total_cost'] > 0 && $dt['views'] > 0) {
-                    $dt['cpm'] = doubleval($v['total_cost']) / doubleval($dt['views']) * 1000;
-                } else {
-                    $dt['cpm'] = 0;
-                }
+            $dt['link_upload'] = strval($v['link_upload']);
+            $dt['platform'] = strval($v['platform']);
 
-                $dt['likes_before'] = intval($query_yesterday['likes_after']);
-                $dt['comment_before'] = intval($query_yesterday['comment_after']);
-                $dt['share_save_before'] = intval($query_yesterday['share_save_after']);
-                $dt['views_before'] = intval($query_yesterday['views_after']);
+            $dt['likes_after'] = intval($dt['likes']);
+            $dt['comment_after'] = intval($dt['comment']);
+            $dt['share_save_after'] = intval($dt['share_save']);
+            $dt['views_after'] = intval($dt['views']);
 
-                if ($v['total_cost'] > 0 && $dt['views_before'] > 0) {
-                    $dt['cpm_before'] = doubleval($v['total_cost']) / doubleval($dt['views_before']) * 1000;
-                } else {
-                    $dt['cpm_before'] = 0;
-                }
+            if ($v['total_cost'] > 0 && $dt['views_after'] > 0) {
+                $dt['cpm_after'] = doubleval($v['total_cost']) / doubleval($dt['views_after']) * 1000;
+            } else {
+                $dt['cpm_after'] = 0;
+            }
+
+            $dt['likes'] -= $prev_likes;
+            $dt['comment'] -= $prev_comment;
+            $dt['share_save'] -= $prev_share_save;
+            $dt['views'] = max(0, intval($dt['views_after']) - $prev_views);
+
+            if ($v['total_cost'] > 0 && $dt['views'] > 0) {
+                $dt['cpm'] = doubleval($v['total_cost']) / doubleval($dt['views']) * 1000;
+            } else {
+                $dt['cpm'] = 0;
+            }
+
+            $dt['likes_before'] = $prev_likes;
+            $dt['comment_before'] = $prev_comment;
+            $dt['share_save_before'] = $prev_share_save;
+            $dt['views_before'] = $prev_views;
+
+            if ($v['total_cost'] > 0 && $dt['views_before'] > 0) {
+                $dt['cpm_before'] = doubleval($v['total_cost']) / doubleval($dt['views_before']) * 1000;
+            } else {
+                $dt['cpm_before'] = 0;
             }
 
             // $dt['is_cron'] = '1';
@@ -3095,13 +3112,19 @@ class Api extends CI_Controller
             if ($query) {
                 $dt['updated_at'] = DATE("Y-m-d H:i:s");
                 $dt['updated_by'] = strval($user['id']);
-                $this->db->update('endorse_logs', $dt, array('id' => $query['id']));
+                $this->db->update('endorse_logs', $dt, array('id_endorse' => $id_endorse, 'date' => $today));
                 $id_parent = $query['id'];
             } else {
                 $dt['created_at'] = DATE("Y-m-d H:i:s");
                 $dt['created_by'] = strval($user['id']);
-                $this->db->insert('endorse_logs', $dt);
-                $id_parent = $this->db->insert_id();
+                if ($this->db->insert('endorse_logs', $dt)) {
+                    $id_parent = $this->db->insert_id();
+                } else {
+                    $dt['updated_at'] = DATE("Y-m-d H:i:s");
+                    $dt['updated_by'] = strval($user['id']);
+                    $this->db->update('endorse_logs', $dt, array('id_endorse' => $id_endorse, 'date' => $today));
+                    $id_parent = 0;
+                }
             }
 
             $dt_tmp = array();

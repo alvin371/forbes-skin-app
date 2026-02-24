@@ -7,6 +7,29 @@ function separator_only($angka) {
 
 $view = isset($_GET['view']) ? $_GET['view'] : 'card';
 
+$content_filter_details = [];
+if (($_GET['list_views_zero'] ?? '') === '1') {
+    $views_zero_date_text = $_GET['list_views_zero_date'] ?? '';
+    if ($views_zero_date_text) {
+        $views_zero_date_text = date('d/m/Y', strtotime($views_zero_date_text));
+    } else {
+        $views_zero_date_text = '-';
+    }
+    $content_filter_details[] = 'Views = 0 pada ' . $views_zero_date_text;
+}
+if (($_GET['list_no_growth'] ?? '') === '1') {
+    $ng_start_text = $_GET['list_growth_start_date'] ?? ($_GET['start_date'] ?? '');
+    $ng_end_text = $_GET['list_growth_until_date'] ?? ($_GET['until_date'] ?? '');
+    if ($ng_start_text) {
+        $ng_start_text = date('d/m/Y', strtotime($ng_start_text));
+    }
+    if ($ng_end_text) {
+        $ng_end_text = date('d/m/Y', strtotime($ng_end_text));
+    }
+    $content_filter_details[] = 'No Growth ' . ($ng_start_text ?: '-') . ' - ' . ($ng_end_text ?: '-');
+}
+$content_filter_detail_text = implode(' | ', $content_filter_details);
+
 if ($view == 'table') {
     // TABLE VIEW
     ?>
@@ -368,6 +391,11 @@ if ($view == 'table') {
                                 </span>
                             <?php endif; ?>
                         </div>
+                        <?php if ($content_filter_detail_text): ?>
+                            <div style="margin-top:6px;">
+                                <span class="badge bg-light text-dark"><?= htmlspecialchars($content_filter_detail_text) ?></span>
+                            </div>
+                        <?php endif; ?>
                     </td>
                     <td><?= $v['posting_at'] ? $v['posting_at'] : '-' ?></td>
                     <td><?= separator_only($v['views']) ?></td>
@@ -672,6 +700,9 @@ if ($view == 'table') {
                         </p>
                     <?php endif; ?>
                 </div>
+                <?php if ($content_filter_detail_text): ?>
+                    <p class="mb-1 mt-1 text-muted" style="font-size:12px;"><?= htmlspecialchars($content_filter_detail_text) ?></p>
+                <?php endif; ?>
             </div>
             <!-- Stats Section -->
             <div class="<?= !empty($v['media_attachment']) ? 'col-lg-3 col-md-4' : 'col-md-4' ?> mt-lg-5 mt-0">

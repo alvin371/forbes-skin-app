@@ -482,43 +482,52 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
     </div>
     <div class="col-lg-12 mb-3">
         <div class="card summary">
-            <h3 class="text-primary fw-600 mb-1">Grafik Campaign</h3>
-            
+            <h3 class="text-primary fw-600 mb-1">Filter Daftar Konten</h3>
             <div class="row my-2 g-2 align-items-end">
-                <div class="col-md-3">
-                    <label class="form-label mb-1 text-primary fw-600">Periode Grafik</label>
+                <div class="col-md-2">
+                    <label class="form-label mb-1 text-primary fw-600">Periode Filter Konten</label>
                     <input type="text" class="form-control form-control-sm" id="chart_tanggal" placeholder="Pilih rentang tanggal...">
                     <input type="hidden" id="chart_start_date" value="<?= $_GET['start_date'] ?? $start_date ?>">
                     <input type="hidden" id="chart_until_date" value="<?= $_GET['until_date'] ?? $until_date ?>">
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label mb-1 text-primary fw-600">Filter Views</label>
+                    <label class="form-label mb-1 text-primary fw-600">Filter Views Konten</label>
                     <select class="form-control form-control-sm" id="chart_views_zero">
                         <option value="">Semua Hari</option>
-                        <option value="1" <?= ($_GET['chart_views_zero'] ?? '') === '1' ? 'selected' : '' ?>>Views = 0</option>
+                        <option value="1" <?= ($_GET['list_views_zero'] ?? '') === '1' ? 'selected' : '' ?>>Views = 0</option>
                     </select>
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label mb-1 text-primary fw-600">Growth Filter</label>
+                    <label class="form-label mb-1 text-primary fw-600">Tanggal Views = 0</label>
+                    <input type="text" class="form-control form-control-sm" id="list_views_zero_tanggal" placeholder="Pilih tanggal...">
+                    <input type="hidden" id="list_views_zero_date" value="<?= $_GET['list_views_zero_date'] ?? '' ?>">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label mb-1 text-primary fw-600">Growth Konten</label>
                     <select class="form-control form-control-sm" id="chart_no_growth">
                         <option value="">Semua Growth</option>
-                        <option value="1" <?= ($_GET['chart_no_growth'] ?? '') === '1' ? 'selected' : '' ?>>No Growth</option>
+                        <option value="1" <?= ($_GET['list_no_growth'] ?? '') === '1' ? 'selected' : '' ?>>No Growth</option>
                     </select>
                 </div>
-                <div class="col-md-3">
-                    <label class="form-label mb-1 text-primary fw-600">Periode No Growth</label>
+                <div class="col-md-2">
+                    <label class="form-label mb-1 text-primary fw-600">Periode No Growth Konten</label>
                     <input type="text" class="form-control form-control-sm" id="chart_no_growth_tanggal" placeholder="Pilih periode no growth...">
-                    <input type="hidden" id="chart_no_growth_start_date" value="<?= $_GET['chart_no_growth_start_date'] ?? '' ?>">
-                    <input type="hidden" id="chart_no_growth_until_date" value="<?= $_GET['chart_no_growth_until_date'] ?? '' ?>">
+                    <input type="hidden" id="chart_no_growth_start_date" value="<?= $_GET['list_growth_start_date'] ?? '' ?>">
+                    <input type="hidden" id="chart_no_growth_until_date" value="<?= $_GET['list_growth_until_date'] ?? '' ?>">
                 </div>
                 <div class="col-md-2">
                     <div class="d-grid gap-1">
-                        <button class="btn btn-primary btn-sm" type="button" onclick="applyChartFilter()">Apply Filter</button>
-                        <button class="btn btn-outline-secondary btn-sm" type="button" id="reset_chart_no_growth_period">Reset Period</button>
+                        <button class="btn btn-primary btn-sm" type="button" onclick="applyChartFilter()">Apply Filter Konten</button>
+                        <button class="btn btn-outline-secondary btn-sm" type="button" id="reset_content_filter">Reset Filter Konten</button>
                     </div>
                 </div>
             </div>
-            <small class="text-muted d-block mb-2">Filter ini hanya berlaku untuk Grafik Campaign dan tabel di bawahnya.</small>
+            <small class="text-muted d-block mb-2">Filter ini hanya untuk daftar konten di bawah teks "data ditemukan!".</small>
+        </div>
+    </div>
+    <div class="col-lg-12 mb-3">
+        <div class="card summary">
+            <h3 class="text-primary fw-600 mb-1">Grafik Campaign</h3>
             
             <div class="row">
                 <div class="col-md-12">
@@ -540,15 +549,20 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
             <div id="summary-table"><i class="fa fa-circle-o-notch fa-spin"></i> Memuat data ...</div>
 
             <script>
-                function setUrlParams(params) {
+                function buildUrlWithParams(params) {
                     const url = new URL(window.location);
                     Object.keys(params).forEach(k => {
-                    if (params[k] === null || params[k] === undefined || params[k] === '') {
-                        url.searchParams.delete(k);
-                    } else {
-                        url.searchParams.set(k, params[k]);
-                    }
+                        if (params[k] === null || params[k] === undefined || params[k] === '') {
+                            url.searchParams.delete(k);
+                        } else {
+                            url.searchParams.set(k, params[k]);
+                        }
                     });
+                    return url;
+                }
+
+                function setUrlParams(params) {
+                    const url = buildUrlWithParams(params);
                     history.pushState({}, '', url);
                 }
 
@@ -579,10 +593,23 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                     }
                 }
 
+                function renderViewsZeroDateText() {
+                    const d = $('#list_views_zero_date').val();
+                    if (d) {
+                        $('#list_views_zero_tanggal').val(formatChartDateDisplay(d));
+                    } else {
+                        $('#list_views_zero_tanggal').val('');
+                    }
+                }
+
                 function toggleChartNoGrowthPeriodState() {
                     const enabled = $('#chart_no_growth').val() === '1';
                     $('#chart_no_growth_tanggal').prop('disabled', !enabled);
-                    $('#reset_chart_no_growth_period').prop('disabled', !enabled);
+                }
+
+                function toggleViewsZeroDateState() {
+                    const enabled = $('#chart_views_zero').val() === '1';
+                    $('#list_views_zero_tanggal').prop('disabled', !enabled);
                 }
 
                 function applyChartNoGrowthRange(startDate, endDate) {
@@ -594,6 +621,16 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                         picker.setEndDate(moment(endDate, 'YYYY-MM-DD'));
                     }
                     renderChartNoGrowthPeriodText();
+                }
+
+                function applyViewsZeroDate(dateValue) {
+                    const picker = $('#list_views_zero_tanggal').data('daterangepicker');
+                    $('#list_views_zero_date').val(dateValue);
+                    if (picker) {
+                        picker.setStartDate(moment(dateValue, 'YYYY-MM-DD'));
+                        picker.setEndDate(moment(dateValue, 'YYYY-MM-DD'));
+                    }
+                    renderViewsZeroDateText();
                 }
 
                 $(document).ready(function() {
@@ -629,19 +666,49 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                     });
                     $('#chart_tanggal').val(startDateMoment.format('DD/MM/YYYY') + ' - ' + endDateMoment.format('DD/MM/YYYY'));
 
-                    $('#chart_views_zero').val(getUrlParam('chart_views_zero') || $('#chart_views_zero').val() || '');
-                    $('#chart_no_growth').val(getUrlParam('chart_no_growth') || $('#chart_no_growth').val() || '');
+                    $('#chart_views_zero').val(getUrlParam('list_views_zero') || $('#chart_views_zero').val() || '');
+                    $('#chart_no_growth').val(getUrlParam('list_no_growth') || $('#chart_no_growth').val() || '');
+                    const viewsZeroDateFromUrl = getUrlParam('list_views_zero_date') || $('#list_views_zero_date').val() || '';
+                    if (viewsZeroDateFromUrl) {
+                        $('#list_views_zero_date').val(viewsZeroDateFromUrl);
+                    }
 
-                    const noGrowthStartFromUrl = getUrlParam('chart_no_growth_start_date') || $('#chart_no_growth_start_date').val() || '';
-                    const noGrowthEndFromUrl = getUrlParam('chart_no_growth_until_date') || $('#chart_no_growth_until_date').val() || '';
+                    const noGrowthStartFromUrl = getUrlParam('list_growth_start_date') || $('#chart_no_growth_start_date').val() || '';
+                    const noGrowthEndFromUrl = getUrlParam('list_growth_until_date') || $('#chart_no_growth_until_date').val() || '';
                     if (noGrowthStartFromUrl && noGrowthEndFromUrl) {
                         $('#chart_no_growth_start_date').val(noGrowthStartFromUrl);
                         $('#chart_no_growth_until_date').val(noGrowthEndFromUrl);
                     }
 
                     const chartRange = getChartMainRange();
+                    const initialViewsZeroDate = $('#list_views_zero_date').val() || chartRange.end;
                     const initialNoGrowthStart = $('#chart_no_growth_start_date').val() || chartRange.start;
                     const initialNoGrowthEnd = $('#chart_no_growth_until_date').val() || chartRange.end;
+
+                    $('#list_views_zero_tanggal').daterangepicker({
+                        autoUpdateInput: false,
+                        singleDatePicker: true,
+                        showDropdowns: true,
+                        startDate: moment(initialViewsZeroDate, 'YYYY-MM-DD'),
+                        locale: {
+                            format: 'DD/MM/YYYY',
+                            applyLabel: "Pilih",
+                            cancelLabel: "Batal",
+                            daysOfWeek: ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"],
+                            monthNames: ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"],
+                            firstDay: 1
+                        }
+                    });
+
+                    $('#list_views_zero_tanggal').on('apply.daterangepicker', function(ev, picker) {
+                        $('#list_views_zero_date').val(picker.startDate.format('YYYY-MM-DD'));
+                        renderViewsZeroDateText();
+                    });
+
+                    $('#list_views_zero_tanggal').on('cancel.daterangepicker', function() {
+                        $('#list_views_zero_date').val('');
+                        renderViewsZeroDateText();
+                    });
 
                     $('#chart_no_growth_tanggal').daterangepicker({
                         autoUpdateInput: false,
@@ -673,6 +740,18 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                         renderChartNoGrowthPeriodText();
                     });
 
+                    $('#chart_views_zero').on('change', function() {
+                        const enabled = $(this).val() === '1';
+                        if (!enabled) {
+                            $('#list_views_zero_date').val('');
+                        } else if (!$('#list_views_zero_date').val()) {
+                            const latestMainRange = getChartMainRange();
+                            applyViewsZeroDate(latestMainRange.end);
+                        }
+                        renderViewsZeroDateText();
+                        toggleViewsZeroDateState();
+                    });
+
                     $('#chart_no_growth').on('change', function() {
                         const enabled = $(this).val() === '1';
                         if (!enabled) {
@@ -686,15 +765,44 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                         toggleChartNoGrowthPeriodState();
                     });
 
-                    $('#reset_chart_no_growth_period').on('click', function() {
-                        const latestMainRange = getChartMainRange();
-                        applyChartNoGrowthRange(latestMainRange.start, latestMainRange.end);
+                    $('#reset_content_filter').on('click', function() {
+                        $('#chart_views_zero').val('');
+                        $('#list_views_zero_date').val('');
+                        $('#chart_no_growth').val('');
+                        $('#chart_no_growth_start_date').val('');
+                        $('#chart_no_growth_until_date').val('');
+                        renderViewsZeroDateText();
+                        renderChartNoGrowthPeriodText();
+                        toggleViewsZeroDateState();
+                        toggleChartNoGrowthPeriodState();
+
+                        const chartStartDate = $('#chart_start_date').val();
+                        const chartUntilDate = $('#chart_until_date').val();
+                        const nextUrl = buildUrlWithParams({
+                            chart_start_date: chartStartDate,
+                            chart_until_date: chartUntilDate,
+                            chart_views_zero: '',
+                            chart_no_growth: '',
+                            chart_no_growth_start_date: '',
+                            chart_no_growth_until_date: '',
+                            list_views_zero: '',
+                            list_views_zero_date: '',
+                            list_no_growth: '',
+                            list_growth_start_date: '',
+                            list_growth_until_date: ''
+                        });
+                        window.location.href = nextUrl.toString();
                     });
 
+                    if ($('#chart_views_zero').val() === '1' && !$('#list_views_zero_date').val()) {
+                        applyViewsZeroDate(chartRange.end);
+                    }
                     if ($('#chart_no_growth').val() === '1' && (!$('#chart_no_growth_start_date').val() || !$('#chart_no_growth_until_date').val())) {
                         applyChartNoGrowthRange(chartRange.start, chartRange.end);
                     }
+                    renderViewsZeroDateText();
                     renderChartNoGrowthPeriodText();
+                    toggleViewsZeroDateState();
                     toggleChartNoGrowthPeriodState();
 
                     initializeDefaultCheckboxes();
@@ -759,39 +867,68 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                             applyChartNoGrowthRange(startDateFormatted, endDateFormatted);
                         }
 
+                        if ($('#chart_views_zero').val() === '1' && !$('#list_views_zero_date').val()) {
+                            applyViewsZeroDate(endDateFormatted);
+                        }
+
                         var noGrowthStart = $('#chart_no_growth_start_date').val();
                         var noGrowthUntil = $('#chart_no_growth_until_date').val();
                         if ($('#chart_no_growth').val() !== '1') {
                             noGrowthStart = '';
                             noGrowthUntil = '';
                         }
+                        var viewsZeroDate = $('#list_views_zero_date').val() || '';
+                        if ($('#chart_views_zero').val() !== '1') {
+                            viewsZeroDate = '';
+                        }
 
                         setUrlParams({
                             chart_start_date: startDateFormatted,
                             chart_until_date: endDateFormatted,
-                            chart_views_zero: $('#chart_views_zero').val() || '',
-                            chart_no_growth: $('#chart_no_growth').val() || '',
-                            chart_no_growth_start_date: noGrowthStart || '',
-                            chart_no_growth_until_date: noGrowthUntil || ''
+                            list_views_zero: $('#chart_views_zero').val() || '',
+                            list_views_zero_date: viewsZeroDate || '',
+                            list_no_growth: $('#chart_no_growth').val() || '',
+                            list_growth_start_date: noGrowthStart || '',
+                            list_growth_until_date: noGrowthUntil || ''
                         });
                     }
+                    
+                    var chartStartDate = $('#chart_start_date').val();
+                    var chartUntilDate = $('#chart_until_date').val();
+                    var listViewsZero = $('#chart_views_zero').val() || '';
+                    var listViewsZeroDate = $('#list_views_zero_date').val() || '';
+                    var listNoGrowth = $('#chart_no_growth').val() || '';
+                    var listGrowthStartDate = $('#chart_no_growth_start_date').val() || '';
+                    var listGrowthUntilDate = $('#chart_no_growth_until_date').val() || '';
 
-                    get_chart();
+                    if (listViewsZero !== '1') {
+                        listViewsZeroDate = '';
+                    }
+                    if (listNoGrowth !== '1') {
+                        listGrowthStartDate = '';
+                        listGrowthUntilDate = '';
+                    }
+
+                    const nextUrl = buildUrlWithParams({
+                        chart_start_date: chartStartDate,
+                        chart_until_date: chartUntilDate,
+                        chart_views_zero: '',
+                        chart_no_growth: '',
+                        chart_no_growth_start_date: '',
+                        chart_no_growth_until_date: '',
+                        list_views_zero: listViewsZero,
+                        list_views_zero_date: listViewsZeroDate,
+                        list_no_growth: listNoGrowth,
+                        list_growth_start_date: listGrowthStartDate,
+                        list_growth_until_date: listGrowthUntilDate
+                    });
+                    window.location.href = nextUrl.toString();
                 }
 
 
                 function get_chart() {
                     var chartStartDate = $('#chart_start_date').val();
                     var chartUntilDate = $('#chart_until_date').val();
-                    var chartViewsZero = $('#chart_views_zero').val() || '';
-                    var chartNoGrowth = $('#chart_no_growth').val() || '';
-                    var chartNoGrowthStartDate = $('#chart_no_growth_start_date').val() || '';
-                    var chartNoGrowthUntilDate = $('#chart_no_growth_until_date').val() || '';
-
-                    if (chartNoGrowth !== '1') {
-                        chartNoGrowthStartDate = '';
-                        chartNoGrowthUntilDate = '';
-                    }
 
                     if (!isValidDate(chartStartDate) || !isValidDate(chartUntilDate)) {
                         console.error('Invalid date detected, using default dates');
@@ -803,10 +940,10 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                     setUrlParams({
                         chart_start_date: chartStartDate,
                         chart_until_date: chartUntilDate,
-                        chart_views_zero: chartViewsZero,
-                        chart_no_growth: chartNoGrowth,
-                        chart_no_growth_start_date: chartNoGrowthStartDate,
-                        chart_no_growth_until_date: chartNoGrowthUntilDate
+                        chart_views_zero: '',
+                        chart_no_growth: '',
+                        chart_no_growth_start_date: '',
+                        chart_no_growth_until_date: ''
                     });
 
                     var baseUrl = '<?= base_url() ?>/ajax/get-chart-campaign';
@@ -818,10 +955,6 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                     // Pakai tanggal dari hidden (prioritas chart)
                     params['start_date'] = chartStartDate;
                     params['until_date'] = chartUntilDate;
-                    params['chart_views_zero'] = chartViewsZero;
-                    params['chart_no_growth'] = chartNoGrowth;
-                    params['chart_no_growth_start_date'] = chartNoGrowthStartDate;
-                    params['chart_no_growth_until_date'] = chartNoGrowthUntilDate;
 
                     var queryString = Object.keys(params).map(function(key) {
                         return encodeURIComponent(key) + '=' + encodeURIComponent(params[key]);
@@ -913,11 +1046,39 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
         </div>
     </div>
     <a href="#!" onclick="create('<?= $detail['id'] ?>')" class="btn btn-primary mt-0 mb-2"><i class="bi bi-plus-circle-dotted fs-16"></i> Tambah Konten</a>
+    <?php
+    $active_content_filters = [];
+    if (($_GET['list_views_zero'] ?? '') === '1') {
+        $views_zero_date_text = $_GET['list_views_zero_date'] ?? '';
+        if ($views_zero_date_text) {
+            $views_zero_date_text = date('d/m/Y', strtotime($views_zero_date_text));
+        } else {
+            $views_zero_date_text = '-';
+        }
+        $active_content_filters[] = 'Views = 0 pada ' . $views_zero_date_text;
+    }
+    if (($_GET['list_no_growth'] ?? '') === '1') {
+        $ng_start_text = $_GET['list_growth_start_date'] ?? ($_GET['start_date'] ?? '');
+        $ng_end_text = $_GET['list_growth_until_date'] ?? ($_GET['until_date'] ?? '');
+        if ($ng_start_text) {
+            $ng_start_text = date('d/m/Y', strtotime($ng_start_text));
+        }
+        if ($ng_end_text) {
+            $ng_end_text = date('d/m/Y', strtotime($ng_end_text));
+        }
+        $active_content_filters[] = 'No Growth periode ' . ($ng_start_text ?: '-') . ' - ' . ($ng_end_text ?: '-');
+    }
+    ?>
 
     <tr>
         <td>
             <div class="d-flex justify-content-between align-items-center w-100">
-                <span><?= $notif ?></span>
+                <div>
+                    <span><?= $notif ?></span>
+                    <?php if (!empty($active_content_filters)) { ?>
+                        <div class="small text-muted mt-1">Filter aktif: <?= implode(' | ', $active_content_filters) ?></div>
+                    <?php } ?>
+                </div>
                 <div class="dropdown">
                     <button class="btn btn-primary dropdown-toggle" type="button" id="dropdownView" data-bs-toggle="dropdown" aria-expanded="false">
                         Pilih Tampilan

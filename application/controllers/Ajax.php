@@ -131,8 +131,8 @@ class Ajax extends CI_Controller
 			$chart_no_growth_until_date = $until_date;
 		}
 
-		$qry_opt = " DATE(endorse_logs.date) ";
-		$group   = " GROUP BY DATE(endorse_logs.date) ";
+			$qry_opt = " DATE(log_agg.log_date) ";
+			$group   = " GROUP BY DATE(log_agg.log_date) ";
 
 		// Detail campaign (opsional)
 		$detail = $this->mymodel->selectWithQuery("SELECT * FROM endorse_campaign WHERE id = '$id_campaign'");
@@ -307,14 +307,14 @@ class Ajax extends CI_Controller
 		$list_ids = rtrim($list_ids, ',');
 
 		// ===== Filter tambahan id_endorse =====
-		$qry_list = '';
-		$ids = $_GET['ids'];
-		if ($ids) {
-			$qry_list .= " AND endorse_logs.id_endorse IN ($ids) ";
-		}
-		if (($cat || $endorse_status) && $list_ids) {
-			$qry_list .= " AND endorse_logs.id_endorse IN ($list_ids) ";
-		}
+			$qry_list = '';
+			$ids = $_GET['ids'];
+			if ($ids) {
+				$qry_list .= " AND endorse.id IN ($ids) ";
+			}
+			if (($cat || $endorse_status) && $list_ids) {
+				$qry_list .= " AND endorse.id IN ($list_ids) ";
+			}
 
 		// ===  Hitung total cost langsung dari tabel endorse (bukan dari logs) ===
 		$total_cost_from_endorse = 0.0;
@@ -336,58 +336,71 @@ class Ajax extends CI_Controller
 		}
 
 		// ===== Agregasi per hari dari logs =====
-		$last_updated_expr = "MAX(CONCAT(DATE(endorse_logs.date), ' 00:00:00'))";
-		$has_logs_updated_at = $this->db->field_exists('updated_at', 'endorse_logs');
-		$has_logs_created_at = $this->db->field_exists('created_at', 'endorse_logs');
-		if ($has_logs_updated_at && $has_logs_created_at) {
-			$last_updated_expr = "MAX(COALESCE(endorse_logs.updated_at, endorse_logs.created_at, CONCAT(DATE(endorse_logs.date), ' 00:00:00')))";
-		} else if ($has_logs_updated_at) {
-			$last_updated_expr = "MAX(COALESCE(endorse_logs.updated_at, CONCAT(DATE(endorse_logs.date), ' 00:00:00')))";
-		} else if ($has_logs_created_at) {
-			$last_updated_expr = "MAX(COALESCE(endorse_logs.created_at, CONCAT(DATE(endorse_logs.date), ' 00:00:00')))";
-		}
+			$last_updated_inner_expr = "MAX(CONCAT(DATE(el.date), ' 00:00:00'))";
+			$has_logs_updated_at = $this->db->field_exists('updated_at', 'endorse_logs');
+			$has_logs_created_at = $this->db->field_exists('created_at', 'endorse_logs');
+			if ($has_logs_updated_at && $has_logs_created_at) {
+				$last_updated_inner_expr = "MAX(COALESCE(el.updated_at, el.created_at, CONCAT(DATE(el.date), ' 00:00:00')))";
+			} else if ($has_logs_updated_at) {
+				$last_updated_inner_expr = "MAX(COALESCE(el.updated_at, CONCAT(DATE(el.date), ' 00:00:00')))";
+			} else if ($has_logs_created_at) {
+				$last_updated_inner_expr = "MAX(COALESCE(el.created_at, CONCAT(DATE(el.date), ' 00:00:00')))";
+			}
+			$logs_daily_subquery = "
+				SELECT
+					el.id_endorse,
+					DATE(el.date) AS log_date,
+					MAX(el.likes_after) AS likes_after,
+					MAX(el.comment_after) AS comment_after,
+					MAX(el.share_save_after) AS share_save_after,
+					MAX(el.views_after) AS views_after,
+					MAX(el.total_cost) AS total_cost,
+					$last_updated_inner_expr AS last_updated
+				FROM endorse_logs el
+				GROUP BY el.id_endorse, DATE(el.date)
+			";
 
-        if ($is_dashboard != 'true') {
-            $sql_list = "
-                SELECT 
-                    SUM(endorse_logs.likes_after)        AS likes, 
-                    SUM(endorse_logs.comment_after)      AS comment,
-                    SUM(endorse_logs.share_save_after)   AS share_save, 
-                    SUM(endorse_logs.views_after)        AS views,
-                    SUM(endorse_logs.total_cost)         AS cost, 
-                    COUNT(endorse_logs.id)               AS endorse, 
-                    $last_updated_expr                   AS last_updated,
-                    $qry_opt                              AS opt
-                FROM endorse_logs
-                INNER JOIN endorse ON endorse.id = endorse_logs.id_endorse 
-                INNER JOIN endorse_campaign ON endorse_campaign.id = endorse.id_campaign
-                WHERE endorse_logs.id_campaign = '$id_campaign' 
-                $qry_list 
-                $qry_common_for_logs 
-                $group
-                ORDER BY DATE(endorse_logs.date) ASC
-            ";
-        } else {
-            $sql_list = "
-                SELECT 
-                    SUM(endorse_logs.likes_after)        AS likes, 
-                    SUM(endorse_logs.comment_after)      AS comment,
-                    SUM(endorse_logs.share_save_after)   AS share_save, 
-                    SUM(endorse_logs.views_after)        AS views,
-                    SUM(endorse_logs.total_cost)         AS cost,
-                    COUNT(endorse_logs.id)               AS endorse, 
-                    $last_updated_expr                   AS last_updated,
-                    $qry_opt                              AS opt
-                FROM endorse_logs
-                INNER JOIN endorse ON endorse.id = endorse_logs.id_endorse  
-                INNER JOIN endorse_campaign ON endorse_campaign.id = endorse.id_campaign
-                WHERE 1=1 
-                $qry_list 
-                $qry_common_for_logs 
-                $group
-                ORDER BY DATE(endorse_logs.date) ASC
-            ";
-        }
+	        if ($is_dashboard != 'true') {
+	            $sql_list = "
+	                SELECT 
+	                    SUM(log_agg.likes_after)        AS likes, 
+	                    SUM(log_agg.comment_after)      AS comment,
+	                    SUM(log_agg.share_save_after)   AS share_save, 
+	                    SUM(log_agg.views_after)        AS views,
+	                    SUM(log_agg.total_cost)         AS cost, 
+	                    COUNT(log_agg.id_endorse)       AS endorse, 
+	                    MAX(log_agg.last_updated)       AS last_updated,
+	                    $qry_opt                              AS opt
+	                FROM ($logs_daily_subquery) log_agg
+	                INNER JOIN endorse ON endorse.id = log_agg.id_endorse 
+	                INNER JOIN endorse_campaign ON endorse_campaign.id = endorse.id_campaign
+	                WHERE endorse.id_campaign = '$id_campaign' 
+	                $qry_list 
+	                $qry_common_for_logs 
+	                $group
+	                ORDER BY DATE(log_agg.log_date) ASC
+	            ";
+	        } else {
+	            $sql_list = "
+	                SELECT 
+	                    SUM(log_agg.likes_after)        AS likes, 
+	                    SUM(log_agg.comment_after)      AS comment,
+	                    SUM(log_agg.share_save_after)   AS share_save, 
+	                    SUM(log_agg.views_after)        AS views,
+	                    SUM(log_agg.total_cost)         AS cost,
+	                    COUNT(log_agg.id_endorse)       AS endorse, 
+	                    MAX(log_agg.last_updated)       AS last_updated,
+	                    $qry_opt                              AS opt
+	                FROM ($logs_daily_subquery) log_agg
+	                INNER JOIN endorse ON endorse.id = log_agg.id_endorse  
+	                INNER JOIN endorse_campaign ON endorse_campaign.id = endorse.id_campaign
+	                WHERE 1=1 
+	                $qry_list 
+	                $qry_common_for_logs 
+	                $group
+	                ORDER BY DATE(log_agg.log_date) ASC
+	            ";
+	        }
 		$list = $this->mymodel->selectWithQuery($sql_list);
 		if (empty($list)) $list = array();
 
@@ -454,27 +467,27 @@ class Ajax extends CI_Controller
 		$baseline_comment = 0;
 		$baseline_share_save = 0;
 
-		if ($checkbox[0] == 'true') {
-            $sql_base = "
-                SELECT
-                    SUM(endorse_logs.views_after)                                        AS views,
-                    SUM(endorse_logs.likes_after)                                        AS likes,
-                    SUM(endorse_logs.comment_after)                                      AS comment,
-                    SUM(endorse_logs.share_save_after)                                   AS share_save,
-                    SUM(endorse_logs.likes_after + endorse_logs.comment_after + endorse_logs.share_save_after) AS engagement,
-                    SUM(endorse_logs.total_cost)                                         AS cost,
-                    COUNT(endorse_logs.id)                                               AS endorse,
-                    DATE(endorse_logs.date)                                              AS opt
-                FROM endorse_logs
-                INNER JOIN endorse ON endorse.id = endorse_logs.id_endorse
-                INNER JOIN endorse_campaign ON endorse_campaign.id = endorse.id_campaign
-                WHERE DATE(endorse_logs.date) < '$start_date'
-                $qry_list
-                $qry_common_for_logs
-                GROUP BY DATE(endorse_logs.date)
-                ORDER BY DATE(endorse_logs.date) DESC
-                LIMIT 1
-            ";
+			if ($checkbox[0] == 'true') {
+	            $sql_base = "
+	                SELECT
+	                    SUM(log_agg.views_after)                                        AS views,
+	                    SUM(log_agg.likes_after)                                        AS likes,
+	                    SUM(log_agg.comment_after)                                      AS comment,
+	                    SUM(log_agg.share_save_after)                                   AS share_save,
+	                    SUM(log_agg.likes_after + log_agg.comment_after + log_agg.share_save_after) AS engagement,
+	                    SUM(log_agg.total_cost)                                         AS cost,
+	                    COUNT(log_agg.id_endorse)                                       AS endorse,
+	                    DATE(log_agg.log_date)                                          AS opt
+	                FROM ($logs_daily_subquery) log_agg
+	                INNER JOIN endorse ON endorse.id = log_agg.id_endorse
+	                INNER JOIN endorse_campaign ON endorse_campaign.id = endorse.id_campaign
+	                WHERE DATE(log_agg.log_date) < '$start_date'
+	                $qry_list
+	                $qry_common_for_logs
+	                GROUP BY DATE(log_agg.log_date)
+	                ORDER BY DATE(log_agg.log_date) DESC
+	                LIMIT 1
+	            ";
 			$base = $this->mymodel->selectWithQuery($sql_base);
 			if (!empty($base)) {
 				$baseline_views = (int)$base[0]['views'];

@@ -910,6 +910,8 @@ class Endorse extends BaseController
             $qry .= " AND kode_ads = '' ";
         }
 
+        $qry .= $this->build_content_metric_filter_clause($id_campaign, 'endorse.id');
+
         $query = $this->mymodel->selectWithQuery("SELECT COUNT(id) AS count
         FROM endorse
         WHERE id_campaign = '$id_campaign' $qry 
@@ -1146,6 +1148,8 @@ class Endorse extends BaseController
             $qry .= " AND kode_ads = '' ";
         }
 
+        $qry .= $this->build_content_metric_filter_clause($id_campaign, 'endorse.id');
+
         $per_page_options = [10, 20, 30, 50, 100, 500];
         $limit = $_GET['limit'] ?? 10;
         if (!in_array($limit, $per_page_options)) {
@@ -1251,13 +1255,20 @@ class Endorse extends BaseController
             $id_endorse = $v['id'];
             $query = $this->mymodel->selectWithQuery("SELECT id
             FROM endorse_logs
-            WHERE id_endorse = '$id_endorse' AND date = '$today' ");
-            $query = $query[0];
+            WHERE id_endorse = '$id_endorse' AND date = '$today'
+            ORDER BY id DESC
+            LIMIT 1");
+            $query = !empty($query) ? $query[0] : null;
 
             $query_yesterday = $this->mymodel->selectWithQuery("SELECT * 
             FROM endorse_logs
             WHERE id_endorse = '$id_endorse' AND date < '$today' AND views_after > 0 ORDER BY date DESC LIMIT 1 ");
-            $query_yesterday = $query_yesterday[0];
+            $query_yesterday = !empty($query_yesterday) ? $query_yesterday[0] : array();
+
+            $prev_likes = intval($query_yesterday['likes_after'] ?? 0);
+            $prev_comment = intval($query_yesterday['comment_after'] ?? 0);
+            $prev_share_save = intval($query_yesterday['share_save_after'] ?? 0);
+            $prev_views = intval($query_yesterday['views_after'] ?? 0);
 
             $dt = array();
 
@@ -1271,16 +1282,21 @@ class Endorse extends BaseController
 
             $response = $this->template->get_social_media($v['platform'], $v['link_upload']);
 
-            $dt['likes'] = intval($query_yesterday['likes_after']);
-            $dt['comment'] = intval($query_yesterday['comment_after']);
-            $dt['share_save'] = intval($query_yesterday['share_save_after']);
-            $dt['views'] = intval($query_yesterday['views_after']);
+            $dt['likes'] = $prev_likes;
+            $dt['comment'] = $prev_comment;
+            $dt['share_save'] = $prev_share_save;
+            $dt['views'] = $prev_views;
 
             if ($response['data']['view'] > 0) {
                 $dt['likes'] = $response['data']['like'];
                 $dt['comment'] = $response['data']['comment'];
                 $dt['share_save'] = doubleval($response['data']['share']) + doubleval($response['data']['collect']);
                 $dt['views'] = $response['data']['view'];
+            }
+
+            // Keep views cumulative and non-decreasing per content.
+            if (intval($dt['views']) < $prev_views) {
+                $dt['views'] = $prev_views;
             }
 
 
@@ -1338,10 +1354,10 @@ class Endorse extends BaseController
                 $dt['cpm_after'] = 0;
             }
 
-            $dt['likes'] -= intval($query_yesterday['likes_after']);
-            $dt['comment'] -= intval($query_yesterday['comment_after']);
-            $dt['share_save'] -= intval($query_yesterday['share_save_after']);
-            $dt['views'] -= intval($query_yesterday['views_after']);
+            $dt['likes'] -= $prev_likes;
+            $dt['comment'] -= $prev_comment;
+            $dt['share_save'] -= $prev_share_save;
+            $dt['views'] = max(0, intval($dt['views_after']) - $prev_views);
 
             if ($v['total_cost'] > 0 && $dt['views'] > 0) {
                 $dt['cpm'] = doubleval($v['total_cost']) / doubleval($dt['views']) * 1000;
@@ -1349,10 +1365,10 @@ class Endorse extends BaseController
                 $dt['cpm'] = 0;
             }
 
-            $dt['likes_before'] = intval($query_yesterday['likes_after']);
-            $dt['comment_before'] = intval($query_yesterday['comment_after']);
-            $dt['share_save_before'] = intval($query_yesterday['share_save_after']);
-            $dt['views_before'] = intval($query_yesterday['views_after']);
+            $dt['likes_before'] = $prev_likes;
+            $dt['comment_before'] = $prev_comment;
+            $dt['share_save_before'] = $prev_share_save;
+            $dt['views_before'] = $prev_views;
 
             if ($v['total_cost'] > 0 && $dt['views_before'] > 0) {
                 $dt['cpm_before'] = doubleval($v['total_cost']) / doubleval($dt['views_before']) * 1000;
@@ -1378,13 +1394,19 @@ class Endorse extends BaseController
             if ($query) {
                 $dt['updated_at'] = DATE("Y-m-d H:i:s");
                 $dt['updated_by'] = strval($user['id']);
-                $this->db->update('endorse_logs', $dt, array('id' => $query['id']));
+                $this->db->update('endorse_logs', $dt, array('id_endorse' => $id_endorse, 'date' => $today));
                 $id_parent = $query['id'];
             } else {
                 $dt['created_at'] = DATE("Y-m-d H:i:s");
                 $dt['created_by'] = strval($user['id']);
-                $this->db->insert('endorse_logs', $dt);
-                $id_parent = $this->db->insert_id();
+                if ($this->db->insert('endorse_logs', $dt)) {
+                    $id_parent = $this->db->insert_id();
+                } else {
+                    $dt['updated_at'] = DATE("Y-m-d H:i:s");
+                    $dt['updated_by'] = strval($user['id']);
+                    $this->db->update('endorse_logs', $dt, array('id_endorse' => $id_endorse, 'date' => $today));
+                    $id_parent = 0;
+                }
             }
 
             $dt_tmp = array();
@@ -1625,7 +1647,12 @@ class Endorse extends BaseController
         $query_yesterday = $this->mymodel->selectWithQuery("SELECT * 
         FROM endorse_logs
         WHERE id_endorse = '$id_endorse' AND date < '$today' AND views_after > 0 ORDER BY date DESC LIMIT 1");
-        $query_yesterday = $query_yesterday[0];
+        $query_yesterday = !empty($query_yesterday) ? $query_yesterday[0] : array();
+
+        $prev_likes = intval($query_yesterday['likes_after'] ?? 0);
+        $prev_comment = intval($query_yesterday['comment_after'] ?? 0);
+        $prev_share_save = intval($query_yesterday['share_save_after'] ?? 0);
+        $prev_views = intval($query_yesterday['views_after'] ?? 0);
 
 
         $dt = array();
@@ -1638,10 +1665,10 @@ class Endorse extends BaseController
             $dt['posting_at'] = $response['data']['created_at'];
         }
 
-        $dt['likes'] = intval($query_yesterday['likes_after']);
-        $dt['comment'] = intval($query_yesterday['comment_after']);
-        $dt['share_save'] = intval($query_yesterday['share_save_after']);
-        $dt['views'] = intval($query_yesterday['views_after']);
+        $dt['likes'] = $prev_likes;
+        $dt['comment'] = $prev_comment;
+        $dt['share_save'] = $prev_share_save;
+        $dt['views'] = $prev_views;
 
         if ($response['data']['view'] > 0) {
             $dt['likes'] = $response['data']['like'];
@@ -1650,10 +1677,10 @@ class Endorse extends BaseController
             $dt['views'] = $response['data']['view'];
         }
 
-        $dt['likes'] = $response['data']['like'];
-        $dt['comment'] = $response['data']['comment'];
-        $dt['share_save'] = doubleval($response['data']['share']) + doubleval($response['data']['collect']);
-        $dt['views'] = $response['data']['view'];
+        // Keep views cumulative and non-decreasing per content.
+        if (intval($dt['views']) < $prev_views) {
+            $dt['views'] = $prev_views;
+        }
 
 
         if ($dt['views'] >= 50000) {
@@ -1693,8 +1720,10 @@ class Endorse extends BaseController
             $id_endorse = $v['id'];
             $query = $this->mymodel->selectWithQuery("SELECT id
                 FROM endorse_logs
-                WHERE id_endorse = '$id_endorse' AND date = '$today' ");
-            $query = $query[0];
+                WHERE id_endorse = '$id_endorse' AND date = '$today'
+                ORDER BY id DESC
+                LIMIT 1");
+            $query = !empty($query) ? $query[0] : null;
 
 
             $dt['id_endorse'] = strval($v['id']);
@@ -1726,10 +1755,10 @@ class Endorse extends BaseController
                 $dt['cpm_after'] = 0;
             }
 
-            $dt['likes'] -= intval($query_yesterday['likes_after']);
-            $dt['comment'] -= intval($query_yesterday['comment_after']);
-            $dt['share_save'] -= intval($query_yesterday['share_save_after']);
-            $dt['views'] -= intval($query_yesterday['views_after']);
+            $dt['likes'] -= $prev_likes;
+            $dt['comment'] -= $prev_comment;
+            $dt['share_save'] -= $prev_share_save;
+            $dt['views'] = max(0, intval($dt['views_after']) - $prev_views);
 
             if ($v['total_cost'] > 0 && $dt['views'] > 0) {
                 $dt['cpm'] = doubleval($v['total_cost']) / doubleval($dt['views']) * 1000;
@@ -1737,10 +1766,10 @@ class Endorse extends BaseController
                 $dt['cpm'] = 0;
             }
 
-            $dt['likes_before'] = intval($query_yesterday['likes_after']);
-            $dt['comment_before'] = intval($query_yesterday['comment_after']);
-            $dt['share_save_before'] = intval($query_yesterday['share_save_after']);
-            $dt['views_before'] = intval($query_yesterday['views_after']);
+            $dt['likes_before'] = $prev_likes;
+            $dt['comment_before'] = $prev_comment;
+            $dt['share_save_before'] = $prev_share_save;
+            $dt['views_before'] = $prev_views;
 
             if ($v['total_cost'] > 0 && $dt['views_before'] > 0) {
                 $dt['cpm_before'] = doubleval($v['total_cost']) / doubleval($dt['views_before']) * 1000;
@@ -1759,13 +1788,19 @@ class Endorse extends BaseController
             if ($query) {
                 $dt['updated_at'] = DATE("Y-m-d H:i:s");
                 $dt['updated_by'] = strval($user['id']);
-                $this->db->update('endorse_logs', $dt, array('id' => $query['id']));
+                $this->db->update('endorse_logs', $dt, array('id_endorse' => $id_endorse, 'date' => $today));
                 $id_parent = $query['id'];
             } else {
                 $dt['created_at'] = DATE("Y-m-d H:i:s");
                 $dt['created_by'] = strval($user['id']);
-                $this->db->insert('endorse_logs', $dt);
-                $id_parent = $this->db->insert_id();
+                if ($this->db->insert('endorse_logs', $dt)) {
+                    $id_parent = $this->db->insert_id();
+                } else {
+                    $dt['updated_at'] = DATE("Y-m-d H:i:s");
+                    $dt['updated_by'] = strval($user['id']);
+                    $this->db->update('endorse_logs', $dt, array('id_endorse' => $id_endorse, 'date' => $today));
+                    $id_parent = 0;
+                }
             }
 
             $id_parent = $detail['id_campaign'];
@@ -3621,6 +3656,115 @@ class Endorse extends BaseController
         return $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode($arr, JSON_UNESCAPED_UNICODE));
+    }
+
+    private function is_valid_ymd_date($value)
+    {
+        if (!is_string($value) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return false;
+        }
+        $timestamp = strtotime($value);
+        return $timestamp !== false && date('Y-m-d', $timestamp) === $value;
+    }
+
+    private function normalize_date_param($value, $fallback)
+    {
+        return $this->is_valid_ymd_date($value) ? $value : $fallback;
+    }
+
+    private function normalize_date_range($start, $until)
+    {
+        if ($start > $until) {
+            $tmp = $start;
+            $start = $until;
+            $until = $tmp;
+        }
+        return [$start, $until];
+    }
+
+    private function build_endorse_log_metric_subquery($id_campaign, $start_date, $until_date, $having_sql)
+    {
+        $campaign_sql = $this->db->escape((string)$id_campaign);
+        $start_sql = $this->db->escape($start_date);
+        $until_sql = $this->db->escape($until_date);
+
+        return "
+            SELECT l.id_endorse
+            FROM endorse_logs l
+            WHERE l.id_campaign = $campaign_sql
+              AND DATE(l.date) >= $start_sql
+              AND DATE(l.date) <= $until_sql
+            GROUP BY l.id_endorse
+            HAVING $having_sql
+        ";
+    }
+
+    private function build_content_metric_filter_clause($id_campaign, $id_column = 'endorse.id')
+    {
+        $id_campaign = (int)$id_campaign;
+        if ($id_campaign <= 0) {
+            return '';
+        }
+
+        $default_start = date('Y-m-01');
+        $default_until = date('Y-m-d');
+
+        $chart_start = $this->normalize_date_param(
+            $_GET['chart_start_date'] ?? ($_GET['start_date'] ?? $default_start),
+            $default_start
+        );
+        $chart_until = $this->normalize_date_param(
+            $_GET['chart_until_date'] ?? ($_GET['until_date'] ?? $default_until),
+            $default_until
+        );
+        [$chart_start, $chart_until] = $this->normalize_date_range($chart_start, $chart_until);
+
+        $views_zero_enabled = (($_GET['list_views_zero'] ?? '') === '1');
+        $no_growth_enabled = (($_GET['list_no_growth'] ?? '') === '1');
+
+        if (!$views_zero_enabled && !$no_growth_enabled) {
+            return '';
+        }
+
+        $views_zero_date = $this->normalize_date_param(
+            $_GET['list_views_zero_date'] ?? '',
+            $chart_until
+        );
+
+        $no_growth_start = $this->normalize_date_param(
+            $_GET['list_growth_start_date'] ?? '',
+            $chart_start
+        );
+        $no_growth_until = $this->normalize_date_param(
+            $_GET['list_growth_until_date'] ?? '',
+            $chart_until
+        );
+        [$no_growth_start, $no_growth_until] = $this->normalize_date_range($no_growth_start, $no_growth_until);
+
+        $filters = [];
+        if ($views_zero_enabled) {
+            $filters[] = "$id_column IN (" . $this->build_endorse_log_metric_subquery(
+                $id_campaign,
+                $views_zero_date,
+                $views_zero_date,
+                "COUNT(*) > 0 AND COALESCE(MAX(l.views_after), 0) = 0"
+            ) . ")";
+        }
+
+        if ($no_growth_enabled) {
+            $filters[] = "$id_column IN (" . $this->build_endorse_log_metric_subquery(
+                $id_campaign,
+                $no_growth_start,
+                $no_growth_until,
+                "COALESCE(SUM(l.views), 0) <= 0"
+            ) . ")";
+        }
+
+        if (empty($filters)) {
+            return '';
+        }
+
+        return " AND (" . implode(' AND ', $filters) . ") ";
     }
 
 
