@@ -335,6 +335,12 @@ $route['api/tiktok/get-product'] = 'Api/tiktok_get_product';
 $route['api/tiktok/get-order'] = 'Api/tiktok_get_order';
 $route['api/tiktok/get-finance'] = 'Api/tiktok_get_finance';
 
+// Bulk Cetak Resi & Scan Ready To Ship
+$route['transaction/cetak-resi'] = 'Transaction/cetak_resi';
+$route['transaction/cetak-resi/preview'] = 'Transaction/cetak_resi_preview';
+$route['transaction/scan-ready-to-ship'] = 'Transaction/scan_ready_to_ship';
+$route['transaction/scan-ready-to-ship/submit'] = 'Transaction/scan_ready_to_ship_submit';
+
 // $route['api/webhook'] = 'Api/webhook';
 $route['api/webhook-api'] = 'Api/webhook_api';
 $route['api/webhook-test'] = 'Api/webhook_test';

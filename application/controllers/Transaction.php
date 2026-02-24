@@ -32,7 +32,11 @@ class Transaction extends BaseController
         
         // Set public methods that don't require permission checks
         $this->set_public_methods([
-            'sync_pencairan' // API endpoint for external sync
+            'sync_pencairan',
+            'cetak_resi',
+            'cetak_resi_preview',
+            'scan_ready_to_ship',
+            'scan_ready_to_ship_submit'
         ]);
         
         // Set custom method permissions if needed
@@ -40,6 +44,445 @@ class Transaction extends BaseController
             'export_excel' => 'view', // Export requires view permission
             'import_excel' => 'create' // Import requires create permission
         ]);
+    }
+
+    private function parse_id_list($raw_ids)
+    {
+        $items = array();
+        if (is_array($raw_ids)) {
+            $items = $raw_ids;
+        } else if (is_string($raw_ids) && $raw_ids !== '') {
+            $items = explode(',', $raw_ids);
+        }
+
+        $ids = array();
+        foreach ($items as $v) {
+            $val = trim((string)$v);
+            if ($val !== '' && ctype_digit($val)) {
+                $id = intval($val);
+                if ($id > 0) {
+                    $ids[$id] = $id;
+                }
+            }
+        }
+
+        return array_values($ids);
+    }
+
+    private function fetch_bulk_resi_orders($ids = array(), $limit = 120)
+    {
+        $where = "type_sub = 'POS'";
+
+        if (!empty($ids)) {
+            $list_id = implode(',', array_map('intval', $ids));
+            $where .= " AND id IN ($list_id)";
+        } else {
+            $where .= " AND order_status IN ('PENDING','PROCESSED')";
+        }
+
+        $limit = intval($limit);
+        if ($limit < 1) {
+            $limit = 120;
+        }
+
+        return $this->mymodel->selectWithQuery("
+            SELECT id, date, order_id, customer_text, phone, shipping, marketplace, order_status,
+                   awb_number, customer_price, payment_type, address, pesanan, json, shop_name
+            FROM transaction
+            WHERE $where
+            ORDER BY date DESC, id DESC
+            LIMIT $limit
+        ");
+    }
+
+    private function extract_label_items($trx)
+    {
+        $raw = $trx['pesanan'] ?? '';
+        if ($raw === '' && !empty($trx['json'])) {
+            $raw = $trx['json'];
+        }
+
+        $decoded = json_decode((string)$raw, true);
+        if (!is_array($decoded)) {
+            return array();
+        }
+
+        $items = array();
+        foreach ($decoded as $v) {
+            if (!is_array($v)) {
+                continue;
+            }
+
+            $qty = intval($v['qty'] ?? 0);
+            if ($qty <= 0) {
+                $qty = 1;
+            }
+
+            $name = trim((string)($v['item_name'] ?? $v['name'] ?? $v['product_text'] ?? '-'));
+            $sku = trim((string)($v['sku'] ?? $v['product_sku'] ?? ''));
+
+            $items[] = array(
+                'qty' => $qty,
+                'name' => $name !== '' ? $name : '-',
+                'sku' => $sku
+            );
+        }
+
+        return $items;
+    }
+
+    private function find_scan_ready_order($scan_code, $batch_ids = array(), $transaction_id = 0)
+    {
+        $transaction_id = intval($transaction_id);
+        $qry = "type_sub = 'POS'";
+
+        if ($transaction_id > 0) {
+            $qry .= " AND id = " . $transaction_id;
+        } else {
+            $scan_code = trim((string)$scan_code);
+            if ($scan_code === '') {
+                return array();
+            }
+
+            $safe_code = $this->db->escape_str($scan_code);
+            $match_parts = array(
+                "order_id = '$safe_code'",
+                "awb_number = '$safe_code'",
+                "LOWER(order_id) = LOWER('$safe_code')",
+                "LOWER(awb_number) = LOWER('$safe_code')"
+            );
+
+            if (ctype_digit($scan_code)) {
+                $match_parts[] = "id = " . intval($scan_code);
+            }
+
+            if (preg_match('/^TRX[-_\\s]?(\\d+)$/i', $scan_code, $m)) {
+                $match_parts[] = "id = " . intval($m[1]);
+            }
+
+            $qry .= " AND (" . implode(' OR ', $match_parts) . ")";
+        }
+
+        if (!empty($batch_ids)) {
+            $list_id = implode(',', array_map('intval', $batch_ids));
+            $qry .= " AND id IN ($list_id)";
+        }
+
+        return $this->mymodel->selectWithQuery("
+            SELECT id, order_id, awb_number, customer_text, phone, shipping, marketplace, order_status, date, address,
+                   customer_price, payment_type, pesanan, json, shop_name
+            FROM transaction
+            WHERE $qry
+            ORDER BY id DESC
+            LIMIT 1
+        ");
+    }
+
+    public function cetak_resi()
+    {
+        $start_date = trim((string)$this->input->get('start_date', true));
+        $until_date = trim((string)$this->input->get('until_date', true));
+
+        if ($start_date === '' || strtotime($start_date) === false) {
+            $start_date = date('Y-m-01');
+        } else {
+            $start_date = date('Y-m-d', strtotime($start_date));
+        }
+
+        if ($until_date === '' || strtotime($until_date) === false) {
+            $until_date = date('Y-m-d');
+        } else {
+            $until_date = date('Y-m-d', strtotime($until_date));
+        }
+
+        if (strtotime($start_date) > strtotime($until_date)) {
+            $tmp = $start_date;
+            $start_date = $until_date;
+            $until_date = $tmp;
+        }
+
+        $safe_start_date = $this->db->escape_str($start_date);
+        $safe_until_date = $this->db->escape_str($until_date);
+
+        $where = "type_sub = 'POS'
+                  AND order_status IN ('PENDING','PROCESSED')
+                  AND DATE(date) >= '$safe_start_date'
+                  AND DATE(date) <= '$safe_until_date'";
+
+        $per_page_options = array(50, 100, 500);
+        $per_page = intval($this->input->get('per_page'));
+        if (!in_array($per_page, $per_page_options, true)) {
+            $per_page = 50;
+        }
+
+        $current_page = intval($this->input->get('page'));
+        if ($current_page < 1) {
+            $current_page = 1;
+        }
+
+        $count_row = $this->mymodel->selectWithQuery("
+            SELECT COUNT(id) as total
+            FROM transaction
+            WHERE $where
+        ");
+        $total_orders = intval($count_row[0]['total'] ?? 0);
+        $total_pages = max(1, (int)ceil($total_orders / $per_page));
+
+        if ($current_page > $total_pages) {
+            $current_page = $total_pages;
+        }
+
+        $offset = ($current_page - 1) * $per_page;
+        if ($offset < 0) {
+            $offset = 0;
+        }
+
+        $orders = $this->mymodel->selectWithQuery("
+            SELECT id, date, order_id, customer_text, phone, shipping, marketplace, order_status,
+                   awb_number, customer_price, payment_type, address, pesanan, json, shop_name
+            FROM transaction
+            WHERE $where
+            ORDER BY date DESC, id DESC
+            LIMIT $offset, $per_page
+        ");
+
+        $start_index = 0;
+        $end_index = 0;
+        if ($total_orders > 0 && !empty($orders)) {
+            $start_index = $offset + 1;
+            $end_index = min($offset + count($orders), $total_orders);
+        }
+
+        $data['orders'] = $orders;
+        $data['selected_ids'] = array();
+        $data['ids_param'] = '';
+        $data['per_page'] = $per_page;
+        $data['per_page_options'] = $per_page_options;
+        $data['current_page'] = $current_page;
+        $data['total_pages'] = $total_pages;
+        $data['total_orders'] = $total_orders;
+        $data['start_index'] = $start_index;
+        $data['end_index'] = $end_index;
+        $data['start_date'] = $start_date;
+        $data['until_date'] = $until_date;
+        $data['content'] = $this->load->view('transaction/cetak_resi', $data, true);
+        $data['title'] = 'Cetak Resi (Bulk) - ' . $this->template->title();
+        $this->load->view('TemplateDashboard', $data);
+    }
+
+    public function cetak_resi_preview()
+    {
+        $ids = $this->parse_id_list($this->input->get('ids', true));
+        if (empty($ids)) {
+            redirect(base_url('transaction/cetak-resi'));
+            return;
+        }
+
+        $orders = $this->fetch_bulk_resi_orders($ids, 500);
+        if (empty($orders)) {
+            redirect(base_url('transaction/cetak-resi'));
+            return;
+        }
+
+        $total_items = 0;
+        $total_cod = 0;
+        $expeditions = array();
+        $product_aggregate = array();
+
+        foreach ($orders as $k => $v) {
+            $items = $this->extract_label_items($v);
+            $orders[$k]['label_items'] = $items;
+
+            foreach ($items as $item) {
+                $qty = intval($item['qty']);
+                $total_items += $qty;
+
+                $key = $item['name'] . '||' . $item['sku'];
+                if (!isset($product_aggregate[$key])) {
+                    $product_aggregate[$key] = array(
+                        'name' => $item['name'],
+                        'sku' => $item['sku'],
+                        'qty' => 0
+                    );
+                }
+                $product_aggregate[$key]['qty'] += $qty;
+            }
+
+            if (strtoupper((string)$v['payment_type']) === 'COD') {
+                $total_cod += doubleval($v['customer_price']);
+            }
+
+            $shipping = trim((string)$v['shipping']);
+            if ($shipping === '') {
+                $shipping = '-';
+            }
+            if (!isset($expeditions[$shipping])) {
+                $expeditions[$shipping] = 0;
+            }
+            $expeditions[$shipping]++;
+        }
+
+        $product_aggregate = array_values($product_aggregate);
+        usort($product_aggregate, function ($a, $b) {
+            return $b['qty'] <=> $a['qty'];
+        });
+        $product_aggregate = array_slice($product_aggregate, 0, 6);
+
+        arsort($expeditions);
+        $primary_expedition = '-';
+        $primary_expedition_count = 0;
+        if (!empty($expeditions)) {
+            $primary_expedition = (string)array_key_first($expeditions);
+            $primary_expedition_count = intval($expeditions[$primary_expedition]);
+        }
+
+        $batch_hash = strtoupper(substr(md5(implode(',', $ids)), 0, 4));
+
+        $data['orders'] = $orders;
+        $data['ids_param'] = implode(',', $ids);
+        $data['batch_code'] = '#' . $batch_hash;
+        $data['summary'] = array(
+            'total_orders' => count($orders),
+            'total_items' => $total_items,
+            'total_cod' => $total_cod,
+            'primary_expedition' => $primary_expedition,
+            'primary_expedition_count' => $primary_expedition_count,
+            'product_aggregate' => $product_aggregate
+        );
+        $data['content'] = $this->load->view('transaction/cetak_resi_preview', $data, true);
+        $data['title'] = 'Bulk Shipping Label Preview - ' . $this->template->title();
+        $this->load->view('TemplateDashboard', $data);
+    }
+
+    public function scan_ready_to_ship()
+    {
+        $ids = $this->parse_id_list($this->input->get('ids', true));
+        $batch_total = 0;
+        if (!empty($ids)) {
+            $list_id = implode(',', array_map('intval', $ids));
+            $count = $this->mymodel->selectWithQuery("SELECT COUNT(id) as total FROM transaction WHERE type_sub = 'POS' AND id IN ($list_id)");
+            $batch_total = intval($count[0]['total'] ?? 0);
+        }
+
+        $data['ids_param'] = implode(',', $ids);
+        $data['batch_total'] = $batch_total;
+        $data['content'] = $this->load->view('transaction/scan_ready_to_ship', $data, true);
+        $data['title'] = 'Scan to Ready to Ship - ' . $this->template->title();
+        $this->load->view('TemplateDashboard', $data);
+    }
+
+    public function scan_ready_to_ship_submit()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+
+        $action = strtolower(trim((string)$this->input->post('action')));
+        if ($action === '') {
+            $action = 'confirm';
+        }
+        $scan_code = trim((string)$this->input->post('scan_code'));
+        $batch_ids = $this->parse_id_list($this->input->post('batch_ids'));
+        $transaction_id = intval($this->input->post('transaction_id'));
+
+        if ($scan_code === '' && $transaction_id <= 0) {
+            echo json_encode(array(
+                'status' => false,
+                'message' => 'Kode scan atau ID transaksi wajib diisi'
+            ));
+            return;
+        }
+
+        $query = $this->find_scan_ready_order($scan_code, $batch_ids, $transaction_id);
+        if (empty($query)) {
+            echo json_encode(array(
+                'status' => false,
+                'message' => 'Order tidak ditemukan untuk kode: ' . $scan_code
+            ));
+            return;
+        }
+
+        $order = $query[0];
+        $items = $this->extract_label_items($order);
+        $item_names = array();
+        foreach ($items as $idx => $it) {
+            if ($idx > 2) {
+                break;
+            }
+            $item_names[] = trim((string)($it['name'] ?? '-'));
+        }
+        $items_summary = trim(implode(', ', array_filter($item_names)));
+        if ($items_summary === '') {
+            $items_summary = '-';
+        }
+
+        $order['transaction_id'] = intval($order['id']);
+        $order['transaction_id_display'] = 'TRX-' . intval($order['id']);
+        $order['items_summary'] = $items_summary;
+
+        if ($action === 'preview') {
+            if (strtoupper((string)$order['order_status']) === 'READY_TO_SHIP') {
+                echo json_encode(array(
+                    'status' => false,
+                    'message' => 'Order ' . $order['order_id'] . ' sudah READY_TO_SHIP',
+                    'already_ready' => true,
+                    'data' => $order
+                ));
+                return;
+            }
+
+            echo json_encode(array(
+                'status' => true,
+                'message' => 'Konfirmasi perubahan status ke READY_TO_SHIP',
+                'data' => $order
+            ));
+            return;
+        }
+
+        if (strtoupper((string)$order['order_status']) === 'READY_TO_SHIP') {
+            echo json_encode(array(
+                'status' => false,
+                'message' => 'Order ' . $order['order_id'] . ' sudah READY_TO_SHIP',
+                'already_ready' => true,
+                'data' => $order
+            ));
+            return;
+        }
+
+        $user = $_SESSION['user'] ?? array();
+        $update = array(
+            'order_status' => 'READY_TO_SHIP',
+            'updated_at' => date('Y-m-d H:i:s')
+        );
+        if (!empty($user['id'])) {
+            $update['updated_by'] = strval($user['id']);
+        }
+
+        $updated = $this->db->update('transaction', $update, array('id' => $order['id']));
+        if (!$updated) {
+            echo json_encode(array(
+                'status' => false,
+                'message' => 'Gagal mengupdate status order'
+            ));
+            return;
+        }
+
+        $previous_status = $order['order_status'];
+        $order['order_status'] = 'READY_TO_SHIP';
+        $order['previous_status'] = $previous_status;
+
+        $stock_reduced = false;
+        if (!empty($order['json'])) {
+            $stock_dt = $order;
+            $stock_dt['order_status'] = 'READY_TO_SHIP';
+            $this->generate_stock($order['id'], $stock_dt);
+            $stock_reduced = true;
+        }
+
+        echo json_encode(array(
+            'status' => true,
+            'message' => 'Order ' . $order['order_id'] . ' berhasil diupdate ke READY_TO_SHIP',
+            'stock_reduced' => $stock_reduced,
+            'data' => $order
+        ));
     }
 
     function sync_pencairan()
