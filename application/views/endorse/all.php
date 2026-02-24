@@ -484,19 +484,41 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
         <div class="card summary">
             <h3 class="text-primary fw-600 mb-1">Grafik Campaign</h3>
             
-            <!-- Filter Tanggal untuk Grafik -->
-            <div class="row my-2">
-                <div class="col-md-2">
-                    <input type="text" class="form-control" style="height: 30px !important;" id="chart_tanggal" placeholder="Pilih rentang tanggal...">
+            <div class="row my-2 g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label mb-1 text-primary fw-600">Periode Grafik</label>
+                    <input type="text" class="form-control form-control-sm" id="chart_tanggal" placeholder="Pilih rentang tanggal...">
                     <input type="hidden" id="chart_start_date" value="<?= $_GET['start_date'] ?? $start_date ?>">
                     <input type="hidden" id="chart_until_date" value="<?= $_GET['until_date'] ?? $until_date ?>">
                 </div>
-                <div class="col-md-1">
-                    <button class="btn btn-primary" style="height: 30px !important; padding: 0px 0px !important; margin-left: -16px !important;" onclick="applyChartFilter()">
-                        <i class="bi bi-search fs-16"></i>
-                    </button>
+                <div class="col-md-2">
+                    <label class="form-label mb-1 text-primary fw-600">Filter Views</label>
+                    <select class="form-control form-control-sm" id="chart_views_zero">
+                        <option value="">Semua Hari</option>
+                        <option value="1" <?= ($_GET['chart_views_zero'] ?? '') === '1' ? 'selected' : '' ?>>Views = 0</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label mb-1 text-primary fw-600">Growth Filter</label>
+                    <select class="form-control form-control-sm" id="chart_no_growth">
+                        <option value="">Semua Growth</option>
+                        <option value="1" <?= ($_GET['chart_no_growth'] ?? '') === '1' ? 'selected' : '' ?>>No Growth</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label mb-1 text-primary fw-600">Periode No Growth</label>
+                    <input type="text" class="form-control form-control-sm" id="chart_no_growth_tanggal" placeholder="Pilih periode no growth...">
+                    <input type="hidden" id="chart_no_growth_start_date" value="<?= $_GET['chart_no_growth_start_date'] ?? '' ?>">
+                    <input type="hidden" id="chart_no_growth_until_date" value="<?= $_GET['chart_no_growth_until_date'] ?? '' ?>">
+                </div>
+                <div class="col-md-2">
+                    <div class="d-grid gap-1">
+                        <button class="btn btn-primary btn-sm" type="button" onclick="applyChartFilter()">Apply Filter</button>
+                        <button class="btn btn-outline-secondary btn-sm" type="button" id="reset_chart_no_growth_period">Reset Period</button>
+                    </div>
                 </div>
             </div>
+            <small class="text-muted d-block mb-2">Filter ini hanya berlaku untuk Grafik Campaign dan tabel di bawahnya.</small>
             
             <div class="row">
                 <div class="col-md-12">
@@ -536,23 +558,56 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
             </script>
 
             <script>
+                function formatChartDateDisplay(dateStr) {
+                    return moment(dateStr, 'YYYY-MM-DD').format('DD/MM/YYYY');
+                }
+
+                function getChartMainRange() {
+                    return {
+                        start: $('#chart_start_date').val() || moment().subtract(30, 'days').format('YYYY-MM-DD'),
+                        end: $('#chart_until_date').val() || moment().format('YYYY-MM-DD')
+                    };
+                }
+
+                function renderChartNoGrowthPeriodText() {
+                    const s = $('#chart_no_growth_start_date').val();
+                    const e = $('#chart_no_growth_until_date').val();
+                    if (s && e) {
+                        $('#chart_no_growth_tanggal').val(formatChartDateDisplay(s) + ' - ' + formatChartDateDisplay(e));
+                    } else {
+                        $('#chart_no_growth_tanggal').val('');
+                    }
+                }
+
+                function toggleChartNoGrowthPeriodState() {
+                    const enabled = $('#chart_no_growth').val() === '1';
+                    $('#chart_no_growth_tanggal').prop('disabled', !enabled);
+                    $('#reset_chart_no_growth_period').prop('disabled', !enabled);
+                }
+
+                function applyChartNoGrowthRange(startDate, endDate) {
+                    const picker = $('#chart_no_growth_tanggal').data('daterangepicker');
+                    $('#chart_no_growth_start_date').val(startDate);
+                    $('#chart_no_growth_until_date').val(endDate);
+                    if (picker) {
+                        picker.setStartDate(moment(startDate, 'YYYY-MM-DD'));
+                        picker.setEndDate(moment(endDate, 'YYYY-MM-DD'));
+                    }
+                    renderChartNoGrowthPeriodText();
+                }
+
                 $(document).ready(function() {
-                    // 1) Ambil dari URL (pakai key khusus chart agar tidak bentrok dengan filter page lain)
                     let urlStart = getUrlParam('chart_start_date');
                     let urlEnd   = getUrlParam('chart_until_date');
-
-                    // 3) Fallback ke nilai yang sudah kamu siapkan (GET/ default)
                     let phpStart = $('#chart_start_date').val();
-                    let phpEnd   = $('#chart_until_date').val(); 
+                    let phpEnd   = $('#chart_until_date').val();
 
                     const useStart = urlStart || phpStart || moment().subtract(30, 'days').format('YYYY-MM-DD');
                     const useEnd   = urlEnd   || phpEnd   || moment().format('YYYY-MM-DD');
 
-                    // Set hidden inputs
                     $('#chart_start_date').val(useStart);
                     $('#chart_until_date').val(useEnd);
 
-                    // Inisialisasi daterangepicker sesuai nilai di atas
                     const startDateMoment = moment(useStart, 'YYYY-MM-DD');
                     const endDateMoment   = moment(useEnd, 'YYYY-MM-DD');
 
@@ -560,21 +615,87 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                         startDate: startDateMoment,
                         endDate: endDateMoment,
                         locale: {
-                        format: 'DD/MM/YYYY',
-                        separator: " - ",
-                        applyLabel: "Pilih",
-                        cancelLabel: "Batal",
-                        fromLabel: "Dari",
-                        toLabel: "Sampai",
-                        customRangeLabel: "Custom",
-                        daysOfWeek: ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"],
-                        monthNames: ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"],
-                        firstDay: 1
+                            format: 'DD/MM/YYYY',
+                            separator: " - ",
+                            applyLabel: "Pilih",
+                            cancelLabel: "Batal",
+                            fromLabel: "Dari",
+                            toLabel: "Sampai",
+                            customRangeLabel: "Custom",
+                            daysOfWeek: ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"],
+                            monthNames: ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"],
+                            firstDay: 1
+                        }
+                    });
+                    $('#chart_tanggal').val(startDateMoment.format('DD/MM/YYYY') + ' - ' + endDateMoment.format('DD/MM/YYYY'));
+
+                    $('#chart_views_zero').val(getUrlParam('chart_views_zero') || $('#chart_views_zero').val() || '');
+                    $('#chart_no_growth').val(getUrlParam('chart_no_growth') || $('#chart_no_growth').val() || '');
+
+                    const noGrowthStartFromUrl = getUrlParam('chart_no_growth_start_date') || $('#chart_no_growth_start_date').val() || '';
+                    const noGrowthEndFromUrl = getUrlParam('chart_no_growth_until_date') || $('#chart_no_growth_until_date').val() || '';
+                    if (noGrowthStartFromUrl && noGrowthEndFromUrl) {
+                        $('#chart_no_growth_start_date').val(noGrowthStartFromUrl);
+                        $('#chart_no_growth_until_date').val(noGrowthEndFromUrl);
+                    }
+
+                    const chartRange = getChartMainRange();
+                    const initialNoGrowthStart = $('#chart_no_growth_start_date').val() || chartRange.start;
+                    const initialNoGrowthEnd = $('#chart_no_growth_until_date').val() || chartRange.end;
+
+                    $('#chart_no_growth_tanggal').daterangepicker({
+                        autoUpdateInput: false,
+                        startDate: moment(initialNoGrowthStart, 'YYYY-MM-DD'),
+                        endDate: moment(initialNoGrowthEnd, 'YYYY-MM-DD'),
+                        locale: {
+                            format: 'DD/MM/YYYY',
+                            separator: " - ",
+                            applyLabel: "Pilih",
+                            cancelLabel: "Batal",
+                            fromLabel: "Dari",
+                            toLabel: "Sampai",
+                            customRangeLabel: "Custom",
+                            daysOfWeek: ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"],
+                            monthNames: ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"],
+                            firstDay: 1
                         }
                     });
 
-                    // Tampilkan teksnya juga
-                    $('#chart_tanggal').val(startDateMoment.format('DD/MM/YYYY') + ' - ' + endDateMoment.format('DD/MM/YYYY'));
+                    $('#chart_no_growth_tanggal').on('apply.daterangepicker', function(ev, picker) {
+                        $('#chart_no_growth_start_date').val(picker.startDate.format('YYYY-MM-DD'));
+                        $('#chart_no_growth_until_date').val(picker.endDate.format('YYYY-MM-DD'));
+                        renderChartNoGrowthPeriodText();
+                    });
+
+                    $('#chart_no_growth_tanggal').on('cancel.daterangepicker', function() {
+                        $('#chart_no_growth_start_date').val('');
+                        $('#chart_no_growth_until_date').val('');
+                        renderChartNoGrowthPeriodText();
+                    });
+
+                    $('#chart_no_growth').on('change', function() {
+                        const enabled = $(this).val() === '1';
+                        if (!enabled) {
+                            $('#chart_no_growth_start_date').val('');
+                            $('#chart_no_growth_until_date').val('');
+                        } else if (!$('#chart_no_growth_start_date').val() || !$('#chart_no_growth_until_date').val()) {
+                            const latestMainRange = getChartMainRange();
+                            applyChartNoGrowthRange(latestMainRange.start, latestMainRange.end);
+                        }
+                        renderChartNoGrowthPeriodText();
+                        toggleChartNoGrowthPeriodState();
+                    });
+
+                    $('#reset_chart_no_growth_period').on('click', function() {
+                        const latestMainRange = getChartMainRange();
+                        applyChartNoGrowthRange(latestMainRange.start, latestMainRange.end);
+                    });
+
+                    if ($('#chart_no_growth').val() === '1' && (!$('#chart_no_growth_start_date').val() || !$('#chart_no_growth_until_date').val())) {
+                        applyChartNoGrowthRange(chartRange.start, chartRange.end);
+                    }
+                    renderChartNoGrowthPeriodText();
+                    toggleChartNoGrowthPeriodState();
 
                     initializeDefaultCheckboxes();
                     get_chart();
@@ -634,20 +755,43 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                         localStorage.setItem('chart_start_date', startDateFormatted);
                         localStorage.setItem('chart_until_date', endDateFormatted);
 
-                        // SIMPAN ke URL (pakai key khusus chart biar tidak mempengaruhi filter lain)
+                        if ($('#chart_no_growth').val() === '1' && (!$('#chart_no_growth_start_date').val() || !$('#chart_no_growth_until_date').val())) {
+                            applyChartNoGrowthRange(startDateFormatted, endDateFormatted);
+                        }
+
+                        var noGrowthStart = $('#chart_no_growth_start_date').val();
+                        var noGrowthUntil = $('#chart_no_growth_until_date').val();
+                        if ($('#chart_no_growth').val() !== '1') {
+                            noGrowthStart = '';
+                            noGrowthUntil = '';
+                        }
+
                         setUrlParams({
-                        chart_start_date: startDateFormatted,
-                        chart_until_date: endDateFormatted
+                            chart_start_date: startDateFormatted,
+                            chart_until_date: endDateFormatted,
+                            chart_views_zero: $('#chart_views_zero').val() || '',
+                            chart_no_growth: $('#chart_no_growth').val() || '',
+                            chart_no_growth_start_date: noGrowthStart || '',
+                            chart_no_growth_until_date: noGrowthUntil || ''
                         });
                     }
 
                     get_chart();
-                    }
+                }
 
 
                 function get_chart() {
                     var chartStartDate = $('#chart_start_date').val();
                     var chartUntilDate = $('#chart_until_date').val();
+                    var chartViewsZero = $('#chart_views_zero').val() || '';
+                    var chartNoGrowth = $('#chart_no_growth').val() || '';
+                    var chartNoGrowthStartDate = $('#chart_no_growth_start_date').val() || '';
+                    var chartNoGrowthUntilDate = $('#chart_no_growth_until_date').val() || '';
+
+                    if (chartNoGrowth !== '1') {
+                        chartNoGrowthStartDate = '';
+                        chartNoGrowthUntilDate = '';
+                    }
 
                     if (!isValidDate(chartStartDate) || !isValidDate(chartUntilDate)) {
                         console.error('Invalid date detected, using default dates');
@@ -658,7 +802,11 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                     // Pastikan URL selalu memuat tanggal chart terkini:
                     setUrlParams({
                         chart_start_date: chartStartDate,
-                        chart_until_date: chartUntilDate
+                        chart_until_date: chartUntilDate,
+                        chart_views_zero: chartViewsZero,
+                        chart_no_growth: chartNoGrowth,
+                        chart_no_growth_start_date: chartNoGrowthStartDate,
+                        chart_no_growth_until_date: chartNoGrowthUntilDate
                     });
 
                     var baseUrl = '<?= base_url() ?>/ajax/get-chart-campaign';
@@ -670,6 +818,10 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                     // Pakai tanggal dari hidden (prioritas chart)
                     params['start_date'] = chartStartDate;
                     params['until_date'] = chartUntilDate;
+                    params['chart_views_zero'] = chartViewsZero;
+                    params['chart_no_growth'] = chartNoGrowth;
+                    params['chart_no_growth_start_date'] = chartNoGrowthStartDate;
+                    params['chart_no_growth_until_date'] = chartNoGrowthUntilDate;
 
                     var queryString = Object.keys(params).map(function(key) {
                         return encodeURIComponent(key) + '=' + encodeURIComponent(params[key]);

@@ -119,9 +119,17 @@ class Ajax extends CI_Controller
 		$start_week   = $_GET['start_week'];
 		$until_week   = $_GET['until_week'];
 		$brand        = $_GET['brand'];
+		$chart_views_zero = $_GET['chart_views_zero'] ?? '';
+		$chart_no_growth = $_GET['chart_no_growth'] ?? '';
+		$chart_no_growth_start_date = $_GET['chart_no_growth_start_date'] ?? '';
+		$chart_no_growth_until_date = $_GET['chart_no_growth_until_date'] ?? '';
 
 		if (empty($start_date)) $start_date = date("Y-m-d", strtotime(date("Y-m-d") . " -31 days"));
 		if (empty($until_date)) $until_date = date("Y-m-d");
+		if ($chart_no_growth === '1' && (!$chart_no_growth_start_date || !$chart_no_growth_until_date)) {
+			$chart_no_growth_start_date = $start_date;
+			$chart_no_growth_until_date = $until_date;
+		}
 
 		$qry_opt = " DATE(endorse_logs.date) ";
 		$group   = " GROUP BY DATE(endorse_logs.date) ";
@@ -328,6 +336,17 @@ class Ajax extends CI_Controller
 		}
 
 		// ===== Agregasi per hari dari logs =====
+		$last_updated_expr = "MAX(CONCAT(DATE(endorse_logs.date), ' 00:00:00'))";
+		$has_logs_updated_at = $this->db->field_exists('updated_at', 'endorse_logs');
+		$has_logs_created_at = $this->db->field_exists('created_at', 'endorse_logs');
+		if ($has_logs_updated_at && $has_logs_created_at) {
+			$last_updated_expr = "MAX(COALESCE(endorse_logs.updated_at, endorse_logs.created_at, CONCAT(DATE(endorse_logs.date), ' 00:00:00')))";
+		} else if ($has_logs_updated_at) {
+			$last_updated_expr = "MAX(COALESCE(endorse_logs.updated_at, CONCAT(DATE(endorse_logs.date), ' 00:00:00')))";
+		} else if ($has_logs_created_at) {
+			$last_updated_expr = "MAX(COALESCE(endorse_logs.created_at, CONCAT(DATE(endorse_logs.date), ' 00:00:00')))";
+		}
+
         if ($is_dashboard != 'true') {
             $sql_list = "
                 SELECT 
@@ -337,6 +356,7 @@ class Ajax extends CI_Controller
                     SUM(endorse_logs.views_after)        AS views,
                     SUM(endorse_logs.total_cost)         AS cost, 
                     COUNT(endorse_logs.id)               AS endorse, 
+                    $last_updated_expr                   AS last_updated,
                     $qry_opt                              AS opt
                 FROM endorse_logs
                 INNER JOIN endorse ON endorse.id = endorse_logs.id_endorse 
@@ -356,6 +376,7 @@ class Ajax extends CI_Controller
                     SUM(endorse_logs.views_after)        AS views,
                     SUM(endorse_logs.total_cost)         AS cost,
                     COUNT(endorse_logs.id)               AS endorse, 
+                    $last_updated_expr                   AS last_updated,
                     $qry_opt                              AS opt
                 FROM endorse_logs
                 INNER JOIN endorse ON endorse.id = endorse_logs.id_endorse  
@@ -383,6 +404,7 @@ class Ajax extends CI_Controller
 			$val_likes = 0; // likes individual
 			$val_comment = 0; // comment individual
 			$val_share_save = 0; // share_save individual
+			$last_updated = '';
 
 			foreach ($list as $v) {
 				if ($v['opt'] == $v2) {
@@ -393,6 +415,7 @@ class Ajax extends CI_Controller
 					$val_3 = $val_likes + $val_comment + $val_share_save;
 					$val_4 = floatval($v['cost']);
 					$val_5 = intval($v['endorse']);
+					$last_updated = $v['last_updated'] ?? '';
 					if ($val_4 > 0 && $val_1 > 0) $val_2 = ($val_4 / $val_1) * 1000;
 					break;
 				}
@@ -408,7 +431,8 @@ class Ajax extends CI_Controller
 				'val_5'    => round($val_5, 2),
 				'val_likes' => round($val_likes, 2),
 				'val_comment' => round($val_comment, 2),
-				'val_share_save' => round($val_share_save, 2)
+				'val_share_save' => round($val_share_save, 2),
+				'last_updated' => $last_updated
 			);
 		}
 
@@ -481,9 +505,22 @@ class Ajax extends CI_Controller
 		$sum_delta_comment = 0;
 		$sum_delta_share_save = 0;
 
+		$tooltip_views_actual = array();
+		$tooltip_views_reduced = array();
+		$tooltip_last_updated = array();
+
 		$today = date('Y-m-d');
 
 		foreach ($arr_new as $k => $v) {
+			$raw_views_today = (float)$v['val_1'];
+			$reduced_from_today = (float)$prev_views;
+			$reduced_to_today = (float)$raw_views_today;
+			$reduced_views_today = ((float)$prev_views > $raw_views_today) ? ((float)$prev_views - $raw_views_today) : 0;
+			$last_updated_text = '-';
+			if (!empty($v['last_updated']) && $v['last_updated'] != '0000-00-00 00:00:00') {
+				$last_updated_ts = strtotime($v['last_updated']);
+				if ($last_updated_ts) $last_updated_text = date('d M Y H:i', $last_updated_ts);
+			}
 			
 			// Hitung CPM dari (val_4 / val_1)*1000 jika keduanya > 0
 			if ($v['val_4'] > 0 && $v['val_1'] > 0) {
@@ -555,16 +592,51 @@ class Ajax extends CI_Controller
 				$v['val_likes'] = 0;  // likes
 				$v['val_comment'] = 0;  // comment
 				$v['val_share_save'] = 0;  // share_save
+				$raw_views_today = 0;
+				$reduced_from_today = 0;
+				$reduced_to_today = 0;
+				$reduced_views_today = 0;
+				$last_updated_text = '-';
 			}
+
+			$views_value_for_chart = (float)$v['val_1'];
+			$growth_views_today = ((float)$raw_views_today - (float)$reduced_from_today);
+			$is_views_zero_day = (abs($views_value_for_chart) < 0.0000001);
+			$is_no_growth_day = ($growth_views_today <= 0);
+			$in_no_growth_period = true;
+			if (!empty($chart_no_growth_start_date) && !empty($chart_no_growth_until_date)) {
+				$opt_date = $v['opt_pure'] ?? '';
+				$in_no_growth_period = ($opt_date >= $chart_no_growth_start_date && $opt_date <= $chart_no_growth_until_date);
+			}
+
+			$skip_from_chart = false;
+			if ($chart_views_zero === '1' && !$is_views_zero_day) {
+				$skip_from_chart = true;
+			}
+			if (!$skip_from_chart && $chart_no_growth === '1' && (!$is_no_growth_day || !$in_no_growth_period)) {
+				$skip_from_chart = true;
+			}
+			if ($skip_from_chart) {
+				continue;
+			}
+
+			$tooltip_views_actual[] = round($raw_views_today, 2);
+			$tooltip_views_reduced[] = round($reduced_views_today, 2);
+			$tooltip_last_updated[] = $last_updated_text;
 
 			// Build label & tabel
 			$opt .= "'" . $v['opt'] . "',";
 
-			if ($checkbox[1] == 'true') {
-				$a .= "'" . $this->template->separator_number_only($v['val_1']) . "',";
-				$val_arr_1[] = round($v['val_1']);
-				$td_1 .= "<td>" . $this->template->separator_only($v['val_1']) . "</td>";
-			}
+				if ($checkbox[1] == 'true') {
+					$a .= "'" . $this->template->separator_number_only($v['val_1']) . "',";
+					$val_arr_1[] = round($v['val_1']);
+					$views_display = $this->template->separator_only($v['val_1']);
+					$views_actual_display = $this->template->separator_only($raw_views_today);
+					$views_reduced_display = $this->template->separator_only($reduced_views_today);
+					$views_reduced_formula_display = $this->template->separator_only($reduced_from_today) . ' - ' . $this->template->separator_only($reduced_to_today);
+					$views_updated_display = $last_updated_text ?: '-';
+					$td_1 .= '<td class="campaign-views-cell" data-actual="' . htmlspecialchars($views_actual_display, ENT_QUOTES, 'UTF-8') . '" data-reduced="' . htmlspecialchars($views_reduced_display, ENT_QUOTES, 'UTF-8') . '" data-reduced-formula="' . htmlspecialchars($views_reduced_formula_display, ENT_QUOTES, 'UTF-8') . '" data-updated="' . htmlspecialchars($views_updated_display, ENT_QUOTES, 'UTF-8') . '">' . $views_display . '</td>';
+				}
 			if ($checkbox[2] == 'true') {
 				$b .= "'" . $this->template->separator_number_only($v['val_2']) . "',";
 				$val_arr_2[] = round($v['val_2']);
@@ -750,6 +822,10 @@ class Ajax extends CI_Controller
 		$datasets = rtrim($datasets, ',');
 
 		$scales_config = $this->buildScalesConfig($use_dual_axis, $primary_max, $secondary_max);
+		$tooltip_views_actual_json = json_encode($tooltip_views_actual, JSON_UNESCAPED_UNICODE);
+		$tooltip_views_reduced_json = json_encode($tooltip_views_reduced, JSON_UNESCAPED_UNICODE);
+		$tooltip_last_updated_json = json_encode($tooltip_last_updated, JSON_UNESCAPED_UNICODE);
+		$is_views_enabled = ($checkbox[1] == 'true') ? 'true' : 'false';
 
 		$html['html'] = '
 			<canvas class="chart" id="' . $key . '"></canvas>
@@ -776,6 +852,16 @@ class Ajax extends CI_Controller
 			gradient_5.addColorStop(0, "' . $this->template->hex_to_rgb($this->template->hex(4)) . '")
 			gradient_5.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 
+			const tooltipViewsActual_' . $key . ' = ' . $tooltip_views_actual_json . ';
+			const tooltipViewsReduced_' . $key . ' = ' . $tooltip_views_reduced_json . ';
+			const tooltipLastUpdated_' . $key . ' = ' . $tooltip_last_updated_json . ';
+			const tooltipViewsEnabled_' . $key . ' = ' . $is_views_enabled . ';
+			const formatTooltipNumber_' . $key . ' = function(value) {
+				var numericValue = Number(value || 0);
+				if (!isFinite(numericValue)) numericValue = 0;
+				return numericValue.toLocaleString("id-ID");
+			};
+
 			new Chart(' . $key . ', {
 				type: "line",
 				data: {
@@ -786,15 +872,80 @@ class Ajax extends CI_Controller
 					responsive: true,
 					maintainAspectRatio: false,
 					aspectRatio: 3.1,
+					hover: {
+						mode: "index",
+						intersect: false,
+					},
 					interaction: {
 						mode: "index",
 						intersect: false,
+					},
+					tooltips: {
+						enabled: true,
+						mode: "index",
+						intersect: false,
+						backgroundColor: "#ffffff",
+						borderColor: "#d9d9d9",
+						borderWidth: 1,
+						titleFontColor: "#111827",
+						bodyFontColor: "#111827",
+						footerFontColor: "#111827",
+						callbacks: {
+							label: function(tooltipItem, data) {
+								var dataset = data.datasets[tooltipItem.datasetIndex] || {};
+								var raw = (dataset.data || [])[tooltipItem.index] || 0;
+								var datasetLabel = dataset.label || "";
+								return datasetLabel + ": " + formatTooltipNumber_' . $key . '(raw);
+							},
+							afterBody: function(tooltipItems) {
+								if (!tooltipViewsEnabled_' . $key . ') return [];
+								if (!tooltipItems || !tooltipItems.length) return [];
+								var idx = tooltipItems[0].index || 0;
+								var actual = tooltipViewsActual_' . $key . '[idx] || 0;
+								var reduced = tooltipViewsReduced_' . $key . '[idx] || 0;
+								var updated = tooltipLastUpdated_' . $key . '[idx] || "-";
+								return [
+									"",
+									"Actual on day: " + formatTooltipNumber_' . $key . '(actual),
+									"Reduced data: " + formatTooltipNumber_' . $key . '(reduced),
+									"Last updated: " + updated
+								];
+							}
+						}
 					},
 					plugins: {
 						legend: { 
 							display: false,
 							labels: { font: { size: 8 } }
 						},
+						tooltip: {
+							enabled: true,
+							backgroundColor: "#ffffff",
+							borderColor: "#d9d9d9",
+							borderWidth: 1,
+							titleColor: "#111827",
+							bodyColor: "#111827",
+							footerColor: "#111827",
+							callbacks: {
+								label: function(context) {
+									return context.dataset.label + ": " + formatTooltipNumber_' . $key . '(context.raw);
+								},
+								afterBody: function(items) {
+									if (!tooltipViewsEnabled_' . $key . ') return [];
+									if (!items || !items.length) return [];
+									var idx = items[0].dataIndex || 0;
+									var actual = tooltipViewsActual_' . $key . '[idx] || 0;
+									var reduced = tooltipViewsReduced_' . $key . '[idx] || 0;
+									var updated = tooltipLastUpdated_' . $key . '[idx] || "-";
+									return [
+										"",
+										"Actual on day: " + formatTooltipNumber_' . $key . '(actual),
+										"Reduced data: " + formatTooltipNumber_' . $key . '(reduced),
+										"Last updated: " + updated
+									];
+								}
+							}
+						}
 					},
 					stacked: false,
 					scales: {
@@ -821,7 +972,45 @@ class Ajax extends CI_Controller
 					</tr>
 					' . $table_rows . '
 				</table>
-			</div>';
+			</div>
+			<script>
+			(function() {
+				var root = document.getElementById("summary-table");
+				if (!root) return;
+
+				if (!document.getElementById("campaign-views-tooltip-style")) {
+					var style = document.createElement("style");
+					style.id = "campaign-views-tooltip-style";
+					style.innerHTML = ".tippy-box[data-theme~=\'campaign-white\']{background:#fff;color:#111827;border:1px solid #d9d9d9;box-shadow:0 8px 22px rgba(15,23,42,.15);} .tippy-box[data-theme~=\'campaign-white\'] .tippy-content{padding:8px 10px;font-size:12px;line-height:1.45;}";
+					document.head.appendChild(style);
+				}
+
+				var cells = root.querySelectorAll("td.campaign-views-cell");
+				cells.forEach(function(cell) {
+					var actual = cell.getAttribute("data-actual") || "0";
+					var reduced = cell.getAttribute("data-reduced") || "0";
+					var reducedFormula = cell.getAttribute("data-reduced-formula") || "0 - 0";
+					var updated = cell.getAttribute("data-updated") || "-";
+					var tooltipContent = "<div><b>Actual on day:</b> " + actual + "</div>" +
+						"<div><b>Reduced data:</b> " + reduced + " <span style=\"color:#6b7280\">(" + reducedFormula + ")</span></div>" +
+						"<div style=\"color:#6b7280\">Note: Reduced data = previous actual - current actual (only if previous > current).</div>" +
+						"<div><b>Last updated:</b> " + updated + "</div>";
+
+					if (typeof tippy === "function") {
+						if (cell._tippy) cell._tippy.destroy();
+						tippy(cell, {
+							content: tooltipContent,
+							allowHTML: true,
+							theme: "campaign-white",
+							placement: "top",
+							arrow: false
+						});
+					} else {
+						cell.setAttribute("title", "Actual on day: " + actual + " | Reduced data: " + reduced + " | Last updated: " + updated);
+					}
+				});
+			})();
+			</script>';
 
 		header('Content-Type: application/json; charset=utf-8');
 		echo json_encode($html, true);
@@ -869,7 +1058,8 @@ class Ajax extends CI_Controller
 			borderColor: ["' . $this->template->hex($gradient_index - 1) . '"],
 			borderWidth: 2,
 			pointRadius: 0,
-			pointHoverRadius: 0,
+			pointHoverRadius: 4,
+			pointHitRadius: 16,
 			cubicInterpolationMode: "monotone",
 			data: [' . $data . '],
 			yAxisID: "' . $axis_key . '",

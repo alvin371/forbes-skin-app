@@ -336,6 +336,7 @@ if ($_GET['until_date']) {
                     </div>
 
                     <div class="col-lg-9 text-lg-end text-start">
+                        <a href="#!" onclick="go_to_cetak_resi()" class="btn mb-2 btn-edit-active px-2 mt-0 ms-1"><i class="bi bi-printer fs-16"></i> Cetak Resi (Bulk)</a>
                         <a href="#!" onclick="sync_data('<?= $start_date ?>','<?= $until_date ?>')" class="btn mb-2 btn-edit px-2 mt-0 ms-1"><i class="bi bi-cloud-download fs-16"></i> Sync Data</a>
                         <a href="#!" onclick="download_file()" class="btn mb-2 btn-edit px-2 mt-0 ms-1"><i class="bi bi-download fs-16"></i> Download</a>
                         <a href="#!" onclick="import_data()" class="btn mb-2 btn-edit px-2 mt-0 ms-1"><i class="bi bi-cart2 fs-16"></i> Import Order</a>
@@ -629,6 +630,12 @@ if ($_GET['until_date']) {
     </button>
     <ul class="dropdown-menu text-lg-end text-start" style="padding:0px;background:unset;border:unset">
         <li><a class="dropdown-items" href="#!" style="padding:0px">
+                <button type="button" class="btn mb-2 btn-edit-active" onclick="go_to_cetak_resi()">
+                    <i class="bi bi-printer fs-16"></i> Cetak Resi (Bulk)
+                </button>
+            </a></li>
+
+        <li><a class="dropdown-items" href="#!" style="padding:0px">
                 <button type="button" class="btn mb-2 btn-edit-active" data-bs-toggle="modal" data-bs-target="#modal-print">
                     <i class="bi bi-printer fs-16"></i> Print Data
                 </button>
@@ -698,6 +705,35 @@ if ($_GET['until_date']) {
 
 <script>
     var list_id_v2 = '';
+
+    function get_selected_ids_for_bulk() {
+        var ids = [];
+
+        var idSelected = ($('#id_selected').val() || '').split(',');
+        var idsFromListV2 = (window.list_id_v2 || '').split(',');
+        var idsFromChecked = [];
+        $('input[name="list_id"]:checked').each(function() {
+            idsFromChecked.push($(this).val());
+        });
+
+        ids = ids.concat(idSelected, idsFromListV2, idsFromChecked);
+
+        var cleaned = [];
+        var seen = {};
+        ids.forEach(function(v) {
+            v = String(v || '').trim();
+            if (/^[0-9]+$/.test(v) && parseInt(v, 10) > 0 && !seen[v]) {
+                seen[v] = true;
+                cleaned.push(v);
+            }
+        });
+
+        return cleaned;
+    }
+
+    function go_to_cetak_resi() {
+        window.location.href = "<?= base_url() ?>transaction/cetak-resi";
+    }
 
     function get_id() {
         list_id_v2 = '';
