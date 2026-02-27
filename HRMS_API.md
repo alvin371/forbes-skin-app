@@ -1,5 +1,9 @@
 # HRMS API (Mobile) Documentation
 
+Swagger/OpenAPI source of truth:
+- Swagger UI: `/docs/hrms`
+- OpenAPI YAML: `/docs/openapi/hrms.yaml`
+
 Base URL: `/api/hrms`
 
 Auth:
@@ -654,3 +658,12 @@ Response 200:
   "status": "CANCELLED"
 }
 ```
+
+## Known Route Gaps (Excluded from Swagger)
+
+These routes exist in `application/config/routes.php`, but their mapped methods are currently missing in `application/controllers/Api_hrms.php`:
+- `/api/hrms/approvals/inbox`
+- `/api/hrms/approvals/inbox/count`
+- `/api/hrms/approvals/{id}/approve`
+- `/api/hrms/approvals/{id}/reject`
+- `/api/hrms/approvals/history`

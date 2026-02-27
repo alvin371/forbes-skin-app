@@ -46,6 +46,7 @@
         var statusGuidanceEl = document.getElementById('status-guidance');
         var statusEligibilityEl = document.getElementById('status-eligibility');
         var lastStatus = null;
+        var searchParams = new URLSearchParams(window.location.search || '');
 
         function setStatus(message, isError) {
             geoStatus.textContent = message;
@@ -85,6 +86,126 @@
             });
         }
 
+        function parseCsvList(value) {
+            if (!value) {
+                return [];
+            }
+
+            return String(value)
+                .split(/[\r\n,]+/)
+                .map(function (item) { return item.trim(); })
+                .filter(function (item) { return item !== ''; });
+        }
+
+        function normalizeWifiProof(value) {
+            if (!value) {
+                return null;
+            }
+
+            if (typeof value === 'string') {
+                var trimmed = value.trim();
+                return trimmed === '' ? null : trimmed;
+            }
+
+            if (typeof value !== 'object') {
+                return null;
+            }
+
+            var result = {};
+            if (value.bssid && String(value.bssid).trim() !== '') {
+                result.bssid = String(value.bssid).trim();
+            }
+            if (value.ssid && String(value.ssid).trim() !== '') {
+                result.ssid = String(value.ssid).trim();
+            }
+            if (Array.isArray(value.bssids)) {
+                var bssids = value.bssids
+                    .map(function (item) { return String(item).trim(); })
+                    .filter(function (item) { return item !== ''; });
+                if (bssids.length) {
+                    result.bssids = bssids;
+                }
+            }
+            if (Array.isArray(value.ssids)) {
+                var ssids = value.ssids
+                    .map(function (item) { return String(item).trim(); })
+                    .filter(function (item) { return item !== ''; });
+                if (ssids.length) {
+                    result.ssids = ssids;
+                }
+            }
+
+            return Object.keys(result).length ? result : null;
+        }
+
+        function getWifiProof() {
+            if (typeof window.getAttendanceWifiProof === 'function') {
+                try {
+                    return normalizeWifiProof(window.getAttendanceWifiProof());
+                } catch (error) {}
+            }
+
+            if (typeof window.AttendanceWifiProof !== 'undefined') {
+                return normalizeWifiProof(window.AttendanceWifiProof);
+            }
+
+            if (searchParams.has('wifi_proof')) {
+                var wifiProofRaw = searchParams.get('wifi_proof');
+                try {
+                    return normalizeWifiProof(JSON.parse(wifiProofRaw));
+                } catch (error) {
+                    return normalizeWifiProof(wifiProofRaw);
+                }
+            }
+
+            var bssid = searchParams.get('bssid');
+            var ssid = searchParams.get('ssid');
+            var bssids = parseCsvList(searchParams.get('bssids'));
+            var ssids = parseCsvList(searchParams.get('ssids'));
+            var proof = {};
+
+            if (bssid && bssid.trim() !== '') {
+                proof.bssid = bssid.trim();
+            }
+            if (ssid && ssid.trim() !== '') {
+                proof.ssid = ssid.trim();
+            }
+            if (bssids.length) {
+                proof.bssids = bssids;
+            }
+            if (ssids.length) {
+                proof.ssids = ssids;
+            }
+
+            return Object.keys(proof).length ? proof : null;
+        }
+
+        function appendWifiProofToQuery(url, wifiProof) {
+            if (!wifiProof) {
+                return url;
+            }
+
+            if (typeof wifiProof === 'string') {
+                return url + '&bssid=' + encodeURIComponent(wifiProof);
+            }
+
+            var query = url;
+            if (wifiProof.bssid) {
+                query += '&bssid=' + encodeURIComponent(wifiProof.bssid);
+            }
+            if (wifiProof.ssid) {
+                query += '&ssid=' + encodeURIComponent(wifiProof.ssid);
+            }
+            if (Array.isArray(wifiProof.bssids) && wifiProof.bssids.length) {
+                query += '&bssids=' + encodeURIComponent(wifiProof.bssids.join(','));
+            }
+            if (Array.isArray(wifiProof.ssids) && wifiProof.ssids.length) {
+                query += '&ssids=' + encodeURIComponent(wifiProof.ssids.join(','));
+            }
+
+            return query;
+        }
+
         function postAttendance(type, position) {
             var payload = {
                 type: type,
@@ -92,6 +213,10 @@
                 lng: position.coords.longitude,
                 accuracy: position.coords.accuracy
             };
+            var wifiProof = getWifiProof();
+            if (wifiProof) {
+                payload.wifiProof = wifiProof;
+            }
 
             var headers = {
                 'Content-Type': 'application/json',
@@ -193,6 +318,11 @@
             if (office.has_ip_rule && !computed.ip_ok) {
                 messages.push('Connect to office Wi-Fi or network (must be on office IP range).');
             }
+            if (Array.isArray(computed.reasons) && computed.reasons.indexOf('WIFI_REQUIRED') !== -1) {
+                messages.push('Provide office Wi-Fi proof (SSID/BSSID) for this office.');
+            } else if (Array.isArray(computed.reasons) && computed.reasons.indexOf('WIFI_NOT_ALLOWED') !== -1) {
+                messages.push('Current Wi-Fi does not match office Wi-Fi allowlist.');
+            }
             if (messages.length === 0) {
                 messages.push('You are good to confirm attendance.');
             }
@@ -208,6 +338,7 @@
             var office = result.office;
             var user = result.user;
             var computed = result.computed;
+            var wifi = result.wifi || null;
             lastStatus = result;
 
             userLocationEl.textContent = 'lat ' + user.lat + ', lng ' + user.lng + ' (accuracy ' + user.accuracy + 'm)';
@@ -217,7 +348,8 @@
             statusFlagsEl.textContent =
                 (computed.inside_radius ? 'Inside radius' : 'Outside radius') + ' | ' +
                 (computed.accuracy_ok ? 'Accuracy OK' : 'Accuracy too low') + ' | ' +
-                (office.has_ip_rule ? (computed.ip_ok ? 'Network OK' : 'Network blocked') : 'Network check skipped');
+                (office.has_ip_rule ? (computed.ip_ok ? 'Network OK' : 'Network blocked') : 'Network check skipped') + ' | ' +
+                (wifi && wifi.has_rules ? (wifi.ok ? 'Wi-Fi OK' : 'Wi-Fi blocked') : 'Wi-Fi check skipped');
             statusGuidanceEl.textContent = buildGuidance(computed, office);
             statusEligibilityEl.textContent = computed.can_confirm ? 'You can confirm attendance.' : 'You cannot confirm attendance.';
             statusEligibilityEl.style.color = computed.can_confirm ? '#52c41a' : '#ff4d4f';
@@ -228,6 +360,7 @@
                 '?lat=' + encodeURIComponent(position.coords.latitude) +
                 '&lng=' + encodeURIComponent(position.coords.longitude) +
                 '&accuracy=' + encodeURIComponent(position.coords.accuracy);
+            url = appendWifiProofToQuery(url, getWifiProof());
 
             return fetch(url, { headers: { 'Accept': 'application/json' } })
                 .then(function (response) {

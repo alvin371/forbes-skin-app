@@ -52,6 +52,8 @@ defined('BASEPATH') or exit('No direct script access allowed');
 
 $route['privacy-policy'] = 'PublicController/privacy_policy';
 $route['support'] = 'PublicController/support';
+$route['docs/hrms'] = 'Docs/hrms';
+$route['docs/openapi/hrms.yaml'] = 'Docs/hrms_openapi';
 
 $route['auth'] = 'auth';
 $route['login'] = 'auth/login';

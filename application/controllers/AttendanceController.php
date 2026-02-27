@@ -47,17 +47,42 @@ class AttendanceController extends CI_Controller
             return $this->respond(400, array('status' => 'error', 'message' => 'Validation failed', 'errors' => $errors));
         }
 
+        $wifiProof = $this->extract_wifi_proof_from_query();
         $ipAddress = $this->input->ip_address();
-        $result = $this->attendanceeligibilityservice->evaluate($lat, $lng, $accuracy, $ipAddress, $officeOverride ?: null, null);
+        $result = $this->attendanceeligibilityservice->evaluate($lat, $lng, $accuracy, $ipAddress, $officeOverride ?: null, $wifiProof);
         if (isset($result['error'])) {
             return $this->respond(500, array('status' => 'error', 'message' => 'Active office is not configured.'));
         }
+
+        $office = $result['office'];
+        $officeRecord = $this->Office_model->get_by_id($office['id']);
+        $officeForWifi = $officeRecord ?: $office;
+        $hasWifiRules = $this->has_wifi_rules($officeForWifi);
+        $wifiOk = $this->wifi_proof_ok($officeForWifi, $wifiProof);
+        $canConfirm = $result['computed']['can_confirm'];
+        $reasons = $result['computed']['reasons'];
+        if ($hasWifiRules) {
+            $canConfirm = $canConfirm && $wifiOk;
+            if ($wifiProof === null) {
+                $reasons[] = 'WIFI_REQUIRED';
+            } elseif (!$wifiOk) {
+                $reasons[] = 'WIFI_NOT_ALLOWED';
+            }
+            $reasons = array_values(array_unique($reasons));
+        }
+        $result['computed']['can_confirm'] = $canConfirm;
+        $result['computed']['reasons'] = $reasons;
 
         return $this->respond(200, array(
             'status' => 'ok',
             'office' => $result['office'],
             'user' => $result['user'],
             'computed' => $result['computed'],
+            'wifi' => array(
+                'has_rules' => $hasWifiRules,
+                'provided' => $wifiProof !== null,
+                'ok' => $hasWifiRules ? $wifiOk : true,
+            ),
         ));
     }
 
@@ -76,6 +101,7 @@ class AttendanceController extends CI_Controller
         $lat = isset($payload['lat']) ? $payload['lat'] : NULL;
         $lng = isset($payload['lng']) ? $payload['lng'] : NULL;
         $accuracy = isset($payload['accuracy']) ? $payload['accuracy'] : NULL;
+        $wifiProof = $this->extract_wifi_proof_from_payload($payload);
 
         $errors = array();
         if (!in_array($type, array('IN', 'OUT'), TRUE)) {
@@ -111,25 +137,46 @@ class AttendanceController extends CI_Controller
         }
 
         $ipAddress = $this->input->ip_address();
-        $result = $this->attendanceeligibilityservice->evaluate($lat, $lng, $accuracy, $ipAddress, null, null);
+        $result = $this->attendanceeligibilityservice->evaluate($lat, $lng, $accuracy, $ipAddress, null, $wifiProof);
         if (isset($result['error'])) {
             return $this->respond(500, array('status' => 'error', 'message' => 'Active office is not configured.'));
         }
 
-        if (!$result['computed']['can_confirm']) {
+        $office = $result['office'];
+        $officeRecord = $this->Office_model->get_by_id($office['id']);
+        $officeForWifi = $officeRecord ?: $office;
+        $hasWifiRules = $this->has_wifi_rules($officeForWifi);
+        $wifiOk = $this->wifi_proof_ok($officeForWifi, $wifiProof);
+        $canConfirm = $result['computed']['can_confirm'];
+        $reasons = $result['computed']['reasons'];
+        if ($hasWifiRules) {
+            $canConfirm = $canConfirm && $wifiOk;
+            if ($wifiProof === null) {
+                $reasons[] = 'WIFI_REQUIRED';
+            } elseif (!$wifiOk) {
+                $reasons[] = 'WIFI_NOT_ALLOWED';
+            }
+            $reasons = array_values(array_unique($reasons));
+        }
+
+        if (!$canConfirm) {
             return $this->respond(403, array(
                 'status' => 'error',
                 'message' => 'Attendance confirmation requirements not met.',
-                'reasons' => $result['computed']['reasons'],
-                'computed' => $result['computed'],
+                'reasons' => $reasons,
+                'computed' => array_merge($result['computed'], array(
+                    'can_confirm' => false,
+                    'reasons' => $reasons,
+                )),
             ));
         }
 
-        $office = $result['office'];
         $distance = $result['computed']['distance_m'];
         $method = $office['has_ip_rule'] ? 'GEOFENCE+IP' : 'GEOFENCE';
+        if ($hasWifiRules) {
+            $method = $office['has_ip_rule'] ? 'GEOFENCE+IP+WIFI' : 'GEOFENCE+WIFI';
+        }
         $now = date('Y-m-d H:i:s');
-        $officeRecord = $this->Office_model->get_by_id($office['id']);
         $userRecord = $this->get_user_record($userId);
         $schedule = $this->resolve_attendance_times($officeRecord ?: $office, $userRecord);
         $noteData = $this->build_attendance_notes($type, $now, $schedule['start'], $schedule['end']);
@@ -356,8 +403,10 @@ class AttendanceController extends CI_Controller
         $minAccuracy = $this->input->get('office_min_accuracy_m', TRUE);
         $officeName = $this->input->get('office_name', TRUE);
         $allowedCidrs = $this->input->get('allowed_ip_cidrs', FALSE);
+        $allowedBssids = $this->input->get('allowed_bssids', FALSE);
+        $allowedSsids = $this->input->get('allowed_ssids', FALSE);
 
-        if ($officeLat === NULL && $officeLng === NULL && $radius === NULL && $minAccuracy === NULL && $officeName === NULL && $allowedCidrs === NULL) {
+        if ($officeLat === NULL && $officeLng === NULL && $radius === NULL && $minAccuracy === NULL && $officeName === NULL && $allowedCidrs === NULL && $allowedBssids === NULL && $allowedSsids === NULL) {
             return null;
         }
 
@@ -399,7 +448,222 @@ class AttendanceController extends CI_Controller
             'radius_m' => (int) $radius,
             'min_accuracy_m' => (int) $minAccuracy,
             'allowed_ip_cidrs' => $normalizedCidrs,
+            'allowed_bssids' => trim((string) $allowedBssids),
+            'allowed_ssids' => trim((string) $allowedSsids),
         );
+    }
+
+    private function extract_wifi_proof_from_payload($payload)
+    {
+        if (!is_array($payload)) {
+            return null;
+        }
+
+        if (array_key_exists('wifiProof', $payload)) {
+            return $this->normalize_wifi_proof($payload['wifiProof']);
+        }
+
+        $proof = array();
+        if (isset($payload['bssid'])) {
+            $proof['bssid'] = $payload['bssid'];
+        }
+        if (isset($payload['ssid'])) {
+            $proof['ssid'] = $payload['ssid'];
+        }
+        if (isset($payload['bssids'])) {
+            $proof['bssids'] = is_array($payload['bssids']) ? $payload['bssids'] : $this->parse_csv_list($payload['bssids']);
+        }
+        if (isset($payload['ssids'])) {
+            $proof['ssids'] = is_array($payload['ssids']) ? $payload['ssids'] : $this->parse_csv_list($payload['ssids']);
+        }
+
+        return empty($proof) ? null : $this->normalize_wifi_proof($proof);
+    }
+
+    private function extract_wifi_proof_from_query()
+    {
+        $wifiProofRaw = $this->input->get('wifi_proof', FALSE);
+        if ($wifiProofRaw !== null && trim((string) $wifiProofRaw) !== '') {
+            $decoded = json_decode((string) $wifiProofRaw, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                return $this->normalize_wifi_proof($decoded);
+            }
+            return $this->normalize_wifi_proof($wifiProofRaw);
+        }
+
+        $proof = array();
+        $bssid = $this->input->get('bssid', FALSE);
+        $ssid = $this->input->get('ssid', FALSE);
+        $bssids = $this->input->get('bssids', FALSE);
+        $ssids = $this->input->get('ssids', FALSE);
+
+        if ($bssid !== null && trim((string) $bssid) !== '') {
+            $proof['bssid'] = $bssid;
+        }
+        if ($ssid !== null && trim((string) $ssid) !== '') {
+            $proof['ssid'] = $ssid;
+        }
+        if ($bssids !== null && trim((string) $bssids) !== '') {
+            $proof['bssids'] = $this->parse_csv_list($bssids);
+        }
+        if ($ssids !== null && trim((string) $ssids) !== '') {
+            $proof['ssids'] = $this->parse_csv_list($ssids);
+        }
+
+        return empty($proof) ? null : $this->normalize_wifi_proof($proof);
+    }
+
+    private function normalize_wifi_proof($wifiProof)
+    {
+        if ($wifiProof === null) {
+            return null;
+        }
+
+        if (is_string($wifiProof)) {
+            $wifiProof = trim($wifiProof);
+            return $wifiProof === '' ? null : $wifiProof;
+        }
+
+        if (!is_array($wifiProof)) {
+            return null;
+        }
+
+        $normalized = array();
+        if (isset($wifiProof['bssid']) && trim((string) $wifiProof['bssid']) !== '') {
+            $normalized['bssid'] = trim((string) $wifiProof['bssid']);
+        }
+        if (isset($wifiProof['ssid']) && trim((string) $wifiProof['ssid']) !== '') {
+            $normalized['ssid'] = trim((string) $wifiProof['ssid']);
+        }
+        if (isset($wifiProof['bssids']) && is_array($wifiProof['bssids'])) {
+            $values = array();
+            foreach ($wifiProof['bssids'] as $value) {
+                $value = trim((string) $value);
+                if ($value !== '') {
+                    $values[] = $value;
+                }
+            }
+            if (!empty($values)) {
+                $normalized['bssids'] = $values;
+            }
+        }
+        if (isset($wifiProof['ssids']) && is_array($wifiProof['ssids'])) {
+            $values = array();
+            foreach ($wifiProof['ssids'] as $value) {
+                $value = trim((string) $value);
+                if ($value !== '') {
+                    $values[] = $value;
+                }
+            }
+            if (!empty($values)) {
+                $normalized['ssids'] = $values;
+            }
+        }
+
+        return empty($normalized) ? null : $normalized;
+    }
+
+    private function parse_csv_list($text)
+    {
+        if (is_array($text)) {
+            $items = $text;
+        } else {
+            $items = preg_split('/\r\n|\r|\n|,/', (string) $text);
+        }
+        $result = array();
+        foreach ($items as $item) {
+            $item = trim($item);
+            if ($item !== '') {
+                $result[] = $item;
+            }
+        }
+        return $result;
+    }
+
+    private function has_wifi_rules($office)
+    {
+        $allowedBssids = $office['allowed_bssids'] ?? '';
+        $allowedSsids = $office['allowed_ssids'] ?? '';
+        return trim((string) $allowedBssids) !== '' || trim((string) $allowedSsids) !== '';
+    }
+
+    private function wifi_proof_ok($office, $wifiProof)
+    {
+        $allowed = $this->parse_allowed_bssids($office['allowed_bssids'] ?? '');
+        $allowedSsids = $this->parse_allowed_ssids($office['allowed_ssids'] ?? '');
+        if (empty($allowed) && empty($allowedSsids)) {
+            return true;
+        }
+
+        if ($wifiProof === null) {
+            return false;
+        }
+
+        $proofBssids = array();
+        $proofSsids = array();
+        if (is_string($wifiProof)) {
+            $proofBssids[] = $wifiProof;
+        } elseif (is_array($wifiProof)) {
+            if (isset($wifiProof['bssid'])) {
+                $proofBssids[] = $wifiProof['bssid'];
+            }
+            if (isset($wifiProof['ssid'])) {
+                $proofSsids[] = $wifiProof['ssid'];
+            }
+            if (isset($wifiProof['bssids']) && is_array($wifiProof['bssids'])) {
+                $proofBssids = array_merge($proofBssids, $wifiProof['bssids']);
+            }
+            if (isset($wifiProof['ssids']) && is_array($wifiProof['ssids'])) {
+                $proofSsids = array_merge($proofSsids, $wifiProof['ssids']);
+            }
+        }
+
+        $allowedLookup = array();
+        foreach ($allowed as $bssid) {
+            $allowedLookup[strtolower($bssid)] = true;
+        }
+        $allowedSsidLookup = array();
+        foreach ($allowedSsids as $ssid) {
+            $allowedSsidLookup[strtolower($ssid)] = true;
+        }
+
+        $hasAllowedBssid = !empty($allowedLookup);
+        $hasAllowedSsid = !empty($allowedSsidLookup);
+
+        if ($hasAllowedBssid && $hasAllowedSsid) {
+            return $this->match_any($proofBssids, $allowedLookup) && $this->match_any($proofSsids, $allowedSsidLookup);
+        }
+
+        if ($hasAllowedBssid) {
+            return $this->match_any($proofBssids, $allowedLookup);
+        }
+
+        if ($hasAllowedSsid) {
+            return $this->match_any($proofSsids, $allowedSsidLookup);
+        }
+
+        return true;
+    }
+
+    private function match_any($values, $lookup)
+    {
+        foreach ($values as $value) {
+            $key = strtolower(trim((string) $value));
+            if ($key !== '' && isset($lookup[$key])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function parse_allowed_bssids($text)
+    {
+        return $this->parse_csv_list($text);
+    }
+
+    private function parse_allowed_ssids($text)
+    {
+        return $this->parse_csv_list($text);
     }
 
     private function respond($statusCode, $payload)
