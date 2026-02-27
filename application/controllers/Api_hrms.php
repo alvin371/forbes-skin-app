@@ -1702,14 +1702,16 @@ class Api_hrms extends CI_Controller
         );
 
         $radius = isset($office['radius_m']) ? (int) $office['radius_m'] : null;
-        if ($radius !== null && $radius > 0 && $radius !== $baselineRadius) {
-            $attendanceOverrides['radius_m'] = $radius;
+        if ($radius === null || $radius <= 0) {
+            $radius = $baselineRadius !== null ? $baselineRadius : 0;
         }
+        $attendanceOverrides['radius_m'] = $radius;
 
         $minAccuracy = isset($office['min_accuracy_m']) ? (int) $office['min_accuracy_m'] : null;
-        if ($minAccuracy !== null && $minAccuracy > 0 && $minAccuracy !== $baselineMinAccuracy) {
-            $attendanceOverrides['min_accuracy_m'] = $minAccuracy;
+        if ($minAccuracy === null || $minAccuracy <= 0) {
+            $minAccuracy = $baselineMinAccuracy !== null ? $baselineMinAccuracy : 0;
         }
+        $attendanceOverrides['min_accuracy_m'] = $minAccuracy;
 
         $result = array(
             'id' => (int) $office['id'],
