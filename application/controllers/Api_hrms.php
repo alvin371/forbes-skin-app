@@ -341,16 +341,14 @@ class Api_hrms extends CI_Controller
         if (empty($offices)) {
             return $this->respond(404, array('message' => 'Active office is not configured.'));
         }
-        $primaryConfig = $this->build_office_config($offices[0]);
+
+        $baseline = $offices[0];
         $officeConfigs = array();
         foreach ($offices as $office) {
-            $officeConfigs[] = $this->build_office_config($office);
+            $officeConfigs[] = $this->build_office_config($office, $baseline);
         }
 
         return $this->respond(200, array(
-            'office' => $primaryConfig['office'],
-            'attendance' => $primaryConfig['attendance'],
-            'wifi' => $primaryConfig['wifi'],
             'offices' => $officeConfigs,
         ));
     }
@@ -1687,37 +1685,75 @@ class Api_hrms extends CI_Controller
         return $list;
     }
 
-    private function build_office_config($office)
+    private function build_office_config($office, $baseline = null)
     {
+        if ($baseline === null) {
+            $baseline = $office;
+        }
+
+        $allowedCidrs = $this->parse_allowed_cidrs($office['allowed_ip_cidrs'] ?? '');
         $allowedBssids = $this->parse_allowed_bssids($office['allowed_bssids'] ?? '');
         $allowedSsids = $this->parse_allowed_ssids($office['allowed_ssids'] ?? '');
-        $responseTimes = $this->parse_response_times($office['attendance_response_times'] ?? '');
-        $historyDays = isset($office['attendance_history_days']) ? (int) $office['attendance_history_days'] : 30;
-        $recapMonths = isset($office['attendance_recap_months']) ? (int) $office['attendance_recap_months'] : 6;
+        $baselineRadius = isset($baseline['radius_m']) ? (int) $baseline['radius_m'] : null;
+        $baselineMinAccuracy = isset($baseline['min_accuracy_m']) ? (int) $baseline['min_accuracy_m'] : null;
 
-        return array(
-            'office' => array(
-                'id' => (int) $office['id'],
-                'name' => $office['name'],
+        $attendanceOverrides = array(
+            'requires_ip' => !empty($allowedCidrs),
+        );
+
+        $radius = isset($office['radius_m']) ? (int) $office['radius_m'] : null;
+        if ($radius !== null && $radius > 0 && $radius !== $baselineRadius) {
+            $attendanceOverrides['radius_m'] = $radius;
+        }
+
+        $minAccuracy = isset($office['min_accuracy_m']) ? (int) $office['min_accuracy_m'] : null;
+        if ($minAccuracy !== null && $minAccuracy > 0 && $minAccuracy !== $baselineMinAccuracy) {
+            $attendanceOverrides['min_accuracy_m'] = $minAccuracy;
+        }
+
+        $result = array(
+            'id' => (int) $office['id'],
+            'name' => $office['name'],
+            'location' => array(
                 'lat' => (float) $office['lat'],
                 'lng' => (float) $office['lng'],
-                'radius_m' => (int) $office['radius_m'],
-                'min_accuracy_m' => (int) $office['min_accuracy_m'],
-                'allowed_ip_cidrs' => $office['allowed_ip_cidrs'] ?? '',
             ),
-            'attendance' => array(
-                'min_accuracy_m' => (int) $office['min_accuracy_m'],
-                'radius_m' => (int) $office['radius_m'],
-                'requires_ip' => !empty(trim((string) ($office['allowed_ip_cidrs'] ?? ''))),
-                'response_times' => $responseTimes,
-                'history_days' => $historyDays,
-                'recap_months' => $recapMonths,
-            ),
-            'wifi' => array(
-                'allowed_bssids' => $allowedBssids,
-                'allowed_ssids' => $allowedSsids,
+            'overrides' => array(
+                'attendance' => $attendanceOverrides,
             ),
         );
+
+        if (!empty($allowedCidrs)) {
+            $result['ip'] = array(
+                'allowed_cidrs' => $allowedCidrs,
+            );
+        }
+
+        if (!empty($allowedBssids) || !empty($allowedSsids)) {
+            $wifi = array();
+            if (!empty($allowedBssids)) {
+                $wifi['allowed_bssids'] = $allowedBssids;
+            }
+            if (!empty($allowedSsids)) {
+                $wifi['allowed_ssids'] = $allowedSsids;
+            }
+            $result['overrides']['wifi'] = $wifi;
+        }
+
+        return $result;
+    }
+
+    private function parse_allowed_cidrs($text)
+    {
+        $items = preg_split('/\r\n|\r|\n|,/', (string) $text);
+        $list = array();
+        foreach ($items as $item) {
+            $item = trim($item);
+            if ($item !== '') {
+                $list[] = $item;
+            }
+        }
+        return $list;
     }
 
     private function has_wifi_rules($office)
