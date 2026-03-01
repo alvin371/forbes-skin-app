@@ -250,12 +250,12 @@
                 <div class="scan-card mb-3">
                     <div class="scan-panel-head">
                         <h4>Scan Barcode / ID Transaksi</h4>
-                        <p>Scan `transaction_id` (contoh: TRX-12345), `order_id`, atau `awb_number`.</p>
+                        <p>Scan barcode EAN-13 label, `transaction_id` (contoh: TRX-12345), `order_id`, atau `awb_number`.</p>
                     </div>
                     <div class="scan-card-body" style="padding-top:0;">
                         <div class="scan-input-wrap">
                             <span class="input-group-text"><i class="bi bi-upc-scan"></i></span>
-                            <input type="text" class="form-control" id="scanInput" placeholder="Scan transaction id / barcode..." autocomplete="off" autofocus>
+                            <input type="text" class="form-control" id="scanInput" placeholder="Scan EAN-13 / transaction id / barcode..." autocomplete="off" autofocus>
                             <button type="button" class="btn btn-primary" id="scanSubmitBtn">Enter</button>
                         </div>
                         <div class="small text-muted">

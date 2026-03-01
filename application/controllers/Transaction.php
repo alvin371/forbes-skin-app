@@ -69,6 +69,64 @@ class Transaction extends BaseController
         return array_values($ids);
     }
 
+    private function calculate_ean13_checksum_digit($base12)
+    {
+        $base12 = trim((string)$base12);
+        if (!preg_match('/^\d{12}$/', $base12)) {
+            return null;
+        }
+
+        $sum = 0;
+        for ($i = 0; $i < 12; $i++) {
+            $digit = intval($base12[$i]);
+            $position = $i + 1;
+            if ($position % 2 === 0) {
+                $sum += $digit * 3;
+            } else {
+                $sum += $digit;
+            }
+        }
+
+        return strval((10 - ($sum % 10)) % 10);
+    }
+
+    private function build_ean13_from_transaction_id($transactionId)
+    {
+        $transactionId = intval($transactionId);
+        if ($transactionId <= 0 || $transactionId > 999999999) {
+            return null;
+        }
+
+        $base12 = '200' . str_pad((string)$transactionId, 9, '0', STR_PAD_LEFT);
+        $checksum = $this->calculate_ean13_checksum_digit($base12);
+        if ($checksum === null) {
+            return null;
+        }
+
+        return $base12 . $checksum;
+    }
+
+    private function parse_transaction_id_from_ean13($code)
+    {
+        $code = trim((string)$code);
+        if (!preg_match('/^\d{13}$/', $code)) {
+            return null;
+        }
+
+        $base12 = substr($code, 0, 12);
+        $expectedChecksum = $this->calculate_ean13_checksum_digit($base12);
+        if ($expectedChecksum === null || $expectedChecksum !== substr($code, 12, 1)) {
+            return null;
+        }
+
+        if (substr($code, 0, 3) !== '200') {
+            return null;
+        }
+
+        $transactionId = intval(substr($code, 3, 9));
+        return $transactionId > 0 ? $transactionId : null;
+    }
+
     private function fetch_bulk_resi_orders($ids = array(), $limit = 120)
     {
         $where = "type_sub = 'POS'";
@@ -154,6 +212,13 @@ class Transaction extends BaseController
 
             if (ctype_digit($scan_code)) {
                 $match_parts[] = "id = " . intval($scan_code);
+            }
+
+            if (preg_match('/^\d{13}$/', $scan_code)) {
+                $decodedTransactionId = $this->parse_transaction_id_from_ean13($scan_code);
+                if ($decodedTransactionId !== null) {
+                    $match_parts[] = "id = " . intval($decodedTransactionId);
+                }
             }
 
             if (preg_match('/^TRX[-_\\s]?(\\d+)$/i', $scan_code, $m)) {
@@ -272,6 +337,11 @@ class Transaction extends BaseController
 
     public function cetak_resi_preview()
     {
+        $printMode = strtolower(trim((string)$this->input->get('mode', true)));
+        if (!in_array($printMode, array('roll', 'page'), true)) {
+            $printMode = 'roll';
+        }
+
         $ids = $this->parse_id_list($this->input->get('ids', true));
         if (empty($ids)) {
             redirect(base_url('transaction/cetak-resi'));
@@ -292,6 +362,11 @@ class Transaction extends BaseController
         foreach ($orders as $k => $v) {
             $items = $this->extract_label_items($v);
             $orders[$k]['label_items'] = $items;
+            $transactionId = intval($v['id'] ?? 0);
+            $barcodeEan13 = $this->build_ean13_from_transaction_id($transactionId);
+            $orders[$k]['barcode_ean13'] = $barcodeEan13;
+            $orders[$k]['barcode_display'] = $barcodeEan13 ?: ('TRX-' . $transactionId);
+            $orders[$k]['transaction_id_display'] = 'TRX-' . $transactionId;
 
             foreach ($items as $item) {
                 $qty = intval($item['qty']);
@@ -349,6 +424,7 @@ class Transaction extends BaseController
             'primary_expedition_count' => $primary_expedition_count,
             'product_aggregate' => $product_aggregate
         );
+        $data['print_mode'] = $printMode;
         $data['content'] = $this->load->view('transaction/cetak_resi_preview', $data, true);
         $data['title'] = 'Bulk Shipping Label Preview - ' . $this->template->title();
         $this->load->view('TemplateDashboard', $data);

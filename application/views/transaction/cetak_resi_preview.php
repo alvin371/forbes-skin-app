@@ -5,6 +5,14 @@ $total_cod = doubleval($summary['total_cod'] ?? 0);
 $product_aggregate = $summary['product_aggregate'] ?? array();
 $primary_expedition = $summary['primary_expedition'] ?? '-';
 $primary_expedition_count = intval($summary['primary_expedition_count'] ?? 0);
+$print_mode = strtolower(trim((string)($print_mode ?? 'roll')));
+if (!in_array($print_mode, array('roll', 'page'), true)) {
+    $print_mode = 'roll';
+}
+$is_roll_mode = $print_mode === 'roll';
+$ids_param_value = trim((string)($ids_param ?? ''));
+$mode_roll_url = base_url('transaction/cetak-resi/preview?ids=' . rawurlencode($ids_param_value) . '&mode=roll');
+$mode_page_url = base_url('transaction/cetak-resi/preview?ids=' . rawurlencode($ids_param_value) . '&mode=page');
 ?>
 
 <style>
@@ -61,6 +69,34 @@ $primary_expedition_count = intval($summary['primary_expedition_count'] ?? 0);
         border-radius: 10px;
         font-weight: 700;
         padding: 8px 14px;
+    }
+
+    .mode-switch {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid #cfd8ea;
+        border-radius: 10px;
+        overflow: hidden;
+        background: #fff;
+    }
+
+    .mode-switch a {
+        padding: 8px 12px;
+        text-decoration: none;
+        font-size: 13px;
+        font-weight: 700;
+        color: #4b5563;
+        line-height: 1;
+        border-right: 1px solid #d9e1ef;
+    }
+
+    .mode-switch a:last-child {
+        border-right: 0;
+    }
+
+    .mode-switch a.active {
+        background: #2563eb;
+        color: #fff;
     }
 
     .preview-layout {
@@ -170,6 +206,16 @@ $primary_expedition_count = intval($summary['primary_expedition_count'] ?? 0);
         letter-spacing: 1.2px;
         line-height: 1;
         margin-top: 4px;
+    }
+
+    .barcode-subtext {
+        text-align: center;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.15;
+        margin-top: 3px;
+        color: #4b5563;
+        letter-spacing: 0.35px;
     }
 
     .label-table {
@@ -444,7 +490,7 @@ $primary_expedition_count = intval($summary['primary_expedition_count'] ?? 0);
 
     @media print {
         @page {
-            size: 140mm 200mm;
+            size: <?= $is_roll_mode ? '100mm auto' : '100mm 150mm' ?>;
             margin: 0;
         }
 
@@ -480,13 +526,23 @@ $primary_expedition_count = intval($summary['primary_expedition_count'] ?? 0);
 
         .label-row {
             display: block;
+<?php if ($is_roll_mode): ?>
+            page-break-after: auto;
+            break-after: auto;
+            margin: 0 0 1.2mm 0 !important;
+<?php else: ?>
             page-break-after: always;
             break-after: page;
+<?php endif; ?>
         }
 
         .label-row:last-child {
+<?php if ($is_roll_mode): ?>
+            margin-bottom: 0 !important;
+<?php else: ?>
             page-break-after: auto;
             break-after: auto;
+<?php endif; ?>
         }
 
         .label-index {
@@ -494,110 +550,116 @@ $primary_expedition_count = intval($summary['primary_expedition_count'] ?? 0);
         }
 
         .shipping-label {
-            width: 140mm !important;
-            height: 200mm !important;
-            border: 0.55mm solid #101010;
+            width: 100mm !important;
+            height: 150mm !important;
+            border: 0.4mm solid #101010;
             box-sizing: border-box;
             margin: 0;
         }
 
         .label-top {
-            padding: 1.9mm 2.2mm 1.2mm;
+            padding: 1.35mm 1.7mm 1mm;
         }
 
         .label-brand {
-            font-size: 7.2mm;
+            font-size: 5.2mm;
         }
 
         .label-standard {
-            font-size: 3.9mm;
+            font-size: 2.8mm;
         }
 
         .barcode-wrap {
-            border-top: 0.55mm solid #101010;
-            border-bottom: 0.55mm solid #101010;
-            padding: 1.2mm 2.2mm 1.3mm;
+            border-top: 0.4mm solid #101010;
+            border-bottom: 0.4mm solid #101010;
+            padding: 1.1mm 1.7mm 1.1mm;
         }
 
         .barcode-main-holder {
-            height: 9.2mm;
-            margin-right: 21.5mm;
+            height: 8.2mm;
+            margin-right: 15.8mm;
         }
 
         .barcode-mini-box {
-            right: 2.2mm;
-            top: -4.8mm;
-            width: 16.8mm;
-            height: 16.8mm;
-            border: 0.55mm solid #101010;
-            padding: 1mm;
+            right: 1.7mm;
+            top: -3.8mm;
+            width: 12.8mm;
+            height: 12.8mm;
+            border: 0.4mm solid #101010;
+            padding: 0.75mm;
         }
 
         .barcode-text {
-            margin-top: 0.8mm;
-            font-size: 5.6mm;
-            letter-spacing: 0.38mm;
+            margin-top: 0.65mm;
+            font-size: 3.9mm;
+            letter-spacing: 0.24mm;
+        }
+
+        .barcode-subtext {
+            margin-top: 0.4mm;
+            font-size: 2.05mm;
+            letter-spacing: 0.1mm;
         }
 
         .label-table td {
-            border: 0.55mm solid #101010 !important;
+            border: 0.4mm solid #101010 !important;
         }
 
         .label-key {
-            padding: 1mm 1mm;
-            font-size: 2.95mm;
+            padding: 0.75mm 0.75mm;
+            font-size: 2.1mm;
         }
 
         .label-value {
-            padding: 0.9mm 1.1mm;
-            font-size: 2.85mm;
+            padding: 0.7mm 0.85mm;
+            font-size: 2.05mm;
         }
 
         .label-row-date td {
-            height: 6.8mm;
+            height: 4.9mm;
         }
 
         .label-row-recipient td {
-            height: 7.4mm;
+            height: 5.3mm;
         }
 
         .label-row-address td {
-            height: 14.8mm;
+            height: 11.2mm;
         }
 
         .label-row-phone td {
-            height: 7.2mm;
+            height: 5.1mm;
         }
 
         .label-row-order td {
-            height: 18.8mm;
+            height: 13.8mm;
         }
 
         .label-row-extra td,
         .label-row-shipping td,
         .label-row-cod td,
         .label-row-sender td {
-            height: 7mm;
+            height: 5.1mm;
         }
 
         .order-qty {
-            font-size: 2.9mm;
-        }
-
-        .order-name {
-            font-size: 2.8mm;
-        }
-
-        .order-sku {
             font-size: 2.1mm;
         }
 
+        .order-name {
+            font-size: 2.05mm;
+        }
+
+        .order-sku {
+            font-size: 1.5mm;
+        }
+
         .label-note {
-            border-top: 0.55mm solid #101010;
-            height: 7.2mm;
-            font-size: 2.2mm;
+            border-top: 0.4mm solid #101010;
+            height: 5.2mm;
+            font-size: 1.55mm;
             line-height: 1.1;
-            padding: 0.45mm 1mm;
+            padding: 0.3mm 0.8mm;
         }
     }
 </style>
@@ -613,6 +675,10 @@ $primary_expedition_count = intval($summary['primary_expedition_count'] ?? 0);
                 <h4>Previewing <?= $total_orders ?> Labels <span class="batch-chip">Batch <?= htmlspecialchars($batch_code) ?></span></h4>
             </div>
             <div class="preview-actions">
+                <div class="mode-switch" title="Print mode">
+                    <a href="<?= htmlspecialchars($mode_roll_url) ?>" class="<?= $is_roll_mode ? 'active' : '' ?>">Roll</a>
+                    <a href="<?= htmlspecialchars($mode_page_url) ?>" class="<?= !$is_roll_mode ? 'active' : '' ?>">Page</a>
+                </div>
                 <button type="button" id="btnPdf" class="btn btn-light border"><i class="bi bi-download me-1"></i>PDF</button>
                 <button type="button" id="btnPrintAll" class="btn btn-primary"><i class="bi bi-printer me-1"></i>Print All Labels</button>
             </div>
@@ -628,7 +694,10 @@ $primary_expedition_count = intval($summary['primary_expedition_count'] ?? 0);
                     $address = trim((string)($order['address'] ?? '-'));
                     $shipping = trim((string)($order['shipping'] ?? '-'));
                     $marketplace = strtoupper(trim((string)($order['marketplace'] ?? 'Marketplace')));
-                    $barcode_code = 'TRX-' . intval($order['id'] ?? 0);
+                    $transaction_id_display = trim((string)($order['transaction_id_display'] ?? ('TRX-' . intval($order['id'] ?? 0))));
+                    $barcode_ean13 = trim((string)($order['barcode_ean13'] ?? ''));
+                    $barcode_code = $barcode_ean13 !== '' ? $barcode_ean13 : $transaction_id_display;
+                    $barcode_type = $barcode_ean13 !== '' ? 'ean13' : 'code128';
 
                     $items = $order['label_items'] ?? array();
                     if (empty($items)) {
@@ -669,14 +738,23 @@ $primary_expedition_count = intval($summary['primary_expedition_count'] ?? 0);
 
                             <div class="barcode-wrap">
                                 <div class="barcode-main-holder">
-                                    <svg class="barcode-svg js-1d-barcode" data-code="<?= htmlspecialchars($barcode_code, ENT_QUOTES) ?>" aria-hidden="true"></svg>
+                                    <svg class="barcode-svg js-1d-barcode"
+                                         data-code="<?= htmlspecialchars($barcode_code, ENT_QUOTES) ?>"
+                                         data-barcode-type="<?= htmlspecialchars($barcode_type, ENT_QUOTES) ?>"
+                                         aria-hidden="true"></svg>
                                 </div>
                                 <div class="barcode-mini-box" title="1D barcode">
                                     <div class="barcode-mini-holder">
-                                        <svg class="barcode-svg js-1d-barcode js-1d-barcode-mini" data-code="<?= htmlspecialchars($barcode_code, ENT_QUOTES) ?>" aria-hidden="true"></svg>
+                                        <svg class="barcode-svg js-1d-barcode js-1d-barcode-mini"
+                                             data-code="<?= htmlspecialchars($barcode_code, ENT_QUOTES) ?>"
+                                             data-barcode-type="<?= htmlspecialchars($barcode_type, ENT_QUOTES) ?>"
+                                             aria-hidden="true"></svg>
                                     </div>
                                 </div>
                                 <div class="barcode-text"><?= htmlspecialchars($barcode_code) ?></div>
+                                <?php if ($barcode_code !== $transaction_id_display): ?>
+                                    <div class="barcode-subtext"><?= htmlspecialchars($transaction_id_display) ?></div>
+                                <?php endif; ?>
                             </div>
 
                             <table class="label-table">
@@ -796,7 +874,11 @@ $primary_expedition_count = intval($summary['primary_expedition_count'] ?? 0);
 
                 <div class="tip-box">
                     <i class="bi bi-info-circle me-1"></i>
-                    Labels will print in order shown. Ensure you have at least <?= max(1, $total_orders) ?> sheets of 4×6" thermal paper loaded.
+                    <?php if ($is_roll_mode): ?>
+                        Roll mode active: labels print in continuous flow at 100mm width (150mm label blocks).
+                    <?php else: ?>
+                        Page mode active: labels print one per page at 100mm x 150mm.
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -807,6 +889,7 @@ $primary_expedition_count = intval($summary['primary_expedition_count'] ?? 0);
     <button type="button" id="btnQuickPrint" class="btn btn-primary"><i class="bi bi-gear-fill me-1"></i>Aksi</button>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 <script>
     (function() {
         const baseUrl = "<?= base_url() ?>";
@@ -821,63 +904,67 @@ $primary_expedition_count = intval($summary['primary_expedition_count'] ?? 0);
             window.location.href = `${baseUrl}transaction/scan-ready-to-ship${suffix}`;
         }
 
-        function renderPseudoBarcode(svg, code) {
-            if (!svg) return;
-
-            const text = (code || '-').toString();
-            const ns = 'http://www.w3.org/2000/svg';
-            const isMini = svg.classList.contains('js-1d-barcode-mini');
-            const bounds = svg.getBoundingClientRect();
-            const width = Math.max(32, Math.floor(bounds.width || svg.clientWidth || (isMini ? 64 : 320)));
-            const height = Math.max(20, Math.floor(bounds.height || svg.clientHeight || (isMini ? 64 : 74)));
-            const quiet = isMini ? 4 : 8;
-
-            const pattern = [2, 1, 2, 1, 3, 1];
-            for (let i = 0; i < text.length; i++) {
-                const c = text.charCodeAt(i);
-                const seed = (c + (i * 17)) % 97;
-                pattern.push(1 + (seed % 3));
-                pattern.push(1 + ((seed >> 2) % 2));
-                pattern.push(2 + ((seed >> 4) % 3));
-                pattern.push(1 + ((seed >> 6) % 2));
-                pattern.push(1 + ((seed >> 1) % 3));
-                pattern.push(1);
+        function renderBarcodeFallback(svg, code) {
+            if (!svg) {
+                return;
             }
-            pattern.push(3, 1, 1, 2, 1, 2);
+            const ns = 'http://www.w3.org/2000/svg';
 
             while (svg.firstChild) {
                 svg.removeChild(svg.firstChild);
             }
 
-            svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+            svg.setAttribute('viewBox', '0 0 100 20');
             svg.setAttribute('preserveAspectRatio', 'none');
 
-            const totalModules = pattern.reduce((sum, n) => sum + n, 0);
-            const drawableWidth = Math.max(1, width - (quiet * 2));
-            const moduleWidth = drawableWidth / totalModules;
+            const textNode = document.createElementNS(ns, 'text');
+            textNode.setAttribute('x', '50');
+            textNode.setAttribute('y', '14');
+            textNode.setAttribute('text-anchor', 'middle');
+            textNode.setAttribute('font-size', '8');
+            textNode.setAttribute('font-family', 'Arial, sans-serif');
+            textNode.setAttribute('fill', '#101010');
+            textNode.textContent = (code || '-').toString();
+            svg.appendChild(textNode);
+        }
 
-            let x = quiet;
-            let isBar = true;
+        function renderBarcode(svg) {
+            if (!svg) {
+                return;
+            }
 
-            for (let i = 0; i < pattern.length; i++) {
-                const barWidth = pattern[i] * moduleWidth;
-                if (isBar) {
-                    const rect = document.createElementNS(ns, 'rect');
-                    rect.setAttribute('x', x.toFixed(2));
-                    rect.setAttribute('y', '0');
-                    rect.setAttribute('width', Math.max(0.9, barWidth).toFixed(2));
-                    rect.setAttribute('height', height.toString());
-                    rect.setAttribute('fill', '#101010');
-                    svg.appendChild(rect);
+            const code = (svg.dataset.code || '').trim();
+            const type = (svg.dataset.barcodeType || 'ean13').toLowerCase();
+            const isMini = svg.classList.contains('js-1d-barcode-mini');
+
+            if (typeof window.JsBarcode !== 'function') {
+                renderBarcodeFallback(svg, code);
+                return;
+            }
+
+            const options = {
+                lineColor: '#101010',
+                background: '#ffffff',
+                displayValue: false,
+                margin: isMini ? 1 : 2,
+                width: isMini ? 1.2 : 1.6,
+                height: isMini ? 26 : 38
+            };
+
+            try {
+                if (type === 'ean13' && /^\d{13}$/.test(code)) {
+                    window.JsBarcode(svg, code, Object.assign({}, options, { format: 'EAN13' }));
+                } else {
+                    window.JsBarcode(svg, code || '-', Object.assign({}, options, { format: 'CODE128' }));
                 }
-                x += barWidth;
-                isBar = !isBar;
+            } catch (err) {
+                renderBarcodeFallback(svg, code);
             }
         }
 
         function renderAllBarcodes() {
             document.querySelectorAll('.js-1d-barcode').forEach(function(svg) {
-                renderPseudoBarcode(svg, svg.dataset.code || '-');
+                renderBarcode(svg);
             });
         }
 
