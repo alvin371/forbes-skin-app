@@ -1370,6 +1370,8 @@ components:
             overrides:
               attendance:
                 requires_ip: true
+                min_accuracy_m: 50
+                radius_m: 150
               wifi:
                 allowed_ssids:
                   - Alvin
@@ -1381,6 +1383,8 @@ components:
             overrides:
               attendance:
                 requires_ip: false
+                min_accuracy_m: 50
+                radius_m: 150
           - id: 4
             name: DOT Techno Valley
             location:
@@ -1389,6 +1393,8 @@ components:
             overrides:
               attendance:
                 requires_ip: false
+                min_accuracy_m: 50
+                radius_m: 150
               wifi:
                 allowed_bssids:
                   - 48:22:54:b0:8b:4b
@@ -1456,14 +1462,16 @@ components:
 
     OfficeAttendanceOverride:
       type: object
-      required: [requires_ip]
+      required: [requires_ip, min_accuracy_m, radius_m]
       properties:
         requires_ip:
           type: boolean
         min_accuracy_m:
           type: integer
+          description: Minimum acceptable GPS accuracy in meters.
         radius_m:
           type: integer
+          description: Geofence radius in meters.
 
     OfficeWifiOverride:
       type: object

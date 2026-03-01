@@ -727,7 +727,7 @@ $build_page_url = function ($page) use ($per_page, $start_date, $until_date) {
                 alert('Pilih minimal 1 order untuk cetak resi.');
                 return;
             }
-            window.location.href = `${baseUrl}transaction/cetak-resi/preview?ids=${encodeURIComponent(ids.join(','))}`;
+            window.location.href = `${baseUrl}transaction/cetak-resi/preview?ids=${encodeURIComponent(ids.join(','))}&mode=roll`;
         });
 
         syncChecksFromSelected();

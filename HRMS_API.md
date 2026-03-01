@@ -207,7 +207,8 @@ Response 200:
 ```
 Notes:
 - `allowed_ssids`, `attendance_response_times`, `attendance_history_days`, and `attendance_recap_months` are read from the active row in `offices`.
- - If both `allowed_bssids` and `allowed_ssids` are set, the WiFi proof must match both.
+- Every entry in `offices` includes `attendance.radius_m` and `attendance.min_accuracy_m`.
+- If both `allowed_bssids` and `allowed_ssids` are set, the WiFi proof must match both.
 
 ## Attendance
 
