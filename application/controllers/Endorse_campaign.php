@@ -224,13 +224,33 @@ class Endorse_campaign extends BaseController
         }
 
         $query = $this->mymodel->selectWithQuery("SELECT * FROM endorse_campaign
-        WHERE $qry 
+        WHERE $qry
         ORDER BY start_at DESC
         LIMIT $offset, $limit
         ");
 
+        // Batch fetch card stats in a single query to avoid N+1 (3 queries per card)
+        $card_stats = [];
+        if (!empty($query)) {
+            $campaign_ids = array_map('intval', array_column($query, 'id'));
+            $ids_str = implode(',', $campaign_ids);
+            $stats_raw = $this->mymodel->selectWithQuery("
+                SELECT
+                    id_campaign,
+                    COUNT(id) AS total_pengajuan,
+                    SUM(CASE WHEN status_endorse = 'Posted Content' THEN 1 ELSE 0 END) AS posted_count,
+                    SUM(CASE WHEN status_endorse = 'Reject' THEN 1 ELSE 0 END) AS reject_count
+                FROM endorse
+                WHERE id_campaign IN ($ids_str)
+                GROUP BY id_campaign
+            ");
+            foreach ($stats_raw as $row) {
+                $card_stats[$row['id_campaign']] = $row;
+            }
+        }
 
         $data['data'] = $query;
+        $data['card_stats'] = $card_stats;
 
         $data['start'] = $offset;
         $this->load->view("endorse_campaign/item", $data);

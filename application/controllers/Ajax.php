@@ -79,6 +79,8 @@ class Ajax extends CI_Controller
 			$key = $_GET;
 			$_SESSION['checkbox'] = $key;
 		}
+		// Release session lock immediately so concurrent requests aren't blocked
+		session_write_close();
 
 		header('Content-Type: application/json; charset=utf-8');
 		$html['status'] = true;
@@ -95,6 +97,8 @@ class Ajax extends CI_Controller
 		} else {
 			$checkbox = $_SESSION['checkbox_dashboard_campaign'];
 		}
+		// Release session lock so concurrent requests (e.g. checkbox) don't serialize
+		session_write_close();
 		$skip = 0;
 		for ($i = 1; $i <= 7; $i++) {
 			if ($checkbox[$i] == 'false') $skip++;
@@ -336,16 +340,18 @@ class Ajax extends CI_Controller
 		}
 
 		// ===== Agregasi per hari dari logs =====
-			$last_updated_inner_expr = "MAX(CONCAT(DATE(el.date), ' 00:00:00'))";
-			$has_logs_updated_at = $this->db->field_exists('updated_at', 'endorse_logs');
-			$has_logs_created_at = $this->db->field_exists('created_at', 'endorse_logs');
-			if ($has_logs_updated_at && $has_logs_created_at) {
-				$last_updated_inner_expr = "MAX(COALESCE(el.updated_at, el.created_at, CONCAT(DATE(el.date), ' 00:00:00')))";
-			} else if ($has_logs_updated_at) {
-				$last_updated_inner_expr = "MAX(COALESCE(el.updated_at, CONCAT(DATE(el.date), ' 00:00:00')))";
-			} else if ($has_logs_created_at) {
-				$last_updated_inner_expr = "MAX(COALESCE(el.created_at, CONCAT(DATE(el.date), ' 00:00:00')))";
+			// Schema is known to have both updated_at and created_at — skip INFORMATION_SCHEMA queries
+			$last_updated_inner_expr = "MAX(COALESCE(el.updated_at, el.created_at, CONCAT(DATE(el.date), ' 00:00:00')))";
+
+			// Push campaign/endorse filter INSIDE the subquery to enable index range scan
+			// instead of aggregating the entire endorse_logs table first
+			$inner_campaign_filter = '';
+			if ($is_dashboard != 'true' && $id_campaign) {
+				$inner_campaign_filter = " WHERE el.id_campaign = '$id_campaign' ";
+			} elseif (!empty($list_ids)) {
+				$inner_campaign_filter = " WHERE el.id_endorse IN ($list_ids) ";
 			}
+
 			$logs_daily_subquery = "
 				SELECT
 					el.id_endorse,
@@ -357,6 +363,7 @@ class Ajax extends CI_Controller
 					MAX(el.total_cost) AS total_cost,
 					$last_updated_inner_expr AS last_updated
 				FROM endorse_logs el
+				$inner_campaign_filter
 				GROUP BY el.id_endorse, DATE(el.date)
 			";
 
@@ -7373,6 +7380,36 @@ gradient_5.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 		}
 
 		return $result;
+	}
+
+	public function refresh_campaign_endorses()
+	{
+		$id_campaign = $this->db->escape_str($this->input->get('id_campaign'));
+		if (!$id_campaign) {
+			header('Content-Type: application/json; charset=utf-8');
+			echo json_encode(['status' => false, 'msg' => 'Campaign ID required']);
+			return;
+		}
+
+		// Mark campaign as pending refresh
+		$this->db->update('endorse_campaign',
+			['refresh_requested_at' => date('Y-m-d H:i:s')],
+			['id' => $id_campaign]
+		);
+
+		// Count active endorses to give user feedback
+		$count = $this->mymodel->selectWithQuery("
+			SELECT COUNT(id) AS c FROM endorse
+			WHERE id_campaign = '$id_campaign' AND link_upload != '' AND status = 'Aktif'
+		");
+		$n = isset($count[0]['c']) ? intval($count[0]['c']) : 0;
+
+		header('Content-Type: application/json; charset=utf-8');
+		echo json_encode([
+			'status' => true,
+			'msg'    => "Refresh diminta untuk $n endorse aktif. Data akan diperbarui pada sinkronisasi berikutnya.",
+			'count'  => $n
+		]);
 	}
 
 }

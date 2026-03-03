@@ -7461,4 +7461,186 @@ class Api_v2 extends CI_Controller
         ]);
         die;
     }
+
+    /**
+     * Cronjob: sync endorse stats for a specific campaign or for all campaigns
+     * that have a pending refresh request. Accepts ?id_campaign=X to target one
+     * campaign, or runs all pending refresh_requested_at campaigns.
+     * No time-gate — can be triggered on-demand via the "Refresh" button.
+     */
+    function cronjob_endorse_by_campaign()
+    {
+        $user = $_SESSION['user'];
+        $id_campaign = $this->db->escape_str($_GET['id_campaign'] ?? '');
+        $today = DATE("Y-m-d");
+
+        if ($id_campaign) {
+            // Sync specific campaign
+            $campaigns = $this->mymodel->selectWithQuery("
+                SELECT id FROM endorse_campaign WHERE id = '$id_campaign'
+            ");
+        } else {
+            // Sync all campaigns with a pending refresh request
+            $campaigns = $this->mymodel->selectWithQuery("
+                SELECT id FROM endorse_campaign
+                WHERE refresh_requested_at IS NOT NULL
+                ORDER BY refresh_requested_at ASC
+            ");
+        }
+
+        if (empty($campaigns)) {
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['status' => false, 'msg' => 'No campaigns to sync']);
+            die;
+        }
+
+        $total_synced = 0;
+
+        foreach ($campaigns as $campaign) {
+            $cid = $campaign['id'];
+
+            // Fetch up to 10 unsynced active endorses for this campaign
+            $list = $this->mymodel->selectWithQuery("
+                SELECT * FROM endorse
+                WHERE id_campaign = '$cid'
+                  AND status = 'Aktif'
+                  AND status_campaign = 'Aktif'
+                  AND link_upload != ''
+                  AND (DATE(sync_at) < '$today' OR sync_at IS NULL)
+                LIMIT 10
+            ");
+
+            foreach ($list as $vl) {
+                $id_endorse = $vl['id'];
+                $v = $vl;
+                $yesterday = DATE('Y-m-d', strtotime($today . " -1 days"));
+
+                $query = $this->mymodel->selectWithQuery("SELECT id
+                FROM endorse_logs
+                WHERE id_endorse = '$id_endorse' AND date = '$today'
+                ORDER BY id DESC LIMIT 1");
+                $query = !empty($query) ? $query[0] : null;
+
+                $query_yesterday = $this->mymodel->selectWithQuery("SELECT *
+                FROM endorse_logs
+                WHERE id_endorse = '$id_endorse' AND date < '$today' AND views_after > 0
+                ORDER BY date DESC LIMIT 1");
+                $query_yesterday = !empty($query_yesterday) ? $query_yesterday[0] : [];
+
+                $prev_likes     = intval($query_yesterday['likes_after'] ?? 0);
+                $prev_comment   = intval($query_yesterday['comment_after'] ?? 0);
+                $prev_share_save = intval($query_yesterday['share_save_after'] ?? 0);
+                $prev_views     = intval($query_yesterday['views_after'] ?? 0);
+
+                $dt = [];
+                $dt['status']          = strval($v['status']);
+                $dt['status_campaign'] = strval($v['status_campaign']);
+                $dt['id_endorse']      = strval($v['id']);
+                $dt['id_campaign']     = strval($v['id_campaign']);
+                $dt['influencer']      = strval($v['influencer']);
+                $dt['date']            = $today;
+
+                $response = $this->template->get_social_media($v['platform'], $v['link_upload']);
+
+                $dts = [];
+                $dts['sync_at'] = DATE("Y-m-d H:i:s");
+                if (!empty($response['data']['created_at'])) {
+                    $dts['posting_at'] = $response['data']['created_at'];
+                }
+                $this->db->update('endorse', $dts, ['id' => $v['id']]);
+
+                $dt['likes']      = $prev_likes;
+                $dt['comment']    = $prev_comment;
+                $dt['share_save'] = $prev_share_save;
+                $dt['views']      = $prev_views;
+
+                if (!empty($response['data']['view']) && $response['data']['view'] > 0) {
+                    $dt['likes']      = $response['data']['like'];
+                    $dt['comment']    = $response['data']['comment'];
+                    $dt['share_save'] = doubleval($response['data']['share']) + doubleval($response['data']['collect']);
+                    $dt['views']      = $response['data']['view'];
+                }
+
+                if (intval($dt['views']) < $prev_views) {
+                    $dt['views'] = $prev_views;
+                }
+
+                $dt['likes_after']      = intval($dt['likes']);
+                $dt['comment_after']    = intval($dt['comment']);
+                $dt['share_save_after'] = intval($dt['share_save']);
+                $dt['views_after']      = intval($dt['views']);
+
+                $dt['total_cost'] = doubleval($v['total_cost']);
+                $dt['link_upload'] = strval($v['link_upload']);
+                $dt['platform']    = strval($v['platform']);
+
+                if ($v['total_cost'] > 0 && $dt['views_after'] > 0) {
+                    $dt['cpm_after'] = doubleval($v['total_cost']) / doubleval($dt['views_after']) * 1000;
+                } else {
+                    $dt['cpm_after'] = 0;
+                }
+
+                $dt['likes']      -= $prev_likes;
+                $dt['comment']    -= $prev_comment;
+                $dt['share_save'] -= $prev_share_save;
+                $dt['views']       = max(0, intval($dt['views_after']) - $prev_views);
+
+                $dt['likes_before']      = $prev_likes;
+                $dt['comment_before']    = $prev_comment;
+                $dt['share_save_before'] = $prev_share_save;
+                $dt['views_before']      = $prev_views;
+
+                if ($v['total_cost'] > 0 && $dt['views'] > 0) {
+                    $dt['cpm'] = doubleval($v['total_cost']) / doubleval($dt['views']) * 1000;
+                } else {
+                    $dt['cpm'] = 0;
+                }
+                if ($v['total_cost'] > 0 && $dt['views_before'] > 0) {
+                    $dt['cpm_before'] = doubleval($v['total_cost']) / doubleval($dt['views_before']) * 1000;
+                } else {
+                    $dt['cpm_before'] = 0;
+                }
+
+                $dt['brand'] = strval($vl['brand']);
+
+                $dt_tmp = [];
+                foreach ($dt as $kt => $vt) {
+                    $dt_tmp[$kt] = strval($vt);
+                }
+                $dt = $dt_tmp;
+
+                if ($query) {
+                    $dt['updated_at'] = DATE("Y-m-d H:i:s");
+                    $dt['updated_by'] = strval($user['id']);
+                    $this->db->update('endorse_logs', $dt, ['id_endorse' => $id_endorse, 'date' => $today]);
+                } else {
+                    $dt['created_at'] = DATE("Y-m-d H:i:s");
+                    $dt['created_by'] = strval($user['id']);
+                    if (!$this->db->insert('endorse_logs', $dt)) {
+                        $dt['updated_at'] = DATE("Y-m-d H:i:s");
+                        $dt['updated_by'] = strval($user['id']);
+                        $this->db->update('endorse_logs', $dt, ['id_endorse' => $id_endorse, 'date' => $today]);
+                    }
+                }
+                $total_synced++;
+            }
+
+            // Update campaign aggregate stats
+            $this->update_endorse_parent($cid, ['status' => 'Aktif']);
+
+            // Clear refresh request flag
+            $this->db->update('endorse_campaign',
+                ['refresh_requested_at' => null],
+                ['id' => $cid]
+            );
+        }
+
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'status' => true,
+            'synced' => $total_synced,
+            'msg'    => "$total_synced endorse berhasil di-sync untuk " . count($campaigns) . " campaign"
+        ]);
+        die;
+    }
 }

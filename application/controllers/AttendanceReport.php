@@ -85,6 +85,70 @@ class AttendanceReport extends BaseController
             ->set_output($html);
     }
 
+    public function set_user_schedule()
+    {
+        $currentUserId = isset($_SESSION['user']['id']) ? (int) $_SESSION['user']['id'] : 0;
+        if (!$this->is_admin_hr_user($currentUserId)) {
+            return $this->output
+                ->set_status_header(403)
+                ->set_content_type('application/json')
+                ->set_output(json_encode(array('status' => 'error', 'message' => 'Access denied.')));
+        }
+
+        $payload = json_decode($this->input->raw_input_stream, TRUE);
+        if (!is_array($payload)) {
+            $payload = $this->input->post(NULL, TRUE) ?: array();
+        }
+
+        $userId = isset($payload['user_id']) ? (int) $payload['user_id'] : 0;
+        if (!$userId) {
+            return $this->output
+                ->set_status_header(400)
+                ->set_content_type('application/json')
+                ->set_output(json_encode(array('status' => 'error', 'message' => 'Invalid user_id.')));
+        }
+
+        $startTime = trim((string) ($payload['start_time'] ?? ''));
+        $endTime   = trim((string) ($payload['end_time'] ?? ''));
+
+        $isReset = ($startTime === '' && $endTime === '');
+
+        if (!$isReset) {
+            if ($startTime !== '' && !preg_match('/^\d{2}:\d{2}$/', $startTime)) {
+                return $this->output
+                    ->set_status_header(400)
+                    ->set_content_type('application/json')
+                    ->set_output(json_encode(array('status' => 'error', 'message' => 'Invalid start_time format. Expected HH:MM.')));
+            }
+            if ($endTime !== '' && !preg_match('/^\d{2}:\d{2}$/', $endTime)) {
+                return $this->output
+                    ->set_status_header(400)
+                    ->set_content_type('application/json')
+                    ->set_output(json_encode(array('status' => 'error', 'message' => 'Invalid end_time format. Expected HH:MM.')));
+            }
+        }
+
+        $updateData = array(
+            'attendance_start_time' => $isReset ? null : ($startTime !== '' ? $startTime : null),
+            'attendance_end_time'   => $isReset ? null : ($endTime !== '' ? $endTime : null),
+        );
+
+        $this->db->where('id', $userId)->update('user', $updateData);
+
+        $effectiveStart = $updateData['attendance_start_time'] ?? '08:00';
+        $effectiveEnd   = $updateData['attendance_end_time']   ?? '17:00';
+
+        return $this->output
+            ->set_status_header(200)
+            ->set_content_type('application/json')
+            ->set_output(json_encode(array(
+                'status'     => 'ok',
+                'start_time' => $effectiveStart,
+                'end_time'   => $effectiveEnd,
+                'is_special' => !$isReset && ($startTime !== '' || $endTime !== ''),
+            )));
+    }
+
     private function get_user($userId)
     {
         return $this->db->get_where('user', array('id' => (int) $userId))->row_array();

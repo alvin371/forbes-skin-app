@@ -298,7 +298,7 @@ class Permission
             }
 
             // Basic modules everyone can view
-            $basic_modules = ['dashboard', 'profile', 'home'];
+            $basic_modules = ['profile', 'home'];
             if (in_array($module_name, $basic_modules) && $action === 'view') {
                 return true;
             }
@@ -323,7 +323,7 @@ class Permission
             }
 
             // Basic modules everyone can view
-            $basic_modules = ['dashboard', 'profile', 'quest'];
+            $basic_modules = ['profile', 'quest'];
             if (in_array($module_name, $basic_modules) && $action === 'view') {
                 return true;
             }

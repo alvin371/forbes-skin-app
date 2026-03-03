@@ -68,6 +68,7 @@
                     </div>
                     <div class="col-lg-2 text-end">
                         <a href="#!" onclick="create()" class="btn btn-primary px-2 mt-0 ms-1"><i class="bi bi-plus-circle-dotted fs-16"></i> Tambah Data</a>
+                        <a href="#!" onclick="refreshAllCampaigns()" class="btn btn-outline-info px-2 mt-1 ms-1"><i class="bi bi-arrow-repeat fs-16"></i> Refresh Semua</a>
                     </div>
 
                 </div>
@@ -160,4 +161,40 @@
         });
     }
     loadMoreData();
+
+    function refreshCampaign(id) {
+        var btn = document.getElementById('refresh-btn-' + id);
+        if (!btn) return;
+        btn.innerHTML = '<i class="bi bi-hourglass-split fs-16"></i> Memperbarui...';
+        btn.disabled = true;
+        $.get('<?= base_url() ?>ajax/refresh-campaign-endorses', { id_campaign: id }, function(res) {
+            if (res.status) {
+                showCampaignToast(res.msg, 'info');
+            }
+            btn.innerHTML = '<i class="bi bi-arrow-clockwise fs-16"></i> Refresh';
+            btn.disabled = false;
+        }, 'json').fail(function() {
+            btn.innerHTML = '<i class="bi bi-arrow-clockwise fs-16"></i> Refresh';
+            btn.disabled = false;
+        });
+    }
+
+    function refreshAllCampaigns() {
+        var buttons = document.querySelectorAll('[id^="refresh-btn-"]');
+        var count = 0;
+        buttons.forEach(function(btn) {
+            var id = btn.id.replace('refresh-btn-', '');
+            $.get('<?= base_url() ?>ajax/refresh-campaign-endorses', { id_campaign: id });
+            count++;
+        });
+        showCampaignToast('Refresh diminta untuk ' + count + ' campaign. Data akan diperbarui pada sinkronisasi berikutnya.', 'info');
+    }
+
+    function showCampaignToast(msg, type) {
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({ icon: type || 'info', text: msg, toast: true, position: 'top-end', showConfirmButton: false, timer: 4000 });
+        } else {
+            alert(msg);
+        }
+    }
 </script>

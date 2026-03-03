@@ -42,7 +42,7 @@ class BaseController extends CI_Controller
         'benefit' => 'benefit',
         'quest' => 'quest',
         'milestone' => 'milestone',
-        'attendancereport' => 'attendance',
+        'attendancereport' => 'attendance_report',
         'attendancesettingscontroller' => 'attendance_settings',
         'holidayscontroller' => 'holidays',
         'leavetypescontroller' => 'leave_types',
