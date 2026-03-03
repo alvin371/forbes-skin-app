@@ -73,6 +73,10 @@ class AttendanceController extends CI_Controller
         $result['computed']['can_confirm'] = $canConfirm;
         $result['computed']['reasons'] = $reasons;
 
+        $userId = isset($_SESSION['user']['id']) ? (int) $_SESSION['user']['id'] : null;
+        $userRecord = $userId ? $this->get_user_record($userId) : null;
+        $schedule = $this->resolve_attendance_times($officeRecord ?: $office, $userRecord);
+
         return $this->respond(200, array(
             'status' => 'ok',
             'office' => $result['office'],
@@ -82,6 +86,13 @@ class AttendanceController extends CI_Controller
                 'has_rules' => $hasWifiRules,
                 'provided' => $wifiProof !== null,
                 'ok' => $hasWifiRules ? $wifiOk : true,
+            ),
+            'schedule' => array(
+                'start_time'       => $schedule['start'],
+                'end_time'         => $schedule['end'],
+                'late_threshold'   => date('H:i', strtotime('2000-01-01 ' . $schedule['start'] . ':00') + 15 * 60),
+                'early_threshold'  => date('H:i', strtotime('2000-01-01 ' . $schedule['end']   . ':00') - 15 * 60),
+                'is_special'       => ($schedule['source'] === 'user'),
             ),
         ));
     }
@@ -136,6 +147,13 @@ class AttendanceController extends CI_Controller
             return $this->respond(429, array('status' => 'error', 'message' => 'Please wait before confirming again.'));
         }
 
+        if ($this->Attendance_log_model->has_type_today($userId, $type)) {
+            return $this->respond(409, array(
+                'status'  => 'error',
+                'message' => 'You have already clocked ' . $type . ' today.',
+            ));
+        }
+
         $ipAddress = $this->input->ip_address();
         $result = $this->attendanceeligibilityservice->evaluate($lat, $lng, $accuracy, $ipAddress, null, $wifiProof);
         if (isset($result['error'])) {
@@ -147,27 +165,14 @@ class AttendanceController extends CI_Controller
         $officeForWifi = $officeRecord ?: $office;
         $hasWifiRules = $this->has_wifi_rules($officeForWifi);
         $wifiOk = $this->wifi_proof_ok($officeForWifi, $wifiProof);
-        $canConfirm = $result['computed']['can_confirm'];
-        $reasons = $result['computed']['reasons'];
-        if ($hasWifiRules) {
-            $canConfirm = $canConfirm && $wifiOk;
-            if ($wifiProof === null) {
-                $reasons[] = 'WIFI_REQUIRED';
-            } elseif (!$wifiOk) {
-                $reasons[] = 'WIFI_NOT_ALLOWED';
-            }
-            $reasons = array_values(array_unique($reasons));
-        }
+        $insideRadius = $result['computed']['inside_radius'];
 
-        if (!$canConfirm) {
+        if (!$insideRadius) {
             return $this->respond(403, array(
                 'status' => 'error',
-                'message' => 'Attendance confirmation requirements not met.',
-                'reasons' => $reasons,
-                'computed' => array_merge($result['computed'], array(
-                    'can_confirm' => false,
-                    'reasons' => $reasons,
-                )),
+                'message' => 'You are outside the office radius.',
+                'reasons' => array('OUTSIDE_RADIUS'),
+                'computed' => $result['computed'],
             ));
         }
 
@@ -220,6 +225,45 @@ class AttendanceController extends CI_Controller
                 'name' => $office['name'],
             ),
             'type' => $type,
+        ));
+    }
+
+    public function logs()
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('status' => 'error', 'message' => 'Method not allowed'));
+        }
+
+        $userId = NULL;
+        if (isset($_SESSION['user']['id'])) {
+            $userId = (int) $_SESSION['user']['id'];
+        }
+        if (!$userId) {
+            return $this->respond(401, array('status' => 'error', 'message' => 'Unauthenticated.'));
+        }
+
+        $month = $this->input->get('month', TRUE);
+        if (!$month || !preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+
+        $logs = $this->Attendance_log_model->get_by_user_month($userId, $month);
+
+        foreach ($logs as &$row) {
+            if (isset($row['notes']) && $row['notes'] !== null) {
+                $decoded = json_decode($row['notes'], true);
+                $row['notes'] = is_array($decoded) ? $decoded : [];
+            } else {
+                $row['notes'] = [];
+            }
+        }
+        unset($row);
+
+        return $this->respond(200, array(
+            'status' => 'ok',
+            'month'  => $month,
+            'total'  => count($logs),
+            'data'   => $logs,
         ));
     }
 

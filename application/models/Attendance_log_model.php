@@ -36,6 +36,15 @@ class Attendance_log_model extends CI_Model
         return $query->num_rows() > 0;
     }
 
+    public function has_type_today($userId, $type)
+    {
+        $userId = (int) $userId;
+        $today = date('Y-m-d');
+        $sql = "SELECT id FROM attendance_logs WHERE user_id = ? AND type = ? AND DATE(created_at) = ? LIMIT 1";
+        $query = $this->db->query($sql, array($userId, $type, $today));
+        return $query->num_rows() > 0;
+    }
+
     public function get_by_user($userId)
     {
         $this->db->select('attendance_logs.*, offices.name as office_name');
@@ -53,6 +62,20 @@ class Attendance_log_model extends CI_Model
         $this->db->join('offices', 'offices.id = attendance_logs.office_id', 'left');
         $this->db->where('attendance_logs.user_id', (int) $userId);
         $this->db->where('attendance_logs.created_at >=', $startDate);
+        $this->db->order_by('attendance_logs.created_at', 'DESC');
+        return $this->db->get()->result_array();
+    }
+
+    public function get_by_user_month($userId, $month)
+    {
+        $start = $month . '-01 00:00:00';
+        $end = date('Y-m-t 23:59:59', strtotime($start));
+        $this->db->select('attendance_logs.*, offices.name as office_name');
+        $this->db->from('attendance_logs');
+        $this->db->join('offices', 'offices.id = attendance_logs.office_id', 'left');
+        $this->db->where('attendance_logs.user_id', (int) $userId);
+        $this->db->where('attendance_logs.created_at >=', $start);
+        $this->db->where('attendance_logs.created_at <=', $end);
         $this->db->order_by('attendance_logs.created_at', 'DESC');
         return $this->db->get()->result_array();
     }

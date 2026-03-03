@@ -672,6 +672,7 @@ if (!$_SESSION['is_login']) {
         'milestone' => $CI->permission->check_permission($user_id, 'milestone', 'view'),
         'recruitment' => $CI->permission->check_permission($user_id, 'recruitment', 'view'),
         'attendance' => $CI->permission->check_permission($user_id, 'attendance', 'view'),
+        'attendance_report' => $CI->permission->check_permission($user_id, 'attendance_report', 'view'),
         'leave' => $CI->permission->check_permission($user_id, 'leave', 'view'),
         'overtime' => $CI->permission->check_permission($user_id, 'overtime', 'view'),
         'leave_approvals' => $CI->permission->check_permission($user_id, 'leave_approvals', 'view'),
@@ -1105,6 +1106,8 @@ if (!$_SESSION['is_login']) {
                 <i class="icon bi bi-calendar-check"></i>
                 ATTENDANCE
               </a>
+            <?php endif; ?>
+            <?php if ($modules_permissions['attendance_report']): ?>
               <a href="<?= base_url() ?>attendance/report" class="ms-3 item-menu <?= $menu_attendance_report ?>">
                 <i class="icon bi bi-clipboard-data"></i>
                 ATTENDANCE REPORTS

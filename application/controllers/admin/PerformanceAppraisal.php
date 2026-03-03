@@ -5,18 +5,14 @@ require_once APPPATH . 'core/BaseController.php';
 
 class PerformanceAppraisal extends BaseController
 {
-    protected $public_methods = [
-        'index',
-        'create',
-        'edit',
-        'update',
-        'delete',
-        'item_store',
-        'item_update',
-        'item_delete',
-        'items_reorder',
-        'submissions',
-        'submission_detail'
+    protected $method_permissions = [
+        'create'        => 'create',
+        'edit'          => 'edit',
+        'delete'        => 'delete',
+        'item_store'    => 'create',
+        'item_update'   => 'edit',
+        'item_delete'   => 'delete',
+        'items_reorder' => 'edit',
     ];
 
     public function __construct()
@@ -25,8 +21,6 @@ class PerformanceAppraisal extends BaseController
         $this->load->model('performance_model');
         $this->load->database();
         $this->load->library('template');
-        $this->load->library('AdminAuthFilter');
-        $this->adminauthfilter->enforce();
     }
 
     /**

@@ -175,6 +175,13 @@ if (!function_exists('sidebar_registry')) {
                 'sort_order' => 510,
                 'permissions' => ['view', 'create', 'edit', 'delete'],
             ],
+            'attendance_report' => [
+                'display_name' => 'ATTENDANCE REPORT',
+                'controller'   => 'attendancereport',
+                'category'     => 'HR Management',
+                'sort_order'   => 515,
+                'permissions'  => ['view'],
+            ],
             'leave' => [
                 'display_name' => 'LEAVE REQUESTS',
                 'controller' => 'leave',

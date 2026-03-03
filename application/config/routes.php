@@ -250,9 +250,11 @@ $route['api/hrms/overtime/approvals/history'] = 'Api_hrms/overtime_approvals_his
 
 $route['api/attendance/confirm'] = 'AttendanceController/confirm';
 $route['api/attendance/status'] = 'AttendanceController/status';
+$route['api/attendance/logs'] = 'AttendanceController/logs';
 $route['attendance'] = 'AttendancePageController/index';
 $route['attendance/report'] = 'AttendanceReport/index';
 $route['attendance/report/pdf'] = 'AttendanceReport/export_pdf';
+$route['attendance/report/set-schedule']['POST'] = 'AttendanceReport/set_user_schedule';
 
 $route['admin/performance/roles']['get'] = 'Api_performance/roles';
 $route['admin/performance/templates']['get'] = 'Api_performance/templates';
@@ -273,6 +275,8 @@ $route['performance/submissions/(:num)']['get'] = 'Api_performance/submission/$1
 
 $route['api/cronjob/endorse-campaign'] = 'Api_v2/cronjob_endorse_campaign';
 $route['api/cronjob/endorse'] = 'Api_v2/cronjob_endorse';
+$route['api/cronjob/endorse-sync-campaign'] = 'Api_v2/cronjob_endorse_by_campaign';
+$route['ajax/refresh-campaign-endorses'] = 'Ajax/refresh_campaign_endorses';
 $route['api/cronjob/influencer'] = 'Api_v2/cronjob_influencer';
 $route['api/cronjob/influencer-dummy'] = 'Api_v2/cronjob_influencer_dummy';
 $route['api/cronjob/scraping-submit'] = 'Api_v2/cronjob_scraping_submit';
