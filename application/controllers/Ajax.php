@@ -127,6 +127,8 @@ class Ajax extends CI_Controller
 		$chart_no_growth = $_GET['chart_no_growth'] ?? '';
 		$chart_no_growth_start_date = $_GET['chart_no_growth_start_date'] ?? '';
 		$chart_no_growth_until_date = $_GET['chart_no_growth_until_date'] ?? '';
+		$chart_influencer = trim($_GET['chart_influencer'] ?? '');
+		$chart_username = trim($_GET['chart_username'] ?? '');
 
 		if (empty($start_date)) $start_date = date("Y-m-d", strtotime(date("Y-m-d") . " -31 days"));
 		if (empty($until_date)) $until_date = date("Y-m-d");
@@ -188,11 +190,21 @@ class Ajax extends CI_Controller
 			if ($text) $filters_common .= " AND endorse.status_payment IN ($text) ";
 		}
 
-        // Platform
+		// Platform
         $platform = $_GET['platform'];
         if ($platform) {
             $filters_common .= " AND endorse.platform = '$platform' ";
         }
+
+		if ($chart_influencer !== '') {
+			$chart_influencer = (int)$chart_influencer;
+			if ($chart_influencer > 0) {
+				$filters_common .= " AND endorse.influencer = '$chart_influencer' ";
+			}
+		} else if ($chart_username !== '') {
+			$chart_username = $this->db->escape_like_str($chart_username);
+			$filters_common .= " AND endorse.nama_creator LIKE '%$chart_username%' ";
+		}
 
         // PIC per content (multi)
         $pic = $this->input->get('pic');

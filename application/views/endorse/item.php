@@ -460,6 +460,11 @@ if ($view == 'table') {
                                             <i class="bi bi-pencil-square me-2"></i> Edit Data
                                         </a>
                                     </li>
+                                    <li>
+                                        <a href="#!" class="dropdown-item" onclick="openTransferModal('<?= $v['id'] ?>','<?= htmlspecialchars($v['nama_creator'], ENT_QUOTES) ?>','<?= htmlspecialchars($v['status_endorse'], ENT_QUOTES) ?>','<?= htmlspecialchars($v['platform'], ENT_QUOTES) ?>')">
+                                            <i class="bi bi-box-arrow-in-right me-2"></i> Transfer Campaign
+                                        </a>
+                                    </li>
                                     <?php if ($v['status_endorse'] != "Review" && $v['status_endorse'] != 'Hold' && $v['status_endorse'] != 'Reject' && $v['link_mou'] != '-') { ?>
                                     <li>
                                         <a href="#!" class="dropdown-item" onclick="set_payment(<?= $v['id'] ?>)">
@@ -721,6 +726,7 @@ if ($view == 'table') {
                 <?php } ?>
                 <a href="#!" onclick="clone('<?= $v['id'] ?>')" class="btn btn-copy ms-1 mt-0 mb-2"><i class="bi bi-copy fs-16"></i> Kloning</a>
                 <a href="#!" onclick="edit('<?= $v['id'] ?>')" class="btn btn-edit  mt-0 ms-1 mb-2"><i class="bi bi-pencil-square fs-16"></i> Edit Data</a>
+                <a href="#!" onclick="openTransferModal('<?= $v['id'] ?>','<?= htmlspecialchars($v['nama_creator'], ENT_QUOTES) ?>','<?= htmlspecialchars($v['status_endorse'], ENT_QUOTES) ?>','<?= htmlspecialchars($v['platform'], ENT_QUOTES) ?>')" class="btn btn-transfer mt-0 ms-1 mb-2"><i class="bi bi-box-arrow-in-right fs-16"></i> Transfer</a>
                 <?php if ($v['link_mou'] == '-' && $v['is_generated_mou'] == 0) { ?>
                     <a href="#!" onclick="generate_mou('<?= $v['id'] ?>')" class="btn btn-sync  mt-0 ms-1 mb-2"><i class="bi bi-clipboard2-plus fs-16"></i> Generate MOU</a>
                 <?php } ?>

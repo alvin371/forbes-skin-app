@@ -66,6 +66,13 @@ if ($_GET['type'] == "Yearly") {
 
 // Ambil nilai view saat ini dari URL
 $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke card jika tidak ada
+$campaign_type_label = (!empty($detail['is_internal']) && $detail['is_internal'] == 1) ? 'INTERNAL' : 'EXTERNAL';
+$campaign_period = '';
+if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
+    $start = !empty($detail['start_at']) ? DATE('d M Y', strtotime($detail['start_at'])) : '-';
+    $until = !empty($detail['until_at']) ? DATE('d M Y', strtotime($detail['until_at'])) : '-';
+    $campaign_period = $start . ' - ' . $until;
+}
 ?>
 <div class="w-100">
     <div class="row align-items-center">
@@ -491,6 +498,15 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                     <input type="hidden" id="chart_until_date" value="<?= $_GET['until_date'] ?? $until_date ?>">
                 </div>
                 <div class="col-md-2">
+                    <label class="form-label mb-1 text-primary fw-600">KOL/Influencer</label>
+                    <select class="form-control form-control-sm" id="chart_influencer">
+                        <option value=""></option>
+                        <?php if (!empty($_GET['chart_influencer']) && !empty($_GET['chart_username'])): ?>
+                            <option value="<?= htmlspecialchars($_GET['chart_influencer']) ?>" selected><?= htmlspecialchars($_GET['chart_username']) ?></option>
+                        <?php endif; ?>
+                    </select>
+                </div>
+                <div class="col-md-2">
                     <label class="form-label mb-1 text-primary fw-600">Filter Views Konten</label>
                     <select class="form-control form-control-sm" id="chart_views_zero">
                         <option value="">Semua Hari</option>
@@ -517,7 +533,7 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                 </div>
                 <div class="col-md-2">
                     <div class="d-grid gap-1">
-                        <button class="btn btn-primary btn-sm" type="button" onclick="applyChartFilter()">Apply Filter Konten</button>
+                        <button class="btn btn-primary btn-sm" type="button" id="apply_content_filter" onclick="applyChartFilter()">Apply Filter Konten</button>
                         <button class="btn btn-outline-secondary btn-sm" type="button" id="reset_content_filter">Reset Filter Konten</button>
                     </div>
                 </div>
@@ -568,6 +584,27 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
 
                 function getUrlParam(name) {
                     return new URL(window.location).searchParams.get(name);
+                }
+
+                function setApplyFilterLoadingState(isLoading) {
+                    const $btn = $('#apply_content_filter');
+                    if (!$btn.length) return;
+
+                    if (isLoading) {
+                        $btn.prop('disabled', true).html('<i class="fa fa-circle-o-notch fa-spin me-1"></i> Applying...');
+                    } else {
+                        $btn.prop('disabled', false).text('Apply Filter Konten');
+                    }
+                }
+
+                function getSelectedInfluencerLabel() {
+                    const select = document.getElementById('chart_influencer');
+                    if (!select) return '';
+
+                    const option = select.options[select.selectedIndex];
+                    if (!option) return '';
+
+                    return (option.text || '').trim();
                 }
             </script>
 
@@ -634,6 +671,33 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                 }
 
                 $(document).ready(function() {
+                    $('#chart_influencer').select2({
+                        minimumInputLength: 1,
+                        allowClear: true,
+                        placeholder: 'Cari influencer...',
+                        width: '100%',
+                        ajax: {
+                            dataType: 'json',
+                            url: '<?= base_url() ?>/ajax/get-influencer-list',
+                            delay: 100,
+                            data: function(params) {
+                                return {
+                                    search: params.term
+                                };
+                            },
+                            processResults: function(data) {
+                                return {
+                                    results: data
+                                };
+                            }
+                        },
+                        language: {
+                            inputTooShort: function() {
+                                return "Masukkan 1 karakter atau lebih";
+                            }
+                        }
+                    });
+
                     let urlStart = getUrlParam('chart_start_date');
                     let urlEnd   = getUrlParam('chart_until_date');
                     let phpStart = $('#chart_start_date').val();
@@ -781,6 +845,8 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                         const nextUrl = buildUrlWithParams({
                             chart_start_date: chartStartDate,
                             chart_until_date: chartUntilDate,
+                            chart_influencer: '',
+                            chart_username: '',
                             chart_views_zero: '',
                             chart_no_growth: '',
                             chart_no_growth_start_date: '',
@@ -845,21 +911,26 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                 }
                 
                 function applyChartFilter() {
-                    var dateRange = $('#chart_tanggal').val();
-                    var dates = dateRange.split(' - ');
-                    
-                    if (dates.length === 2) {
+                    try {
+                        setApplyFilterLoadingState(true);
+
+                        var dateRange = $('#chart_tanggal').val();
+                        var dates = dateRange.split(' - ');
+
+                        if (dates.length !== 2) {
+                            setApplyFilterLoadingState(false);
+                            return;
+                        }
+
                         var startDateParts = dates[0].split('/');
                         var endDateParts = dates[1].split('/');
 
                         var startDateFormatted = startDateParts[2] + '-' + startDateParts[1] + '-' + startDateParts[0];
                         var endDateFormatted   = endDateParts[2]   + '-' + endDateParts[1]   + '-' + endDateParts[0];
 
-                        // Set ke hidden input
                         $('#chart_start_date').val(startDateFormatted);
                         $('#chart_until_date').val(endDateFormatted);
 
-                        // SIMPAN ke localStorage
                         localStorage.setItem('chart_start_date', startDateFormatted);
                         localStorage.setItem('chart_until_date', endDateFormatted);
 
@@ -871,58 +942,41 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
                             applyViewsZeroDate(endDateFormatted);
                         }
 
-                        var noGrowthStart = $('#chart_no_growth_start_date').val();
-                        var noGrowthUntil = $('#chart_no_growth_until_date').val();
-                        if ($('#chart_no_growth').val() !== '1') {
-                            noGrowthStart = '';
-                            noGrowthUntil = '';
+                        var listViewsZero = $('#chart_views_zero').val() || '';
+                        var listViewsZeroDate = $('#list_views_zero_date').val() || '';
+                        var listNoGrowth = $('#chart_no_growth').val() || '';
+                        var listGrowthStartDate = $('#chart_no_growth_start_date').val() || '';
+                        var listGrowthUntilDate = $('#chart_no_growth_until_date').val() || '';
+
+                        if (listViewsZero !== '1') {
+                            listViewsZeroDate = '';
                         }
-                        var viewsZeroDate = $('#list_views_zero_date').val() || '';
-                        if ($('#chart_views_zero').val() !== '1') {
-                            viewsZeroDate = '';
+                        if (listNoGrowth !== '1') {
+                            listGrowthStartDate = '';
+                            listGrowthUntilDate = '';
                         }
 
-                        setUrlParams({
+                        const nextUrl = buildUrlWithParams({
                             chart_start_date: startDateFormatted,
                             chart_until_date: endDateFormatted,
-                            list_views_zero: $('#chart_views_zero').val() || '',
-                            list_views_zero_date: viewsZeroDate || '',
-                            list_no_growth: $('#chart_no_growth').val() || '',
-                            list_growth_start_date: noGrowthStart || '',
-                            list_growth_until_date: noGrowthUntil || ''
+                            chart_influencer: $('#chart_influencer').val() || '',
+                            chart_username: getSelectedInfluencerLabel(),
+                            chart_views_zero: '',
+                            chart_no_growth: '',
+                            chart_no_growth_start_date: '',
+                            chart_no_growth_until_date: '',
+                            list_views_zero: listViewsZero,
+                            list_views_zero_date: listViewsZeroDate,
+                            list_no_growth: listNoGrowth,
+                            list_growth_start_date: listGrowthStartDate,
+                            list_growth_until_date: listGrowthUntilDate
                         });
-                    }
-                    
-                    var chartStartDate = $('#chart_start_date').val();
-                    var chartUntilDate = $('#chart_until_date').val();
-                    var listViewsZero = $('#chart_views_zero').val() || '';
-                    var listViewsZeroDate = $('#list_views_zero_date').val() || '';
-                    var listNoGrowth = $('#chart_no_growth').val() || '';
-                    var listGrowthStartDate = $('#chart_no_growth_start_date').val() || '';
-                    var listGrowthUntilDate = $('#chart_no_growth_until_date').val() || '';
 
-                    if (listViewsZero !== '1') {
-                        listViewsZeroDate = '';
+                        window.location.assign(nextUrl.toString());
+                    } catch (error) {
+                        console.error('Failed to apply content filter:', error);
+                        setApplyFilterLoadingState(false);
                     }
-                    if (listNoGrowth !== '1') {
-                        listGrowthStartDate = '';
-                        listGrowthUntilDate = '';
-                    }
-
-                    const nextUrl = buildUrlWithParams({
-                        chart_start_date: chartStartDate,
-                        chart_until_date: chartUntilDate,
-                        chart_views_zero: '',
-                        chart_no_growth: '',
-                        chart_no_growth_start_date: '',
-                        chart_no_growth_until_date: '',
-                        list_views_zero: listViewsZero,
-                        list_views_zero_date: listViewsZeroDate,
-                        list_no_growth: listNoGrowth,
-                        list_growth_start_date: listGrowthStartDate,
-                        list_growth_until_date: listGrowthUntilDate
-                    });
-                    window.location.href = nextUrl.toString();
                 }
 
 
@@ -1048,6 +1102,9 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
     <a href="#!" onclick="create('<?= $detail['id'] ?>')" class="btn btn-primary mt-0 mb-2"><i class="bi bi-plus-circle-dotted fs-16"></i> Tambah Konten</a>
     <?php
     $active_content_filters = [];
+    if (!empty($_GET['chart_username'])) {
+        $active_content_filters[] = 'Influencer: ' . htmlspecialchars($_GET['chart_username']);
+    }
     if (($_GET['list_views_zero'] ?? '') === '1') {
         $views_zero_date_text = $_GET['list_views_zero_date'] ?? '';
         if ($views_zero_date_text) {
@@ -1160,6 +1217,244 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
 
 
 
+    <style>
+        .btn-transfer {
+            background: #0f172a;
+            color: #fff;
+            border: none;
+        }
+
+        .btn-transfer:hover {
+            background: #1e293b;
+            color: #fff;
+        }
+
+        .transfer-modal .modal-content {
+            border-radius: 16px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.15);
+        }
+
+        .transfer-modal .modal-header {
+            border-bottom: 1px solid #e2e8f0;
+            background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+        }
+
+        .transfer-title {
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        .transfer-subtitle {
+            font-size: 12px;
+            color: #64748b;
+            margin-top: 2px;
+        }
+
+        .transfer-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .transfer-card {
+            border: 1px solid #e2e8f0;
+            background: #ffffff;
+            border-radius: 14px;
+            padding: 14px;
+        }
+
+        .transfer-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .transfer-card-title {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .transfer-card-meta {
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .transfer-pill {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 4px 8px;
+            background: #f1f5f9;
+            color: #0f172a;
+            flex-shrink: 0;
+            white-space: nowrap;
+            border-radius: 20px;
+        }
+
+        .transfer-combobox {
+            position: relative;
+        }
+
+        .transfer-input {
+            width: 100%;
+            padding: 10px 40px 10px 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 14px;
+            background: #fff;
+        }
+
+        .transfer-input:focus {
+            outline: none;
+            border-color: #94a3b8;
+            box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.25);
+        }
+
+        .transfer-dropdown-btn {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            border: none;
+            background: transparent;
+            color: #64748b;
+        }
+
+        .transfer-dropdown {
+            position: absolute;
+            top: calc(100% + 8px);
+            left: 0;
+            right: 0;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18);
+            display: none;
+            z-index: 1051;
+            max-height: 320px;
+            overflow: hidden;
+        }
+
+        .transfer-combobox.is-open .transfer-dropdown {
+            display: block;
+        }
+
+        .transfer-tabs {
+            display: flex;
+            gap: 8px;
+            padding: 8px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+
+        .transfer-tab {
+            flex: 1;
+            padding: 8px 10px;
+            border: 1px solid #e2e8f0;
+            background: #fff;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #334155;
+        }
+
+        .transfer-tab.active {
+            background: #0f172a;
+            color: #fff;
+            border-color: #0f172a;
+        }
+
+        .transfer-list {
+            max-height: 240px;
+            overflow: auto;
+            padding: 8px;
+        }
+
+        .transfer-item {
+            width: 100%;
+            border: none;
+            background: #fff;
+            text-align: left;
+            padding: 10px 12px;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.15s ease;
+        }
+
+        .transfer-item > div {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .transfer-item:hover {
+            background: #f1f5f9;
+        }
+
+        .transfer-item-title {
+            font-weight: 600;
+            font-size: 13px;
+            color: #0f172a;
+        }
+
+        .transfer-item-meta {
+            font-size: 11px;
+            color: #64748b;
+        }
+
+        .transfer-selected {
+            margin-top: 10px;
+            padding: 10px 12px;
+            border: 1px dashed #cbd5f5;
+            border-radius: 10px;
+            background: #f8fafc;
+            font-size: 12px;
+        }
+
+        .transfer-placeholder {
+            color: #94a3b8;
+        }
+
+        .transfer-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .transfer-message {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #b91c1c;
+            display: none;
+        }
+
+        .transfer-loading {
+            padding: 12px;
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .transfer-empty {
+            padding: 12px;
+            font-size: 12px;
+            color: #94a3b8;
+            text-align: center;
+        }
+
+        @media (max-width: 768px) {
+            .transfer-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+
     <div class="floating-div">
         <button class="btn mb-2 btn-edit-active dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
             <i class="bi bi-gear fs-16"></i> Aksi
@@ -1220,6 +1515,63 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
         </div>
     </div>
 
+    <div class="modal fade transfer-modal" tabindex="-1" role="dialog" aria-hidden="true" id="transfer-modal">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <div class="transfer-title">Transfer Campaign</div>
+                        <div class="transfer-subtitle">Pindahkan item endorse ke campaign lain (internal atau external).</div>
+                    </div>
+                    <a class="close a-link" data-bs-dismiss="modal"><i class="bi bi-x-circle fs-24"></i></a>
+                </div>
+                <div class="modal-body">
+                    <div class="transfer-grid">
+                        <div class="transfer-card">
+                            <div class="transfer-card-header">
+                                <div class="transfer-card-title">Campaign Saat Ini</div>
+                                <span class="transfer-pill" id="transfer-current-type"><?= $campaign_type_label ?></span>
+                            </div>
+                            <div class="transfer-card-meta" id="transfer-current-title"><?= $detail['title'] ?></div>
+                            <div class="transfer-card-meta" id="transfer-current-id">ID #<?= $detail['id'] ?></div>
+                            <?php if (!empty($campaign_period)) : ?>
+                                <div class="transfer-card-meta"><?= $campaign_period ?></div>
+                            <?php endif; ?>
+                            <div class="transfer-selected" id="transfer-item-meta">
+                                <span class="transfer-placeholder">Pilih item endorse untuk ditransfer.</span>
+                            </div>
+                        </div>
+                        <div class="transfer-card">
+                            <div class="transfer-card-header">
+                                <div class="transfer-card-title">Target Campaign</div>
+                                <span class="transfer-pill" id="transfer-target-type">-</span>
+                            </div>
+                            <div class="transfer-combobox" id="transfer-combobox">
+                                <input type="text" class="transfer-input" id="transfer-search" placeholder="Cari campaign berdasarkan judul, brand, atau ID">
+                                <button class="transfer-dropdown-btn" type="button" id="transfer-toggle"><i class="bi bi-chevron-down"></i></button>
+                                <div class="transfer-dropdown" id="transfer-dropdown">
+                                    <div class="transfer-tabs">
+                                        <button type="button" class="transfer-tab" data-transfer-filter="0">External</button>
+                                        <button type="button" class="transfer-tab" data-transfer-filter="1">Internal</button>
+                                    </div>
+                                    <div class="transfer-list" id="transfer-list"></div>
+                                </div>
+                            </div>
+                            <div class="transfer-selected" id="transfer-selected">
+                                <span class="transfer-placeholder">Belum ada campaign dipilih.</span>
+                            </div>
+                            <div class="transfer-message" id="transfer-message"></div>
+                        </div>
+                    </div>
+                    <div class="transfer-actions">
+                        <button class="btn btn-light" type="button" data-bs-dismiss="modal">Batal</button>
+                        <button class="btn btn-transfer" type="button" id="transfer-submit" disabled>Transfer Sekarang</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
 
 <input type="hidden" id="id_selected" name="id_selected" form="form-action">
 
@@ -1227,6 +1579,18 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
 <script src="https://unpkg.com/tippy.js@6"></script>
 <script>
     var list_id_v2 = '';
+    var transferState = {
+        idEndorse: null,
+        targetCampaign: null,
+        currentType: '<?= (!empty($detail['is_internal']) && $detail['is_internal'] == 1) ? '1' : '0' ?>'
+    };
+    var transferConfig = {
+        baseUrl: '<?= base_url() ?>',
+        endorseBaseUrl: '<?= base_url() ?>/endorse',
+        currentCampaignId: '<?= $detail['id'] ?>',
+        currentCampaignTitle: '<?= htmlspecialchars($detail['title'], ENT_QUOTES) ?>',
+        currentType: '<?= (!empty($detail['is_internal']) && $detail['is_internal'] == 1) ? '1' : '0' ?>'
+    };
 
     function showModal(title, url, isLarge = false) {
         $("#load-form").html('Loading...');
@@ -1299,6 +1663,173 @@ $current_view = isset($_GET['view']) ? $_GET['view'] : 'card'; // default ke car
     function clone(id) {
         showModal('Kloning Data', `<?= base_url() ?>/endorse/clone?id=${id}`);
     }
+
+    function openTransferModal(idEndorse, creatorName, statusEndorse, platform) {
+        transferState.idEndorse = idEndorse;
+        transferState.targetCampaign = null;
+        transferState.currentType = transferConfig.currentType;
+        $("#transfer-selected").html('<span class="transfer-placeholder">Belum ada campaign dipilih.</span>');
+        $("#transfer-message").hide().text('');
+        $("#transfer-submit").prop('disabled', true).text('Transfer Sekarang');
+        $("#transfer-target-type").text('-');
+        $("#transfer-search").val('');
+
+        var meta = [creatorName || '-', statusEndorse || '-', platform || '-'].join(' · ');
+        $("#transfer-item-meta").text(meta);
+
+        setTransferFilter(transferState.currentType);
+        toggleTransferDropdown(true);
+        $("#transfer-modal").modal('show');
+        fetchTransferCampaigns();
+    }
+
+    function setTransferFilter(type) {
+        transferState.currentType = String(type);
+        $(".transfer-tab").removeClass('active');
+        $('.transfer-tab[data-transfer-filter="' + transferState.currentType + '"]').addClass('active');
+    }
+
+    function toggleTransferDropdown(forceOpen) {
+        var $combo = $("#transfer-combobox");
+        if (forceOpen === true) {
+            $combo.addClass('is-open');
+            return;
+        }
+        if (forceOpen === false) {
+            $combo.removeClass('is-open');
+            return;
+        }
+        $combo.toggleClass('is-open');
+    }
+
+    function escapeHtml(text) {
+        return String(text || '').replace(/[&<>"']/g, function(match) {
+            return ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            })[match];
+        });
+    }
+
+    function fetchTransferCampaigns() {
+        var keyword = $("#transfer-search").val().trim();
+        $("#transfer-list").html('<div class="transfer-loading">Memuat campaign...</div>');
+        $.ajax({
+            url: transferConfig.baseUrl + '/endorse/transfer-campaigns',
+            dataType: 'json',
+            data: {
+                keyword: keyword,
+                is_internal: transferState.currentType,
+                exclude: transferConfig.currentCampaignId,
+                limit: 20
+            },
+            success: function(res) {
+                var items = res && res.data ? res.data : [];
+                if (!items.length) {
+                    $("#transfer-list").html('<div class="transfer-empty">Campaign tidak ditemukan.</div>');
+                    return;
+                }
+                var html = '';
+                items.forEach(function(row) {
+                    var typeLabel = row.is_internal == 1 ? 'INTERNAL' : 'EXTERNAL';
+                    var dates = '';
+                    if (row.start_at || row.until_at) {
+                        dates = (row.start_at || '-') + ' - ' + (row.until_at || '-');
+                    }
+                    html += '<button type="button" class="transfer-item" data-id="' + row.id + '" data-title="' + escapeHtml(row.title) + '" data-type="' + typeLabel + '">' +
+                        '<div>' +
+                        '<div class="transfer-item-title">' + escapeHtml(row.title || 'Campaign') + '</div>' +
+                        '<div class="transfer-item-meta">ID #' + row.id + (row.brand ? ' · ' + escapeHtml(row.brand) : '') + (dates ? ' · ' + escapeHtml(dates) : '') + '</div>' +
+                        '</div>' +
+                        '<span class="transfer-pill">' + typeLabel + '</span>' +
+                        '</button>';
+                });
+                $("#transfer-list").html(html);
+            },
+            error: function() {
+                $("#transfer-list").html('<div class="transfer-empty">Gagal memuat campaign.</div>');
+            }
+        });
+    }
+
+    $(document).on('click', '.transfer-item', function() {
+        var id = $(this).data('id');
+        var title = $(this).data('title');
+        var type = $(this).data('type');
+        transferState.targetCampaign = id;
+        $("#transfer-selected").html('<div><strong>' + escapeHtml(title) + '</strong></div><div class="transfer-item-meta">ID #' + id + '</div>');
+        $("#transfer-target-type").text(type || '-');
+        $("#transfer-submit").prop('disabled', false);
+        $("#transfer-message").hide().text('');
+        toggleTransferDropdown(false);
+    });
+
+    $(document).on('click', '.transfer-tab', function() {
+        var type = $(this).data('transfer-filter');
+        setTransferFilter(type);
+        fetchTransferCampaigns();
+    });
+
+    $("#transfer-toggle").on('click', function() {
+        toggleTransferDropdown();
+    });
+
+    $("#transfer-search").on('focus', function() {
+        toggleTransferDropdown(true);
+    });
+
+    var transferSearchTimer = null;
+    $("#transfer-search").on('input', function() {
+        clearTimeout(transferSearchTimer);
+        transferSearchTimer = setTimeout(function() {
+            fetchTransferCampaigns();
+        }, 250);
+    });
+
+    $(document).on('click', function(e) {
+        if ($(e.target).closest('#transfer-combobox').length === 0) {
+            toggleTransferDropdown(false);
+        }
+    });
+
+    $("#transfer-submit").on('click', function() {
+        if (!transferState.idEndorse || !transferState.targetCampaign) {
+            return;
+        }
+        var $btn = $(this);
+        $btn.prop('disabled', true).text('Memproses...');
+        $("#transfer-message").hide().text('');
+
+        $.ajax({
+            type: 'POST',
+            url: transferConfig.baseUrl + '/endorse/transfer-process',
+            dataType: 'json',
+            data: {
+                id_endorse: transferState.idEndorse,
+                target_campaign: transferState.targetCampaign
+            },
+            success: function(res) {
+                if (res && res.status) {
+                    var params = new URLSearchParams(window.location.search);
+                    params.set('id_campaign', transferState.targetCampaign);
+                    params.delete('ids');
+                    var redirectUrl = transferConfig.endorseBaseUrl + '?' + params.toString();
+                    window.location.href = redirectUrl;
+                } else {
+                    var msg = res && res.message ? res.message : 'Transfer gagal.';
+                    $("#transfer-message").text(msg).show();
+                    $btn.prop('disabled', false).text('Transfer Sekarang');
+                }
+            },
+            error: function() {
+                $("#transfer-message").text('Transfer gagal. Silakan coba lagi.').show();
+                $btn.prop('disabled', false).text('Transfer Sekarang');
+            }
+        });
+    });
 
     function get_id() {
         list_id_v2 = '';
