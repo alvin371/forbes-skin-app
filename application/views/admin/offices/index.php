@@ -55,6 +55,14 @@
                                     <a href="<?php echo site_url('admin/offices/' . $office['id'] . '/edit'); ?>" style="color: #1890ff; margin-right: 12px; font-size: 16px;" title="Edit">
                                         <i class="bi bi-pencil"></i>
                                     </a>
+                                    <form method="post" action="<?php echo site_url('admin/offices/' . $office['id'] . '/duplicate'); ?>" style="display:inline; margin-right: 12px;" onsubmit="return confirm('Duplicate this office?');">
+                                        <?php if (!empty($csrf_name) && !empty($csrf_hash)): ?>
+                                            <input type="hidden" name="<?php echo $csrf_name; ?>" value="<?php echo $csrf_hash; ?>">
+                                        <?php endif; ?>
+                                        <button type="submit" style="background: none; border: none; padding: 0; cursor: pointer; color: #722ed1; font-size: 16px;" title="Duplicate">
+                                            <i class="bi bi-files"></i>
+                                        </button>
+                                    </form>
                                     <form method="post" action="<?php echo site_url('admin/offices/' . $office['id'] . '/delete'); ?>" style="display:inline; margin-right: 12px;" onsubmit="return confirm('Delete this office?');">
                                         <?php if (!empty($csrf_name) && !empty($csrf_hash)): ?>
                                             <input type="hidden" name="<?php echo $csrf_name; ?>" value="<?php echo $csrf_hash; ?>">

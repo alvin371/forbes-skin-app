@@ -5,7 +5,7 @@ require_once APPPATH . 'core/BaseController.php';
 
 class Offices extends BaseController
 {
-    protected $public_methods = ['index', 'create', 'edit', 'update', 'delete', 'activate', 'deactivate'];
+    protected $public_methods = ['index', 'create', 'edit', 'update', 'duplicate', 'delete', 'activate', 'deactivate'];
 
     public function __construct()
     {
@@ -122,6 +122,43 @@ class Offices extends BaseController
         $this->db->where('id', (int) $id);
         $this->db->delete('offices');
         $this->session->set_flashdata('message', 'Office deleted.');
+        redirect('admin/offices');
+    }
+
+    public function duplicate($id)
+    {
+        if ($this->input->method(TRUE) !== 'POST') {
+            show_error('Method not allowed', 405);
+            return;
+        }
+
+        $office = $this->Office_model->get_by_id($id);
+        if (!$office) {
+            show_404();
+            return;
+        }
+
+        $timestamp = date('Y-m-d H:i:s');
+        $insertData = array(
+            'name' => $this->Office_model->generate_duplicate_name($office['name']),
+            'lat' => $office['lat'],
+            'lng' => $office['lng'],
+            'radius_m' => $office['radius_m'],
+            'min_accuracy_m' => $office['min_accuracy_m'],
+            'allowed_ip_cidrs' => $office['allowed_ip_cidrs'],
+            'allowed_bssids' => $office['allowed_bssids'],
+            'allowed_ssids' => $office['allowed_ssids'],
+            'attendance_response_times' => $office['attendance_response_times'],
+            'attendance_history_days' => $office['attendance_history_days'],
+            'attendance_recap_months' => $office['attendance_recap_months'],
+            'is_active' => (int) $office['is_active'],
+            'created_at' => $timestamp,
+            'updated_at' => $timestamp,
+        );
+
+        $this->db->insert('offices', $insertData);
+
+        $this->session->set_flashdata('message', 'Office duplicated.');
         redirect('admin/offices');
     }
 
