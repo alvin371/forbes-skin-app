@@ -64,6 +64,7 @@ $route['admin/offices'] = 'admin/offices/index';
 $route['admin/offices/create'] = 'admin/offices/create';
 $route['admin/offices/(:num)/edit'] = 'admin/offices/edit/$1';
 $route['admin/offices/(:num)'] = 'admin/offices/update/$1';
+$route['admin/offices/(:num)/duplicate'] = 'admin/offices/duplicate/$1';
 $route['admin/offices/(:num)/delete'] = 'admin/offices/delete/$1';
 $route['admin/offices/(:num)/activate'] = 'admin/offices/activate/$1';
 $route['admin/offices/(:num)/deactivate'] = 'admin/offices/deactivate/$1';

@@ -35,6 +35,32 @@ class Office_model extends CI_Model
         return $this->db->order_by('id', 'ASC')->get('offices')->result_array();
     }
 
+    public function generate_duplicate_name($name)
+    {
+        $name = trim((string) $name);
+        if ($name === '') {
+            $name = 'Office';
+        }
+
+        $this->db->select('name');
+        $this->db->from('offices');
+        $this->db->group_start();
+        $this->db->where('name', $name);
+        $this->db->or_like('name', $name . ' (Copy ', 'after');
+        $this->db->group_end();
+        $names = $this->db->get()->result_array();
+
+        $highestNumber = 0;
+        foreach ($names as $row) {
+            $existingName = isset($row['name']) ? (string) $row['name'] : '';
+            if (preg_match('/^' . preg_quote($name, '/') . ' \(Copy (\d+)\)$/', $existingName, $matches)) {
+                $highestNumber = max($highestNumber, (int) $matches[1]);
+            }
+        }
+
+        return $name . ' (Copy ' . ($highestNumber + 1) . ')';
+    }
+
     public function set_active($officeId)
     {
         $officeId = (int) $officeId;
