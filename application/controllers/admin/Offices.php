@@ -23,8 +23,42 @@ class Offices extends BaseController
             return $this->store();
         }
 
+        $perPage = 10;
+        $search = trim((string) $this->input->get('search', true));
+        $wifiFilter = (string) $this->input->get('wifi_filter', true);
+        $allowedWifiFilters = array('', Office_model::WIFI_STATUS_ACTIVE, Office_model::WIFI_STATUS_INACTIVE);
+        if (!in_array($wifiFilter, $allowedWifiFilters, true)) {
+            $wifiFilter = '';
+        }
+
+        $currentPage = (int) $this->input->get('page');
+        if ($currentPage < 1) {
+            $currentPage = 1;
+        }
+
+        $filters = array(
+            'search' => $search,
+            'wifi_filter' => $wifiFilter,
+        );
+
+        $totalRows = $this->Office_model->count_filtered($filters);
+        $totalPages = max(1, (int) ceil($totalRows / $perPage));
+        if ($currentPage > $totalPages) {
+            $currentPage = $totalPages;
+        }
+
+        $offset = ($currentPage - 1) * $perPage;
+
         $data['title'] = 'Office Settings - ' . $this->template->title();
-        $data['offices'] = $this->Office_model->get_all();
+        $data['offices'] = $this->Office_model->get_paginated($perPage, $offset, $filters);
+        $data['search'] = $search;
+        $data['wifi_filter'] = $wifiFilter;
+        $data['per_page'] = $perPage;
+        $data['current_page'] = $currentPage;
+        $data['total_rows'] = $totalRows;
+        $data['page'] = $totalPages;
+        $data['param_pagination'] = site_url('admin/offices') . $this->template->get_param_without('page');
+        $data['pagination'] = $this->template->pagination($data['page'], $currentPage, $data['param_pagination']);
         $data['csrf_name'] = $this->security->get_csrf_token_name();
         $data['csrf_hash'] = $this->security->get_csrf_hash();
         $data['content'] = $this->load->view('admin/offices/index', $data, true);
