@@ -20,7 +20,9 @@ class Endorse extends BaseController
         // Override method-to-action mapping if needed
         $this->set_method_permissions([
             'remove' => 'delete',
-            'action' => 'edit'
+            'action' => 'edit',
+            'transfer_process' => 'edit',
+            'transfer_campaigns' => 'view'
         ]);
         
     }
@@ -388,9 +390,21 @@ class Endorse extends BaseController
             $qry .= " AND platform = '$platform' ";
         }
 
+        $chart_influencer = trim($_GET['chart_influencer'] ?? '');
+        $chart_username = trim($_GET['chart_username'] ?? '');
+        if ($chart_influencer !== '') {
+            $chart_influencer = (int)$chart_influencer;
+            if ($chart_influencer > 0) {
+                $qry .= " AND endorse.influencer = '$chart_influencer' ";
+            }
+        } else if ($chart_username !== '') {
+            $chart_username = $this->db->escape_like_str($chart_username);
+            $qry .= " AND endorse.nama_creator LIKE '%$chart_username%' ";
+        }
+
         $status_data = $_GET['status_data'];
         if ($status_data) {
-            $qry .= " AND status = '$status_data' ";
+            $qry .= " AND endorse.status = '$status_data' ";
         }
 
         if ($keyword) {
@@ -884,7 +898,7 @@ class Endorse extends BaseController
 
         $status_data = $_GET['status_data'];
         if ($status_data) {
-            $qry .= " AND status = '$status_data' ";
+            $qry .= " AND endorse.status = '$status_data' ";
         }
 
         if ($keyword) {
@@ -1122,7 +1136,7 @@ class Endorse extends BaseController
 
         $status_data = $_GET['status_data'];
         if ($status_data) {
-            $qry .= " AND status = '$status_data' ";
+            $qry .= " AND endorse.status = '$status_data' ";
         }
 
         if ($keyword) {
@@ -1615,6 +1629,140 @@ class Endorse extends BaseController
         }
     }
 
+    public function transfer_campaigns()
+    {
+        $keyword = trim($this->input->get('keyword', true));
+        $is_internal = $this->input->get('is_internal', true);
+        $exclude = $this->input->get('exclude', true);
+        $limit = (int) $this->input->get('limit', true);
+
+        if ($limit <= 0 || $limit > 50) {
+            $limit = 20;
+        }
+
+        $where = "WHERE 1=1";
+
+        if ($is_internal !== null && $is_internal !== '') {
+            $where .= " AND is_internal = " . (int) $is_internal;
+        }
+
+        if (!empty($exclude)) {
+            $where .= " AND id <> " . $this->db->escape($exclude);
+        }
+
+        if (!empty($keyword)) {
+            $keyword = $this->db->escape_like_str($keyword);
+            $where .= " AND (title LIKE '%$keyword%' OR brand LIKE '%$keyword%' OR id LIKE '%$keyword%')";
+        }
+
+        $sql = "SELECT id, title, brand, start_at, until_at, status, is_internal
+            FROM endorse_campaign
+            $where
+            ORDER BY start_at DESC, id DESC
+            LIMIT $limit";
+
+        $rows = $this->mymodel->selectWithQuery($sql) ?: [];
+
+        return $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode(['data' => $rows]));
+    }
+
+    public function transfer_process()
+    {
+        $user = $_SESSION['user'];
+
+        $id_endorse = $this->input->post('id_endorse', true);
+        $target_campaign = $this->input->post('target_campaign', true);
+
+        if (empty($id_endorse) || empty($target_campaign)) {
+            return $this->output
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'status' => false,
+                    'message' => 'Data transfer belum lengkap.'
+                ]));
+        }
+
+        $endorse = $this->mymodel->selectDataOne('endorse', ['id' => $id_endorse]);
+        if (!$endorse) {
+            return $this->output
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'status' => false,
+                    'message' => 'Data endorse tidak ditemukan.'
+                ]));
+        }
+
+        $current_campaign = $endorse['id_campaign'];
+        if ((string) $current_campaign === (string) $target_campaign) {
+            return $this->output
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'status' => false,
+                    'message' => 'Target campaign sama dengan campaign saat ini.'
+                ]));
+        }
+
+        $campaign = $this->mymodel->selectDataOne('endorse_campaign', ['id' => $target_campaign]);
+        if (!$campaign) {
+            return $this->output
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'status' => false,
+                    'message' => 'Target campaign tidak ditemukan.'
+                ]));
+        }
+
+        $this->db->trans_start();
+
+        $update = [
+            'id_campaign' => $target_campaign,
+            'status_campaign' => $campaign['status'],
+            'updated_at' => DATE("Y-m-d H:i:s"),
+            'updated_by' => $user['id']
+        ];
+
+        if (!empty($campaign['brand'])) {
+            $update['brand'] = $campaign['brand'];
+        }
+
+        $this->db->update('endorse', $update, ['id' => $id_endorse]);
+
+        $log_update = [
+            'id_campaign' => $target_campaign
+        ];
+
+        if (!empty($campaign['brand'])) {
+            $log_update['brand'] = $campaign['brand'];
+        }
+
+        $this->db->update('endorse_logs', $log_update, ['id_endorse' => $id_endorse]);
+        $this->db->update('payment_logs', ['id_campaign' => $target_campaign], ['id_endorse' => $id_endorse]);
+
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            return $this->output
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'status' => false,
+                    'message' => 'Transfer gagal. Silakan coba lagi.'
+                ]));
+        }
+
+        $this->update_endorse_parent($current_campaign);
+        $this->update_endorse_parent($target_campaign);
+
+        return $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'status' => true,
+                'message' => 'Transfer berhasil.',
+                'redirect_url' => base_url() . 'endorse?id_campaign=' . $target_campaign
+            ]));
+    }
+
 
     public function sync()
     {
@@ -1824,7 +1972,7 @@ class Endorse extends BaseController
 
         $data['data'] = $query[0];
 
-        $data['pic'] = $this->mymodel->selectWithQuery("SELECT * FROM user WHERE role IN ('1', '2', '11') ORDER BY full_name ASC");
+        $data['pic'] = $this->mymodel->selectWithQuery("SELECT * FROM user WHERE full_name != '' ORDER BY full_name ASC");
         $data['brand'] = $this->mymodel->selectWithQuery("SELECT * FROM brand ORDER BY code ASC");
         $data['influencer'] = $this->mymodel->selectWithQuery("SELECT * FROM influencer ORDER BY full_name ASC");
         $data_row = $this->mymodel->selectWithQuery("SELECT product, product_text FROM endorse_campaign WHERE id = '$id_campaign'");
@@ -2219,7 +2367,7 @@ class Endorse extends BaseController
         $id_campaign = $_GET['id'];
         // print_r($_GET);
 
-        $data['pic'] = $this->mymodel->selectWithQuery("SELECT * FROM user WHERE role IN ('1', '2', '11') ORDER BY full_name ASC");
+        $data['pic'] = $this->mymodel->selectWithQuery("SELECT * FROM user WHERE full_name != '' ORDER BY full_name ASC");
         $data['brand'] = $this->mymodel->selectWithQuery("SELECT * FROM brand ORDER BY code ASC");
         $data['influencer'] = $this->mymodel->selectWithQuery("SELECT * FROM influencer ORDER BY full_name ASC");
         $data_row = $this->mymodel->selectWithQuery("SELECT product, product_text FROM endorse_campaign WHERE id = '$id_campaign'");

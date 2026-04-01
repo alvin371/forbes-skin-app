@@ -133,9 +133,11 @@
 
 		<div class="col-md-6">
 			<label for="">PIC</label>
-			<select type="text" class="form-control select2" name="dt[pic]">
+			<select type="text" class="form-control select2" name="dt[pic]" required>
 				<?php
-				$selectedPic = !empty($data['pic']) ? $data['pic'] : $user['full_name'];
+				$selectedPic = !empty($data['pic']) ? $data['pic'] : '';
+
+				echo "<option value='' " . ($selectedPic === '' ? 'selected' : '') . ">Pilih PIC</option>";
 
 				foreach ($pic as $v2) {
 					$text = $selectedPic == $v2['full_name'] ? 'selected' : '';
