@@ -287,24 +287,23 @@ if ($_GET['type'] == "Yearly") {
                             endforeach; ?>
                         </select>
                     </div>
-                    <!-- Additional filters: PIC (per content), Product, Endorsement Category -->
+                    <!-- Additional filters: PIC (per content), Product, KOL/Influencer, Endorsement Category -->
                     <div class="col-md-12 mt-2">
                         <div class="row">
-                            <div class="col-md-4">
-                                <select class="form-control select2" name="pic[]" id="pic" multiple="multiple" data-placeholder="Pilih PIC...">
+                            <div class="col-md-3">
+                                <select class="form-control" name="pic[]" id="pic" multiple="multiple" data-placeholder="Semua User">
                                     <?php
                                     $selected_pics = $_GET['pic'] ?? [];
                                     if (!is_array($selected_pics)) { $selected_pics = [$selected_pics]; }
-                                    foreach (($pic_options ?? []) as $opt) :
-                                        $val = is_array($opt) ? ($opt['name'] ?? '') : ($opt->name ?? '');
+                                    foreach ($selected_pics as $val) :
+                                        $val = trim((string)$val);
                                         if ($val === '') continue;
-                                        $sel = in_array($val, $selected_pics) ? 'selected' : '';
                                     ?>
-                                        <option <?= $sel ?> value="<?= htmlspecialchars($val, ENT_QUOTES) ?>"><?= htmlspecialchars($val) ?></option>
+                                        <option selected value="<?= htmlspecialchars($val, ENT_QUOTES) ?>"><?= htmlspecialchars($val) ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-3">
                                 <select class="form-control select2" name="product[]" id="product" multiple="multiple" data-placeholder="Pilih Produk...">
                                     <?php
                                     $selected_products = $_GET['product'] ?? [];
@@ -319,7 +318,16 @@ if ($_GET['type'] == "Yearly") {
                                     <?php endforeach; ?>
                                 </select>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-3">
+                                <select class="form-control" name="chart_influencer" id="chart_influencer" data-placeholder="Cari influencer...">
+                                    <option value=""></option>
+                                    <?php if (!empty($_GET['chart_influencer']) && !empty($_GET['chart_username'])): ?>
+                                        <option value="<?= htmlspecialchars($_GET['chart_influencer'], ENT_QUOTES) ?>" selected><?= htmlspecialchars($_GET['chart_username']) ?></option>
+                                    <?php endif; ?>
+                                </select>
+                                <input type="hidden" name="chart_username" id="chart_username" value="<?= htmlspecialchars($_GET['chart_username'] ?? '', ENT_QUOTES) ?>">
+                            </div>
+                            <div class="col-md-3">
                                 <select class="form-control" name="endorse_category" id="endorse_category" title="Pilih Kategori Endorse">
                                     <?php
                                     $endorse_category = $_GET['endorse_category'] ?? '';
@@ -340,8 +348,65 @@ if ($_GET['type'] == "Yearly") {
                     <script>
                         $(function(){
                             try { $('#campaign').select2({ placeholder: $('#campaign').data('placeholder') || 'Pilih Campaign...', allowClear: true }); } catch(e) {}
-                            try { $('#pic').select2({ placeholder: $('#pic').data('placeholder') || 'Pilih PIC...', allowClear: true }); } catch(e) {}
+                            try {
+                                $('#pic').select2({
+                                    placeholder: $('#pic').data('placeholder') || 'Semua User',
+                                    allowClear: true,
+                                    width: '100%',
+                                    ajax: {
+                                        url: '<?= base_url() ?>endorse-campaign/user-options',
+                                        dataType: 'json',
+                                        delay: 250,
+                                        data: function (params) {
+                                            return {
+                                                term: params.term || '',
+                                                page: params.page || 1
+                                            };
+                                        },
+                                        processResults: function (data, params) {
+                                            params.page = params.page || 1;
+                                            return {
+                                                results: data.results || [],
+                                                pagination: data.pagination || { more: false }
+                                            };
+                                        },
+                                        cache: true
+                                    },
+                                    minimumInputLength: 0
+                                });
+                            } catch(e) {}
                             try { $('#product').select2({ placeholder: $('#product').data('placeholder') || 'Pilih Produk...', allowClear: true }); } catch(e) {}
+                            try {
+                                $('#chart_influencer').select2({
+                                    minimumInputLength: 1,
+                                    allowClear: true,
+                                    placeholder: $('#chart_influencer').data('placeholder') || 'Cari influencer...',
+                                    width: '100%',
+                                    ajax: {
+                                        dataType: 'json',
+                                        url: '<?= base_url() ?>/ajax/get-influencer-list',
+                                        delay: 100,
+                                        data: function(params) {
+                                            return {
+                                                search: params.term
+                                            };
+                                        },
+                                        processResults: function(data) {
+                                            return {
+                                                results: data
+                                            };
+                                        }
+                                    },
+                                    language: {
+                                        inputTooShort: function() {
+                                            return "Masukkan 1 karakter atau lebih";
+                                        }
+                                    }
+                                }).on('change', function() {
+                                    var selectedOption = this.options[this.selectedIndex];
+                                    $('#chart_username').val(selectedOption ? (selectedOption.text || '').trim() : '');
+                                });
+                            } catch(e) {}
                         });
                     </script>
                     <div class="row">

@@ -11,9 +11,14 @@ class LeaveRequestModel extends CI_Model
 
     public function get_by_id($id)
     {
-        $this->db->select('lr.*, lt.name as leave_type_name, lt.code as leave_type_code, lt.requires_attachment, lt.max_days_per_request');
+        $this->db->select('lr.*, lt.name as leave_type_name, lt.code as leave_type_code, lt.requires_attachment, lt.max_days_per_request,
+            u.username as requester_username, u.full_name as requester_name, u.email as requester_email,
+            u.role_text as requester_role_text, up.position_id as requester_position_id, p.name as requester_position');
         $this->db->from('leave_requests lr');
         $this->db->join('leave_types lt', 'lt.id = lr.leave_type_id', 'left');
+        $this->db->join('user u', 'u.id = lr.user_id', 'left');
+        $this->db->join('user_profile up', 'up.user_id = u.id', 'left');
+        $this->db->join('positions p', 'p.id = up.position_id', 'left');
         $this->db->where('lr.id', (int) $id);
         return $this->db->get()->row_array();
     }
@@ -42,7 +47,8 @@ class LeaveRequestModel extends CI_Model
 
     public function get_pending_for_approver($approverId)
     {
-        $this->db->select('lr.*, lt.name as leave_type_name, lt.code as leave_type_code, u.full_name as requester_name, u.email as requester_email');
+        $this->db->select('lr.*, lt.name as leave_type_name, lt.code as leave_type_code,
+            u.username as requester_username, u.full_name as requester_name, u.email as requester_email');
         $this->db->from('leave_approvals la');
         $this->db->join('leave_requests lr', 'lr.id = la.leave_request_id', 'inner');
         $this->db->join('leave_types lt', 'lt.id = lr.leave_type_id', 'left');
@@ -56,7 +62,7 @@ class LeaveRequestModel extends CI_Model
     public function get_all_with_details()
     {
         $this->db->select('lr.*, lt.name as leave_type_name, lt.code as leave_type_code,
-            u.full_name as requester_name, u.email as requester_email, u.department as requester_department, u.position as requester_position,
+            u.username as requester_username, u.full_name as requester_name, u.email as requester_email, u.role_text as requester_role_text,
             la.id as approval_id, la.approver_id, la.action as approval_action, la.action_at as approval_action_at, la.notes as approval_notes,
             approver.full_name as approver_name, approver.email as approver_email');
         $this->db->from('leave_requests lr');
@@ -70,10 +76,14 @@ class LeaveRequestModel extends CI_Model
 
     public function get_all_pending_approvals()
     {
-        $this->db->select('lr.*, lt.name as leave_type_name, lt.code as leave_type_code, u.full_name as requester_name, u.email as requester_email');
+        $this->db->select('lr.*, lt.name as leave_type_name, lt.code as leave_type_code,
+            u.username as requester_username, u.full_name as requester_name, u.email as requester_email,
+            u.role_text as requester_role_text, up.position_id as requester_position_id, p.name as requester_position');
         $this->db->from('leave_requests lr');
         $this->db->join('leave_types lt', 'lt.id = lr.leave_type_id', 'left');
         $this->db->join('user u', 'u.id = lr.user_id', 'left');
+        $this->db->join('user_profile up', 'up.user_id = u.id', 'left');
+        $this->db->join('positions p', 'p.id = up.position_id', 'left');
         $this->db->where('lr.status', 'PENDING_APPROVAL');
         $this->db->order_by('lr.created_at', 'DESC');
         return $this->db->get()->result_array();

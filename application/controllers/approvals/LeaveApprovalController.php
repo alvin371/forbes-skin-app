@@ -10,9 +10,11 @@ class LeaveApprovalController extends CI_Controller
         $this->load->library('template');
         $this->load->library('AuthFilter');
         $this->load->library('ApproverAuthFilter');
+        $this->load->library('ApprovalWorkflowEngine');
         $this->load->model('LeaveRequestModel');
         $this->load->model('LeaveApprovalModel');
         $this->load->model('LeaveQuotaModel');
+        $this->load->model('ApprovalStepModel');
         $this->authfilter->enforce();
         $this->approverauthfilter->enforce();
     }
@@ -47,6 +49,8 @@ class LeaveApprovalController extends CI_Controller
 
         $data['title'] = 'Leave Approval Detail - ' . $this->template->title();
         $data['request'] = $request;
+        $data['progress'] = $this->approvalworkflowengine->getWorkflowProgress((int) $id);
+        $data['all_steps'] = $this->ApprovalStepModel->get_by_leave_request((int) $id);
         $data['csrf_name'] = $this->security->get_csrf_token_name();
         $data['csrf_hash'] = $this->security->get_csrf_hash();
         $data['content'] = $this->load->view('approvals/detail', $data, true);
