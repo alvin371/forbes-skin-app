@@ -267,25 +267,7 @@ class Endorse_campaign extends BaseController
         $query = $this->mymodel->selectWithQuery("SELECT * FROM endorse_campaign WHERE id = '$id'");
 
         $data['data'] = $query[0];
-
-        // Create cache key for PIC users
-        $pic_cache_key = 'endorse_campaign_pic_users';
-        $pic_data = $this->cache->get($pic_cache_key);
-        if (!$pic_data) {
-            $pic_data = $this->mymodel->selectWithQuery("SELECT * FROM user WHERE role IN ('1', '2', '11') ORDER BY full_name ASC");
-            $this->cache->save($pic_cache_key, $pic_data, 30); // Cache for 30 seconds
-        }
-        $data['pic'] = $pic_data;
-
-        // Create cache key for SPV users
-        $spv_cache_key = 'endorse_campaign_spv_users';
-        $spv_data = $this->cache->get($spv_cache_key);
-        if (!$spv_data) {
-            $spv_data = $this->mymodel->selectWithQuery("SELECT * FROM user WHERE role IN ('1', '2', '11') ORDER BY full_name ASC");
-            $this->cache->save($spv_cache_key, $spv_data, 30); 
-        }
-        $data['spv'] = $spv_data;
-
+        $data['user'] = $_SESSION['user'];
 
         // Create cache key for brands (all brands for edit)
         $brands_cache_key = 'endorse_campaign_brands_all';
@@ -621,24 +603,6 @@ class Endorse_campaign extends BaseController
         
         $data['data'] = array();
 
-        // Create cache key for PIC users (reuse from edit method)
-        $pic_cache_key = 'endorse_campaign_pic_users';
-        $pic_data = $this->cache->get($pic_cache_key);
-        if (!$pic_data) {
-            $pic_data = $this->mymodel->selectWithQuery("SELECT * FROM user WHERE role IN ('1', '2', '11') ORDER BY full_name ASC");
-            $this->cache->save($pic_cache_key, $pic_data, 30); // Cache for 30 seconds
-        }
-        $data['pic'] = $pic_data;
-
-        // Create cache key for SPV users
-        $spv_cache_key = 'endorse_campaign_spv_users';
-        $spv_data = $this->cache->get($spv_cache_key);
-        if (!$spv_data) {
-            $spv_data = $this->mymodel->selectWithQuery("SELECT * FROM user WHERE role IN ('1', '2', '11') ORDER BY full_name ASC");
-            $this->cache->save($spv_cache_key, $spv_data, 30); 
-        }
-        $data['spv'] = $spv_data;
-
         // Create cache key for brands (reuse from edit method)
         $brands_cache_key = 'endorse_campaign_brands_all';
         $brands_data = $this->cache->get($brands_cache_key);
@@ -671,6 +635,80 @@ class Endorse_campaign extends BaseController
         $data['user'] = $_SESSION['user'];
 
         $this->load->view("endorse_campaign/create", $data);
+    }
+
+    public function user_options()
+    {
+        $this->load->driver('cache', array('adapter' => 'apc', 'backup' => 'file'));
+
+        $limit = 10;
+        $page = intval($this->input->get('page'));
+        $page = $page > 0 ? $page : 1;
+        $offset = ($page - 1) * $limit;
+
+        $term = trim((string) $this->input->get('term'));
+        $selected = trim((string) $this->input->get('selected'));
+        $escaped_term = $this->db->escape_like_str($term);
+
+        $where = "full_name IS NOT NULL AND TRIM(full_name) != ''";
+        if ($escaped_term !== '') {
+            $where .= " AND full_name LIKE '%{$escaped_term}%'";
+        }
+
+        $cache_key = 'endorse_campaign_user_options_' . md5($term . '|' . $page);
+        $cached_response = $this->cache->get($cache_key);
+
+        if (!$cached_response) {
+            $total_query = $this->mymodel->selectWithQuery("
+                SELECT COUNT(DISTINCT full_name) AS total
+                FROM user
+                WHERE $where
+            ");
+
+            $users = $this->mymodel->selectWithQuery("
+                SELECT full_name
+                FROM user
+                WHERE $where
+                GROUP BY full_name
+                ORDER BY full_name ASC
+                LIMIT $offset, $limit
+            ");
+
+            $cached_response = array(
+                'results' => array_map(function ($user) {
+                    return array(
+                        'id' => $user['full_name'],
+                        'text' => $user['full_name'],
+                    );
+                }, $users),
+                'pagination' => array(
+                    'more' => ($offset + $limit) < intval($total_query[0]['total']),
+                ),
+            );
+
+            $this->cache->save($cache_key, $cached_response, 30);
+        }
+
+        if ($selected !== '') {
+            $already_exists = false;
+            foreach ($cached_response['results'] as $result) {
+                if ($result['id'] === $selected) {
+                    $already_exists = true;
+                    break;
+                }
+            }
+
+            if (!$already_exists) {
+                array_unshift($cached_response['results'], array(
+                    'id' => $selected,
+                    'text' => $selected,
+                ));
+            }
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($cached_response));
     }
 
 

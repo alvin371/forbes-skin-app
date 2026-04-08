@@ -47,10 +47,7 @@ class Overview extends CI_Controller
             FROM endorse_campaign
             ORDER BY title ASC");
 
-            // Provide PIC and Product filter options for KOL overview
-            $data['pic_options'] = $this->mymodel->selectWithQuery(
-                "SELECT DISTINCT pic AS name FROM endorse WHERE pic IS NOT NULL AND pic != '' ORDER BY pic ASC"
-            );
+            // PIC is loaded remotely via Select2 to avoid preloading all users.
             $data['product_options'] = $this->mymodel->selectWithQuery(
                 "SELECT DISTINCT p.id AS id, p.name AS name 
                  FROM endorse e 

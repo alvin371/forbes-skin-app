@@ -75,12 +75,10 @@
 
         <div class="col-md-6 mb-3">
             <label>PIC</label>
-            <select class="form-control" name="dt[pic]">
-                <?php foreach ($pic as $v2): ?>
-                    <option <?= $data['pic'] == $v2['full_name'] ? 'selected' : '' ?> value="<?= $v2['full_name'] ?>">
-                        <?= $v2['full_name'] ?>
-                    </option>
-                <?php endforeach; ?>
+            <select class="form-control user-select-ajax" name="dt[pic]" data-selected="<?= htmlspecialchars($data['pic'], ENT_QUOTES) ?>">
+                <?php if (!empty($data['pic'])) : ?>
+                    <option value="<?= htmlspecialchars($data['pic'], ENT_QUOTES) ?>" selected><?= htmlspecialchars($data['pic']) ?></option>
+                <?php endif; ?>
             </select>
         </div>
 
@@ -91,15 +89,11 @@
 
         <div class="col-md-6">
 			<label for="">SPV</label>
-			<select type="text" class="form-control select2" name="dt[spv]">
-				<?php
-				$selectedPic = !empty($data['spv']) ? $data['spv'] : $user['full_name'];
-
-				foreach ($spv as $v2) {
-					$text = $selectedPic == $v2['full_name'] ? 'selected' : '';
-					echo "<option $text value='{$v2['full_name']}'>{$v2['full_name']}</option>";
-				}
-				?>
+            <?php $selectedSpv = !empty($data['spv']) ? $data['spv'] : $user['full_name']; ?>
+			<select type="text" class="form-control user-select-ajax" name="dt[spv]" data-selected="<?= htmlspecialchars($selectedSpv, ENT_QUOTES) ?>">
+                <?php if (!empty($selectedSpv)) : ?>
+                    <option value="<?= htmlspecialchars($selectedSpv, ENT_QUOTES) ?>" selected><?= htmlspecialchars($selectedSpv) ?></option>
+                <?php endif; ?>
 			</select>
 		</div>
 
@@ -172,7 +166,40 @@
 
 <script type="text/javascript">
     $(document).ready(function() {
+        const modalElement = $('#modal-form');
+
         $('.select2').select2();
+        $('.user-select-ajax').each(function () {
+            const $select = $(this);
+            const selectedValue = $select.data('selected') || '';
+
+            $select.select2({
+                dropdownParent: modalElement,
+                width: '100%',
+                ajax: {
+                    url: "<?= base_url() ?>endorse-campaign/user-options",
+                    dataType: 'json',
+                    delay: 250,
+                    data: function (params) {
+                        return {
+                            term: params.term || '',
+                            page: params.page || 1,
+                            selected: params.page === 1 ? selectedValue : ''
+                        };
+                    },
+                    processResults: function (data, params) {
+                        params.page = params.page || 1;
+                        return {
+                            results: data.results || [],
+                            pagination: data.pagination || { more: false }
+                        };
+                    },
+                    cache: true
+                },
+                placeholder: 'Pilih user',
+                minimumInputLength: 0
+            });
+        });
 
         $('#product-select').on('change', function () {
             const selectedOptions = $(this).find(':selected');
@@ -287,4 +314,3 @@
     }
 
 </script>
-
