@@ -744,6 +744,7 @@
                         <div class="col-md-6 mb-3">
                             <label for="file">Foto Profil</label>
                             <input type="file" class="form-control" name="file" accept="image/png, image/jpeg, image/jpg">
+                            <small class="text-muted d-block">Format yang didukung: JPG, JPEG, PNG. Ukuran maksimal 2 MB.</small>
                             <?php if ($user_data['img']): ?>
                                 <small class="text-muted">Foto saat ini: <a href="<?= $img_url ?>" target="_blank">Lihat foto</a></small>
                             <?php endif; ?>
@@ -1149,9 +1150,79 @@
         // init both pagers
         setupPagination('#main-quests-grid', '#main-quests-pager', PER_PAGE, 'mp');
         setupPagination('#side-quests-grid', '#side-quests-pager', PER_PAGE, 'sp');
+
+        function buildProfileErrorAlert(message) {
+            return '<div class="alert alert-danger">' + message + '</div>';
+        }
+
+        function getProfileUploadLimitBytes() {
+            return 2 * 1024 * 1024;
+        }
+
+        function formatProfileFileSize(bytes) {
+            if (bytes >= 1024 * 1024) {
+                return (bytes / (1024 * 1024)).toFixed(2).replace(/\.00$/, '') + ' MB';
+            }
+
+            return Math.round(bytes / 1024) + ' KB';
+        }
+
+        function getProfileAjaxErrorMessage(xhr, textStatus, errorThrown) {
+            if (xhr.status === 413) {
+                return 'Ukuran foto profil terlalu besar. Maksimal ' + formatProfileFileSize(getProfileUploadLimitBytes()) + '. Silakan kompres gambar lalu coba lagi.';
+            }
+
+            if (xhr.status === 415) {
+                return 'Format foto profil tidak didukung. Gunakan file JPG atau PNG.';
+            }
+
+            if (xhr.status === 409) {
+                return 'Username sudah digunakan user lain. Silakan gunakan username lain.';
+            }
+
+            if (xhr.status === 422) {
+                return 'Data profil tidak valid atau tidak lengkap. Periksa kembali isian Anda lalu coba lagi.';
+            }
+
+            if (xhr.status === 0) {
+                return 'Permintaan gagal dikirim. Periksa koneksi internet Anda lalu coba lagi.';
+            }
+
+            if (textStatus === 'timeout') {
+                return 'Permintaan melebihi batas waktu. Silakan coba lagi.';
+            }
+
+            if (xhr.responseText) {
+                return xhr.responseText;
+            }
+
+            if (errorThrown) {
+                return 'Terjadi kesalahan sistem: ' + errorThrown + '.';
+            }
+
+            return 'Terjadi kesalahan sistem saat menyimpan profil. Silakan coba lagi.';
+        }
+
         // Profile Edit Form
         $("#form-profile-edit").submit(function() {
             var form = $(this);
+            var fileInput = form.find('input[name="file"]')[0];
+            var selectedFile = fileInput && fileInput.files ? fileInput.files[0] : null;
+            var maxUploadBytes = getProfileUploadLimitBytes();
+
+            if (selectedFile) {
+                var allowedTypes = ['image/jpeg', 'image/png'];
+                if (selectedFile.type && allowedTypes.indexOf(selectedFile.type) === -1) {
+                    form.find(".form-message").hide().html(buildProfileErrorAlert('Format foto profil tidak didukung. Gunakan file JPG atau PNG.')).slideDown("fast");
+                    return false;
+                }
+
+                if (selectedFile.size > maxUploadBytes) {
+                    form.find(".form-message").hide().html(buildProfileErrorAlert('Ukuran foto profil terlalu besar. Maksimal ' + formatProfileFileSize(maxUploadBytes) + '.')).slideDown("fast");
+                    return false;
+                }
+            }
+
             var mydata = new FormData(this);
             $.ajax({
                 type: "POST",
@@ -1160,6 +1231,7 @@
                 cache: false,
                 contentType: false,
                 processData: false,
+                timeout: 30000,
                 beforeSend: function() {
                     $(".btn-save").addClass("disabled").html('<span class="spinner-border spinner-border-sm me-2"></span>Menyimpan...').attr('disabled', true);
                     form.find(".form-message").slideUp().html("");
@@ -1176,9 +1248,9 @@
                         $(".btn-save").removeClass("disabled").html('Simpan Perubahan').attr('disabled', false);
                     }
                 },
-                error: function() {
+                error: function(xhr, textStatus, errorThrown) {
                     $(".btn-save").removeClass("disabled").html('Simpan Perubahan').attr('disabled', false);
-                    $(".form-message").hide().html('<div class="alert alert-danger">Terjadi kesalahan sistem.</div>').slideDown("fast");
+                    $(".form-message").hide().html(buildProfileErrorAlert(getProfileAjaxErrorMessage(xhr, textStatus, errorThrown))).slideDown("fast");
                 }
             });
             return false;

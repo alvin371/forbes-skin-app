@@ -252,28 +252,61 @@ class Profile extends BaseController
         $user = $_SESSION['user'];
         $user_id = $user['id'];
 
+        if ($this->is_request_too_large()) {
+            $this->output->set_status_header(413);
+            echo $this->template->alert_danger('Ukuran request terlalu besar. Foto profil maksimal ' . $this->format_bytes($this->get_profile_upload_limit_bytes()) . '. Silakan kompres gambar lalu coba lagi.');
+            return;
+        }
+
+        if (empty($_POST['dt']) || !is_array($_POST['dt'])) {
+            $this->output->set_status_header(422);
+            echo $this->template->alert_danger('Data profil tidak lengkap atau gagal terbaca. Silakan muat ulang halaman lalu coba lagi.');
+            return;
+        }
+
         $dt = $_POST['dt'];
         $dt['updated_at'] = date("Y-m-d H:i:s");
         $dt['updated_by'] = $user_id;
 
-        if ($dt['password']) {
+        if (!empty($dt['password'])) {
             $dt['password'] = MD5($dt['password']);
         } else {
             unset($dt['password']);
         }
 
         // Check if username is unique
-        $username = $dt['username'];
+        $username = isset($dt['username']) ? trim($dt['username']) : '';
+        if ($username === '') {
+            $this->output->set_status_header(422);
+            echo $this->template->alert_danger('Username wajib diisi.');
+            return;
+        }
+
+        $dt['username'] = $username;
         $other_user = $this->mymodel->selectWithQuery("SELECT id FROM user WHERE username = '$username' AND id != '$user_id'");
 
         if ($other_user) {
+            $this->output->set_status_header(409);
             $msg = 'Username sudah digunakan user lain!';
             echo $this->template->alert_danger($msg);
             return;
         }
 
         // Handle file upload
-        if (!empty($_FILES['file']['name'])) {
+        if (isset($_FILES['file']) && !empty($_FILES['file']['name'])) {
+            $upload_error_code = isset($_FILES['file']['error']) ? (int) $_FILES['file']['error'] : UPLOAD_ERR_OK;
+            if ($upload_error_code !== UPLOAD_ERR_OK) {
+                $this->respond_profile_upload_error($upload_error_code);
+                return;
+            }
+
+            $profile_upload_limit = $this->get_profile_upload_limit_bytes();
+            if (!empty($_FILES['file']['size']) && (int) $_FILES['file']['size'] > $profile_upload_limit) {
+                $this->output->set_status_header(413);
+                echo $this->template->alert_danger('Ukuran foto profil terlalu besar. Maksimal ' . $this->format_bytes($profile_upload_limit) . '.');
+                return;
+            }
+
             $dir = "./assets/img/user/";
             $config['upload_path'] = $dir;
             $config['allowed_types'] = 'jpg|jpeg|png';
@@ -283,8 +316,10 @@ class Profile extends BaseController
             $this->load->library('upload', $config);
 
             if (!$this->upload->do_upload('file')) {
-                $error = $this->upload->display_errors();
-                echo $this->template->alert_danger($error);
+                $error = strip_tags($this->upload->display_errors('', ''));
+                $status_code = stripos($error, 'filetype') !== false || stripos($error, 'type') !== false ? 415 : 422;
+                $this->output->set_status_header($status_code);
+                echo $this->template->alert_danger($this->normalize_profile_upload_error($error));
                 return;
             } else {
                 $file = $this->upload->data();
@@ -302,6 +337,98 @@ class Profile extends BaseController
             $msg = 'Update profil tidak berhasil!';
             echo $this->template->alert_danger($msg);
         }
+    }
+
+    private function respond_profile_upload_error($upload_error_code)
+    {
+        $status_code = 422;
+        $message = 'Upload foto profil gagal. Silakan coba lagi.';
+
+        switch ($upload_error_code) {
+            case UPLOAD_ERR_INI_SIZE:
+            case UPLOAD_ERR_FORM_SIZE:
+                $status_code = 413;
+                $message = 'Ukuran foto profil terlalu besar. Maksimal ' . $this->format_bytes($this->get_profile_upload_limit_bytes()) . '.';
+                break;
+            case UPLOAD_ERR_PARTIAL:
+                $message = 'Upload foto profil tidak selesai. Periksa koneksi Anda lalu coba lagi.';
+                break;
+            case UPLOAD_ERR_NO_FILE:
+                $message = 'Tidak ada file foto yang dipilih.';
+                break;
+            case UPLOAD_ERR_NO_TMP_DIR:
+                $status_code = 500;
+                $message = 'Server tidak dapat memproses upload saat ini. Folder sementara tidak tersedia.';
+                break;
+            case UPLOAD_ERR_CANT_WRITE:
+                $status_code = 500;
+                $message = 'Server gagal menyimpan foto profil. Silakan coba lagi beberapa saat lagi.';
+                break;
+            case UPLOAD_ERR_EXTENSION:
+                $status_code = 415;
+                $message = 'Upload foto profil diblokir oleh sistem. Gunakan file JPG atau PNG.';
+                break;
+        }
+
+        $this->output->set_status_header($status_code);
+        echo $this->template->alert_danger($message);
+    }
+
+    private function normalize_profile_upload_error($error)
+    {
+        $error = trim((string) $error);
+        if ($error === '') {
+            return 'Upload foto profil gagal. Silakan gunakan file JPG atau PNG dengan ukuran maksimal ' . $this->format_bytes($this->get_profile_upload_limit_bytes()) . '.';
+        }
+
+        $error_lower = strtolower($error);
+        if (strpos($error_lower, 'exceeds the maximum allowed size') !== false || strpos($error_lower, 'larger than the permitted size') !== false) {
+            return 'Ukuran foto profil terlalu besar. Maksimal ' . $this->format_bytes($this->get_profile_upload_limit_bytes()) . '.';
+        }
+
+        if (strpos($error_lower, 'filetype') !== false || strpos($error_lower, 'file type') !== false || strpos($error_lower, 'allowed file types') !== false) {
+            return 'Format foto profil tidak didukung. Gunakan file JPG atau PNG.';
+        }
+
+        return $error;
+    }
+
+    private function get_profile_upload_limit_bytes()
+    {
+        return min(
+            $this->parse_size_to_bytes(ini_get('upload_max_filesize')),
+            $this->parse_size_to_bytes(ini_get('post_max_size')),
+            2048 * 1024
+        );
+    }
+
+    private function is_request_too_large()
+    {
+        $content_length = isset($_SERVER['CONTENT_LENGTH']) ? (int) $_SERVER['CONTENT_LENGTH'] : 0;
+        if ($content_length <= 0) {
+            return false;
+        }
+
+        return $content_length > $this->parse_size_to_bytes(ini_get('post_max_size')) && empty($_POST) && empty($_FILES);
+    }
+
+    private function parse_size_to_bytes($value)
+    {
+        $bytes = ini_parse_quantity((string) $value);
+        return $bytes > 0 ? (int) $bytes : 0;
+    }
+
+    private function format_bytes($bytes)
+    {
+        if ($bytes >= 1024 * 1024) {
+            return rtrim(rtrim(number_format($bytes / (1024 * 1024), 2, '.', ''), '0'), '.') . ' MB';
+        }
+
+        if ($bytes >= 1024) {
+            return rtrim(rtrim(number_format($bytes / 1024, 2, '.', ''), '0'), '.') . ' KB';
+        }
+
+        return (string) $bytes . ' B';
     }
 
     public function apply_main_quest()
