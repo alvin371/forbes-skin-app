@@ -4,7 +4,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 /**
  * ApprovalRouteResolver Library
  *
- * Finds the best matching approval route for leave and overtime requests using priority scoring.
+ * Finds the best matching approval route for approval-backed requests using priority scoring.
  * Supports multi-scope route matching, dynamic approver resolution, and role-based
  * department matching.
  *
@@ -51,15 +51,14 @@ class ApprovalRouteResolver
     }
 
     /**
-     * Resolve the best matching route for a request type
+     * Resolve the best matching route for an approval-backed request
      *
-     * @param string $requestType leave or overtime
      * @param int $userId The user requesting approval
      * @param array $requestData Request-specific criteria
      * @param string|null $submissionDate Date of submission (defaults to today)
      * @return array|null Returns route data with resolved approvers or null if no route found
      */
-    public function resolve($requestType, $userId, $requestData = array(), $submissionDate = null)
+    public function resolve($userId, $requestData = array(), $submissionDate = null)
     {
         if (!$submissionDate) {
             $submissionDate = date('Y-m-d');
@@ -73,9 +72,9 @@ class ApprovalRouteResolver
         }
 
         // Get active route versions effective on the submission date
-        $routes = $this->getActiveRoutes($submissionDate, $requestType);
+        $routes = $this->getActiveRoutes($submissionDate);
         if (empty($routes)) {
-            log_message('info', 'ApprovalRouteResolver: No active ' . $requestType . ' routes found for date: ' . $submissionDate);
+            log_message('info', 'ApprovalRouteResolver: No active approval routes found for date: ' . $submissionDate);
             return null;
         }
 
@@ -125,7 +124,6 @@ class ApprovalRouteResolver
             'route_version_id' => $route['id'],
             'route_code' => $route['route_code'],
             'route_name' => $route['name'],
-            'request_type' => $route['request_type'],
             'version' => $route['version'],
             'score' => $bestMatch['score'],
             'steps' => $resolvedSteps,
@@ -239,18 +237,16 @@ class ApprovalRouteResolver
      * @param string $date
      * @return array
      */
-    protected function getActiveRoutes($date, $requestType)
+    protected function getActiveRoutes($date)
     {
         $query = $this->db->query("
-            SELECT *,
-                   COALESCE(request_type, 'leave') as request_type
+            SELECT *
             FROM approval_route_versions
             WHERE is_active = 1
-              AND COALESCE(request_type, 'leave') = ?
               AND effective_from <= ?
               AND (effective_to IS NULL OR effective_to >= ?)
             ORDER BY version DESC
-        ", array($requestType, $date, $date));
+        ", array($date, $date));
 
         return $query->result_array();
     }

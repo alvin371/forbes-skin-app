@@ -6,7 +6,7 @@
             </h3>
             <small style="color: rgba(0,0,0,0.45);">Kode: <code><?php echo htmlspecialchars($route_code); ?></code></small>
         </div>
-        <a href="<?php echo site_url('admin/approval-routes?request_type=' . urlencode($request_type ?? 'leave')); ?>" class="btn btn-secondary" style="border-radius: 2px; height: 32px; padding: 4px 15px; font-size: 14px;">
+        <a href="<?php echo site_url('admin/approval-routes'); ?>" class="btn btn-secondary" style="border-radius: 2px; height: 32px; padding: 4px 15px; font-size: 14px;">
             <i class="bi bi-arrow-left"></i> Kembali
         </a>
     </div>
@@ -124,7 +124,6 @@ function viewVersionDetail(versionId) {
                     <table class="table table-sm" style="font-size: 14px;">
                         <tr><td width="150">Kode</td><td><code>${route.route_code}</code></td></tr>
                         <tr><td>Nama</td><td>${route.name}</td></tr>
-                        <tr><td>Jenis</td><td>${route.request_type || 'leave'}</td></tr>
                         <tr><td>Versi</td><td>v${route.version}</td></tr>
                         <tr><td>Deskripsi</td><td>${route.description || '-'}</td></tr>
                     </table>
