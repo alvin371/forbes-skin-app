@@ -607,6 +607,46 @@ class Api_hrms extends CI_Controller
         ));
     }
 
+    public function uploaded_file($scope = null, $segment1 = null, $segment2 = null)
+    {
+        $allowedScopes = array('leaves', 'overtime');
+        if (!in_array($scope, $allowedScopes, true)) {
+            show_404();
+            return;
+        }
+
+        $parts = array_filter(array($segment1, $segment2), static function ($part) {
+            return $part !== null && $part !== '';
+        });
+
+        if (empty($parts)) {
+            show_404();
+            return;
+        }
+
+        foreach ($parts as $part) {
+            if ($part !== basename($part)) {
+                show_404();
+                return;
+            }
+        }
+
+        $relativePath = 'writable/uploads/' . $scope . '/' . implode('/', $parts);
+        $fullPath = FCPATH . $relativePath;
+
+        if (!is_file($fullPath) || !is_readable($fullPath)) {
+            show_404();
+            return;
+        }
+
+        $this->output
+            ->set_status_header(200)
+            ->set_content_type($this->detect_uploaded_file_mime_type($fullPath))
+            ->set_header('Content-Length: ' . filesize($fullPath))
+            ->set_header('Content-Disposition: inline; filename="' . basename($fullPath) . '"')
+            ->set_output(file_get_contents($fullPath));
+    }
+
     public function leave()
     {
         $method = $this->input->method(TRUE);
@@ -1652,8 +1692,30 @@ class Api_hrms extends CI_Controller
             return $path;
         }
 
-        $baseUrl = 'https://acnenosystem.com/';
-        return rtrim($baseUrl, '/') . '/' . ltrim($path, '/');
+        return base_url(ltrim($path, '/'));
+    }
+
+    private function detect_uploaded_file_mime_type($fullPath)
+    {
+        if (function_exists('mime_content_type')) {
+            $mimeType = mime_content_type($fullPath);
+            if (is_string($mimeType) && $mimeType !== '') {
+                return $mimeType;
+            }
+        }
+
+        $extension = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+        switch ($extension) {
+            case 'pdf':
+                return 'application/pdf';
+            case 'jpg':
+            case 'jpeg':
+                return 'image/jpeg';
+            case 'png':
+                return 'image/png';
+            default:
+                return 'application/octet-stream';
+        }
     }
 
     private function is_valid_date($date)
