@@ -38,10 +38,13 @@
                             $position = trim((string) ($request['requester_position'] ?? ''));
                             $primaryLabel = $displayName !== '' ? $displayName : ($username !== '' ? $username : ('User #' . (int) $request['user_id']));
 
-                            $status = strtoupper((string) ($request['status'] ?? ''));
+                            $requestId = isset($request['leave_request_id']) ? (int) $request['leave_request_id'] : (int) $request['id'];
+                            $status = strtoupper((string) ($request['status'] ?? ($request['instance_status'] ?? '')));
                             $statusLabel = ucwords(strtolower(str_replace('_', ' ', $status)));
                             $statusStyles = array(
                                 'PENDING_APPROVAL' => array('bg' => '#fffbe6', 'color' => '#faad14', 'border' => '#ffe58f'),
+                                'IN_PROGRESS' => array('bg' => '#f9f0ff', 'color' => '#722ed1', 'border' => '#d3adf7'),
+                                'IN_REVIEW' => array('bg' => '#f9f0ff', 'color' => '#722ed1', 'border' => '#d3adf7'),
                                 'APPROVED' => array('bg' => '#f6ffed', 'color' => '#52c41a', 'border' => '#b7eb8f'),
                                 'REJECTED' => array('bg' => '#fff2f0', 'color' => '#ff4d4f', 'border' => '#ffccc7'),
                                 'DENIED' => array('bg' => '#fff2f0', 'color' => '#ff4d4f', 'border' => '#ffccc7'),
@@ -49,7 +52,17 @@
                             $statusStyle = isset($statusStyles[$status]) ? $statusStyles[$status] : array('bg' => '#e6f7ff', 'color' => '#1890ff', 'border' => '#91d5ff');
                             ?>
                             <tr style="border-bottom: 1px solid #f0f0f0; transition: background-color 0.3s;">
-                                <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);"><?php echo htmlspecialchars($request['request_no']); ?></td>
+                                <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);">
+                                    <div><?php echo htmlspecialchars($request['request_no']); ?></div>
+                                    <?php if (!empty($request['current_step']) && !empty($request['total_steps'])): ?>
+                                        <div style="font-size: 12px; color: rgba(0,0,0,0.45); margin-top: 4px;">
+                                            Step <?php echo (int) $request['current_step']; ?>/<?php echo (int) $request['total_steps']; ?>
+                                            <?php if (!empty($request['step_name'])): ?>
+                                                <br><?php echo htmlspecialchars($request['step_name']); ?>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endif; ?>
+                                </td>
                                 <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);">
                                     <div style="font-weight: 500; color: rgba(0,0,0,0.85);"><?php echo htmlspecialchars($primaryLabel); ?></div>
                                     <?php if ($username !== '' || $email !== '' || $roleText !== '' || $position !== ''): ?>
@@ -76,7 +89,7 @@
                                     </span>
                                 </td>
                                 <td style="padding: 12px 8px; font-size: 14px;">
-                                    <a href="<?php echo site_url('approvals/leaves/' . $request['id']); ?>" style="color: #1890ff; font-size: 16px;" title="Review">
+                                    <a href="<?php echo site_url('approvals/leaves/' . $requestId); ?>" style="color: #1890ff; font-size: 16px;" title="Review">
                                         <i class="bi bi-eye"></i>
                                     </a>
                                 </td>

@@ -29,7 +29,7 @@ class OvertimeWorkflowEngine
         $this->CI->load->model('OvertimeApprovalInstanceModel');
         $this->CI->load->model('OvertimeApprovalStepModel');
         $this->CI->load->model('OvertimeLedgerModel');
-        $this->CI->load->library('OvertimeRouteResolver');
+        $this->CI->load->library('ApprovalRouteResolver');
         $this->CI->load->library('OvertimeNotificationService');
     }
 
@@ -61,10 +61,13 @@ class OvertimeWorkflowEngine
         }
 
         // Resolve the overtime route
-        $route = $this->CI->overtimerouteresolver->resolve(
+        $route = $this->CI->approvalrouteresolver->resolve(
+            'overtime',
             $request['user_id'],
-            $request['overtime_type_id'],
-            $request['duration_hours'],
+            array(
+                'overtime_type_id' => $request['overtime_type_id'],
+                'duration_hours' => $request['duration_hours'],
+            ),
             date('Y-m-d')
         );
 
@@ -92,8 +95,7 @@ class OvertimeWorkflowEngine
         // Create approval instance with route snapshot
         $instanceData = array(
             'overtime_request_id' => $overtimeRequestId,
-            'route_version_id' => $route['route_id'],
-            'route_id' => $route['route_id'],
+            'route_version_id' => $route['route_version_id'],
             'route_snapshot' => json_encode($route),
             'total_steps' => $route['total_steps'],
             'current_step' => 1,

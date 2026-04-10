@@ -1,12 +1,12 @@
 <div class="card" style="border-radius: 2px; border: 1px solid #f0f0f0; box-shadow: 0 2px 8px rgba(0,0,0,0.09);">
     <div class="card-header" style="background-color: #fff; border-bottom: 1px solid #f0f0f0; padding: 16px; display: flex; align-items: center; justify-content: space-between;">
         <div>
-            <h3 style="margin: 0; font-size: 16px; font-weight: 500; color: rgba(0,0,0,0.85);">Rute Approval Cuti</h3>
-            <small style="color: rgba(0,0,0,0.45);">Kelola rute persetujuan cuti berdasarkan departemen, role, dan tipe cuti</small>
+            <h3 style="margin: 0; font-size: 16px; font-weight: 500; color: rgba(0,0,0,0.85);">Rute Approval <?php echo htmlspecialchars($request_types[$request_type] ?? 'Cuti'); ?></h3>
+            <small style="color: rgba(0,0,0,0.45);">Kelola rute persetujuan HR untuk cuti dan lembur dari satu halaman sumber utama</small>
         </div>
         <div style="display: flex; gap: 8px;">
             <?php if ($can_create): ?>
-                <a href="<?php echo site_url('admin/approval-routes/create'); ?>" class="btn btn-primary" style="background-color: #1890ff; border-color: #1890ff; height: 32px; padding: 4px 15px; border-radius: 2px; font-size: 14px;">
+                <a href="<?php echo site_url('admin/approval-routes/create?request_type=' . urlencode($request_type)); ?>" class="btn btn-primary" style="background-color: #1890ff; border-color: #1890ff; height: 32px; padding: 4px 15px; border-radius: 2px; font-size: 14px;">
                     <i class="bi bi-plus"></i> Buat Rute Baru
                 </a>
             <?php endif; ?>
@@ -27,7 +27,15 @@
         <?php endif; ?>
 
         <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
-            <div>
+            <div style="display: flex; gap: 16px; align-items: center;">
+                <div>
+                    <label style="margin-right: 8px; font-size: 14px;">Jenis Approval:</label>
+                    <select id="requestTypeFilter" onchange="changeRequestType()" class="form-select" style="display: inline-flex; width: auto; min-width: 160px; height: 32px; font-size: 14px; border-radius: 2px;">
+                        <?php foreach ($request_types as $key => $label): ?>
+                            <option value="<?php echo htmlspecialchars($key); ?>" <?php echo $request_type === $key ? 'selected' : ''; ?>><?php echo htmlspecialchars($label); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
                 <label style="margin-right: 8px; font-size: 14px;">
                     <input type="checkbox" id="showInactive" <?php echo $show_inactive ? 'checked' : ''; ?> onchange="toggleInactive()"> Tampilkan non-aktif
                 </label>
@@ -40,6 +48,7 @@
                     <tr style="background-color: #fafafa;">
                         <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Kode</th>
                         <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Nama</th>
+                        <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Jenis</th>
                         <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Versi</th>
                         <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Kondisi</th>
                         <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Steps</th>
@@ -51,7 +60,7 @@
                 <tbody>
                     <?php if (empty($routes)): ?>
                         <tr>
-                            <td colspan="8" style="padding: 24px; text-align: center; font-size: 14px; color: rgba(0,0,0,0.45);">
+                            <td colspan="9" style="padding: 24px; text-align: center; font-size: 14px; color: rgba(0,0,0,0.45);">
                                 Belum ada rute approval. Klik "Buat Rute Baru" untuk menambahkan.
                             </td>
                         </tr>
@@ -66,6 +75,11 @@
                                     <?php if ($route['description']): ?>
                                         <br><small style="color: rgba(0,0,0,0.45);"><?php echo htmlspecialchars(substr($route['description'], 0, 50)); ?></small>
                                     <?php endif; ?>
+                                </td>
+                                <td style="padding: 12px 8px; font-size: 14px;">
+                                    <span style="background-color: <?php echo ($route['request_type'] ?? 'leave') === 'overtime' ? '#fff7e6' : '#e6f7ff'; ?>; color: <?php echo ($route['request_type'] ?? 'leave') === 'overtime' ? '#fa8c16' : '#1890ff'; ?>; padding: 2px 8px; border-radius: 10px; font-size: 12px;">
+                                        <?php echo htmlspecialchars($request_types[$route['request_type'] ?? 'leave'] ?? 'Cuti'); ?>
+                                    </span>
                                 </td>
                                 <td style="padding: 12px 8px; font-size: 14px;">
                                     <span style="background-color: #e6f7ff; color: #1890ff; padding: 2px 8px; border-radius: 10px; font-size: 12px;">
@@ -105,7 +119,7 @@
                                                 <i class="bi bi-files"></i>
                                             </a>
                                         <?php endif; ?>
-                                        <a href="<?php echo site_url('admin/approval-routes/' . $route['route_code'] . '/versions'); ?>" style="color: #faad14;" title="Riwayat Versi">
+                                        <a href="<?php echo site_url('admin/approval-routes/' . rawurlencode($route['route_code']) . '/versions?request_type=' . urlencode($route['request_type'] ?? 'leave')); ?>" style="color: #faad14;" title="Riwayat Versi">
                                             <i class="bi bi-clock-history"></i>
                                         </a>
                                         <?php if ($can_delete && (int) $route['is_active'] === 1): ?>
@@ -150,13 +164,25 @@
 </div>
 
 <script>
-function toggleInactive() {
+function buildListUrl() {
+    var params = new URLSearchParams();
+    var requestType = document.getElementById('requestTypeFilter').value;
     var showInactive = document.getElementById('showInactive').checked;
+
+    params.set('request_type', requestType);
     if (showInactive) {
-        window.location.href = '<?php echo site_url('admin/approval-routes'); ?>?show_inactive=1';
-    } else {
-        window.location.href = '<?php echo site_url('admin/approval-routes'); ?>';
+        params.set('show_inactive', '1');
     }
+
+    return '<?php echo site_url('admin/approval-routes'); ?>' + '?' + params.toString();
+}
+
+function changeRequestType() {
+    window.location.href = buildListUrl();
+}
+
+function toggleInactive() {
+    window.location.href = buildListUrl();
 }
 
 function previewRoute(routeId) {

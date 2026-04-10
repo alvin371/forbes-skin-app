@@ -4,7 +4,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 /**
  * ApprovalRouteResolver Library
  *
- * Finds the best matching approval route for a leave request using priority scoring.
+ * Finds the best matching approval route for leave and overtime requests using priority scoring.
  * Supports multi-scope route matching, dynamic approver resolution, and role-based
  * department matching.
  *
@@ -12,6 +12,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  * - user: 1000 points
  * - leave_duration: 300 points
  * - leave_type: 200 points
+ * - overtime_type: 200 points
  * - role: 100 points
  * - department: 50 points
  * - office: 25 points
@@ -34,7 +35,9 @@ class ApprovalRouteResolver
     protected $scope_priority_scores = array(
         'user' => 1000,
         'leave_duration' => 300,
+        'overtime_duration' => 300,
         'leave_type' => 200,
+        'overtime_type' => 200,
         'role' => 100,
         'department' => 50,
         'office' => 25,
@@ -48,15 +51,15 @@ class ApprovalRouteResolver
     }
 
     /**
-     * Resolve the best matching route for a leave request
+     * Resolve the best matching route for a request type
      *
-     * @param int $userId The user requesting leave
-     * @param int $leaveTypeId The leave type being requested
-     * @param int $daysCount Number of days requested
+     * @param string $requestType leave or overtime
+     * @param int $userId The user requesting approval
+     * @param array $requestData Request-specific criteria
      * @param string|null $submissionDate Date of submission (defaults to today)
      * @return array|null Returns route data with resolved approvers or null if no route found
      */
-    public function resolve($userId, $leaveTypeId, $daysCount, $submissionDate = null)
+    public function resolve($requestType, $userId, $requestData = array(), $submissionDate = null)
     {
         if (!$submissionDate) {
             $submissionDate = date('Y-m-d');
@@ -69,16 +72,10 @@ class ApprovalRouteResolver
             return null;
         }
 
-        // Get leave type data
-        $leaveData = array(
-            'leave_type_id' => $leaveTypeId,
-            'days_count' => $daysCount,
-        );
-
         // Get active route versions effective on the submission date
-        $routes = $this->getActiveRoutes($submissionDate);
+        $routes = $this->getActiveRoutes($submissionDate, $requestType);
         if (empty($routes)) {
-            log_message('info', 'ApprovalRouteResolver: No active routes found for date: ' . $submissionDate);
+            log_message('info', 'ApprovalRouteResolver: No active ' . $requestType . ' routes found for date: ' . $submissionDate);
             return null;
         }
 
@@ -97,7 +94,7 @@ class ApprovalRouteResolver
             }
 
             // Check if all scopes match
-            if ($this->matchesAllScopes($scopes, $userData, $leaveData)) {
+            if ($this->matchesAllScopes($scopes, $userData, $requestData)) {
                 $score = $this->calculatePriorityScore($scopes);
                 $matchedRoutes[] = array(
                     'route' => $route,
@@ -128,6 +125,7 @@ class ApprovalRouteResolver
             'route_version_id' => $route['id'],
             'route_code' => $route['route_code'],
             'route_name' => $route['name'],
+            'request_type' => $route['request_type'],
             'version' => $route['version'],
             'score' => $bestMatch['score'],
             'steps' => $resolvedSteps,
@@ -241,16 +239,18 @@ class ApprovalRouteResolver
      * @param string $date
      * @return array
      */
-    protected function getActiveRoutes($date)
+    protected function getActiveRoutes($date, $requestType)
     {
         $query = $this->db->query("
-            SELECT *
+            SELECT *,
+                   COALESCE(request_type, 'leave') as request_type
             FROM approval_route_versions
             WHERE is_active = 1
+              AND COALESCE(request_type, 'leave') = ?
               AND effective_from <= ?
               AND (effective_to IS NULL OR effective_to >= ?)
             ORDER BY version DESC
-        ", array($date, $date));
+        ", array($requestType, $date, $date));
 
         return $query->result_array();
     }
@@ -298,10 +298,10 @@ class ApprovalRouteResolver
      * @param array $leaveData
      * @return bool
      */
-    protected function matchesAllScopes($scopes, $userData, $leaveData)
+    protected function matchesAllScopes($scopes, $userData, $requestData)
     {
         foreach ($scopes as $scope) {
-            if (!$this->matchScope($scope, $userData, $leaveData)) {
+            if (!$this->matchScope($scope, $userData, $requestData)) {
                 return false;
             }
         }
@@ -313,10 +313,10 @@ class ApprovalRouteResolver
      *
      * @param array $scope
      * @param array $userData
-     * @param array $leaveData
+     * @param array $requestData
      * @return bool
      */
-    protected function matchScope($scope, $userData, $leaveData)
+    protected function matchScope($scope, $userData, $requestData)
     {
         $scopeType = $scope['scope_type'];
         $scopeValue = $scope['scope_value'];
@@ -341,10 +341,16 @@ class ApprovalRouteResolver
                 return $this->matchValue($userData['role_text'], $scopeValue, $operator);
 
             case 'leave_type':
-                return $this->matchValue($leaveData['leave_type_id'], $scopeValue, $operator);
+                return $this->matchValue(isset($requestData['leave_type_id']) ? $requestData['leave_type_id'] : null, $scopeValue, $operator);
 
             case 'leave_duration':
-                return $this->matchNumeric($leaveData['days_count'], $scopeValue, $operator);
+                return $this->matchNumeric(isset($requestData['days_count']) ? $requestData['days_count'] : null, $scopeValue, $operator);
+
+            case 'overtime_type':
+                return $this->matchValue(isset($requestData['overtime_type_id']) ? $requestData['overtime_type_id'] : null, $scopeValue, $operator);
+
+            case 'overtime_duration':
+                return $this->matchNumeric(isset($requestData['duration_hours']) ? $requestData['duration_hours'] : null, $scopeValue, $operator);
 
             case 'office':
                 // TODO: Implement when office data is available
@@ -406,6 +412,10 @@ class ApprovalRouteResolver
      */
     protected function matchNumeric($actualValue, $scopeValue, $operator)
     {
+        if ($actualValue === null || $actualValue === '') {
+            return false;
+        }
+
         $scopeNum = floatval($scopeValue);
         $actualNum = floatval($actualValue);
 
@@ -650,14 +660,19 @@ class ApprovalRouteResolver
                 );
             } else {
                 // Check if all scopes match (leave data doesn't matter for preview)
-                $dummyLeaveData = array('leave_type_id' => 0, 'days_count' => 0);
+                $dummyRequestData = array(
+                    'leave_type_id' => 0,
+                    'days_count' => 0,
+                    'overtime_type_id' => 0,
+                    'duration_hours' => 0,
+                );
 
                 // For preview, we check only user-specific scopes
                 $userScopes = array_filter($scopes, function($s) {
                     return in_array($s['scope_type'], array('user', 'department', 'role', 'office', 'company'));
                 });
 
-                if (empty($userScopes) || $this->matchesAllScopes($userScopes, $userData, $dummyLeaveData)) {
+                if (empty($userScopes) || $this->matchesAllScopes($userScopes, $userData, $dummyRequestData)) {
                     $matchingUsers[] = array(
                         'id' => $userData['id'],
                         'full_name' => $userData['full_name'],

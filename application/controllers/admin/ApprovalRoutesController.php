@@ -43,6 +43,7 @@ class ApprovalRoutesController extends BaseController
     {
         $data['user'] = $_SESSION['user'];
         $user_id = $data['user']['id'];
+        $requestType = $this->get_request_type();
 
         $data['can_create'] = $this->permission->check_permission($user_id, 'approval_routes', 'create');
         $data['can_edit'] = $this->permission->check_permission($user_id, 'approval_routes', 'edit');
@@ -50,10 +51,11 @@ class ApprovalRoutesController extends BaseController
 
         $activeOnly = !isset($_GET['show_inactive']);
         $data['show_inactive'] = !$activeOnly;
+        $data['request_type'] = $requestType;
+        $data['request_types'] = $this->ApprovalRouteVersionModel->get_request_types();
+        $data['routes'] = $this->ApprovalRouteVersionModel->get_all($activeOnly, true, $requestType);
 
-        $data['routes'] = $this->ApprovalRouteVersionModel->get_all($activeOnly, true);
-
-        $data['title'] = 'Rute Approval Cuti - ' . $this->template->title();
+        $data['title'] = 'Rute Approval ' . $this->get_request_type_label($requestType) . ' - ' . $this->template->title();
         $data['content'] = $this->load->view('admin/approval_routes/index', $data, true);
         $this->load->view('TemplateDashboard', $data);
     }
@@ -64,8 +66,11 @@ class ApprovalRoutesController extends BaseController
     public function create()
     {
         $data['user'] = $_SESSION['user'];
+        $requestType = $this->get_request_type();
 
         // Get dropdown data
+        $data['request_type'] = $requestType;
+        $data['request_types'] = $this->ApprovalRouteVersionModel->get_request_types();
         $data['scope_types'] = $this->ApprovalRouteVersionModel->get_scope_types();
         $data['operators'] = $this->ApprovalRouteVersionModel->get_operators();
         $data['approver_types'] = $this->ApprovalRouteVersionModel->get_approver_types();
@@ -73,11 +78,12 @@ class ApprovalRoutesController extends BaseController
         $data['roles'] = $this->ApprovalRouteVersionModel->get_roles_for_dropdown();
         $data['users'] = $this->ApprovalRouteVersionModel->get_users_for_dropdown();
         $data['leave_types'] = $this->ApprovalRouteVersionModel->get_leave_types_for_dropdown();
+        $data['overtime_types'] = $this->ApprovalRouteVersionModel->get_overtime_types_for_dropdown();
 
         $data['route'] = null; // New route
         $data['is_edit'] = false;
 
-        $data['title'] = 'Buat Rute Approval Baru - ' . $this->template->title();
+        $data['title'] = 'Buat Rute Approval ' . $this->get_request_type_label($requestType) . ' - ' . $this->template->title();
         $data['content'] = $this->load->view('admin/approval_routes/form', $data, true);
         $this->load->view('TemplateDashboard', $data);
     }
@@ -108,6 +114,7 @@ class ApprovalRoutesController extends BaseController
             'route_code' => strtoupper(preg_replace('/[^A-Za-z0-9_]/', '_', $routeCode)),
             'name' => $name,
             'description' => $this->input->post('description'),
+            'request_type' => $this->get_request_type_from_post(),
             'effective_from' => $effectiveFrom,
             'is_active' => 1,
             'created_by' => $user['id'],
@@ -157,7 +164,7 @@ class ApprovalRoutesController extends BaseController
 
         if ($routeId) {
             $this->session->set_flashdata('success', 'Rute approval berhasil dibuat');
-            redirect('admin/approval-routes');
+            $this->redirect_to_route_list($routeData['request_type']);
         } else {
             $this->session->set_flashdata('error', 'Gagal membuat rute approval');
             redirect('admin/approval-routes/create');
@@ -178,6 +185,8 @@ class ApprovalRoutesController extends BaseController
         $data['user'] = $_SESSION['user'];
         $data['route'] = $route;
         $data['is_edit'] = true;
+        $data['request_type'] = $route['request_type'];
+        $data['request_types'] = $this->ApprovalRouteVersionModel->get_request_types();
 
         // Get dropdown data
         $data['scope_types'] = $this->ApprovalRouteVersionModel->get_scope_types();
@@ -187,8 +196,9 @@ class ApprovalRoutesController extends BaseController
         $data['roles'] = $this->ApprovalRouteVersionModel->get_roles_for_dropdown();
         $data['users'] = $this->ApprovalRouteVersionModel->get_users_for_dropdown();
         $data['leave_types'] = $this->ApprovalRouteVersionModel->get_leave_types_for_dropdown();
+        $data['overtime_types'] = $this->ApprovalRouteVersionModel->get_overtime_types_for_dropdown();
 
-        $data['title'] = 'Edit Rute Approval - ' . $this->template->title();
+        $data['title'] = 'Edit Rute Approval ' . $this->get_request_type_label($route['request_type']) . ' - ' . $this->template->title();
         $data['content'] = $this->load->view('admin/approval_routes/form', $data, true);
         $this->load->view('TemplateDashboard', $data);
     }
@@ -214,6 +224,7 @@ class ApprovalRoutesController extends BaseController
         $routeData = array(
             'name' => $this->input->post('name'),
             'description' => $this->input->post('description'),
+            'request_type' => $this->get_request_type_from_post($route['request_type']),
             'effective_from' => $this->input->post('effective_from') ?: date('Y-m-d'),
             'is_active' => 1,
             'created_by' => $user['id'],
@@ -263,7 +274,7 @@ class ApprovalRoutesController extends BaseController
 
         if ($newId) {
             $this->session->set_flashdata('success', 'Rute approval berhasil diperbarui (versi baru dibuat)');
-            redirect('admin/approval-routes');
+            $this->redirect_to_route_list($routeData['request_type']);
         } else {
             $this->session->set_flashdata('error', 'Gagal memperbarui rute approval');
             redirect('admin/approval-routes/' . $id . '/edit');
@@ -287,7 +298,7 @@ class ApprovalRoutesController extends BaseController
             $this->session->set_flashdata('error', 'Gagal menonaktifkan rute approval');
         }
 
-        redirect('admin/approval-routes');
+        $this->redirect_to_route_list($route['request_type']);
     }
 
     /**
@@ -307,7 +318,7 @@ class ApprovalRoutesController extends BaseController
             $this->session->set_flashdata('error', 'Gagal mengaktifkan rute approval');
         }
 
-        redirect('admin/approval-routes?show_inactive=1');
+        $this->redirect_to_route_list($route['request_type'], true);
     }
 
     /**
@@ -316,7 +327,8 @@ class ApprovalRoutesController extends BaseController
     public function versions($routeCode)
     {
         $data['user'] = $_SESSION['user'];
-        $data['versions'] = $this->ApprovalRouteVersionModel->get_versions($routeCode);
+        $requestType = $this->get_request_type();
+        $data['versions'] = $this->ApprovalRouteVersionModel->get_versions($routeCode, $requestType);
 
         if (empty($data['versions'])) {
             $this->session->set_flashdata('error', 'Rute tidak ditemukan');
@@ -325,6 +337,7 @@ class ApprovalRoutesController extends BaseController
 
         $data['route_code'] = $routeCode;
         $data['route_name'] = $data['versions'][0]['name'];
+        $data['request_type'] = $requestType;
 
         $data['title'] = 'Riwayat Versi: ' . $data['route_name'] . ' - ' . $this->template->title();
         $data['content'] = $this->load->view('admin/approval_routes/versions', $data, true);
@@ -365,12 +378,17 @@ class ApprovalRoutesController extends BaseController
     public function bulk_create()
     {
         $data['user'] = $_SESSION['user'];
+        $requestType = $this->get_request_type();
 
+        $data['request_type'] = $requestType;
+        $data['request_types'] = $this->ApprovalRouteVersionModel->get_request_types();
         $data['scope_types'] = $this->ApprovalRouteVersionModel->get_scope_types();
         $data['operators'] = $this->ApprovalRouteVersionModel->get_operators();
         $data['approver_types'] = $this->ApprovalRouteVersionModel->get_approver_types();
         $data['dynamic_approvers'] = $this->ApprovalRouteVersionModel->get_dynamic_approvers();
         $data['roles'] = $this->ApprovalRouteVersionModel->get_roles_for_dropdown();
+        $data['leave_types'] = $this->ApprovalRouteVersionModel->get_leave_types_for_dropdown();
+        $data['overtime_types'] = $this->ApprovalRouteVersionModel->get_overtime_types_for_dropdown();
 
         $data['title'] = 'Buat Rute Approval Bulk - ' . $this->template->title();
         $data['content'] = $this->load->view('admin/approval_routes/bulk', $data, true);
@@ -388,6 +406,7 @@ class ApprovalRoutesController extends BaseController
 
         $user = $_SESSION['user'];
         $routesJson = $this->input->post('routes_json');
+        $defaultRequestType = $this->get_request_type_from_post($this->get_request_type());
 
         if (!$routesJson) {
             $this->session->set_flashdata('error', 'Data rute tidak valid');
@@ -399,6 +418,13 @@ class ApprovalRoutesController extends BaseController
             $this->session->set_flashdata('error', 'Format JSON tidak valid');
             redirect('admin/approval-routes/bulk');
         }
+
+        foreach ($routes as &$route) {
+            if (empty($route['request_type'])) {
+                $route['request_type'] = $defaultRequestType;
+            }
+        }
+        unset($route);
 
         $results = $this->ApprovalRouteVersionModel->bulk_create($routes, $user['id']);
 
@@ -418,7 +444,7 @@ class ApprovalRoutesController extends BaseController
             $this->session->set_flashdata('success', "$successCount rute berhasil dibuat");
         }
 
-        redirect('admin/approval-routes');
+        $this->redirect_to_route_list($requestType);
     }
 
     /**
@@ -465,6 +491,8 @@ class ApprovalRoutesController extends BaseController
 
         $data['route'] = $route;
         $data['is_edit'] = false; // Treat as new
+        $data['request_type'] = $route['request_type'];
+        $data['request_types'] = $this->ApprovalRouteVersionModel->get_request_types();
 
         // Get dropdown data
         $data['scope_types'] = $this->ApprovalRouteVersionModel->get_scope_types();
@@ -474,9 +502,70 @@ class ApprovalRoutesController extends BaseController
         $data['roles'] = $this->ApprovalRouteVersionModel->get_roles_for_dropdown();
         $data['users'] = $this->ApprovalRouteVersionModel->get_users_for_dropdown();
         $data['leave_types'] = $this->ApprovalRouteVersionModel->get_leave_types_for_dropdown();
+        $data['overtime_types'] = $this->ApprovalRouteVersionModel->get_overtime_types_for_dropdown();
 
         $data['title'] = 'Clone Rute Approval - ' . $this->template->title();
         $data['content'] = $this->load->view('admin/approval_routes/form', $data, true);
         $this->load->view('TemplateDashboard', $data);
+    }
+
+    public function overtime_redirect()
+    {
+        $query = array(
+            'request_type' => 'overtime',
+        );
+
+        if ($this->input->get('show_inactive')) {
+            $query['show_inactive'] = 1;
+        }
+
+        redirect('admin/approval-routes?' . http_build_query($query));
+    }
+
+    protected function get_request_type()
+    {
+        $requestType = $this->input->get('request_type');
+        $requestTypes = $this->ApprovalRouteVersionModel->get_request_types();
+
+        if (!$this->ApprovalRouteVersionModel->has_request_type_field()) {
+            return 'leave';
+        }
+
+        return isset($requestTypes[$requestType]) ? $requestType : 'leave';
+    }
+
+    protected function get_request_type_from_post($default = 'leave')
+    {
+        $requestType = $this->input->post('request_type');
+        $requestTypes = $this->ApprovalRouteVersionModel->get_request_types();
+
+        if (!$this->ApprovalRouteVersionModel->has_request_type_field()) {
+            return 'leave';
+        }
+
+        if (isset($requestTypes[$requestType])) {
+            return $requestType;
+        }
+
+        return $default;
+    }
+
+    protected function get_request_type_label($requestType)
+    {
+        $requestTypes = $this->ApprovalRouteVersionModel->get_request_types();
+        return isset($requestTypes[$requestType]) ? $requestTypes[$requestType] : 'Cuti';
+    }
+
+    protected function redirect_to_route_list($requestType, $showInactive = false)
+    {
+        $query = array(
+            'request_type' => $requestType ?: 'leave',
+        );
+
+        if ($showInactive) {
+            $query['show_inactive'] = 1;
+        }
+
+        redirect('admin/approval-routes?' . http_build_query($query));
     }
 }

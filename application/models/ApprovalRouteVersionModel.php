@@ -11,6 +11,8 @@ class ApprovalRouteVersionModel extends CI_Model
     protected $table = 'approval_route_versions';
     protected $scopes_table = 'approval_route_scopes';
     protected $steps_table = 'approval_route_steps';
+    protected $default_request_type = 'leave';
+    protected $has_request_type_field = null;
 
     public function __construct()
     {
@@ -25,9 +27,11 @@ class ApprovalRouteVersionModel extends CI_Model
      * @param bool $currentOnly Only get current versions (not superseded)
      * @return array
      */
-    public function get_all($activeOnly = true, $currentOnly = true)
+    public function get_all($activeOnly = true, $currentOnly = true, $requestType = null)
     {
         $where = '1=1';
+        $params = array();
+        $hasRequestTypeField = $this->has_request_type_field();
 
         if ($activeOnly) {
             $where .= ' AND arv.is_active = 1';
@@ -37,9 +41,19 @@ class ApprovalRouteVersionModel extends CI_Model
             $where .= ' AND arv.effective_to IS NULL';
         }
 
+        if ($requestType && $hasRequestTypeField) {
+            $where .= ' AND ' . $this->get_request_type_sql('arv');
+            $params[] = $requestType;
+        }
+
+        $requestTypeSelect = $hasRequestTypeField
+            ? "COALESCE(arv.request_type, '{$this->default_request_type}')"
+            : "'" . $this->default_request_type . "'";
+
         $sql = "
             SELECT
                 arv.*,
+                {$requestTypeSelect} as request_type,
                 u.full_name as created_by_name,
                 (SELECT COUNT(*) FROM {$this->scopes_table} WHERE route_version_id = arv.id) as scope_count,
                 (SELECT COUNT(*) FROM {$this->steps_table} WHERE route_version_id = arv.id) as step_count
@@ -49,7 +63,7 @@ class ApprovalRouteVersionModel extends CI_Model
             ORDER BY arv.route_code ASC, arv.version DESC
         ";
 
-        return $this->db->query($sql)->result_array();
+        return $this->db->query($sql, $params)->result_array();
     }
 
     /**
@@ -60,12 +74,15 @@ class ApprovalRouteVersionModel extends CI_Model
      */
     public function get_by_id($id)
     {
+        $requestTypeSelect = $this->has_request_type_field()
+            ? 'COALESCE(arv.request_type, ?)'
+            : '?';
         $query = $this->db->query("
-            SELECT arv.*, u.full_name as created_by_name
+            SELECT arv.*, {$requestTypeSelect} as request_type, u.full_name as created_by_name
             FROM {$this->table} arv
             LEFT JOIN user u ON arv.created_by = u.id
             WHERE arv.id = ?
-        ", array($id));
+        ", array($this->default_request_type, $id));
 
         $route = $query->row_array();
 
@@ -83,17 +100,32 @@ class ApprovalRouteVersionModel extends CI_Model
      * @param string $routeCode
      * @return array|null
      */
-    public function get_by_code($routeCode)
+    public function get_by_code($routeCode, $requestType = null)
     {
-        $query = $this->db->query("
-            SELECT *
+        $hasRequestTypeField = $this->has_request_type_field();
+        $requestTypeSelect = $hasRequestTypeField
+            ? 'COALESCE(request_type, ?)'
+            : '?';
+        $sql = "
+            SELECT *,
+                   {$requestTypeSelect} as request_type
             FROM {$this->table}
             WHERE route_code = ?
-              AND is_active = 1
+              AND is_active = 1";
+        $params = array($this->default_request_type, $routeCode);
+
+        if ($requestType && $hasRequestTypeField) {
+            $sql .= " AND " . $this->get_request_type_sql($this->table);
+            $params[] = $requestType;
+        }
+
+        $sql .= "
               AND effective_to IS NULL
             ORDER BY version DESC
             LIMIT 1
-        ", array($routeCode));
+        ";
+
+        $query = $this->db->query($sql, $params);
 
         $route = $query->row_array();
 
@@ -111,17 +143,27 @@ class ApprovalRouteVersionModel extends CI_Model
      * @param string $routeCode
      * @return array
      */
-    public function get_versions($routeCode)
+    public function get_versions($routeCode, $requestType = null)
     {
+        $hasRequestTypeField = $this->has_request_type_field();
+        $requestTypeSelect = $hasRequestTypeField
+            ? 'COALESCE(arv.request_type, ?)'
+            : '?';
         $sql = "
-            SELECT arv.*, u.full_name as created_by_name
+            SELECT arv.*, {$requestTypeSelect} as request_type, u.full_name as created_by_name
             FROM {$this->table} arv
             LEFT JOIN user u ON arv.created_by = u.id
-            WHERE arv.route_code = ?
-            ORDER BY arv.version DESC
-        ";
+            WHERE arv.route_code = ?";
+        $params = array($this->default_request_type, $routeCode);
 
-        return $this->db->query($sql, array($routeCode))->result_array();
+        if ($requestType && $hasRequestTypeField) {
+            $sql .= " AND " . $this->get_request_type_sql('arv');
+            $params[] = $requestType;
+        }
+
+        $sql .= " ORDER BY arv.version DESC";
+
+        return $this->db->query($sql, $params)->result_array();
     }
 
     /**
@@ -167,12 +209,20 @@ class ApprovalRouteVersionModel extends CI_Model
         $this->db->trans_start();
 
         // Set defaults
+        if ($this->has_request_type_field()) {
+            $routeData['request_type'] = isset($routeData['request_type']) ? $routeData['request_type'] : $this->default_request_type;
+        } else {
+            unset($routeData['request_type']);
+        }
         $routeData['version'] = 1;
         $routeData['created_at'] = date('Y-m-d H:i:s');
         $routeData['updated_at'] = date('Y-m-d H:i:s');
 
         // Check if route_code already exists
-        $existing = $this->get_by_code($routeData['route_code']);
+        $existing = $this->get_by_code(
+            $routeData['route_code'],
+            isset($routeData['request_type']) ? $routeData['request_type'] : null
+        );
         if ($existing) {
             // Increment version
             $routeData['version'] = $existing['version'] + 1;
@@ -227,6 +277,11 @@ class ApprovalRouteVersionModel extends CI_Model
 
         // Create new version instead of updating
         $routeData['route_code'] = $existing['route_code'];
+        if ($this->has_request_type_field()) {
+            $routeData['request_type'] = isset($routeData['request_type']) ? $routeData['request_type'] : $existing['request_type'];
+        } else {
+            unset($routeData['request_type']);
+        }
         $routeData['version'] = $existing['version'] + 1;
         $routeData['effective_from'] = isset($routeData['effective_from']) ? $routeData['effective_from'] : date('Y-m-d');
         $routeData['created_by'] = isset($routeData['created_by']) ? $routeData['created_by'] : $existing['created_by'];
@@ -328,6 +383,16 @@ class ApprovalRouteVersionModel extends CI_Model
             'user' => 'User Spesifik',
             'leave_type' => 'Tipe Cuti',
             'leave_duration' => 'Durasi Cuti (Hari)',
+            'overtime_type' => 'Tipe Lembur',
+            'overtime_duration' => 'Durasi Lembur (Jam)',
+        );
+    }
+
+    public function get_request_types()
+    {
+        return array(
+            'leave' => 'Cuti',
+            'overtime' => 'Lembur',
         );
     }
 
@@ -425,6 +490,20 @@ class ApprovalRouteVersionModel extends CI_Model
         ")->result_array();
     }
 
+    public function get_overtime_types_for_dropdown()
+    {
+        if (!$this->db->table_exists('overtime_types')) {
+            return array();
+        }
+
+        return $this->db->query("
+            SELECT id, code, name
+            FROM overtime_types
+            WHERE is_active = 1
+            ORDER BY name ASC
+        ")->result_array();
+    }
+
     /**
      * Bulk create routes
      *
@@ -441,6 +520,7 @@ class ApprovalRouteVersionModel extends CI_Model
                 'route_code' => $route['route_code'],
                 'name' => $route['name'],
                 'description' => isset($route['description']) ? $route['description'] : null,
+                'request_type' => isset($route['request_type']) ? $route['request_type'] : $this->default_request_type,
                 'effective_from' => isset($route['effective_from']) ? $route['effective_from'] : date('Y-m-d'),
                 'is_active' => 1,
                 'created_by' => $createdBy,
@@ -459,5 +539,19 @@ class ApprovalRouteVersionModel extends CI_Model
         }
 
         return $results;
+    }
+
+    protected function get_request_type_sql($alias, $requestType)
+    {
+        return "(COALESCE({$alias}.request_type, '{$this->default_request_type}') = ?)";
+    }
+
+    public function has_request_type_field()
+    {
+        if ($this->has_request_type_field === null) {
+            $this->has_request_type_field = $this->db->field_exists('request_type', $this->table);
+        }
+
+        return $this->has_request_type_field;
     }
 }
