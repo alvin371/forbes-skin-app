@@ -597,17 +597,20 @@ class Api_hrms extends CI_Controller
 
         $file = $upload['file'];
         $sizeBytes = (int) round(((float) $file['file_size']) * 1024);
+        $publicPath = $this->public_uploaded_file_path($upload['path']);
 
         return $this->respond(200, array(
             'type' => $type,
-            'path' => $upload['path'],
+            'path' => $publicPath,
+            'storedPath' => $upload['path'],
+            'url' => $this->absolute_attachment_url($upload['path']),
             'filename' => $file['file_name'],
             'originalName' => $file['client_name'],
             'sizeBytes' => $sizeBytes,
         ));
     }
 
-    public function uploaded_file($scope = null, $segment1 = null, $segment2 = null)
+    public function uploaded_file($scope = null, $relativePath = null)
     {
         $allowedScopes = array('leaves', 'overtime');
         if (!in_array($scope, $allowedScopes, true)) {
@@ -615,17 +618,15 @@ class Api_hrms extends CI_Controller
             return;
         }
 
-        $parts = array_filter(array($segment1, $segment2), static function ($part) {
-            return $part !== null && $part !== '';
-        });
-
-        if (empty($parts)) {
+        $relativePath = trim(urldecode((string) $relativePath), '/');
+        if ($relativePath === '') {
             show_404();
             return;
         }
 
+        $parts = explode('/', $relativePath);
         foreach ($parts as $part) {
-            if ($part !== basename($part)) {
+            if ($part === '' || $part !== basename($part)) {
                 show_404();
                 return;
             }
@@ -1692,7 +1693,7 @@ class Api_hrms extends CI_Controller
             return $path;
         }
 
-        return base_url(ltrim($path, '/'));
+        return $this->public_uploaded_file_url($path);
     }
 
     private function detect_uploaded_file_mime_type($fullPath)
@@ -1716,6 +1717,26 @@ class Api_hrms extends CI_Controller
             default:
                 return 'application/octet-stream';
         }
+    }
+
+    private function public_uploaded_file_url($path)
+    {
+        return base_url($this->public_uploaded_file_path($path));
+    }
+
+    private function public_uploaded_file_path($path)
+    {
+        $normalizedPath = ltrim((string) $path, '/');
+
+        if (strpos($normalizedPath, 'writable/uploads/leaves/') === 0) {
+            return 'api/hrms/files/leaves/' . substr($normalizedPath, strlen('writable/uploads/leaves/'));
+        }
+
+        if (strpos($normalizedPath, 'writable/uploads/overtime/') === 0) {
+            return 'api/hrms/files/overtime/' . substr($normalizedPath, strlen('writable/uploads/overtime/'));
+        }
+
+        return $normalizedPath;
     }
 
     private function is_valid_date($date)
