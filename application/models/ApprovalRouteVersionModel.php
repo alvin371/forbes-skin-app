@@ -541,7 +541,7 @@ class ApprovalRouteVersionModel extends CI_Model
         return $results;
     }
 
-    protected function get_request_type_sql($alias, $requestType)
+    protected function get_request_type_sql($alias)
     {
         return "(COALESCE({$alias}.request_type, '{$this->default_request_type}') = ?)";
     }

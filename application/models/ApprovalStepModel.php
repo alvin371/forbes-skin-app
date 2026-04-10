@@ -92,13 +92,6 @@ class ApprovalStepModel extends CI_Model
      */
     public function get_pending_for_approver($approverId)
     {
-        // Get user's role for role-based matching
-        $user = $this->db->query("
-            SELECT role_text FROM user WHERE id = ?
-        ", array($approverId))->row_array();
-
-        $roleText = $user ? $user['role_text'] : '';
-
         $sql = "
             SELECT
                 s.*,
@@ -119,18 +112,14 @@ class ApprovalStepModel extends CI_Model
             INNER JOIN leave_requests lr ON s.leave_request_id = lr.id
             INNER JOIN leave_types lt ON lr.leave_type_id = lt.id
             INNER JOIN user u ON lr.user_id = u.id
-            LEFT JOIN user approver ON s.assigned_approver_id = approver.id
             WHERE s.action = 'PENDING'
               AND ai.status = 'IN_PROGRESS'
               AND s.step_no = ai.current_step
-              AND (
-                  s.assigned_approver_id = ?
-                  OR (approver.role_text = ? AND ? != '')
-              )
+              AND s.assigned_approver_id = ?
             ORDER BY lr.created_at ASC
         ";
 
-        return $this->db->query($sql, array($approverId, $roleText, $roleText))->result_array();
+        return $this->db->query($sql, array($approverId))->result_array();
     }
 
     /**
@@ -323,28 +312,17 @@ class ApprovalStepModel extends CI_Model
      */
     public function get_pending_count($approverId)
     {
-        // Get user's role
-        $user = $this->db->query("
-            SELECT role_text FROM user WHERE id = ?
-        ", array($approverId))->row_array();
-
-        $roleText = $user ? $user['role_text'] : '';
-
         $sql = "
             SELECT COUNT(*) as count
             FROM {$this->table} s
             INNER JOIN approval_instances ai ON s.approval_instance_id = ai.id
-            LEFT JOIN user approver ON s.assigned_approver_id = approver.id
             WHERE s.action = 'PENDING'
               AND ai.status = 'IN_PROGRESS'
               AND s.step_no = ai.current_step
-              AND (
-                  s.assigned_approver_id = ?
-                  OR (approver.role_text = ? AND ? != '')
-              )
+              AND s.assigned_approver_id = ?
         ";
 
-        $result = $this->db->query($sql, array($approverId, $roleText, $roleText))->row_array();
+        $result = $this->db->query($sql, array($approverId))->row_array();
 
         return intval($result['count']);
     }

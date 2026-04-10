@@ -59,7 +59,6 @@ class ApprovalWorkflowEngine
 
         // Resolve the best matching route
         $route = $this->CI->approvalrouteresolver->resolve(
-            'leave',
             $request['user_id'],
             array(
                 'leave_type_id' => $request['leave_type_id'],
@@ -518,29 +517,7 @@ class ApprovalWorkflowEngine
      */
     public function canUserApprove($userId, $step)
     {
-        // Direct assignment check
-        if ($step['assigned_approver_id'] == $userId) {
-            return true;
-        }
-
-        // Check if user has same role as the assigned approver
-        // This allows substitution by someone with the same role
-        if ($step['assigned_approver_id']) {
-            $assignedUser = $this->db->query("
-                SELECT role_text FROM user WHERE id = ?
-            ", array($step['assigned_approver_id']))->row_array();
-
-            $currentUser = $this->db->query("
-                SELECT role_text FROM user WHERE id = ?
-            ", array($userId))->row_array();
-
-            if ($assignedUser && $currentUser &&
-                $assignedUser['role_text'] == $currentUser['role_text']) {
-                return true;
-            }
-        }
-
-        return false;
+        return isset($step['assigned_approver_id']) && (int) $step['assigned_approver_id'] === (int) $userId;
     }
 
     /**
@@ -551,13 +528,6 @@ class ApprovalWorkflowEngine
      */
     public function getPendingStepsForApprover($approverId)
     {
-        // Get user's role for role-based matching
-        $user = $this->db->query("
-            SELECT role_text FROM user WHERE id = ?
-        ", array($approverId))->row_array();
-
-        $roleText = $user ? $user['role_text'] : '';
-
         $query = $this->db->query("
             SELECT
                 s.*,
@@ -576,16 +546,12 @@ class ApprovalWorkflowEngine
             INNER JOIN leave_requests lr ON s.leave_request_id = lr.id
             INNER JOIN leave_types lt ON lr.leave_type_id = lt.id
             INNER JOIN user u ON lr.user_id = u.id
-            LEFT JOIN user approver ON s.assigned_approver_id = approver.id
             WHERE s.action = 'PENDING'
               AND ai.status = 'IN_PROGRESS'
               AND s.step_no = ai.current_step
-              AND (
-                  s.assigned_approver_id = ?
-                  OR (approver.role_text = ? AND ? != '')
-              )
+              AND s.assigned_approver_id = ?
             ORDER BY lr.created_at ASC
-        ", array($approverId, $roleText, $roleText));
+        ", array($approverId));
 
         return $query->result_array();
     }

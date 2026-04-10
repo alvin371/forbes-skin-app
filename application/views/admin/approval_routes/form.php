@@ -1,7 +1,7 @@
 <div class="card" style="border-radius: 2px; border: 1px solid #f0f0f0; box-shadow: 0 2px 8px rgba(0,0,0,0.09);">
     <div class="card-header" style="background-color: #fff; border-bottom: 1px solid #f0f0f0; padding: 16px;">
         <h3 style="margin: 0; font-size: 16px; font-weight: 500; color: rgba(0,0,0,0.85);">
-            <?php echo $is_edit ? 'Edit Rute Approval' : 'Buat Rute Approval Baru'; ?> <?php echo htmlspecialchars($request_types[$request_type] ?? 'Cuti'); ?>
+            <?php echo $is_edit ? 'Edit Rute Approval' : 'Buat Rute Approval Baru'; ?>
         </h3>
         <?php if ($is_edit && $route): ?>
             <small style="color: rgba(0,0,0,0.45);">Mengedit akan membuat versi baru (v<?php echo $route['version'] + 1; ?>)</small>
@@ -17,7 +17,6 @@
 
         <form method="post" action="<?php echo $is_edit ? site_url('admin/approval-routes/' . $route['id'] . '/update') : site_url('admin/approval-routes/store'); ?>" id="routeForm">
             <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
-            <input type="hidden" name="request_type" id="requestTypeInput" value="<?php echo htmlspecialchars($request_type); ?>">
 
             <!-- Basic Info Section -->
             <div style="margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid #f0f0f0;">
@@ -49,17 +48,6 @@
                 <div class="row">
                     <div class="col-md-6">
                         <div class="mb-3">
-                            <label class="form-label" style="font-size: 14px; color: rgba(0,0,0,0.85);">Jenis Approval <span style="color: #ff4d4f;">*</span></label>
-                            <select name="request_type_display" id="requestTypeDisplay" class="form-select" style="border-radius: 2px; height: 32px; font-size: 14px;" onchange="changeRequestType(this.value)" <?php echo $is_edit ? 'disabled' : ''; ?>>
-                                <?php foreach ($request_types as $key => $label): ?>
-                                    <option value="<?php echo htmlspecialchars($key); ?>" <?php echo $request_type === $key ? 'selected' : ''; ?>><?php echo htmlspecialchars($label); ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                            <small style="color: rgba(0,0,0,0.45);">Satu rute hanya berlaku untuk satu jenis approval.</small>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="mb-3">
                             <label class="form-label" style="font-size: 14px; color: rgba(0,0,0,0.85);">Berlaku Dari <span style="color: #ff4d4f;">*</span></label>
                             <input type="date" name="effective_from" class="form-control" style="border-radius: 2px; height: 32px; font-size: 14px;"
                                    value="<?php echo htmlspecialchars($route['effective_from'] ?? date('Y-m-d')); ?>" required>
@@ -87,7 +75,7 @@
                     </button>
                 </div>
                 <small style="display: block; margin-bottom: 12px; color: rgba(0,0,0,0.45);">
-                    Tentukan kondisi untuk mencocokkan rute ini dengan pengajuan <?php echo strtolower(htmlspecialchars($request_types[$request_type] ?? 'cuti')); ?>. Jika tidak ada kondisi, rute ini menjadi fallback untuk jenis approval tersebut.
+                    Tentukan kondisi untuk mencocokkan rute ini dengan pengajuan. Jika tidak ada kondisi, rute ini menjadi fallback umum.
                 </small>
 
                 <div id="scopesContainer">
@@ -206,7 +194,6 @@ var dynamicApprovers = <?php echo json_encode($dynamic_approvers); ?>;
 var scopeTypes = <?php echo json_encode($scope_types); ?>;
 var operators = <?php echo json_encode($operators); ?>;
 var approverTypes = <?php echo json_encode($approver_types); ?>;
-var requestType = <?php echo json_encode($request_type); ?>;
 
 function escapeHtml(value) {
     return String(value)
@@ -216,36 +203,12 @@ function escapeHtml(value) {
         .replace(/>/g, '&gt;');
 }
 
-function getAvailableScopeTypes() {
-    var available = Object.assign({}, scopeTypes);
-    if (requestType === 'leave') {
-        delete available.overtime_type;
-        delete available.overtime_duration;
-    } else if (requestType === 'overtime') {
-        delete available.leave_type;
-        delete available.leave_duration;
-    }
-    return available;
-}
-
 function renderScopeTypeOptions(selectedValue) {
-    var available = getAvailableScopeTypes();
     return '<option value="">-- Pilih Tipe --</option>' +
-        Object.keys(available).map(function(k) {
+        Object.keys(scopeTypes).map(function(k) {
             var selected = String(selectedValue) === String(k) ? 'selected' : '';
-            return `<option value="${k}" ${selected}>${available[k]}</option>`;
+            return `<option value="${k}" ${selected}>${scopeTypes[k]}</option>`;
         }).join('');
-}
-
-function changeRequestType(nextType) {
-    if (<?php echo $is_edit ? 'true' : 'false'; ?>) {
-        return;
-    }
-
-    requestType = nextType;
-    document.getElementById('requestTypeInput').value = nextType;
-    var target = '<?php echo site_url('admin/approval-routes/create'); ?>?request_type=' + encodeURIComponent(nextType);
-    window.location.href = target;
 }
 
 function addScope() {

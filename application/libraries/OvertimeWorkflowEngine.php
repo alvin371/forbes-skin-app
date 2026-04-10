@@ -62,7 +62,6 @@ class OvertimeWorkflowEngine
 
         // Resolve the overtime route
         $route = $this->CI->approvalrouteresolver->resolve(
-            'overtime',
             $request['user_id'],
             array(
                 'overtime_type_id' => $request['overtime_type_id'],
