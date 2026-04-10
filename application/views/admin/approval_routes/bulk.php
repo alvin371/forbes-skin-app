@@ -16,6 +16,7 @@
         <form method="post" action="<?php echo site_url('admin/approval-routes/bulk-store'); ?>" id="bulkForm">
             <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
             <input type="hidden" name="routes_json" id="routesJsonInput">
+            <input type="hidden" name="request_type" value="<?php echo htmlspecialchars($request_type ?? 'leave'); ?>">
 
             <!-- Template Section -->
             <div style="margin-bottom: 24px; padding: 16px; background-color: #f6ffed; border: 1px solid #b7eb8f; border-radius: 4px;">

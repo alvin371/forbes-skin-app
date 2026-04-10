@@ -221,7 +221,7 @@ class ApprovalInboxController extends CI_Controller
 
         // Get available routes for assignment
         $this->load->model('ApprovalRouteVersionModel');
-        $data['available_routes'] = $this->ApprovalRouteVersionModel->get_all(true, true);
+        $data['available_routes'] = $this->ApprovalRouteVersionModel->get_all(true, true, 'leave');
 
         $data['title'] = 'Pengajuan Perlu Rute - ' . $this->template->title();
         $data['content'] = $this->load->view('approvals/needs_route', $data, true);

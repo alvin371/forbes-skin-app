@@ -59,9 +59,12 @@ class ApprovalWorkflowEngine
 
         // Resolve the best matching route
         $route = $this->CI->approvalrouteresolver->resolve(
+            'leave',
             $request['user_id'],
-            $request['leave_type_id'],
-            $request['days_count'],
+            array(
+                'leave_type_id' => $request['leave_type_id'],
+                'days_count' => $request['days_count'],
+            ),
             date('Y-m-d')
         );
 

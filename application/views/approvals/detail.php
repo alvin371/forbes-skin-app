@@ -5,6 +5,7 @@ $email = trim((string) ($request['requester_email'] ?? ''));
 $roleText = trim((string) ($request['requester_role_text'] ?? ''));
 $position = trim((string) ($request['requester_position'] ?? ''));
 $primaryLabel = $displayName !== '' ? $displayName : ($username !== '' ? $username : ('User #' . (int) $request['user_id']));
+$activeStep = isset($current_step) && is_array($current_step) ? $current_step : null;
 ?>
 
 <div class="row">
@@ -142,7 +143,7 @@ $primaryLabel = $displayName !== '' ? $displayName : ($username !== '' ? $userna
             </div>
         </div>
 
-        <?php if ($request['status'] === 'PENDING_APPROVAL'): ?>
+        <?php if (!empty($can_take_action)): ?>
             <div class="card" style="border-radius: 2px; border: 1px solid #f0f0f0; box-shadow: 0 2px 8px rgba(0,0,0,0.09);">
                 <div class="card-header" style="background-color: #fff; border-bottom: 1px solid #f0f0f0; padding: 16px;">
                     <h3 style="margin: 0; font-size: 16px; font-weight: 500; color: rgba(0,0,0,0.85);">
@@ -150,6 +151,14 @@ $primaryLabel = $displayName !== '' ? $displayName : ($username !== '' ? $userna
                     </h3>
                 </div>
                 <div class="card-body" style="padding: 16px;">
+                    <?php if (!empty($activeStep)): ?>
+                        <div style="margin-bottom: 16px; padding: 8px 12px; border: 1px solid #91d5ff; background-color: #e6f7ff; border-radius: 4px; font-size: 13px; color: #0958d9;">
+                            Step <?php echo (int) $activeStep['step_no']; ?> dari <?php echo (int) ($activeStep['total_steps'] ?? 0); ?>
+                            <?php if (!empty($activeStep['step_name'])): ?>
+                                • <?php echo htmlspecialchars($activeStep['step_name']); ?>
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
                     <div class="mb-3">
                         <label class="form-label" style="font-size: 14px; color: rgba(0,0,0,0.85);">Catatan</label>
                         <textarea id="approvalNotes" class="form-control" rows="3" style="border-radius: 2px; font-size: 14px;" placeholder="Tambahkan catatan (wajib untuk penolakan)..."></textarea>
