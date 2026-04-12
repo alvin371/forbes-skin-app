@@ -19,7 +19,6 @@ foreach ($quotas as $quota) {
             'user_id' => $userId,
             'user_name' => $quota['user_name'] ?? ($userInfo['full_name'] ?? 'N/A'),
             'user_email' => $quota['user_email'] ?? ($userInfo['email'] ?? ''),
-            'user_department' => $userInfo['department'] ?? '',
             'quotas' => array(),
             'last_updated' => null,
             'leave_type_ids' => array(),
@@ -104,18 +103,6 @@ $totalLeaveTypes = count($leave_types);
             <div style="min-width: 220px; flex: 1;">
                 <input id="quota-search" type="text" placeholder="Search name or email" style="width: 100%; border: 1px solid #d9d9d9; border-radius: 2px; padding: 6px 11px; font-size: 14px;">
             </div>
-            <?php if (!empty($has_department)): ?>
-                <div style="min-width: 180px;">
-                    <select id="quota-department" style="width: 100%; border: 1px solid #d9d9d9; border-radius: 2px; padding: 6px 11px; font-size: 14px;">
-                        <option value="">All Departments</option>
-                        <?php foreach ($departments as $department): ?>
-                            <option value="<?php echo htmlspecialchars($department); ?>"><?php echo htmlspecialchars($department); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-            <?php else: ?>
-                <input type="hidden" id="quota-department" value="">
-            <?php endif; ?>
             <div style="min-width: 180px;">
                 <select id="quota-status" style="width: 100%; border: 1px solid #d9d9d9; border-radius: 2px; padding: 6px 11px; font-size: 14px;">
                     <option value="">All Status</option>
@@ -158,16 +145,15 @@ $totalLeaveTypes = count($leave_types);
                         <thead>
                             <tr style="background-color: #fafafa;">
                                 <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px; width: 28%;">User</th>
-                                <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px; width: 16%;">Department</th>
-                                <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px; width: 18%;">Quota Summary</th>
-                                <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px; width: 18%;">Last Updated</th>
-                                <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px; width: 20%;">Actions</th>
+                                <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px; width: 24%;">Quota Summary</th>
+                                <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px; width: 20%;">Last Updated</th>
+                                <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px; width: 28%;">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php if (empty($users)): ?>
                                 <tr>
-                                    <td colspan="5" style="padding: 24px; text-align: center; font-size: 14px; color: rgba(0,0,0,0.45);">No users found.</td>
+                                    <td colspan="4" style="padding: 24px; text-align: center; font-size: 14px; color: rgba(0,0,0,0.45);">No users found.</td>
                                 </tr>
                             <?php else: ?>
                                 <?php foreach ($users as $user): ?>
@@ -179,7 +165,7 @@ $totalLeaveTypes = count($leave_types);
                                     $setCount = count($userLeaveTypes);
                                     $missingCount = max(0, $totalLeaveTypes - $setCount);
                                     ?>
-                                    <tr class="user-summary-row" data-user-id="<?php echo $userId; ?>" data-user-name="<?php echo htmlspecialchars($user['full_name']); ?>" data-user-email="<?php echo htmlspecialchars($user['email']); ?>" data-department="<?php echo htmlspecialchars($user['department'] ?? ''); ?>" data-leave-types="<?php echo htmlspecialchars(implode(',', $userLeaveTypes)); ?>" style="border-bottom: 1px solid #f0f0f0; background: #fff;">
+                                    <tr class="user-summary-row" data-user-id="<?php echo $userId; ?>" data-user-name="<?php echo htmlspecialchars($user['full_name']); ?>" data-user-email="<?php echo htmlspecialchars($user['email']); ?>" data-leave-types="<?php echo htmlspecialchars(implode(',', $userLeaveTypes)); ?>" style="border-bottom: 1px solid #f0f0f0; background: #fff;">
                                         <td style="padding: 12px 8px; font-size: 14px;">
                                             <div style="display: flex; align-items: center; gap: 8px;">
                                                 <button type="button" class="toggle-user" data-user-id="<?php echo $userId; ?>" style="background: none; border: 1px solid #d9d9d9; border-radius: 2px; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: rgba(0,0,0,0.65);">+</button>
@@ -188,9 +174,6 @@ $totalLeaveTypes = count($leave_types);
                                                     <div style="color: rgba(0,0,0,0.45); font-size: 12px;"><?php echo htmlspecialchars($user['email']); ?></div>
                                                 </div>
                                             </div>
-                                        </td>
-                                        <td style="padding: 12px 8px; font-size: 13px; color: rgba(0,0,0,0.65);">
-                                            <?php echo htmlspecialchars($user['department'] ?? ''); ?>
                                         </td>
                                         <td style="padding: 12px 8px; font-size: 13px; color: rgba(0,0,0,0.85);">
                                             <strong><?php echo $setCount; ?></strong> / <?php echo $totalLeaveTypes; ?> set
@@ -207,7 +190,7 @@ $totalLeaveTypes = count($leave_types);
                                     </tr>
                                     <?php if (empty($userQuotas)): ?>
                                         <tr class="quota-detail-row" data-user-id="<?php echo $userId; ?>" data-status="not-set" style="display: none;">
-                                            <td colspan="5" style="padding: 12px 8px; font-size: 13px; color: rgba(0,0,0,0.45);">
+                                            <td colspan="4" style="padding: 12px 8px; font-size: 13px; color: rgba(0,0,0,0.45);">
                                                 No quotas set for this user.
                                             </td>
                                         </tr>
@@ -241,7 +224,7 @@ $totalLeaveTypes = count($leave_types);
                                                 $statusColor = '#faad14';
                                             }
                                             ?>
-                                            <tr class="quota-detail-row" data-user-id="<?php echo (int) $quota['user_id']; ?>" data-leave-type-id="<?php echo (int) $quota['leave_type_id']; ?>" data-status="<?php echo $status; ?>" data-user-name="<?php echo htmlspecialchars($quota['user_name'] ?? ''); ?>" data-user-email="<?php echo htmlspecialchars($quota['user_email'] ?? ''); ?>" data-department="<?php echo htmlspecialchars($usersById[(int) $quota['user_id']]['department'] ?? ''); ?>" style="display: none;">
+                                            <tr class="quota-detail-row" data-user-id="<?php echo (int) $quota['user_id']; ?>" data-leave-type-id="<?php echo (int) $quota['leave_type_id']; ?>" data-status="<?php echo $status; ?>" data-user-name="<?php echo htmlspecialchars($quota['user_name'] ?? ''); ?>" data-user-email="<?php echo htmlspecialchars($quota['user_email'] ?? ''); ?>" style="display: none;">
                                                 <td style="padding: 10px 8px; font-size: 13px; color: rgba(0,0,0,0.85);">
                                                     <div style="font-weight: 500;"><?php echo htmlspecialchars($quota['leave_type_name'] ?? 'N/A'); ?></div>
                                                     <div style="color: rgba(0,0,0,0.45); font-size: 12px;">Code: <?php echo htmlspecialchars($quota['leave_type_code'] ?? ''); ?></div>
@@ -307,7 +290,6 @@ $totalLeaveTypes = count($leave_types);
                                 <thead>
                                     <tr style="background-color: #fafafa;">
                                         <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">User</th>
-                                        <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Department</th>
                                         <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Total Days</th>
                                         <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Remaining / Used</th>
                                         <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Status</th>
@@ -317,7 +299,7 @@ $totalLeaveTypes = count($leave_types);
                                 <tbody>
                                     <?php if (empty($users)): ?>
                                         <tr>
-                                            <td colspan="6" style="padding: 24px; text-align: center; font-size: 14px; color: rgba(0,0,0,0.45);">No users found.</td>
+                                            <td colspan="5" style="padding: 24px; text-align: center; font-size: 14px; color: rgba(0,0,0,0.45);">No users found.</td>
                                         </tr>
                                     <?php else: ?>
                                         <?php foreach ($users as $user): ?>
@@ -349,13 +331,10 @@ $totalLeaveTypes = count($leave_types);
                                                 }
                                             }
                                             ?>
-                                            <tr class="leave-type-row" data-user-id="<?php echo $userId; ?>" data-user-name="<?php echo htmlspecialchars($user['full_name']); ?>" data-user-email="<?php echo htmlspecialchars($user['email']); ?>" data-department="<?php echo htmlspecialchars($user['department'] ?? ''); ?>" data-status="<?php echo $status; ?>">
+                                            <tr class="leave-type-row" data-user-id="<?php echo $userId; ?>" data-user-name="<?php echo htmlspecialchars($user['full_name']); ?>" data-user-email="<?php echo htmlspecialchars($user['email']); ?>" data-status="<?php echo $status; ?>">
                                                 <td style="padding: 12px 8px; font-size: 13px;">
                                                     <div style="color: rgba(0,0,0,0.85); font-weight: 500;"><?php echo htmlspecialchars($user['full_name']); ?></div>
                                                     <div style="color: rgba(0,0,0,0.45); font-size: 12px;"><?php echo htmlspecialchars($user['email']); ?></div>
-                                                </td>
-                                                <td style="padding: 12px 8px; font-size: 13px; color: rgba(0,0,0,0.65);">
-                                                    <?php echo htmlspecialchars($user['department'] ?? ''); ?>
                                                 </td>
                                                 <td style="padding: 12px 8px; font-size: 13px;">
                                                     <div style="display: flex; align-items: center; gap: 6px;">
@@ -480,13 +459,11 @@ $totalLeaveTypes = count($leave_types);
 
     var clearBtn = document.getElementById('quota-clear');
     var searchInput = document.getElementById('quota-search');
-    var departmentSelect = document.getElementById('quota-department');
     var statusSelect = document.getElementById('quota-status');
     var leaveTypeFilter = document.getElementById('quota-leave-type');
 
     function applyFilters() {
         var query = (searchInput.value || '').toLowerCase().trim();
-        var dept = (departmentSelect.value || '').toLowerCase().trim();
         var status = (statusSelect.value || '').toLowerCase().trim();
         var leaveType = (leaveTypeFilter.value || '').trim();
 
@@ -496,13 +473,11 @@ $totalLeaveTypes = count($leave_types);
                 var userId = row.getAttribute('data-user-id');
                 var name = (row.getAttribute('data-user-name') || '').toLowerCase();
                 var email = (row.getAttribute('data-user-email') || '').toLowerCase();
-                var rowDept = (row.getAttribute('data-department') || '').toLowerCase();
                 var leaveTypes = (row.getAttribute('data-leave-types') || '').split(',').filter(Boolean);
                 var toggleBtn = document.querySelector('.toggle-user[data-user-id="' + userId + '"]');
                 var isExpanded = toggleBtn ? toggleBtn.getAttribute('data-expanded') === 'true' : false;
 
                 var matchesQuery = !query || name.includes(query) || email.includes(query);
-                var matchesDept = !dept || rowDept === dept;
                 var matchesLeaveType = !leaveType || leaveTypes.indexOf(leaveType) !== -1;
                 var matchesStatusAny = true;
 
@@ -522,7 +497,7 @@ $totalLeaveTypes = count($leave_types);
                     });
                 }
 
-                row.style.display = (matchesQuery && matchesDept && matchesLeaveType && matchesStatusAny) ? 'table-row' : 'none';
+                row.style.display = (matchesQuery && matchesLeaveType && matchesStatusAny) ? 'table-row' : 'none';
 
                 detailRows.forEach(function(detailRow) {
                     var detailStatus = (detailRow.getAttribute('data-status') || '').toLowerCase();
@@ -562,21 +537,19 @@ $totalLeaveTypes = count($leave_types);
                     rows.forEach(function(row) {
                         var name = (row.getAttribute('data-user-name') || '').toLowerCase();
                         var email = (row.getAttribute('data-user-email') || '').toLowerCase();
-                        var rowDept = (row.getAttribute('data-department') || '').toLowerCase();
                         var rowStatus = (row.getAttribute('data-status') || '').toLowerCase();
 
                         var matchesQuery = !query || name.includes(query) || email.includes(query);
-                        var matchesDept = !dept || rowDept === dept;
                         var matchesStatus = !status || rowStatus === status;
 
-                        row.style.display = (matchesQuery && matchesDept && matchesStatus) ? 'table-row' : 'none';
+                        row.style.display = (matchesQuery && matchesStatus) ? 'table-row' : 'none';
                     });
                 }
             });
         }
     }
 
-    [searchInput, departmentSelect, statusSelect, leaveTypeFilter].forEach(function(el) {
+    [searchInput, statusSelect, leaveTypeFilter].forEach(function(el) {
         if (!el) return;
         el.addEventListener('input', applyFilters);
         el.addEventListener('change', applyFilters);
@@ -584,7 +557,6 @@ $totalLeaveTypes = count($leave_types);
 
     clearBtn.addEventListener('click', function() {
         searchInput.value = '';
-        departmentSelect.value = '';
         statusSelect.value = '';
         leaveTypeFilter.value = '';
         applyFilters();

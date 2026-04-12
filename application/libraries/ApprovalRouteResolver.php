@@ -6,7 +6,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  *
  * Finds the best matching approval route for approval-backed requests using priority scoring.
  * Supports multi-scope route matching, dynamic approver resolution, and role-based
- * department matching.
+ * role- and user-based matching.
  *
  * Priority Scoring:
  * - user: 1000 points
@@ -14,7 +14,6 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  * - leave_type: 200 points
  * - overtime_type: 200 points
  * - role: 100 points
- * - department: 50 points
  * - office: 25 points
  * - company: 10 points
  *
@@ -28,7 +27,6 @@ class ApprovalRouteResolver
 {
     protected $CI;
     protected $db;
-
     /**
      * Priority scores for each scope type
      */
@@ -39,7 +37,6 @@ class ApprovalRouteResolver
         'leave_type' => 200,
         'overtime_type' => 200,
         'role' => 100,
-        'department' => 50,
         'office' => 25,
         'company' => 10,
     );
@@ -82,6 +79,11 @@ class ApprovalRouteResolver
         $matchedRoutes = array();
         foreach ($routes as $route) {
             $scopes = $this->getRouteScopes($route['id']);
+
+            if ($this->containsLegacyDepartmentScope($scopes)) {
+                log_message('info', 'ApprovalRouteResolver: Skipping legacy department-scoped route: ' . $route['id']);
+                continue;
+            }
 
             // If route has no scopes, it's a fallback route (matches everyone)
             if (empty($scopes)) {
@@ -139,16 +141,19 @@ class ApprovalRouteResolver
      */
     protected function getUserData($userId)
     {
+        $selectFields = array(
+            'u.id',
+            'u.full_name',
+            'u.role',
+            'u.role_text',
+            'u.manager_id',
+            'up.position_id',
+            'p.name as position_name',
+        );
+
         $query = $this->db->query("
             SELECT
-                u.id,
-                u.full_name,
-                u.role,
-                u.role_text,
-                u.manager_id,
-                up.position_id,
-                p.name as position_name,
-                ql.name as level_name
+                " . implode(",\n                ", $selectFields) . "
             FROM user u
             LEFT JOIN user_profile up ON u.id = up.user_id
             LEFT JOIN positions p ON up.position_id = p.id
@@ -170,65 +175,7 @@ class ApprovalRouteResolver
         ", array($userId));
         $result['roles'] = $roles_query->result_array();
 
-        // Extract department from role_text or position
-        $result['department'] = $this->extractDepartment($result);
-
         return $result;
-    }
-
-    /**
-     * Extract department from role_text or position name
-     * Since departments are embedded in role names (e.g., "Marketing Staff", "Finance Manager")
-     *
-     * @param array $userData
-     * @return string|null
-     */
-    protected function extractDepartment($userData)
-    {
-        $department = null;
-
-        // Try to extract from role_text
-        if (!empty($userData['role_text'])) {
-            $department = $this->parseDepartmentFromString($userData['role_text']);
-        }
-
-        // Fallback to position name
-        if (!$department && !empty($userData['position_name'])) {
-            $department = $this->parseDepartmentFromString($userData['position_name']);
-        }
-
-        // Fallback to level name
-        if (!$department && !empty($userData['level_name'])) {
-            $department = $userData['level_name'];
-        }
-
-        return $department;
-    }
-
-    /**
-     * Parse department keyword from a string
-     *
-     * @param string $str
-     * @return string|null
-     */
-    protected function parseDepartmentFromString($str)
-    {
-        // Common department keywords
-        $departments = array(
-            'Marketing', 'Finance', 'HR', 'Human Resources', 'IT', 'Technology',
-            'Operations', 'Warehouse', 'Sales', 'Customer Service', 'Admin',
-            'Legal', 'Accounting', 'Production', 'Engineering', 'Design',
-            'Quality', 'Procurement', 'Logistics', 'R&D', 'Research'
-        );
-
-        $str_lower = strtolower($str);
-        foreach ($departments as $dept) {
-            if (stripos($str_lower, strtolower($dept)) !== false) {
-                return $dept;
-            }
-        }
-
-        return null;
     }
 
     /**
@@ -240,12 +187,21 @@ class ApprovalRouteResolver
     protected function getActiveRoutes($date)
     {
         $query = $this->db->query("
-            SELECT *
-            FROM approval_route_versions
+            SELECT arv.*,
+                   COALESCE(scope_meta.scope_count, 0) as scope_count
+            FROM approval_route_versions arv
+            LEFT JOIN (
+                SELECT route_version_id, COUNT(*) as scope_count
+                FROM approval_route_scopes
+                GROUP BY route_version_id
+            ) scope_meta ON scope_meta.route_version_id = arv.id
             WHERE is_active = 1
               AND effective_from <= ?
               AND (effective_to IS NULL OR effective_to >= ?)
-            ORDER BY version DESC
+            ORDER BY
+              CASE WHEN COALESCE(scope_meta.scope_count, 0) = 0 THEN 1 ELSE 0 END ASC,
+              route_code ASC,
+              version DESC
         ", array($date, $date));
 
         return $query->result_array();
@@ -296,12 +252,23 @@ class ApprovalRouteResolver
      */
     protected function matchesAllScopes($scopes, $userData, $requestData)
     {
-        foreach ($scopes as $scope) {
-            if (!$this->matchScope($scope, $userData, $requestData)) {
+        foreach ($this->groupScopesByType($scopes) as $scopeGroup) {
+            if (!$this->matchesAnyScope($scopeGroup, $userData, $requestData)) {
                 return false;
             }
         }
         return true;
+    }
+
+    protected function matchesAnyScope($scopes, $userData, $requestData)
+    {
+        foreach ($scopes as $scope) {
+            if ($this->matchScope($scope, $userData, $requestData)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -321,9 +288,6 @@ class ApprovalRouteResolver
         switch ($scopeType) {
             case 'user':
                 return $this->matchValue($userData['id'], $scopeValue, $operator);
-
-            case 'department':
-                return $this->matchValue($userData['department'], $scopeValue, $operator);
 
             case 'role':
                 // Match against any of user's roles
@@ -372,29 +336,28 @@ class ApprovalRouteResolver
      */
     protected function matchValue($actualValue, $scopeValue, $operator)
     {
-        if ($actualValue === null) {
+        $actualValue = $this->normalizeScopeValue($actualValue);
+        $scopeValue = $this->normalizeScopeValue($scopeValue);
+
+        if ($actualValue === null || $scopeValue === null) {
             return false;
         }
 
         switch ($operator) {
             case 'eq':
-                return strtolower($actualValue) == strtolower($scopeValue);
+                return $actualValue === $scopeValue;
 
             case 'neq':
-                return strtolower($actualValue) != strtolower($scopeValue);
+                return $actualValue !== $scopeValue;
 
             case 'in':
-                $values = array_map('trim', explode(',', $scopeValue));
-                $values = array_map('strtolower', $values);
-                return in_array(strtolower($actualValue), $values);
+                return in_array($actualValue, $this->normalizeScopeList($scopeValue), true);
 
             case 'not_in':
-                $values = array_map('trim', explode(',', $scopeValue));
-                $values = array_map('strtolower', $values);
-                return !in_array(strtolower($actualValue), $values);
+                return !in_array($actualValue, $this->normalizeScopeList($scopeValue), true);
 
             default:
-                return strtolower($actualValue) == strtolower($scopeValue);
+                return $actualValue === $scopeValue;
         }
     }
 
@@ -442,8 +405,7 @@ class ApprovalRouteResolver
     protected function calculatePriorityScore($scopes)
     {
         $score = 0;
-        foreach ($scopes as $scope) {
-            $type = $scope['scope_type'];
+        foreach (array_keys($this->groupScopesByType($scopes)) as $type) {
             if (isset($this->scope_priority_scores[$type])) {
                 $score += $this->scope_priority_scores[$type];
             }
@@ -630,6 +592,10 @@ class ApprovalRouteResolver
     public function previewMatchingUsers($routeVersionId, $limit = 50)
     {
         $scopes = $this->getRouteScopes($routeVersionId);
+        $userScopes = array_values(array_filter($scopes, function($scope) {
+            return $this->isEmployeePreviewScope($scope['scope_type']);
+        }));
+        $hasRequestScopes = count($userScopes) !== count($scopes);
 
         // Get all active users
         $query = $this->db->query("
@@ -644,36 +610,23 @@ class ApprovalRouteResolver
 
         foreach ($users as $user) {
             $userData = $this->getUserData($user['id']);
-            if (!$userData) continue;
+            if (!$userData) {
+                continue;
+            }
 
-            // If no scopes, all users match
-            if (empty($scopes)) {
+            // Preview evaluates only employee-identifying scopes.
+            if (empty($userScopes)) {
                 $matchingUsers[] = array(
                     'id' => $userData['id'],
                     'full_name' => $userData['full_name'],
                     'role_text' => $userData['role_text'],
-                    'department' => $userData['department'],
                 );
             } else {
-                // Check if all scopes match (leave data doesn't matter for preview)
-                $dummyRequestData = array(
-                    'leave_type_id' => 0,
-                    'days_count' => 0,
-                    'overtime_type_id' => 0,
-                    'duration_hours' => 0,
-                );
-
-                // For preview, we check only user-specific scopes
-                $userScopes = array_filter($scopes, function($s) {
-                    return in_array($s['scope_type'], array('user', 'department', 'role', 'office', 'company'));
-                });
-
-                if (empty($userScopes) || $this->matchesAllScopes($userScopes, $userData, $dummyRequestData)) {
+                if ($this->matchesAllScopes($userScopes, $userData, array())) {
                     $matchingUsers[] = array(
                         'id' => $userData['id'],
                         'full_name' => $userData['full_name'],
                         'role_text' => $userData['role_text'],
-                        'department' => $userData['department'],
                     );
                 }
             }
@@ -683,7 +636,21 @@ class ApprovalRouteResolver
             }
         }
 
-        return $matchingUsers;
+        if ($this->containsLegacyDepartmentScope($scopes)) {
+            return array(
+                'users' => array(),
+                'has_request_scopes' => false,
+                'preview_note' => 'Route ini memakai scope department yang sudah dihapus. Route tidak lagi ikut matching sampai scope legacy tersebut dihapus.',
+            );
+        }
+
+        return array(
+            'users' => $matchingUsers,
+            'has_request_scopes' => $hasRequestScopes,
+            'preview_note' => $hasRequestScopes
+                ? 'Preview hanya mengevaluasi kondisi karyawan. Kondisi terkait jenis/durasi pengajuan tidak dihitung di sini.'
+                : null,
+        );
     }
 
     /**
@@ -709,5 +676,66 @@ class ApprovalRouteResolver
         $route['steps'] = $this->getRouteSteps($routeVersionId);
 
         return $route;
+    }
+
+    protected function normalizeScopeValue($value)
+    {
+        $value = $this->cleanScalarValue($value);
+
+        return $value === null ? null : strtolower($value);
+    }
+
+    protected function cleanScalarValue($value)
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
+    }
+
+    protected function normalizeScopeList($value)
+    {
+        $parts = array_map('trim', explode(',', (string) $value));
+        $parts = array_filter($parts, function($part) {
+            return $part !== '';
+        });
+
+        return array_values(array_map('strtolower', $parts));
+    }
+
+    protected function isEmployeePreviewScope($scopeType)
+    {
+        return in_array($scopeType, array('user', 'role', 'office', 'company'), true);
+    }
+
+    protected function groupScopesByType($scopes)
+    {
+        $grouped = array();
+
+        foreach ($scopes as $scope) {
+            $scopeType = isset($scope['scope_type']) ? $scope['scope_type'] : '';
+
+            if (!isset($grouped[$scopeType])) {
+                $grouped[$scopeType] = array();
+            }
+
+            $grouped[$scopeType][] = $scope;
+        }
+
+        return $grouped;
+    }
+
+    protected function containsLegacyDepartmentScope($scopes)
+    {
+        foreach ($scopes as $scope) {
+            if (isset($scope['scope_type']) && $scope['scope_type'] === 'department') {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

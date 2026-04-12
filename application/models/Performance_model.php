@@ -68,11 +68,9 @@ class Performance_model extends CI_Model
             $this->db->where('pt.period_year', $filters['period_year']);
         }
 
-        // Filter by role_id (new) or department (legacy)
+        // Filter by role_id only
         if (isset($filters['role_id']) && $filters['role_id'] !== '' && $filters['role_id'] !== null) {
             $this->db->where('pt.role_id', $filters['role_id']);
-        } elseif (isset($filters['department']) && $filters['department'] !== '') {
-            $this->db->where('pt.department', $filters['department']);
         }
 
         if (isset($filters['is_active'])) {
@@ -161,7 +159,6 @@ class Performance_model extends CI_Model
             'name' => $data['name'],
             'period_year' => $data['period_year'],
             'role_id' => isset($data['role_id']) && $data['role_id'] !== '' ? $data['role_id'] : null,
-            'department' => null, // Deprecated, kept for backward compatibility
             'is_active' => $data['is_active'] ?? 0,
             'created_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s')
@@ -198,7 +195,6 @@ class Performance_model extends CI_Model
         if (array_key_exists('role_id', $data)) {
             $update_data['role_id'] = ($data['role_id'] === '' || $data['role_id'] === null) ? null : $data['role_id'];
         }
-        if (isset($data['department'])) $update_data['department'] = $data['department'];
         if (isset($data['is_active'])) $update_data['is_active'] = $data['is_active'];
 
         $this->db->where('id', $template_id);
@@ -389,11 +385,6 @@ class Performance_model extends CI_Model
         // Filter by employee's role at submission time
         if (isset($filters['role_id']) && $filters['role_id'] !== '' && $filters['role_id'] !== null) {
             $this->db->where('ps.employee_role_id', $filters['role_id']);
-        }
-
-        // Legacy: filter by department
-        if (isset($filters['department'])) {
-            $this->db->where('pt.department', $filters['department']);
         }
 
         $this->db->group_by('ps.id');

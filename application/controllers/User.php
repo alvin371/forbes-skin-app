@@ -37,6 +37,37 @@ class User extends BaseController
         return count($duplicates) > 0;
     }
 
+    private function should_return_json()
+    {
+        return isset($_POST['response_format']) && $_POST['response_format'] === 'json';
+    }
+
+    private function respond_store_result($is_success, $message, $redirect_url = '')
+    {
+        if ($this->should_return_json()) {
+            $payload = array(
+                'status' => $is_success ? 'success' : 'error',
+                'message' => $message,
+            );
+
+            if ($is_success && $redirect_url !== '') {
+                $payload['redirect_url'] = $redirect_url;
+            }
+
+            $this->output
+                ->set_content_type('application/json')
+                ->set_output(json_encode($payload));
+            return;
+        }
+
+        if ($is_success) {
+            echo $this->template->alert_success($message);
+            return;
+        }
+
+        echo $this->template->alert_danger($message);
+    }
+
     /**
      * Check if user can view all users based on their role
      * Uses RBAC system to determine permissions
@@ -543,8 +574,8 @@ class User extends BaseController
 
         if ($other_user) {
             $msg = 'Username sudah digunakan user lain!';
-            echo $this->template->alert_danger($msg);
-            die;
+            $this->respond_store_result(false, $msg);
+            return;
         }
 
         $role = $dt['role'];
@@ -566,8 +597,8 @@ class User extends BaseController
             $this->load->library('upload', $config);
             if (!$this->upload->do_upload('file')) {
                 $error = $this->upload->display_errors();
-                echo $this->template->alert_danger($error);
-                die;
+                $this->respond_store_result(false, $error);
+                return;
             } else {
                 $file = $this->upload->data();
                 $dt['img'] = $file['file_name'];
@@ -618,21 +649,21 @@ class User extends BaseController
                     $error_message = $e->getMessage();
                     if (strpos($error_message, 'position_id') !== false) {
                         $msg = 'Harap pilih posisi jabatan terlebih dahulu untuk melengkapi profil karyawan.';
-                        echo $this->template->alert_danger($msg);
+                        $this->respond_store_result(false, $msg);
                         return;
                     } else {
                         $msg = 'Terjadi kesalahan saat menyimpan profil. Silakan coba lagi.';
-                        echo $this->template->alert_danger($msg);
+                        $this->respond_store_result(false, $msg);
                         return;
                     }
                 }
             }
             
             $msg = 'Tambah data berhasil!';
-            echo $this->template->alert_success($msg);
+            $this->respond_store_result(true, $msg, base_url() . '/user');
         } else {
             $msg = 'Tambah data tidak berhasil!';
-            echo $this->template->alert_danger($msg);
+            $this->respond_store_result(false, $msg);
         }
     }
 

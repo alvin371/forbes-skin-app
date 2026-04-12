@@ -13,6 +13,7 @@ class ApprovalRoutesController extends BaseController
 {
     protected $require_permissions = true;
     protected $show_403_on_deny = true;
+    protected $legacyScopeTypes = array('department');
 
     public function __construct()
     {
@@ -129,6 +130,12 @@ class ApprovalRoutesController extends BaseController
             }
         }
 
+        $legacyScopeError = $this->validate_scopes($scopes);
+        if ($legacyScopeError !== null) {
+            $this->session->set_flashdata('error', $legacyScopeError);
+            redirect('admin/approval-routes/create');
+        }
+
         // Build steps
         $steps = array();
         $stepNos = $this->input->post('step_no') ?: array();
@@ -234,6 +241,12 @@ class ApprovalRoutesController extends BaseController
                     'operator' => isset($scopeOperators[$i]) ? $scopeOperators[$i] : 'eq',
                 );
             }
+        }
+
+        $legacyScopeError = $this->validate_scopes($scopes);
+        if ($legacyScopeError !== null) {
+            $this->session->set_flashdata('error', $legacyScopeError);
+            redirect('admin/approval-routes/' . $id . '/edit');
         }
 
         // Build steps
@@ -348,15 +361,17 @@ class ApprovalRoutesController extends BaseController
             return;
         }
 
-        $matchingUsers = $this->approvalrouteresolver->previewMatchingUsers($id, 50);
+        $preview = $this->approvalrouteresolver->previewMatchingUsers($id, 50);
 
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode(array(
                 'success' => true,
                 'route_name' => $route['name'],
-                'users' => $matchingUsers,
-                'count' => count($matchingUsers),
+                'users' => $preview['users'],
+                'count' => count($preview['users']),
+                'has_request_scopes' => !empty($preview['has_request_scopes']),
+                'preview_note' => $preview['preview_note'],
             )));
     }
 
@@ -401,6 +416,15 @@ class ApprovalRoutesController extends BaseController
         if (!$routes || !is_array($routes)) {
             $this->session->set_flashdata('error', 'Format JSON tidak valid');
             redirect('admin/approval-routes/bulk');
+        }
+
+        foreach ($routes as $route) {
+            $legacyScopeError = $this->validate_scopes(isset($route['scopes']) && is_array($route['scopes']) ? $route['scopes'] : array());
+            if ($legacyScopeError !== null) {
+                $this->session->set_flashdata('error', $legacyScopeError);
+                redirect('admin/approval-routes/bulk');
+                return;
+            }
         }
 
         $results = $this->ApprovalRouteVersionModel->bulk_create($routes, $user['id']);
@@ -503,5 +527,16 @@ class ApprovalRoutesController extends BaseController
         }
 
         redirect($target);
+    }
+
+    protected function validate_scopes($scopes)
+    {
+        foreach ($scopes as $scope) {
+            if (in_array($scope['scope_type'], $this->legacyScopeTypes, true)) {
+                return 'Scope department sudah dihapus. Hapus kondisi legacy tersebut dan gunakan scope lain yang masih didukung.';
+            }
+        }
+
+        return null;
     }
 }

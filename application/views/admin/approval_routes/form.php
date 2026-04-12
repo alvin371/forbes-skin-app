@@ -15,6 +15,12 @@
             </div>
         <?php endif; ?>
 
+        <?php if (!empty($route['has_legacy_department_scope'])): ?>
+            <div class="alert alert-warning" style="padding: 8px 15px; border-radius: 2px; font-size: 14px; background-color: #fffbe6; border: 1px solid #ffe58f; color: #ad6800; margin-bottom: 16px;">
+                <i class="bi bi-exclamation-triangle"></i> <?php echo htmlspecialchars($route['legacy_scope_warning']); ?>
+            </div>
+        <?php endif; ?>
+
         <form method="post" action="<?php echo $is_edit ? site_url('admin/approval-routes/' . $route['id'] . '/update') : site_url('admin/approval-routes/store'); ?>" id="routeForm">
             <input type="hidden" name="<?php echo $this->security->get_csrf_token_name(); ?>" value="<?php echo $this->security->get_csrf_hash(); ?>">
 
@@ -87,6 +93,9 @@
                                     <?php foreach ($scope_types as $key => $label): ?>
                                         <option value="<?php echo $key; ?>" <?php echo $scope['scope_type'] == $key ? 'selected' : ''; ?>><?php echo $label; ?></option>
                                     <?php endforeach; ?>
+                                    <?php if ($scope['scope_type'] === 'department'): ?>
+                                        <option value="department" selected>Departemen (legacy - hapus)</option>
+                                    <?php endif; ?>
                                 </select>
                                 <select name="scope_operator[]" class="form-select" style="width: 150px; border-radius: 2px; height: 32px; font-size: 14px;">
                                     <?php foreach ($operators as $key => $label): ?>
@@ -115,13 +124,16 @@
                     </button>
                 </div>
                 <small style="display: block; margin-bottom: 12px; color: rgba(0,0,0,0.45);">
-                    Tentukan urutan approver. Minimal harus ada 1 step.
+                    Urutan step diatur otomatis dari atas ke bawah. Drag dan drop baris step untuk mengubah urutan. Minimal harus ada 1 step.
                 </small>
 
                 <div id="stepsContainer">
                     <?php if (!empty($route['steps'])): ?>
                         <?php foreach ($route['steps'] as $idx => $step): ?>
-                            <div class="step-row" style="display: flex; gap: 12px; margin-bottom: 12px; padding: 12px; background-color: #f0f5ff; border-radius: 4px; border-left: 3px solid #1890ff;">
+                            <div class="step-row" draggable="true" style="display: flex; gap: 12px; margin-bottom: 12px; padding: 12px; background-color: #f0f5ff; border-radius: 4px; border-left: 3px solid #1890ff;">
+                                <div class="step-drag-handle" title="Drag untuk ubah urutan">
+                                    <i class="bi bi-grip-vertical"></i>
+                                </div>
                                 <div style="display: flex; align-items: center; width: 60px;">
                                     <span style="font-weight: 500; color: #1890ff;">Step</span>
                                     <input type="number" name="step_no[]" class="form-control" style="width: 50px; border-radius: 2px; height: 32px; font-size: 14px; margin-left: 8px;"
@@ -146,7 +158,10 @@
                             </div>
                         <?php endforeach; ?>
                     <?php else: ?>
-                        <div class="step-row" style="display: flex; gap: 12px; margin-bottom: 12px; padding: 12px; background-color: #f0f5ff; border-radius: 4px; border-left: 3px solid #1890ff;">
+                        <div class="step-row" draggable="true" style="display: flex; gap: 12px; margin-bottom: 12px; padding: 12px; background-color: #f0f5ff; border-radius: 4px; border-left: 3px solid #1890ff;">
+                            <div class="step-drag-handle" title="Drag untuk ubah urutan">
+                                <i class="bi bi-grip-vertical"></i>
+                            </div>
                             <div style="display: flex; align-items: center; width: 60px;">
                                 <span style="font-weight: 500; color: #1890ff;">Step</span>
                                 <input type="number" name="step_no[]" class="form-control" style="width: 50px; border-radius: 2px; height: 32px; font-size: 14px; margin-left: 8px;"
@@ -184,6 +199,36 @@
     </div>
 </div>
 
+<style>
+.step-row.is-dragging {
+    opacity: 0.65;
+    border-left-color: #40a9ff !important;
+}
+
+.step-row.drag-over-top {
+    box-shadow: inset 0 3px 0 #1890ff;
+}
+
+.step-row.drag-over-bottom {
+    box-shadow: inset 0 -3px 0 #1890ff;
+}
+
+.step-drag-handle {
+    width: 28px;
+    min-width: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(0,0,0,0.45);
+    cursor: grab;
+    user-select: none;
+}
+
+.step-drag-handle:active {
+    cursor: grabbing;
+}
+</style>
+
 <script>
 // Data for dropdowns
 var roles = <?php echo json_encode($roles); ?>;
@@ -194,6 +239,7 @@ var dynamicApprovers = <?php echo json_encode($dynamic_approvers); ?>;
 var scopeTypes = <?php echo json_encode($scope_types); ?>;
 var operators = <?php echo json_encode($operators); ?>;
 var approverTypes = <?php echo json_encode($approver_types); ?>;
+var draggedStepRow = null;
 
 function escapeHtml(value) {
     return String(value)
@@ -351,7 +397,10 @@ function addStep() {
     stepCounter++;
     var container = document.getElementById('stepsContainer');
     var html = `
-        <div class="step-row" style="display: flex; gap: 12px; margin-bottom: 12px; padding: 12px; background-color: #f0f5ff; border-radius: 4px; border-left: 3px solid #1890ff;">
+        <div class="step-row" draggable="true" style="display: flex; gap: 12px; margin-bottom: 12px; padding: 12px; background-color: #f0f5ff; border-radius: 4px; border-left: 3px solid #1890ff;">
+            <div class="step-drag-handle" title="Drag untuk ubah urutan">
+                <i class="bi bi-grip-vertical"></i>
+            </div>
             <div style="display: flex; align-items: center; width: 60px;">
                 <span style="font-weight: 500; color: #1890ff;">Step</span>
                 <input type="number" name="step_no[]" class="form-control" style="width: 50px; border-radius: 2px; height: 32px; font-size: 14px; margin-left: 8px;"
@@ -371,6 +420,7 @@ function addStep() {
         </div>
     `;
     container.insertAdjacentHTML('beforeend', html);
+    initializeStepRowDragAndDrop(container.lastElementChild);
     renumberSteps();
 }
 
@@ -385,11 +435,81 @@ function removeStep(btn) {
 }
 
 function renumberSteps() {
-    var rows = document.querySelectorAll('.step-row');
+    var rows = document.querySelectorAll('#stepsContainer .step-row');
     rows.forEach(function(row, idx) {
         row.querySelector('input[name="step_no[]"]').value = idx + 1;
     });
     stepCounter = rows.length;
+}
+
+function clearStepDragState() {
+    document.querySelectorAll('#stepsContainer .step-row').forEach(function(row) {
+        row.classList.remove('is-dragging', 'drag-over-top', 'drag-over-bottom');
+    });
+}
+
+function initializeStepRowDragAndDrop(row) {
+    if (!row || row.getAttribute('data-dnd-ready') === '1') {
+        return;
+    }
+
+    row.setAttribute('data-dnd-ready', '1');
+
+    row.addEventListener('dragstart', function(event) {
+        draggedStepRow = row;
+        row.classList.add('is-dragging');
+        if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', 'step-row');
+        }
+    });
+
+    row.addEventListener('dragend', function() {
+        draggedStepRow = null;
+        clearStepDragState();
+        renumberSteps();
+    });
+
+    row.addEventListener('dragover', function(event) {
+        if (!draggedStepRow || draggedStepRow === row) {
+            return;
+        }
+
+        event.preventDefault();
+        var rect = row.getBoundingClientRect();
+        var shouldInsertBefore = event.clientY < rect.top + (rect.height / 2);
+        row.classList.toggle('drag-over-top', shouldInsertBefore);
+        row.classList.toggle('drag-over-bottom', !shouldInsertBefore);
+
+        if (event.dataTransfer) {
+            event.dataTransfer.dropEffect = 'move';
+        }
+    });
+
+    row.addEventListener('dragleave', function() {
+        row.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
+
+    row.addEventListener('drop', function(event) {
+        if (!draggedStepRow || draggedStepRow === row) {
+            return;
+        }
+
+        event.preventDefault();
+
+        var rect = row.getBoundingClientRect();
+        var shouldInsertBefore = event.clientY < rect.top + (rect.height / 2);
+        var container = document.getElementById('stepsContainer');
+
+        if (shouldInsertBefore) {
+            container.insertBefore(draggedStepRow, row);
+        } else {
+            container.insertBefore(draggedStepRow, row.nextSibling);
+        }
+
+        clearStepDragState();
+        renumberSteps();
+    });
 }
 
 function updateApproverValue(select) {
@@ -443,5 +563,9 @@ document.querySelectorAll('.approver-type-select').forEach(function(select) {
             }
         }
     }
+});
+
+document.querySelectorAll('#stepsContainer .step-row').forEach(function(row) {
+    initializeStepRowDragAndDrop(row);
 });
 </script>

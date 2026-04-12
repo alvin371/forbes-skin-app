@@ -27,10 +27,10 @@
   {
     "route_code": "MARKETING",
     "name": "Rute Marketing",
-    "description": "Rute approval untuk departemen Marketing",
+    "description": "Rute approval untuk role Marketing",
     "effective_from": "<?php echo date('Y-m-d'); ?>",
     "scopes": [
-      {"scope_type": "department", "scope_value": "Marketing", "operator": "eq"}
+      {"scope_type": "role", "scope_value": "Marketing", "operator": "eq"}
     ],
     "steps": [
       {"step_no": 1, "step_name": "Atasan Langsung", "approver_type": "dynamic", "approver_value": "direct_manager"},
@@ -43,7 +43,7 @@
     "description": "Rute untuk Finance dengan cuti <= 3 hari",
     "effective_from": "<?php echo date('Y-m-d'); ?>",
     "scopes": [
-      {"scope_type": "department", "scope_value": "Finance", "operator": "eq"},
+      {"scope_type": "role", "scope_value": "Finance", "operator": "eq"},
       {"scope_type": "leave_duration", "scope_value": "3", "operator": "lte"}
     ],
     "steps": [

@@ -2,6 +2,7 @@
     <div class="form-message"></div>
     <form action="<?= base_url() ?>/user/store" method="POST" id="form-create" enctype="multipart/form-data">
         <input type="hidden" name="id" value="<?= isset($data['id']) ? $data['id'] : '' ?>">
+        <input type="hidden" name="response_format" value="json">
         
         <!-- User Basic Information Card -->
         <div class="card mb-4">
@@ -252,6 +253,8 @@
 </div>
 
 <script type="text/javascript">
+    var isSubmitting = false;
+
     // Contract type field logic
     $("#jenis_kontrak").on('change', function() {
         var contractType = $(this).val();
@@ -280,6 +283,10 @@
     });
 
     $("#form-create").submit(function() {
+        if (isSubmitting) {
+            return false;
+        }
+
         var form = $(this);
         var isValid = true;
         
@@ -315,7 +322,8 @@
                 return false;
             }
         }
-        
+
+        isSubmitting = true;
         var mydata = new FormData(this);
         $.ajax({
             type: "POST",
@@ -324,25 +332,62 @@
             cache: false,
             contentType: false,
             processData: false,
+            dataType: "json",
             beforeSend: function() {
                 $(".btn-send").addClass("disabled").html('<div class="spinner-border spinner-border-sm text-white me-2" role="status"></div>Menyimpan...').attr('disabled', true);
-                form.find(".form-message").slideUp().html("");
+                $(".form-message").slideUp().html("");
             },
-            success: function(response, textStatus, xhr) {
-                console.log(response);
-                if (response.indexOf("success") != -1) {
-                    $(".form-message").hide().html(response).slideDown("fast");
+            success: function(response) {
+                if (response.status === "success") {
+                    $(".form-message").hide().html(
+                        '<div class="alert alert-success alert-dismissible fade show" role="alert">' +
+                        '<i class="bi bi-check-circle me-2"></i>' + response.message +
+                        '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>' +
+                        '</div>'
+                    ).slideDown("fast");
+
+                    if (typeof $.toast === "function") {
+                        $.toast({
+                            heading: "Informasi",
+                            text: response.message,
+                            showHideTransition: "slide",
+                            icon: "success",
+                            position: "top-right",
+                            loaderBg: "#def7f0",
+                            hideAfter: 2500,
+                        });
+                    }
+
                     setTimeout(function() {
-                        window.location.href = "<?= base_url() ?>/user";
-                    }, 2000);
-                } else {
-                    $(".form-message").hide().html(response).slideDown("fast");
-                    $(".btn-send").removeClass("disabled").html('<i class="bi bi-save me-1"></i> Simpan Data').attr('disabled', false);
+                        window.location.href = response.redirect_url || "<?= base_url() ?>/user";
+                    }, 1200);
+                    return;
                 }
+
+                $(".form-message").hide().html(
+                    '<div class="alert alert-danger alert-dismissible fade show" role="alert">' +
+                    '<i class="bi bi-exclamation-circle me-2"></i>' + (response.message || 'Terjadi kesalahan saat menyimpan data.') +
+                    '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>' +
+                    '</div>'
+                ).slideDown("fast");
+                isSubmitting = false;
+                $(".btn-send").removeClass("disabled").html('<i class="bi bi-save me-1"></i> Simpan Data').attr('disabled', false);
             },
             error: function(xhr, textStatus, errorThrown) {
+                var errorMessage = 'Terjadi kesalahan saat menyimpan data.';
+
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMessage = xhr.responseJSON.message;
+                }
+
+                $(".form-message").hide().html(
+                    '<div class="alert alert-danger alert-dismissible fade show" role="alert">' +
+                    '<i class="bi bi-exclamation-circle me-2"></i>' + errorMessage +
+                    '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>' +
+                    '</div>'
+                ).slideDown("fast");
+                isSubmitting = false;
                 $(".btn-send").removeClass("disabled").html('<i class="bi bi-save me-1"></i> Simpan Data').attr('disabled', false);
-                $(".form-message").hide().html(xhr).slideDown("fast");
             }
         });
         return false;
