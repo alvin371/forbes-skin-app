@@ -22,11 +22,6 @@
             <div style="font-size: 14px; color: rgba(0,0,0,0.85);">
                 <strong>User:</strong> <?php echo htmlspecialchars($user['full_name']); ?> (<?php echo htmlspecialchars($user['email']); ?>)
             </div>
-            <?php if (!empty($user['department'])): ?>
-                <div style="font-size: 13px; color: rgba(0,0,0,0.65); margin-top: 4px;">
-                    <strong>Department:</strong> <?php echo htmlspecialchars($user['department']); ?>
-                </div>
-            <?php endif; ?>
         </div>
 
         <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">

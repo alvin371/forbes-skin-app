@@ -63,8 +63,16 @@
                                 </td>
                                 <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.85); font-weight: 500;">
                                     <?php echo htmlspecialchars($route['name']); ?>
+                                    <?php if (!empty($route['has_legacy_department_scope'])): ?>
+                                        <span style="margin-left: 8px; background-color: #fffbe6; color: #ad6800; border: 1px solid #ffe58f; padding: 0 8px; height: 22px; display: inline-flex; align-items: center; border-radius: 2px; font-size: 12px;">
+                                            Legacy scope
+                                        </span>
+                                    <?php endif; ?>
                                     <?php if ($route['description']): ?>
                                         <br><small style="color: rgba(0,0,0,0.45);"><?php echo htmlspecialchars(substr($route['description'], 0, 50)); ?></small>
+                                    <?php endif; ?>
+                                    <?php if (!empty($route['legacy_scope_warning'])): ?>
+                                        <br><small style="color: #ad6800;"><?php echo htmlspecialchars($route['legacy_scope_warning']); ?></small>
                                     <?php endif; ?>
                                 </td>
                                 <td style="padding: 12px 8px; font-size: 14px;">
@@ -182,14 +190,16 @@ function previewRoute(routeId) {
         if (data.success) {
             document.getElementById('previewRouteName').textContent = data.route_name;
             var html = '<p style="margin-bottom: 12px; color: rgba(0,0,0,0.65);">Ditemukan <strong>' + data.count + '</strong> karyawan yang cocok:</p>';
+            if (data.preview_note) {
+                html += '<div style="margin-bottom: 12px; padding: 8px 12px; border-radius: 4px; background-color: #fffbe6; border: 1px solid #ffe58f; color: rgba(0,0,0,0.75); font-size: 13px;">' + data.preview_note + '</div>';
+            }
             if (data.users.length > 0) {
                 html += '<table class="table table-sm" style="font-size: 14px;">';
-                html += '<thead><tr><th>Nama</th><th>Role</th><th>Departemen</th></tr></thead><tbody>';
+                html += '<thead><tr><th>Nama</th><th>Role</th></tr></thead><tbody>';
                 data.users.forEach(function(user) {
                     html += '<tr>';
                     html += '<td>' + (user.full_name || '-') + '</td>';
                     html += '<td>' + (user.role_text || '-') + '</td>';
-                    html += '<td>' + (user.department || '-') + '</td>';
                     html += '</tr>';
                 });
                 html += '</tbody></table>';

@@ -1,15 +1,3 @@
-<?php
-$departments = array();
-foreach ($users as $user) {
-    $dept = trim((string) ($user['department'] ?? ''));
-    if ($dept !== '') {
-        $departments[$dept] = true;
-    }
-}
-$departments = array_keys($departments);
-sort($departments, SORT_NATURAL | SORT_FLAG_CASE);
-?>
-
 <div class="card" style="border-radius: 2px; border: 1px solid #f0f0f0; box-shadow: 0 2px 8px rgba(0,0,0,0.09);">
     <div class="card-header" style="background-color: #fff; border-bottom: 1px solid #f0f0f0; padding: 16px; height: 56px; display: flex; align-items: center; justify-content: space-between;">
         <h3 style="margin: 0; font-size: 16px; font-weight: 500; color: rgba(0,0,0,0.85);">Bulk Set Leave Quotas</h3>
@@ -68,18 +56,6 @@ sort($departments, SORT_NATURAL | SORT_FLAG_CASE);
                     <div style="min-width: 200px; flex: 1;">
                         <input id="bulk-user-search" type="text" placeholder="Search name or email" style="width: 100%; border: 1px solid #d9d9d9; border-radius: 2px; padding: 6px 11px; font-size: 14px;">
                     </div>
-                    <?php if (!empty($has_department)): ?>
-                        <div style="min-width: 180px;">
-                            <select id="bulk-department" style="width: 100%; border: 1px solid #d9d9d9; border-radius: 2px; padding: 6px 11px; font-size: 14px;">
-                                <option value="">All Departments</option>
-                                <?php foreach ($departments as $department): ?>
-                                    <option value="<?php echo htmlspecialchars($department); ?>"><?php echo htmlspecialchars($department); ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                    <?php else: ?>
-                        <input type="hidden" id="bulk-department" value="">
-                    <?php endif; ?>
                     <div style="font-size: 12px; color: rgba(0,0,0,0.45);">Selected: <span id="bulk-selected-count">0</span></div>
                     <button type="button" onclick="selectAllUsers()" style="background: none; border: none; color: #1890ff; font-size: 12px; cursor: pointer;">Select All</button>
                     <button type="button" onclick="selectFilteredUsers()" style="background: none; border: none; color: #1890ff; font-size: 12px; cursor: pointer;">Select Filtered</button>
@@ -91,14 +67,14 @@ sort($departments, SORT_NATURAL | SORT_FLAG_CASE);
                         <div style="padding: 24px; text-align: center; color: rgba(0,0,0,0.45);">No users available.</div>
                     <?php else: ?>
                         <?php foreach ($users as $user): ?>
-                            <label class="bulk-user-row" data-user-name="<?php echo htmlspecialchars($user['full_name']); ?>" data-user-email="<?php echo htmlspecialchars($user['email']); ?>" data-department="<?php echo htmlspecialchars($user['department'] ?? ''); ?>" style="display: flex; align-items: center; padding: 10px 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#fafafa'" onmouseout="this.style.backgroundColor='transparent'">
+                            <label class="bulk-user-row" data-user-name="<?php echo htmlspecialchars($user['full_name']); ?>" data-user-email="<?php echo htmlspecialchars($user['email']); ?>" style="display: flex; align-items: center; padding: 10px 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#fafafa'" onmouseout="this.style.backgroundColor='transparent'">
                                 <input type="checkbox" name="user_ids[]" value="<?php echo $user['id']; ?>" style="margin-right: 12px; width: 16px; height: 16px; cursor: pointer;">
                                 <div style="flex: 1;">
                                     <div style="font-size: 14px; color: rgba(0,0,0,0.85); font-weight: 500;">
                                         <?php echo htmlspecialchars($user['full_name']); ?>
                                     </div>
                                     <div style="font-size: 12px; color: rgba(0,0,0,0.45);">
-                                        <?php echo htmlspecialchars($user['email']); ?><?php if (!empty($user['department'])): ?> • <?php echo htmlspecialchars($user['department']); ?><?php endif; ?>
+                                        <?php echo htmlspecialchars($user['email']); ?>
                                     </div>
                                 </div>
                             </label>
@@ -155,17 +131,14 @@ function selectFilteredUsers() {
 
 function applyBulkFilters() {
     var query = (document.getElementById('bulk-user-search').value || '').toLowerCase().trim();
-    var dept = (document.getElementById('bulk-department').value || '').toLowerCase().trim();
 
     document.querySelectorAll('.bulk-user-row').forEach(function(row) {
         var name = (row.getAttribute('data-user-name') || '').toLowerCase();
         var email = (row.getAttribute('data-user-email') || '').toLowerCase();
-        var rowDept = (row.getAttribute('data-department') || '').toLowerCase();
 
         var matchesQuery = !query || name.includes(query) || email.includes(query);
-        var matchesDept = !dept || rowDept === dept;
 
-        row.style.display = (matchesQuery && matchesDept) ? 'flex' : 'none';
+        row.style.display = matchesQuery ? 'flex' : 'none';
     });
 }
 
@@ -174,10 +147,6 @@ document.querySelectorAll('input[name="user_ids[]"]').forEach(function(checkbox)
 });
 
 document.getElementById('bulk-user-search').addEventListener('input', applyBulkFilters);
-var bulkDept = document.getElementById('bulk-department');
-if (bulkDept) {
-    bulkDept.addEventListener('change', applyBulkFilters);
-}
 
 updateSelectedCount();
 applyBulkFilters();

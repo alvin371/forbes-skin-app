@@ -108,13 +108,6 @@
                         <div style="color: rgba(0,0,0,0.85); font-size: 14px;"><?php echo htmlspecialchars($request['requester_email'] ?? 'N/A'); ?></div>
                     </div>
 
-                    <?php if (!empty($request['requester_department'])): ?>
-                        <div style="margin-bottom: 12px;">
-                            <div style="color: rgba(0,0,0,0.45); font-size: 12px;">Department</div>
-                            <div style="color: rgba(0,0,0,0.85); font-size: 14px;"><?php echo htmlspecialchars($request['requester_department']); ?></div>
-                        </div>
-                    <?php endif; ?>
-
                     <?php if (!empty($request['requester_position'])): ?>
                         <div style="margin-bottom: 0;">
                             <div style="color: rgba(0,0,0,0.45); font-size: 12px;">Position</div>

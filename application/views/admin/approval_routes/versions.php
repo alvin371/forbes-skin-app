@@ -44,8 +44,16 @@
                                 </td>
                                 <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.85);">
                                     <?php echo htmlspecialchars($version['name']); ?>
+                                    <?php if (!empty($version['has_legacy_department_scope'])): ?>
+                                        <span style="margin-left: 8px; background-color: #fffbe6; color: #ad6800; border: 1px solid #ffe58f; padding: 0 8px; height: 22px; display: inline-flex; align-items: center; border-radius: 2px; font-size: 12px;">
+                                            Legacy scope
+                                        </span>
+                                    <?php endif; ?>
                                     <?php if ($version['description']): ?>
                                         <br><small style="color: rgba(0,0,0,0.45);"><?php echo htmlspecialchars($version['description']); ?></small>
+                                    <?php endif; ?>
+                                    <?php if (!empty($version['legacy_scope_warning'])): ?>
+                                        <br><small style="color: #ad6800;"><?php echo htmlspecialchars($version['legacy_scope_warning']); ?></small>
                                     <?php endif; ?>
                                 </td>
                                 <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);">
@@ -131,6 +139,11 @@ function viewVersionDetail(versionId) {
 
                 <div style="margin-bottom: 16px;">
                     <h6 style="color: rgba(0,0,0,0.85); margin-bottom: 8px;">Kondisi Pencocokan</h6>
+                    ${route.has_legacy_department_scope ? `
+                        <div style="margin-bottom: 12px; padding: 8px 12px; border-radius: 4px; background-color: #fffbe6; border: 1px solid #ffe58f; color: #ad6800; font-size: 13px;">
+                            ${route.legacy_scope_warning}
+                        </div>
+                    ` : ''}
                     ${route.scopes.length > 0 ? `
                         <table class="table table-sm" style="font-size: 14px;">
                             <thead><tr><th>Tipe</th><th>Operator</th><th>Nilai</th></tr></thead>

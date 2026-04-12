@@ -41,9 +41,6 @@
                                 <td style="padding: 12px 8px; font-size: 14px;">
                                     <div style="color: rgba(0,0,0,0.85);"><?php echo htmlspecialchars($request['requester_name'] ?? 'N/A'); ?></div>
                                     <div style="color: rgba(0,0,0,0.45); font-size: 12px;"><?php echo htmlspecialchars($request['requester_email'] ?? ''); ?></div>
-                                    <?php if (!empty($request['requester_department'])): ?>
-                                        <div style="color: rgba(0,0,0,0.45); font-size: 12px;"><?php echo htmlspecialchars($request['requester_department']); ?></div>
-                                    <?php endif; ?>
                                 </td>
                                 <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);">
                                     <?php echo htmlspecialchars($request['leave_type_name'] ?? 'N/A'); ?>

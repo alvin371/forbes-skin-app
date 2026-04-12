@@ -287,11 +287,9 @@ class PerformanceAppraisal extends BaseController
         if ($this->input->get('period_year')) {
             $filters['period_year'] = $this->input->get('period_year');
         }
-        // Use role_id filter (new) or department (legacy)
+        // Use role_id filter only
         if ($this->input->get('role_id') !== null && $this->input->get('role_id') !== '') {
             $filters['role_id'] = $this->input->get('role_id');
-        } elseif ($this->input->get('department') !== null && $this->input->get('department') !== '') {
-            $filters['department'] = $this->input->get('department');
         }
 
         $data['title'] = 'Performance Submissions - ' . $this->template->title();

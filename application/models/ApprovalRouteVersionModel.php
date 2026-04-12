@@ -60,10 +60,16 @@ class ApprovalRouteVersionModel extends CI_Model
             FROM {$this->table} arv
             LEFT JOIN user u ON arv.created_by = u.id
             WHERE $where
-            ORDER BY arv.route_code ASC, arv.version DESC
+            ORDER BY
+                CASE
+                    WHEN (SELECT COUNT(*) FROM {$this->scopes_table} WHERE route_version_id = arv.id) = 0 THEN 1
+                    ELSE 0
+                END ASC,
+                arv.route_code ASC,
+                arv.version DESC
         ";
 
-        return $this->db->query($sql, $params)->result_array();
+        return $this->annotate_legacy_department_scopes($this->db->query($sql, $params)->result_array());
     }
 
     /**
@@ -89,6 +95,7 @@ class ApprovalRouteVersionModel extends CI_Model
         if ($route) {
             $route['scopes'] = $this->get_scopes($id);
             $route['steps'] = $this->get_steps($id);
+            $route = $this->annotate_legacy_department_scope($route);
         }
 
         return $route;
@@ -132,6 +139,7 @@ class ApprovalRouteVersionModel extends CI_Model
         if ($route) {
             $route['scopes'] = $this->get_scopes($route['id']);
             $route['steps'] = $this->get_steps($route['id']);
+            $route = $this->annotate_legacy_department_scope($route);
         }
 
         return $route;
@@ -163,7 +171,7 @@ class ApprovalRouteVersionModel extends CI_Model
 
         $sql .= " ORDER BY arv.version DESC";
 
-        return $this->db->query($sql, $params)->result_array();
+        return $this->annotate_legacy_department_scopes($this->db->query($sql, $params)->result_array());
     }
 
     /**
@@ -378,7 +386,6 @@ class ApprovalRouteVersionModel extends CI_Model
         return array(
             'company' => 'Perusahaan',
             'office' => 'Kantor',
-            'department' => 'Departemen',
             'role' => 'Role',
             'user' => 'User Spesifik',
             'leave_type' => 'Tipe Cuti',
@@ -553,5 +560,37 @@ class ApprovalRouteVersionModel extends CI_Model
         }
 
         return $this->has_request_type_field;
+    }
+
+    protected function annotate_legacy_department_scopes($routes)
+    {
+        foreach ($routes as &$route) {
+            $route = $this->annotate_legacy_department_scope($route);
+        }
+        unset($route);
+
+        return $routes;
+    }
+
+    protected function annotate_legacy_department_scope($route)
+    {
+        $routeId = isset($route['id']) ? (int) $route['id'] : 0;
+        $route['has_legacy_department_scope'] = $routeId > 0 ? $this->has_legacy_department_scope($routeId) : false;
+        $route['legacy_scope_warning'] = $route['has_legacy_department_scope']
+            ? 'Scope department adalah konfigurasi legacy. Route ini tidak lagi dipakai untuk matching sampai scope tersebut dihapus.'
+            : null;
+
+        return $route;
+    }
+
+    protected function has_legacy_department_scope($routeVersionId)
+    {
+        if (!$routeVersionId) {
+            return false;
+        }
+
+        return $this->db->where('route_version_id', $routeVersionId)
+            ->where('scope_type', 'department')
+            ->count_all_results($this->scopes_table) > 0;
     }
 }
