@@ -2,7 +2,7 @@
 
 <head>
     <title><?= $title ?></title>
-    <link rel="shortcut icon" type="image/png" href="<?= base_url() ?>/assets/img/fav.png">
+    <link rel="shortcut icon" type="image/jpeg" href="<?= base_url() ?>/assets/img/acneno-icon.jpg">
     <style>
         body {
             margin: 0px;
