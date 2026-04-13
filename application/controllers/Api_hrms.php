@@ -607,7 +607,7 @@ class Api_hrms extends CI_Controller
         ));
     }
 
-    public function uploaded_file($scope = null, $relativePath = null)
+    public function uploaded_file($scope = null)
     {
         $allowedScopes = array('leaves', 'overtime');
         if (!in_array($scope, $allowedScopes, true)) {
@@ -615,14 +615,21 @@ class Api_hrms extends CI_Controller
             return;
         }
 
-        $relativePath = trim(urldecode((string) $relativePath), '/');
-        if ($relativePath === '') {
+        $segments = array_values($this->uri->segment_array());
+        $scopeIndex = array_search($scope, $segments, true);
+        if ($scopeIndex === false) {
             show_404();
             return;
         }
 
-        $parts = explode('/', $relativePath);
+        $parts = array_slice($segments, $scopeIndex + 1);
+        if (empty($parts)) {
+            show_404();
+            return;
+        }
+
         foreach ($parts as $part) {
+            $part = urldecode((string) $part);
             if ($part === '' || $part !== basename($part)) {
                 show_404();
                 return;
