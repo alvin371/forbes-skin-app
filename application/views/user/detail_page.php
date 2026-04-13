@@ -26,7 +26,7 @@
                         </div>
                     <?php } else { ?>
                         <div class="text-center">
-                            <img src="<?= base_url() ?>/assets/img/user/default.png"
+                            <img src="<?= base_url() ?>/assets/img/acneno-icon.jpg"
                                 class="img-fluid rounded" style="max-height: 200px; object-fit: cover;">
                         </div>
                     <?php } ?>
