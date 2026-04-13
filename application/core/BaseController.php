@@ -36,6 +36,7 @@ class BaseController extends CI_Controller
         'group_wa' => 'group_wa',
         'stock' => 'stock',
         'product' => 'product',
+        'offices' => 'offices',
         'quest_level' => 'quest_level',
         'position' => 'position',
         'roles' => 'roles',

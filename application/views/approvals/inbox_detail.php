@@ -91,8 +91,8 @@
 
                 <?php if (!empty($leave_request['attachment_path'])): ?>
                     <?php
-                    $attachmentUrl = base_url($leave_request['attachment_path']);
-                    $fileExt = strtolower(pathinfo($leave_request['attachment_path'], PATHINFO_EXTENSION));
+                    $attachmentUrl = hrms_attachment_url($leave_request['attachment_path']);
+                    $fileExt = strtolower(pathinfo(parse_url($attachmentUrl, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION));
                     $isImage = in_array($fileExt, array('jpg', 'jpeg', 'png', 'gif', 'webp'));
                     $isPdf = $fileExt === 'pdf';
                     ?>

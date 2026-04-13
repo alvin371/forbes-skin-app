@@ -5,21 +5,25 @@ require_once APPPATH . 'core/BaseController.php';
 
 class Offices extends BaseController
 {
-    protected $public_methods = ['index', 'create', 'edit', 'update', 'duplicate', 'delete', 'activate', 'deactivate'];
-
     public function __construct()
     {
         parent::__construct();
         $this->load->model('Office_model');
         $this->load->database();
         $this->load->library('template');
-        $this->load->library('AdminAuthFilter');
-        $this->adminauthfilter->enforce();
+        $this->set_method_permissions([
+            'create' => 'create',
+            'edit' => 'edit',
+            'duplicate' => 'create',
+            'activate' => 'edit',
+            'deactivate' => 'edit',
+        ]);
     }
 
     public function index()
     {
         if ($this->input->method(TRUE) === 'POST') {
+            $this->require_permission('offices', 'create');
             return $this->store();
         }
 

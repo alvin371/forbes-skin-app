@@ -11,8 +11,6 @@ class LeaveRequestsController extends BaseController
         $this->load->model('LeaveRequestModel');
         $this->load->database();
         $this->load->library('template');
-        $this->load->library('AdminAuthFilter');
-        $this->adminauthfilter->enforce();
     }
 
     public function index()

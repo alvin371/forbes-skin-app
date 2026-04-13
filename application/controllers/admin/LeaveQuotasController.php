@@ -12,8 +12,13 @@ class LeaveQuotasController extends BaseController
         $this->load->model('LeaveTypeModel');
         $this->load->database();
         $this->load->library('template');
-        $this->load->library('AdminAuthFilter');
-        $this->adminauthfilter->enforce();
+        $this->set_method_permissions([
+            'manage' => 'edit',
+            'bulk_set' => 'edit',
+            'bulk_update' => 'edit',
+            'set_all' => 'edit',
+            'copy_from' => 'edit',
+        ]);
     }
 
     public function index()

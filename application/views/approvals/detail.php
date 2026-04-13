@@ -108,9 +108,7 @@ $activeStep = isset($current_step) && is_array($current_step) ? $current_step : 
                     <div style="font-size: 14px; color: rgba(0,0,0,0.65);">
                         <?php if (!empty($request['attachment_path'])): ?>
                             <?php
-                            $attachmentPath = $request['attachment_path'];
-                            $isAbsolute = preg_match('/^https?:\\/\\//i', $attachmentPath) === 1;
-                            $attachmentUrl = $isAbsolute ? $attachmentPath : base_url($attachmentPath);
+                            $attachmentUrl = hrms_attachment_url($request['attachment_path']);
                             $extension = strtolower(pathinfo(parse_url($attachmentUrl, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION));
                             ?>
                             <div style="border: 1px solid #d9d9d9; border-radius: 4px; overflow: hidden; background-color: #fafafa;">
