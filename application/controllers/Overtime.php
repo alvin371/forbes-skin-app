@@ -14,6 +14,7 @@ class Overtime extends BaseController
         $this->load->model('Office_model');
         $this->load->library('OvertimeCalculatorService');
         $this->load->library('OvertimeWorkflowEngine');
+        $this->load->library('UploadService');
         $this->load->library('template');
 
         $this->set_public_methods([]);
@@ -273,26 +274,6 @@ class Overtime extends BaseController
 
     private function handle_attachment_upload($requestNo, $fieldName)
     {
-        $uploadDir = FCPATH . 'writable/uploads/overtime/' . $requestNo . '/';
-        if (!is_dir($uploadDir)) {
-            if (!mkdir($uploadDir, 0755, true)) {
-                return array('error' => 'Failed to create attachment directory.');
-            }
-        }
-
-        $config['upload_path'] = $uploadDir;
-        $config['allowed_types'] = 'pdf|jpg|jpeg|png';
-        $config['max_size'] = 2048;
-        $config['encrypt_name'] = true;
-
-        $this->load->library('upload', $config);
-        if (!$this->upload->do_upload($fieldName)) {
-            return array('error' => strip_tags($this->upload->display_errors('', '')));
-        }
-
-        $file = $this->upload->data();
-        $relativePath = 'writable/uploads/overtime/' . $requestNo . '/' . $file['file_name'];
-
-        return array('path' => $relativePath);
+        return $this->uploadservice->upload('overtime', $fieldName, array('subdir' => $requestNo));
     }
 }

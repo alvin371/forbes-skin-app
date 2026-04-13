@@ -91,7 +91,7 @@
                     <div class="col-md-6">
                         <label for="file" class="form-label">Foto Profil</label>
                         <input type="file" class="form-control" id="file" name="file" accept="image/png, image/jpeg, image/jpg">
-                        <small class="text-muted">Format: JPG, JPEG, PNG. Maksimal 2MB.</small>
+                        <small class="text-muted">Format: JPG, JPEG, PNG. Maksimal 5MB.</small>
                     </div>
                 </div>
             </div>
@@ -236,7 +236,7 @@
                     <div class="col-md-6">
                         <label for="ktp_photo" class="form-label">Foto KTP</label>
                         <input type="file" class="form-control" id="ktp_photo" name="ktp_photo" accept="image/png, image/jpeg, image/jpg">
-                        <small class="text-muted">Upload foto KTP. Format: JPG, JPEG, PNG. Maksimal 2MB.</small>
+                        <small class="text-muted">Upload foto KTP. Format: JPG, JPEG, PNG. Maksimal 5MB.</small>
                     </div>
                 </div>
             </div>

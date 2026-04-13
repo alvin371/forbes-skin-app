@@ -11,6 +11,7 @@ class Profile extends BaseController
         $this->load->database();
         $this->load->model('mymodel');
         $this->load->library('template');
+        $this->load->library('UploadService');
 
         // Set public methods (no permission required)
         $this->set_public_methods([]);
@@ -307,24 +308,18 @@ class Profile extends BaseController
                 return;
             }
 
-            $dir = "./assets/img/user/";
-            $config['upload_path'] = $dir;
-            $config['allowed_types'] = 'jpg|jpeg|png';
-            $config['overwrite'] = TRUE;
-            $config['file_name'] = $user_id;
-            $config['max_size'] = 2048;
-            $this->load->library('upload', $config);
+            $upload = $this->uploadservice->upload('user_avatar', 'file', array(
+                'file_name' => (string) $user_id,
+            ));
 
-            if (!$this->upload->do_upload('file')) {
-                $error = strip_tags($this->upload->display_errors('', ''));
+            if (!empty($upload['error'])) {
+                $error = strip_tags($upload['error']);
                 $status_code = stripos($error, 'filetype') !== false || stripos($error, 'type') !== false ? 415 : 422;
                 $this->output->set_status_header($status_code);
                 echo $this->template->alert_danger($this->normalize_profile_upload_error($error));
                 return;
-            } else {
-                $file = $this->upload->data();
-                $dt['img'] = $file['file_name'];
             }
+            $dt['img'] = $upload['filename'];
         }
 
         if ($this->db->update('user', $dt, array('id' => $user_id))) {
@@ -398,7 +393,7 @@ class Profile extends BaseController
         return min(
             $this->parse_size_to_bytes(ini_get('upload_max_filesize')),
             $this->parse_size_to_bytes(ini_get('post_max_size')),
-            2048 * 1024
+            5120 * 1024
         );
     }
 
@@ -630,7 +625,7 @@ class Profile extends BaseController
 
                 $config['upload_path'] = $upload_path;
                 $config['allowed_types'] = 'gif|jpg|png|jpeg|webp';
-                $config['max_size'] = 2048; // 2MB
+                $config['max_size'] = 5120; // 5MB
                 $config['file_name'] = 'user_' . $user['id'] . '_quest_' . $quest_id . '_' . time() . '_' . uniqid();
 
                 $this->load->library('upload', $config);
@@ -1243,7 +1238,7 @@ class Profile extends BaseController
             // Configure upload
             $config['upload_path'] = './assets/uploads/side_quest_user_images/';
             $config['allowed_types'] = 'gif|jpg|png|jpeg|webp';
-            $config['max_size'] = 2048; // 2MB
+            $config['max_size'] = 5120; // 5MB
             $config['encrypt_name'] = TRUE;
 
             $this->load->library('upload', $config);

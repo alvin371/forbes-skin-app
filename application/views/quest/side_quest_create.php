@@ -40,7 +40,7 @@
                         <label for="gambar_animasi" class="form-label">Gambar Animasi</label>
                         <input type="file" class="form-control" id="gambar_animasi" name="gambar_animasi" 
                                accept="image/jpeg,image/jpg,image/png,image/gif,image/webp">
-                        <small class="text-muted">Upload gambar animasi untuk quest (opsional). Format: JPG, PNG, GIF, WEBP. Max: 2MB</small>
+                        <small class="text-muted">Upload gambar animasi untuk quest (opsional). Format: JPG, PNG, GIF, WEBP. Max: 5MB</small>
                     </div>
                 </div>
 

@@ -819,7 +819,7 @@
                                 </label>
                                 <input type="file" class="form-control" id="submission_image" name="submission_image"
                                     accept="image/*">
-                                <small class="text-muted" id="image-help">Upload cover atau gambar terkait (max 2MB)</small>
+                                <small class="text-muted" id="image-help">Upload cover atau gambar terkait (max 5MB)</small>
                             </div>
                         </div>
                     </div>
@@ -995,7 +995,7 @@
                                 </label>
                                 <input type="file" class="form-control" id="edit_submission_image" name="submission_image"
                                     accept="image/*">
-                                <small class="text-muted" id="edit-image-help">Upload cover atau gambar terkait (max 2MB)</small>
+                                <small class="text-muted" id="edit-image-help">Upload cover atau gambar terkait (max 5MB)</small>
 
                                 <!-- Current image preview -->
                                 <div id="current-image-preview" class="mt-2" style="display: none;">
@@ -1474,14 +1474,14 @@
                     $('#title-label').text('Judul Film');
                     $('#title-help').text('Masukkan judul film yang ditonton');
                     $('#image-label').text('Cover/Screenshot Film');
-                    $('#image-help').text('Upload cover film atau screenshot (max 2MB)');
+                    $('#image-help').text('Upload cover film atau screenshot (max 5MB)');
                     $('#submission_title').attr('placeholder', 'Contoh: Parasite (2019)');
                 } else if (isBookQuest) {
                     // Configure for book quest
                     $('#title-label').text('Judul Buku');
                     $('#title-help').text('Masukkan judul buku dan nama penulis');
                     $('#image-label').text('Cover Buku');
-                    $('#image-help').text('Upload foto cover buku (max 2MB)');
+                    $('#image-help').text('Upload foto cover buku (max 5MB)');
                     $('#submission_title').attr('placeholder', 'Contoh: Atomic Habits - James Clear');
                 }
             } else {
@@ -1569,10 +1569,10 @@
             var fileInput = $('#submission_image')[0];
             if (fileInput.files.length > 0) {
                 var file = fileInput.files[0];
-                var maxSize = 2 * 1024 * 1024; // 2MB in bytes
+                var maxSize = 5 * 1024 * 1024; // 5MB in bytes
 
                 if (file.size > maxSize) {
-                    $(".form-message-side-quest").html('<div class="alert alert-danger"><i class="bi bi-file-earmark-x me-2"></i>Ukuran file terlalu besar! Maksimal 2MB.</div>').slideDown("fast");
+                    $(".form-message-side-quest").html('<div class="alert alert-danger"><i class="bi bi-file-earmark-x me-2"></i>Ukuran file terlalu besar! Maksimal 5MB.</div>').slideDown("fast");
                     return false;
                 }
 
@@ -1988,12 +1988,12 @@
                 $('#edit-title-label').text('Judul Film');
                 $('#edit-title-help').text('Masukkan judul film lengkap');
                 $('#edit-image-label').text('Poster Film');
-                $('#edit-image-help').text('Upload poster film (max 2MB)');
+                $('#edit-image-help').text('Upload poster film (max 5MB)');
             } else if (isBookQuest) {
                 $('#edit-title-label').text('Judul Buku');
                 $('#edit-title-help').text('Masukkan judul buku lengkap');
                 $('#edit-image-label').text('Cover Buku');
-                $('#edit-image-help').text('Upload cover buku (max 2MB)');
+                $('#edit-image-help').text('Upload cover buku (max 5MB)');
             }
 
             // Clear form
@@ -2146,10 +2146,10 @@
             var fileInput = $('#edit_submission_image')[0];
             if (fileInput.files.length > 0) {
                 var file = fileInput.files[0];
-                var maxSize = 2 * 1024 * 1024; // 2MB in bytes
+                var maxSize = 5 * 1024 * 1024; // 5MB in bytes
 
                 if (file.size > maxSize) {
-                    $('.form-message-edit-review').html('<div class="alert alert-danger"><i class="bi bi-file-earmark-x me-2"></i>Ukuran file terlalu besar! Maksimal 2MB.</div>').slideDown();
+                    $('.form-message-edit-review').html('<div class="alert alert-danger"><i class="bi bi-file-earmark-x me-2"></i>Ukuran file terlalu besar! Maksimal 5MB.</div>').slideDown();
                     return false;
                 }
 

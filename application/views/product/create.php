@@ -112,7 +112,7 @@
                     </div>
                 <?php endif; ?>
                 <input type="file" class="form-control" name="file" accept="image/png, image/jpeg, image/jpg">
-                <small class="form-text text-muted">Format: JPG, PNG, JPEG (Maksimal 2MB)</small>
+                <small class="form-text text-muted">Format: JPG, PNG, JPEG (Maksimal 5MB)</small>
             </div>
         </div>
     </div>
@@ -183,7 +183,7 @@
                             <div class="col-md-12 mb-3">
                                 <label class="form-label">Gambar Varian</label>
                                 <input type="file" class="form-control" name="variant_img_0" accept="image/*">
-                                <small class="text-muted">Maksimal 2MB (Format: JPG, PNG, JPEG)</small>
+                                <small class="text-muted">Maksimal 5MB (Format: JPG, PNG, JPEG)</small>
                             </div>
                         </div>
                     </div>
@@ -301,7 +301,7 @@
                     <div class="col-md-12 mb-3">
                         <label class="form-label">Gambar Varian</label>
                         <input type="file" class="form-control" name="variant_img_${varianIndex}" accept="image/*">
-                        <small class="text-muted">Maksimal 2MB (Format: JPG, PNG, JPEG)</small>
+                        <small class="text-muted">Maksimal 5MB (Format: JPG, PNG, JPEG)</small>
                     </div>
                 </div>
             </div>

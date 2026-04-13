@@ -12,6 +12,7 @@ class Auth extends CI_Controller
         $this->load->helper('url');
         $this->load->library('form_validation');
         $this->load->library('permission');
+        $this->load->library('UploadService');
     }
 
     public function index()
@@ -74,21 +75,15 @@ class Auth extends CI_Controller
         unset($dt['role']);
 
         if (!empty($_FILES['file']['name'])) {
-            $dir  = "./assets/img/user/";
-            $config['upload_path']   = $dir;
-            $config['allowed_types'] = 'jpg|jpeg|png';
-            $config['overwrite']     = TRUE;
-            $config['file_name']     = $_SESSION['user']['id'];
-            $config['max_size']      = 2048;
-            $this->load->library('upload', $config);
-            if (!$this->upload->do_upload('file')) {
-                $error = $this->upload->display_errors();
+            $upload = $this->uploadservice->upload('user_avatar', 'file', array(
+                'file_name' => (string) $_SESSION['user']['id'],
+            ));
+            if (!empty($upload['error'])) {
+                $error = $upload['error'];
                 echo $this->template->alert_danger($error);
                 die;
-            } else {
-                $file = $this->upload->data();
-                $dt['img'] = $file['file_name'];
             }
+            $dt['img'] = $upload['filename'];
         }
 
         if ($this->db->update('user', $dt, array('id' => $id))) {
