@@ -630,7 +630,7 @@ class Product extends BaseController
             $config['allowed_types'] = 'jpg|jpeg|png';
             $config['overwrite'] = TRUE;
             $config['file_name'] = $id;
-            $config['max_size'] = 2048;
+            $config['max_size'] = 5120;
 
             $this->load->library('upload', $config);
             if (!$this->upload->do_upload('file')) {
@@ -736,7 +736,7 @@ class Product extends BaseController
         $config = [
             'upload_path' => $dir,
             'allowed_types' => 'jpg|jpeg|png|webp',
-            'max_size' => 2048,
+            'max_size' => 5120,
             'file_name' => $variantId ? 'variant_'.$variantId : 'variant_'.time().'_'.rand(1000,9999),
             'overwrite' => (bool)$variantId,
             'encrypt_name' => false 
@@ -893,7 +893,7 @@ class Product extends BaseController
 
         $config['upload_path'] = $dir;
         $config['allowed_types'] = 'jpg|jpeg|png';
-        $config['max_size'] = 2048; // 2MB
+        $config['max_size'] = 5120; // 5MB
         $config['file_name'] = 'product_' . DATE("YmdHis");
         $config['overwrite'] = true;
 

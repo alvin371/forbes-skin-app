@@ -533,9 +533,9 @@ class Endorse_campaign extends BaseController
 
             // Validate file size
             if (in_array($file_ext, $allowed_image_ext)) {
-                // Images: max 2MB
-                if ($file_size > 2097152) {
-                    $msg = 'Ukuran file gambar terlalu besar! Maksimal 2MB.';
+                // Images: max 5MB
+                if ($file_size > 5242880) {
+                    $msg = 'Ukuran file gambar terlalu besar! Maksimal 5MB.';
                     echo $this->template->alert_danger($msg);
                     die;
                 }
@@ -755,9 +755,9 @@ class Endorse_campaign extends BaseController
 
             // Validate file size
             if (in_array($file_ext, $allowed_image_ext)) {
-                // Images: max 2MB
-                if ($file_size > 2097152) {
-                    $msg = 'Ukuran file gambar terlalu besar! Maksimal 2MB.';
+                // Images: max 5MB
+                if ($file_size > 5242880) {
+                    $msg = 'Ukuran file gambar terlalu besar! Maksimal 5MB.';
                     echo $this->template->alert_danger($msg);
                     die;
                 }

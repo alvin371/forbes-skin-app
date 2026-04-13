@@ -128,7 +128,7 @@
 
         <div class="col-md-12 mb-3">
             <label>Media (Photo/Video)</label>
-            <small class="text-muted d-block mb-2">Upload gambar (JPG, PNG, max 2MB) atau video (MP4, MOV, max 10MB)</small>
+            <small class="text-muted d-block mb-2">Upload gambar (JPG, PNG, max 5MB) atau video (MP4, MOV, max 10MB)</small>
             <input type="file" class="form-control" id="media_file" name="media_file" accept="image/jpeg,image/jpg,image/png,video/mp4,video/quicktime">
             <div id="media_preview" class="mt-3" style="display:none;">
                 <img id="image_preview" src="" alt="Image Preview" style="max-width: 300px; max-height: 300px; display:none;">

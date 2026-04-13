@@ -13,6 +13,7 @@ class User extends BaseController
         $this->load->model('LeaveQuotaModel');
         $this->load->library('permission');
         $this->load->library('template');
+        $this->load->library('UploadService');
 
         // Set public methods (no permission required)
         $this->set_public_methods([]);
@@ -414,21 +415,15 @@ class User extends BaseController
         }
 
         if (!empty($_FILES['file']['name'])) {
-            $dir  = "./assets/img/user/";
-            $config['upload_path']   = $dir;
-            $config['allowed_types'] = 'jpg|jpeg|png';
-            $config['overwrite']     = TRUE;
-            $config['file_name']     = $id;
-            $config['max_size']      = 2048;
-            $this->load->library('upload', $config);
-            if (!$this->upload->do_upload('file')) {
-                $error = $this->upload->display_errors();
+            $upload = $this->uploadservice->upload('user_avatar', 'file', array(
+                'file_name' => (string) $id,
+            ));
+            if (!empty($upload['error'])) {
+                $error = $upload['error'];
                 echo $this->template->alert_danger($error);
                 die;
-            } else {
-                $file = $this->upload->data();
-                $dt['img'] = $file['file_name'];
             }
+            $dt['img'] = $upload['filename'];
         }
 
 
@@ -452,19 +447,11 @@ class User extends BaseController
             if (!empty($profile_data)) {
                 // Handle KTP photo upload
                 if (!empty($_FILES['ktp_photo']['name'])) {
-                    $dir = "./assets/img/ktp/";
-                    if (!is_dir($dir)) {
-                        mkdir($dir, 0755, true);
-                    }
-                    $config['upload_path'] = $dir;
-                    $config['allowed_types'] = 'jpg|jpeg|png';
-                    $config['overwrite'] = TRUE;
-                    $config['file_name'] = 'ktp_' . $id . '_' . DATE("Ymdhis");
-                    $config['max_size'] = 2048;
-                    $this->load->library('upload', $config);
-                    if ($this->upload->do_upload('ktp_photo')) {
-                        $file = $this->upload->data();
-                        $profile_data['ktp_photo'] = $file['file_name'];
+                    $upload = $this->uploadservice->upload('user_ktp', 'ktp_photo', array(
+                        'file_name' => 'ktp_' . $id . '_' . DATE("Ymdhis"),
+                    ));
+                    if (empty($upload['error'])) {
+                        $profile_data['ktp_photo'] = $upload['filename'];
                     }
                 }
                 
@@ -588,21 +575,15 @@ class User extends BaseController
             $dt['role_text'] = !empty($query) ? strval($query[0]['role']) : '';
         }
         if (!empty($_FILES['file']['name'])) {
-            $dir  = "./assets/img/user/";
-            $config['upload_path']   = $dir;
-            $config['allowed_types'] = 'jpg|jpeg|png';
-            $config['overwrite']     = TRUE;
-            $config['file_name']     = DATE("Ymdhis");
-            $config['max_size']      = 2048;
-            $this->load->library('upload', $config);
-            if (!$this->upload->do_upload('file')) {
-                $error = $this->upload->display_errors();
+            $upload = $this->uploadservice->upload('user_avatar', 'file', array(
+                'file_name' => DATE("Ymdhis"),
+            ));
+            if (!empty($upload['error'])) {
+                $error = $upload['error'];
                 $this->respond_store_result(false, $error);
                 return;
-            } else {
-                $file = $this->upload->data();
-                $dt['img'] = $file['file_name'];
             }
+            $dt['img'] = $upload['filename'];
         }
 
         if ($this->db->insert('user', $dt)) {
@@ -626,19 +607,11 @@ class User extends BaseController
                 
                 // Handle KTP photo upload
                 if (!empty($_FILES['ktp_photo']['name'])) {
-                    $dir = "./assets/img/ktp/";
-                    if (!is_dir($dir)) {
-                        mkdir($dir, 0755, true);
-                    }
-                    $config['upload_path'] = $dir;
-                    $config['allowed_types'] = 'jpg|jpeg|png';
-                    $config['overwrite'] = TRUE;
-                    $config['file_name'] = 'ktp_' . $user_id . '_' . DATE("Ymdhis");
-                    $config['max_size'] = 2048;
-                    $this->load->library('upload', $config);
-                    if ($this->upload->do_upload('ktp_photo')) {
-                        $file = $this->upload->data();
-                        $profile_data['ktp_photo'] = $file['file_name'];
+                    $upload = $this->uploadservice->upload('user_ktp', 'ktp_photo', array(
+                        'file_name' => 'ktp_' . $user_id . '_' . DATE("Ymdhis"),
+                    ));
+                    if (empty($upload['error'])) {
+                        $profile_data['ktp_photo'] = $upload['filename'];
                     }
                 }
                 

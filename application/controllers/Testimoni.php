@@ -345,7 +345,7 @@ class Testimoni extends CI_Controller
             $config['allowed_types'] = 'jpg|jpeg|png';
             $config['overwrite']     = TRUE;
             $config['file_name']     = $id . '-before';
-            $config['max_size']      = 2048;
+            $config['max_size']      = 5120;
             $this->load->library('upload', $config);
             $this->upload->initialize($config);
             if (!$this->upload->do_upload('file_before')) {
@@ -364,7 +364,7 @@ class Testimoni extends CI_Controller
             $config['allowed_types'] = 'jpg|jpeg|png';
             $config['overwrite']     = TRUE;
             $config['file_name']     = $id . '-after';
-            $config['max_size']      = 2048;
+            $config['max_size']      = 5120;
             $this->load->library('upload', $config);
             $this->upload->initialize($config);
             if (!$this->upload->do_upload('file_after')) {
@@ -422,7 +422,7 @@ class Testimoni extends CI_Controller
             $config['allowed_types'] = 'jpg|jpeg|png';
             $config['overwrite']     = TRUE;
             $config['file_name']     = DATE("Ymdhis") . '-before';
-            $config['max_size']      = 2048;
+            $config['max_size']      = 5120;
             $this->load->library('upload', $config);
             $this->upload->initialize($config);
             if (!$this->upload->do_upload('file_before')) {
@@ -441,7 +441,7 @@ class Testimoni extends CI_Controller
             $config['allowed_types'] = 'jpg|jpeg|png';
             $config['overwrite']     = TRUE;
             $config['file_name']     = DATE("Ymdhis") . '-after';
-            $config['max_size']      = 2048;
+            $config['max_size']      = 5120;
             $this->load->library('upload', $config);
             $this->upload->initialize($config);
             if (!$this->upload->do_upload('file_after')) {

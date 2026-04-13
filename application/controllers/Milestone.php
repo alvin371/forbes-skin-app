@@ -149,7 +149,7 @@ class Milestone extends CI_Controller
             
             $config['upload_path'] = $upload_path;
             $config['allowed_types'] = 'gif|jpg|png|jpeg|webp';
-            $config['max_size'] = 2048; // 2MB
+            $config['max_size'] = 5120; // 5MB
             $config['file_name'] = 'milestone_' . time() . '_' . uniqid();
             
             $this->load->library('upload', $config);
@@ -233,7 +233,7 @@ class Milestone extends CI_Controller
             
             $config['upload_path'] = $upload_path;
             $config['allowed_types'] = 'gif|jpg|png|jpeg|webp';
-            $config['max_size'] = 2048; // 2MB
+            $config['max_size'] = 5120; // 5MB
             $config['file_name'] = 'milestone_' . time() . '_' . uniqid();
             
             $this->load->library('upload', $config);

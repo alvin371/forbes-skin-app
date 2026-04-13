@@ -365,7 +365,7 @@ class Marketplace_account extends CI_Controller
             $config['allowed_types'] = 'jpg|jpeg|png';
             $config['overwrite']     = TRUE;
             $config['file_name']     = $id;
-            $config['max_size']      = 2048;
+            $config['max_size']      = 5120;
             $this->load->library('upload', $config);
             if (!$this->upload->do_upload('file')) {
                 $error = $this->upload->display_errors();

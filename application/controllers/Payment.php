@@ -1175,7 +1175,7 @@ class Payment extends BaseController
                 'allowed_types' => 'jpg|jpeg|png',
                 'overwrite'     => TRUE,
                 'file_name'     => date("YmdHis"),
-                'max_size'      => 2048,
+                'max_size'      => 5120,
             ];
             $this->load->library('upload', $config);
             if (!$this->upload->do_upload('file')) {

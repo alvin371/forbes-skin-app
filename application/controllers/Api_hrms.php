@@ -29,6 +29,7 @@ class Api_hrms extends CI_Controller
         $this->load->library('RequestNoGenerator');
         $this->load->library('ApprovalWorkflowEngine');
         $this->load->library('LeaveQuotaService');
+        $this->load->library('UploadService');
         $this->load->helper('attendance');
     }
 
@@ -584,29 +585,25 @@ class Api_hrms extends CI_Controller
             return $this->respond(400, array('message' => 'file is required.'));
         }
 
-        if ($type === 'leave') {
-            $relativeBase = 'writable/uploads/leaves/';
-        } else {
-            $relativeBase = 'assets/uploads/' . $type . '/';
+        $scope = $type === 'leave' ? 'leave' : 'hrms_profile';
+        $options = array();
+        if ($scope === 'leave') {
+            $options['subdir'] = 'api-upload';
         }
-        $uploadDir = FCPATH . $relativeBase;
-        $upload = $this->handle_hrms_upload($uploadDir, $relativeBase, 'file');
+
+        $upload = $this->uploadservice->upload($scope, 'file', $options);
         if (!empty($upload['error'])) {
             return $this->respond(422, array('message' => $upload['error']));
         }
 
-        $file = $upload['file'];
-        $sizeBytes = (int) round(((float) $file['file_size']) * 1024);
-        $publicPath = $this->public_uploaded_file_path($upload['path']);
-
         return $this->respond(200, array(
             'type' => $type,
-            'path' => $publicPath,
+            'path' => $upload['public_path'],
             'storedPath' => $upload['path'],
-            'url' => $this->absolute_attachment_url($upload['path']),
-            'filename' => $file['file_name'],
-            'originalName' => $file['client_name'],
-            'sizeBytes' => $sizeBytes,
+            'url' => $upload['url'],
+            'filename' => $upload['filename'],
+            'originalName' => $upload['original_name'],
+            'sizeBytes' => $upload['size_bytes'],
         ));
     }
 
@@ -633,7 +630,7 @@ class Api_hrms extends CI_Controller
         }
 
         $relativePath = 'writable/uploads/' . $scope . '/' . implode('/', $parts);
-        $fullPath = FCPATH . $relativePath;
+        $fullPath = project_storage_path($relativePath);
 
         if (!is_file($fullPath) || !is_readable($fullPath)) {
             show_404();
@@ -1493,54 +1490,22 @@ class Api_hrms extends CI_Controller
 
     private function handle_attachment_upload($requestNo, $fieldName)
     {
-        $uploadDir = FCPATH . 'writable/uploads/leaves/' . $requestNo . '/';
-        if (!is_dir($uploadDir)) {
-            if (!mkdir($uploadDir, 0755, true)) {
-                return array('error' => 'Failed to create attachment directory.');
-            }
-        }
-
-        $config['upload_path'] = $uploadDir;
-        $config['allowed_types'] = 'pdf|jpg|jpeg|png';
-        $config['max_size'] = 2048;
-        $config['encrypt_name'] = true;
-
-        $this->load->library('upload', $config);
-        if (!$this->upload->do_upload($fieldName)) {
-            return array('error' => strip_tags($this->upload->display_errors('', '')));
-        }
-
-        $file = $this->upload->data();
-        $relativePath = 'writable/uploads/leaves/' . $requestNo . '/' . $file['file_name'];
-
-        return array('path' => $relativePath);
+        return $this->uploadservice->upload('leave', $fieldName, array('subdir' => $requestNo));
     }
 
     private function handle_hrms_upload($uploadDir, $relativeBase, $fieldName)
     {
-        if (!is_dir($uploadDir)) {
-            if (!mkdir($uploadDir, 0755, true)) {
-                return array('error' => 'Failed to create upload directory.');
+        $scope = strpos((string) $relativeBase, 'writable/uploads/leaves/') === 0 ? 'leave' : 'hrms_profile';
+        $options = array();
+        if ($scope === 'leave') {
+            $trimmedBase = trim((string) $relativeBase, '/');
+            $options['subdir'] = trim(substr($trimmedBase, strlen('writable/uploads/leaves')), '/');
+            if ($options['subdir'] === '') {
+                $options['subdir'] = 'api-upload';
             }
         }
 
-        $config['upload_path'] = $uploadDir;
-        $config['allowed_types'] = 'pdf|jpg|jpeg|png';
-        $config['max_size'] = 2048;
-        $config['encrypt_name'] = true;
-
-        $this->load->library('upload', $config);
-        if (!$this->upload->do_upload($fieldName)) {
-            return array('error' => strip_tags($this->upload->display_errors('', '')));
-        }
-
-        $file = $this->upload->data();
-        $relativePath = $relativeBase . $file['file_name'];
-
-        return array(
-            'path' => $relativePath,
-            'file' => $file,
-        );
+        return $this->uploadservice->upload($scope, $fieldName, $options);
     }
 
     private function json_input()
@@ -1693,7 +1658,7 @@ class Api_hrms extends CI_Controller
             return $path;
         }
 
-        return $this->public_uploaded_file_url($path);
+        return project_uploaded_file_url($path);
     }
 
     private function detect_uploaded_file_mime_type($fullPath)
@@ -1721,22 +1686,12 @@ class Api_hrms extends CI_Controller
 
     private function public_uploaded_file_url($path)
     {
-        return base_url($this->public_uploaded_file_path($path));
+        return project_uploaded_file_url($path);
     }
 
     private function public_uploaded_file_path($path)
     {
-        $normalizedPath = ltrim((string) $path, '/');
-
-        if (strpos($normalizedPath, 'writable/uploads/leaves/') === 0) {
-            return 'api/hrms/files/leaves/' . substr($normalizedPath, strlen('writable/uploads/leaves/'));
-        }
-
-        if (strpos($normalizedPath, 'writable/uploads/overtime/') === 0) {
-            return 'api/hrms/files/overtime/' . substr($normalizedPath, strlen('writable/uploads/overtime/'));
-        }
-
-        return $normalizedPath;
+        return project_uploaded_file_path($path);
     }
 
     private function is_valid_date($date)
@@ -3025,27 +2980,7 @@ class Api_hrms extends CI_Controller
      */
     private function handle_overtime_attachment_upload($requestNo, $fieldName)
     {
-        $uploadDir = FCPATH . 'writable/uploads/overtime/' . $requestNo . '/';
-        if (!is_dir($uploadDir)) {
-            if (!mkdir($uploadDir, 0755, true)) {
-                return array('error' => 'Failed to create attachment directory.');
-            }
-        }
-
-        $config['upload_path'] = $uploadDir;
-        $config['allowed_types'] = 'pdf|jpg|jpeg|png';
-        $config['max_size'] = 2048;
-        $config['encrypt_name'] = true;
-
-        $this->load->library('upload', $config);
-        if (!$this->upload->do_upload($fieldName)) {
-            return array('error' => strip_tags($this->upload->display_errors('', '')));
-        }
-
-        $file = $this->upload->data();
-        $relativePath = 'writable/uploads/overtime/' . $requestNo . '/' . $file['file_name'];
-
-        return array('path' => $relativePath);
+        return $this->uploadservice->upload('overtime', $fieldName, array('subdir' => $requestNo));
     }
 
     /**

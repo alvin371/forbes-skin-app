@@ -126,7 +126,7 @@
 
         <div class="col-md-12 mb-3">
             <label>Media (Photo/Video)</label>
-            <small class="text-muted d-block mb-2">Upload gambar (JPG, PNG, max 2MB) atau video (MP4, MOV, max 10MB)</small>
+            <small class="text-muted d-block mb-2">Upload gambar (JPG, PNG, max 5MB) atau video (MP4, MOV, max 10MB)</small>
 
             <?php if (!empty($data['media_file'])) { ?>
                 <div class="mb-2">

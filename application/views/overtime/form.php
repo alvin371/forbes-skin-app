@@ -92,7 +92,7 @@
                         Lampiran <span id="attachmentRequired" style="color: #ff4d4f; display: none;">*</span>
                     </label>
                     <input type="file" name="attachment" id="attachment" class="form-control" style="border-radius: 2px; height: 32px; font-size: 14px;" accept=".pdf,.jpg,.jpeg,.png">
-                    <small style="color: rgba(0,0,0,0.45);">Format: PDF, JPG, PNG. Maks 2MB.</small>
+                    <small style="color: rgba(0,0,0,0.45);">Format: PDF, JPG, PNG. Maks 5MB.</small>
                 </div>
             </div>
 

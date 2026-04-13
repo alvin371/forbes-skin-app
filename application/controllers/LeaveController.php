@@ -14,6 +14,7 @@ class LeaveController extends CI_Controller
         $this->load->library('RequestNoGenerator');
         $this->load->library('ApprovalWorkflowEngine');
         $this->load->library('LeaveQuotaService');
+        $this->load->library('UploadService');
         $this->load->model('LeaveTypeModel');
         $this->load->model('LeaveRequestModel');
         $this->load->model('LeaveApprovalModel');
@@ -393,27 +394,7 @@ class LeaveController extends CI_Controller
 
     private function handle_attachment_upload($requestNo, $fieldName)
     {
-        $uploadDir = FCPATH . 'writable/uploads/leaves/' . $requestNo . '/';
-        if (!is_dir($uploadDir)) {
-            if (!mkdir($uploadDir, 0755, true)) {
-                return array('error' => 'Failed to create attachment directory.');
-            }
-        }
-
-        $config['upload_path'] = $uploadDir;
-        $config['allowed_types'] = 'pdf|jpg|jpeg|png';
-        $config['max_size'] = 2048;
-        $config['encrypt_name'] = true;
-
-        $this->load->library('upload', $config);
-        if (!$this->upload->do_upload($fieldName)) {
-            return array('error' => strip_tags($this->upload->display_errors('', '')));
-        }
-
-        $file = $this->upload->data();
-        $relativePath = 'writable/uploads/leaves/' . $requestNo . '/' . $file['file_name'];
-
-        return array('path' => $relativePath);
+        return $this->uploadservice->upload('leave', $fieldName, array('subdir' => $requestNo));
     }
 
     private function is_valid_date($date)

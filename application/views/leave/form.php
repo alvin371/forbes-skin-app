@@ -57,7 +57,7 @@
 
             <div style="margin-bottom: 16px;">
                 <label style="font-size: 14px; color: rgba(0,0,0,0.85); margin-bottom: 4px; display: block;">
-                    Attachment <span style="font-size: 12px; color: rgba(0,0,0,0.45);">(PDF/JPG/PNG, max 2MB)</span>
+                    Attachment <span style="font-size: 12px; color: rgba(0,0,0,0.45);">(PDF/JPG/PNG, max 5MB)</span>
                 </label>
                 <input type="file" name="attachment" class="form-control" style="height: 32px; padding: 4px 11px; border: 1px solid #d9d9d9; border-radius: 2px; font-size: 14px;">
             </div>
