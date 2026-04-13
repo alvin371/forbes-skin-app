@@ -9,14 +9,14 @@ if (!$_SESSION['is_login']) {
 <head>
   <meta charset="UTF-8">
   <title><?= $title ?></title>
-  <meta name="description" content="We are Building Legacy, that Impactfull to the Society">
+  <meta name="description" content="Working as One, Growing as One — Aligned in Every Process, Stronger in Every Result">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="<?= base_url() ?>assets/css/bootstrap-datepicker.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daterangepicker@3.1.0/daterangepicker.css">
-  
+
   <!-- Career Tree Visualization CSS -->
   <link rel="stylesheet" href="<?= base_url() ?>assets/css/career-tree.css">
 
@@ -34,7 +34,7 @@ if (!$_SESSION['is_login']) {
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"
     integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ=="
     crossorigin="anonymous" referrerpolicy="no-referrer" />
-  
+
   <!-- Bootstrap Icons -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 
@@ -47,11 +47,11 @@ if (!$_SESSION['is_login']) {
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  
+
   <!-- D3.js v7 for Career Tree Visualization -->
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <script src="<?= base_url() ?>assets/js/career-tree-visualization.js"></script>
-  
+
   <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js"></script> -->
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -116,7 +116,7 @@ if (!$_SESSION['is_login']) {
 
 
 
-  <link rel="shortcut icon" type="image/png" href="<?= base_url() ?>assets/img/fav.png">
+  <link rel="shortcut icon" type="image/jpeg" href="<?= base_url() ?>assets/img/acneno-icon.jpg">
 
   <link rel="stylesheet" href="<?= base_url() ?>assets/css/style.css?v=1.0.4" type="text/css" media="screen" />
 
@@ -126,7 +126,7 @@ if (!$_SESSION['is_login']) {
   } else {
     $img = base_url() . '/assets/img/acneno-logo.png';
   }
-  $img = base_url() . '/assets/img/fav.png';
+  $img = base_url() . '/assets/img/acneno-icon.jpg';
   ?>
   <meta property="og:image" content="<?= $img ?>" />
   <meta property="og:image:width" content="1000" />
@@ -519,30 +519,30 @@ if (!$_SESSION['is_login']) {
     </div>
     <?php
     $this->load->library('permission');
-    
+
     $uri_1  = $this->uri->segment(1);
     $uri_2  = $this->uri->segment(2);
     $m = $this->input->get('m');
     $t = $this->input->get('t');
     $brand = $this->input->get('brand');
-    
+
     $user_id = $_SESSION['user']['id'];
-    
-    $CI =& get_instance();
+
+    $CI = &get_instance();
     $CI->load->library('permission');
-    
+
     $can_view_dashboard = $CI->permission->check_permission($user_id, 'dashboard', 'view');
     ?>
 
     <div class="d-flex mb-3 img-logo" style="padding-left:15px;padding-top:20px;padding-bottom:20px;position:sticky!important;top:0;background:#FFF;z-index:100;
         z-index: 100;box-shadow: 4px 4px 4px #adb5bd1A;">
-        <?php if ($can_view_dashboard): ?>
-          <a href="<?= base_url() ?>">
+      <?php if ($can_view_dashboard): ?>
+        <a href="<?= base_url() ?>">
         <?php endif; ?>
-            <img src="<?= base_url() ?>assets/img/acneno-logo.png" alt="Logo" style="width:214px;padding-left:10px" />
+        <img src="<?= base_url() ?>assets/img/acneno-logo.png" alt="Logo" style="width:214px;padding-left:10px" />
         <?php if ($can_view_dashboard): ?>
-          </a>
-        <?php endif; ?>
+        </a>
+      <?php endif; ?>
     </div>
     <!-- <div class="d-flex justify-content-start mb-3">
         <h1 class="sidebar-title text-white">DNX1SCREEN</h1>
@@ -556,139 +556,139 @@ if (!$_SESSION['is_login']) {
     $menu_hr_management = $menu_quest_level = $menu_position = $menu_benefit = $menu_quest = $menu_milestone = $menu_recruitment = $menu_roles = '';
     $menu_attendance = $menu_attendance_report = $menu_leave = $menu_overtime = $menu_leave_approvals = $menu_overtime_approvals = $menu_leave_types = $menu_leave_quotas = $menu_leave_requests_admin = $menu_approval_routes = $menu_offices = $menu_holidays = $menu_attendance_settings = $menu_performance_appraisal = '';
     $menu_akun = $menu_user = $menu_profile = $menu_logout = '';
-    
+
     // Get user permissions for menu visibility using module names from clear_and_replace_modules.sql
     // Access permission library through CodeIgniter instance
-    $CI =& get_instance();
+    $CI = &get_instance();
     $CI->load->library('permission');
-    
+
     // System Management
     $can_view_report = $CI->permission->check_permission($user_id, 'report', 'view');
     $can_view_expense = $CI->permission->check_permission($user_id, 'expense', 'view');
-    
+
     // Marketing Category - show if user has access to any marketing module
     $can_view_marketing = $CI->permission->check_permission($user_id, 'marketing', 'view') ||
-                         $CI->permission->check_permission($user_id, 'ads_tiktok', 'view') ||
-                         $CI->permission->check_permission($user_id, 'ads_meta', 'view') ||
-                         $CI->permission->check_permission($user_id, 'ads_shopee', 'view') ||
-                         $CI->permission->check_permission($user_id, 'ads_lazada', 'view') ||
-                         $CI->permission->check_permission($user_id, 'influencer', 'view') ||
-                         $CI->permission->check_permission($user_id, 'influencer_dummy', 'view') ||
-                         $CI->permission->check_permission($user_id, 'endorse_campaign', 'view') ||
-                         $CI->permission->check_permission($user_id, 'calendar', 'view') ||
-                         $CI->permission->check_permission($user_id, 'payment', 'view') ||
-                         $CI->permission->check_permission($user_id, 'codeboost', 'view');
+      $CI->permission->check_permission($user_id, 'ads_tiktok', 'view') ||
+      $CI->permission->check_permission($user_id, 'ads_meta', 'view') ||
+      $CI->permission->check_permission($user_id, 'ads_shopee', 'view') ||
+      $CI->permission->check_permission($user_id, 'ads_lazada', 'view') ||
+      $CI->permission->check_permission($user_id, 'influencer', 'view') ||
+      $CI->permission->check_permission($user_id, 'influencer_dummy', 'view') ||
+      $CI->permission->check_permission($user_id, 'endorse_campaign', 'view') ||
+      $CI->permission->check_permission($user_id, 'calendar', 'view') ||
+      $CI->permission->check_permission($user_id, 'payment', 'view') ||
+      $CI->permission->check_permission($user_id, 'codeboost', 'view');
 
     // Marketing Sub-modules
     $can_view_overview = $CI->permission->check_permission($user_id, 'marketing', 'view');
     $can_view_advertiser = $CI->permission->check_permission($user_id, 'ads_tiktok', 'view') ||
-                          $CI->permission->check_permission($user_id, 'ads_meta', 'view') ||
-                          $CI->permission->check_permission($user_id, 'ads_shopee', 'view') ||
-                          $CI->permission->check_permission($user_id, 'ads_lazada', 'view');
+      $CI->permission->check_permission($user_id, 'ads_meta', 'view') ||
+      $CI->permission->check_permission($user_id, 'ads_shopee', 'view') ||
+      $CI->permission->check_permission($user_id, 'ads_lazada', 'view');
     $can_view_endorsement = $CI->permission->check_permission($user_id, 'influencer', 'view') ||
-                           $CI->permission->check_permission($user_id, 'influencer_dummy', 'view') ||
-                           $CI->permission->check_permission($user_id, 'endorse_campaign', 'view') ||
-                           $CI->permission->check_permission($user_id, 'calendar', 'view') ||
-                           $CI->permission->check_permission($user_id, 'payment', 'view') ||
-                           $CI->permission->check_permission($user_id, 'codeboost', 'view');
-    
+      $CI->permission->check_permission($user_id, 'influencer_dummy', 'view') ||
+      $CI->permission->check_permission($user_id, 'endorse_campaign', 'view') ||
+      $CI->permission->check_permission($user_id, 'calendar', 'view') ||
+      $CI->permission->check_permission($user_id, 'payment', 'view') ||
+      $CI->permission->check_permission($user_id, 'codeboost', 'view');
+
     // Order & Customer Management - show if user has access to any module
     $can_view_order_customer = $CI->permission->check_permission($user_id, 'marketplace_account', 'view') ||
-                               $CI->permission->check_permission($user_id, 'transaction', 'view') ||
-                               $CI->permission->check_permission($user_id, 'transaction_item', 'view') ||
-                               $CI->permission->check_permission($user_id, 'crm_mg', 'view') ||
-                               $CI->permission->check_permission($user_id, 'crm_pome', 'view') ||
-                               $CI->permission->check_permission($user_id, 'group_wa', 'view');
-    
+      $CI->permission->check_permission($user_id, 'transaction', 'view') ||
+      $CI->permission->check_permission($user_id, 'transaction_item', 'view') ||
+      $CI->permission->check_permission($user_id, 'crm_mg', 'view') ||
+      $CI->permission->check_permission($user_id, 'crm_pome', 'view') ||
+      $CI->permission->check_permission($user_id, 'group_wa', 'view');
+
     // Operations - show if user has access to any operations module
     $can_view_operasional = $CI->permission->check_permission($user_id, 'stock', 'view') ||
-                           $CI->permission->check_permission($user_id, 'product', 'view');
-    
+      $CI->permission->check_permission($user_id, 'product', 'view');
+
     // HR Management - show if user has access to any HR module
     $can_view_hr_management = $CI->permission->check_permission($user_id, 'quest_level', 'view') ||
-                              $CI->permission->check_permission($user_id, 'position', 'view') ||
-                              $CI->permission->check_permission($user_id, 'benefit', 'view') ||
-                              $CI->permission->check_permission($user_id, 'quest', 'view') ||
-                              $CI->permission->check_permission($user_id, 'milestone', 'view') ||
-                              $CI->permission->check_permission($user_id, 'recruitment', 'view') ||
-                              $CI->permission->check_permission($user_id, 'attendance', 'view') ||
-                              $CI->permission->check_permission($user_id, 'leave', 'view') ||
-                              $CI->permission->check_permission($user_id, 'overtime', 'view') ||
-                              $CI->permission->check_permission($user_id, 'leave_approvals', 'view') ||
-                              $CI->permission->check_permission($user_id, 'offices', 'view') ||
-                              $CI->permission->check_permission($user_id, 'attendance_settings', 'view') ||
-                              $CI->permission->check_permission($user_id, 'holidays', 'view') ||
-                              $CI->permission->check_permission($user_id, 'leave_types', 'view') ||
-                              $CI->permission->check_permission($user_id, 'leave_quotas', 'view') ||
-                              $CI->permission->check_permission($user_id, 'approval_routes', 'view') ||
-                              $CI->permission->check_permission($user_id, 'performance_admin', 'view');
-    
+      $CI->permission->check_permission($user_id, 'position', 'view') ||
+      $CI->permission->check_permission($user_id, 'benefit', 'view') ||
+      $CI->permission->check_permission($user_id, 'quest', 'view') ||
+      $CI->permission->check_permission($user_id, 'milestone', 'view') ||
+      $CI->permission->check_permission($user_id, 'recruitment', 'view') ||
+      $CI->permission->check_permission($user_id, 'attendance', 'view') ||
+      $CI->permission->check_permission($user_id, 'leave', 'view') ||
+      $CI->permission->check_permission($user_id, 'overtime', 'view') ||
+      $CI->permission->check_permission($user_id, 'leave_approvals', 'view') ||
+      $CI->permission->check_permission($user_id, 'offices', 'view') ||
+      $CI->permission->check_permission($user_id, 'attendance_settings', 'view') ||
+      $CI->permission->check_permission($user_id, 'holidays', 'view') ||
+      $CI->permission->check_permission($user_id, 'leave_types', 'view') ||
+      $CI->permission->check_permission($user_id, 'leave_quotas', 'view') ||
+      $CI->permission->check_permission($user_id, 'approval_routes', 'view') ||
+      $CI->permission->check_permission($user_id, 'performance_admin', 'view');
+
     // Account Management - show if user has access to any account module  
     $can_view_akun = $CI->permission->check_permission($user_id, 'user', 'view') ||
-                    $CI->permission->check_permission($user_id, 'profile', 'view') ||
-                    $CI->permission->check_permission($user_id, 'roles', 'view') ||
-                    $CI->permission->check_permission($user_id, 'modules', 'view');
-    
+      $CI->permission->check_permission($user_id, 'profile', 'view') ||
+      $CI->permission->check_permission($user_id, 'roles', 'view') ||
+      $CI->permission->check_permission($user_id, 'modules', 'view');
+
     // Individual module permissions for detailed checks
     $modules_permissions = [
-        // System Management
-        'dashboard' => $CI->permission->check_permission($user_id, 'dashboard', 'view'),
-        'report' => $CI->permission->check_permission($user_id, 'report', 'view'),
-        'expense' => $CI->permission->check_permission($user_id, 'expense', 'view'),
-        
-        // Marketing
-        'overview' => $CI->permission->check_permission($user_id, 'marketing', 'view'),
-        'ads_tiktok' => $CI->permission->check_permission($user_id, 'ads_tiktok', 'view'),
-        'ads_meta' => $CI->permission->check_permission($user_id, 'ads_meta', 'view'),
-        'ads_shopee' => $CI->permission->check_permission($user_id, 'ads_shopee', 'view'),
-        'ads_lazada' => $CI->permission->check_permission($user_id, 'ads_lazada', 'view'),
-        'influencer' => $CI->permission->check_permission($user_id, 'influencer', 'view'),
-        'influencer_dummy' => $CI->permission->check_permission($user_id, 'influencer_dummy', 'view'),
-        'endorse_campaign' => $CI->permission->check_permission($user_id, 'endorse_campaign', 'view'),
-        'calendar' => $CI->permission->check_permission($user_id, 'calendar', 'view'),
-        'payment' => $CI->permission->check_permission($user_id, 'payment', 'view'),
-        'codeboost' => $CI->permission->check_permission($user_id, 'codeboost', 'view'),
-        
-        // Order & Customer Management
-        'marketplace_account' => $CI->permission->check_permission($user_id, 'marketplace_account', 'view'),
-        'transaction' => $CI->permission->check_permission($user_id, 'transaction', 'view'),
-        'transaction_item' => $CI->permission->check_permission($user_id, 'transaction_item', 'view'),
-        'crm_mg' => $CI->permission->check_permission($user_id, 'crm_mg', 'view'),
-        'crm_pome' => $CI->permission->check_permission($user_id, 'crm_pome', 'view'),
-        'group_wa' => $CI->permission->check_permission($user_id, 'group_wa', 'view'),
-        
-        // Operations
-        'stock' => $CI->permission->check_permission($user_id, 'stock', 'view'),
-        'product' => $CI->permission->check_permission($user_id, 'product', 'view'),
-        
-        // HR Management
-        'quest_level' => $CI->permission->check_permission($user_id, 'quest_level', 'view'),
-        'position' => $CI->permission->check_permission($user_id, 'position', 'view'),
-        'roles' => $CI->permission->check_permission($user_id, 'roles', 'view'),
-        'benefit' => $CI->permission->check_permission($user_id, 'benefit', 'view'),
-        'quest' => $CI->permission->check_permission($user_id, 'quest', 'view'),
-        'milestone' => $CI->permission->check_permission($user_id, 'milestone', 'view'),
-        'recruitment' => $CI->permission->check_permission($user_id, 'recruitment', 'view'),
-        'attendance' => $CI->permission->check_permission($user_id, 'attendance', 'view'),
-        'attendance_report' => $CI->permission->check_permission($user_id, 'attendance_report', 'view'),
-        'leave' => $CI->permission->check_permission($user_id, 'leave', 'view'),
-        'overtime' => $CI->permission->check_permission($user_id, 'overtime', 'view'),
-        'leave_approvals' => $CI->permission->check_permission($user_id, 'leave_approvals', 'view'),
-        'offices' => $CI->permission->check_permission($user_id, 'offices', 'view'),
-        'leave_types' => $CI->permission->check_permission($user_id, 'leave_types', 'view'),
-        'leave_quotas' => $CI->permission->check_permission($user_id, 'leave_quotas', 'view'),
-        'approval_routes' => $CI->permission->check_permission($user_id, 'approval_routes', 'view'),
-        'holidays' => $CI->permission->check_permission($user_id, 'holidays', 'view'),
-        'attendance_settings' => $CI->permission->check_permission($user_id, 'attendance_settings', 'view'),
-        'performance_admin' => $CI->permission->check_permission($user_id, 'performance_admin', 'view'),
-        'modules' => $CI->permission->check_permission($user_id, 'modules', 'view'),
-        
-        // Account Management
-        'user' => $CI->permission->check_permission($user_id, 'user', 'view'),
-        'profile' => $CI->permission->check_permission($user_id, 'profile', 'view'),
-        
-        // Additional
-        'scraper' => $CI->permission->check_permission($user_id, 'scraper', 'view')
+      // System Management
+      'dashboard' => $CI->permission->check_permission($user_id, 'dashboard', 'view'),
+      'report' => $CI->permission->check_permission($user_id, 'report', 'view'),
+      'expense' => $CI->permission->check_permission($user_id, 'expense', 'view'),
+
+      // Marketing
+      'overview' => $CI->permission->check_permission($user_id, 'marketing', 'view'),
+      'ads_tiktok' => $CI->permission->check_permission($user_id, 'ads_tiktok', 'view'),
+      'ads_meta' => $CI->permission->check_permission($user_id, 'ads_meta', 'view'),
+      'ads_shopee' => $CI->permission->check_permission($user_id, 'ads_shopee', 'view'),
+      'ads_lazada' => $CI->permission->check_permission($user_id, 'ads_lazada', 'view'),
+      'influencer' => $CI->permission->check_permission($user_id, 'influencer', 'view'),
+      'influencer_dummy' => $CI->permission->check_permission($user_id, 'influencer_dummy', 'view'),
+      'endorse_campaign' => $CI->permission->check_permission($user_id, 'endorse_campaign', 'view'),
+      'calendar' => $CI->permission->check_permission($user_id, 'calendar', 'view'),
+      'payment' => $CI->permission->check_permission($user_id, 'payment', 'view'),
+      'codeboost' => $CI->permission->check_permission($user_id, 'codeboost', 'view'),
+
+      // Order & Customer Management
+      'marketplace_account' => $CI->permission->check_permission($user_id, 'marketplace_account', 'view'),
+      'transaction' => $CI->permission->check_permission($user_id, 'transaction', 'view'),
+      'transaction_item' => $CI->permission->check_permission($user_id, 'transaction_item', 'view'),
+      'crm_mg' => $CI->permission->check_permission($user_id, 'crm_mg', 'view'),
+      'crm_pome' => $CI->permission->check_permission($user_id, 'crm_pome', 'view'),
+      'group_wa' => $CI->permission->check_permission($user_id, 'group_wa', 'view'),
+
+      // Operations
+      'stock' => $CI->permission->check_permission($user_id, 'stock', 'view'),
+      'product' => $CI->permission->check_permission($user_id, 'product', 'view'),
+
+      // HR Management
+      'quest_level' => $CI->permission->check_permission($user_id, 'quest_level', 'view'),
+      'position' => $CI->permission->check_permission($user_id, 'position', 'view'),
+      'roles' => $CI->permission->check_permission($user_id, 'roles', 'view'),
+      'benefit' => $CI->permission->check_permission($user_id, 'benefit', 'view'),
+      'quest' => $CI->permission->check_permission($user_id, 'quest', 'view'),
+      'milestone' => $CI->permission->check_permission($user_id, 'milestone', 'view'),
+      'recruitment' => $CI->permission->check_permission($user_id, 'recruitment', 'view'),
+      'attendance' => $CI->permission->check_permission($user_id, 'attendance', 'view'),
+      'attendance_report' => $CI->permission->check_permission($user_id, 'attendance_report', 'view'),
+      'leave' => $CI->permission->check_permission($user_id, 'leave', 'view'),
+      'overtime' => $CI->permission->check_permission($user_id, 'overtime', 'view'),
+      'leave_approvals' => $CI->permission->check_permission($user_id, 'leave_approvals', 'view'),
+      'offices' => $CI->permission->check_permission($user_id, 'offices', 'view'),
+      'leave_types' => $CI->permission->check_permission($user_id, 'leave_types', 'view'),
+      'leave_quotas' => $CI->permission->check_permission($user_id, 'leave_quotas', 'view'),
+      'approval_routes' => $CI->permission->check_permission($user_id, 'approval_routes', 'view'),
+      'holidays' => $CI->permission->check_permission($user_id, 'holidays', 'view'),
+      'attendance_settings' => $CI->permission->check_permission($user_id, 'attendance_settings', 'view'),
+      'performance_admin' => $CI->permission->check_permission($user_id, 'performance_admin', 'view'),
+      'modules' => $CI->permission->check_permission($user_id, 'modules', 'view'),
+
+      // Account Management
+      'user' => $CI->permission->check_permission($user_id, 'user', 'view'),
+      'profile' => $CI->permission->check_permission($user_id, 'profile', 'view'),
+
+      // Additional
+      'scraper' => $CI->permission->check_permission($user_id, 'scraper', 'view')
     ];
 
     if ($uri_1 == 'dashboard') {
@@ -803,7 +803,7 @@ if (!$_SESSION['is_login']) {
       } else if ($uri_1 == 'quest') {
         $menu_quest = 'active';
       } else if ($uri_1 == 'milestone') {
-        $menu_milestone = 'active'; 
+        $menu_milestone = 'active';
       } else if ($uri_1 == 'recruitment') {
         $menu_recruitment = 'active';
       } else if ($uri_1 == 'attendance') {
@@ -867,7 +867,7 @@ if (!$_SESSION['is_login']) {
             DASHBOARD
           </a>
         <?php endif; ?>
-        
+
         <?php if ($modules_permissions['report']): ?>
           <a href="<?= base_url() ?>report" class="item-menu <?= $menu_report ?>">
             <i class="icon bi bi-graph-up-arrow"></i>
@@ -1037,14 +1037,14 @@ if (!$_SESSION['is_login']) {
                 CRM MG
               </a>
             <?php endif; ?>
-            
+
             <?php if ($modules_permissions['crm_pome']): ?>
               <a href="<?= base_url() ?>crm?brand=POME" class="ms-3 item-menu <?= $menu_crm_pome ?>">
                 <i class="icon bi bi-person-heart"></i>
                 CRM POME
               </a>
             <?php endif; ?>
-            
+
             <?php if ($modules_permissions['group_wa']): ?>
               <a href="<?= base_url() ?>group-wa" class="ms-3 item-menu <?= $menu_group ?>">
                 <i class="icon bi bi-whatsapp"></i>
@@ -1275,93 +1275,95 @@ if (!$_SESSION['is_login']) {
         z-index: 100;box-shadow: 4px 4px 4px #adb5bd1A;
     ">
       <div class="container-fluid" style="padding-right: 0px; padding-left: 0px;">
-          <div class="avatar-icon">
-              <button class="sidebarCollapseDefault btn p-0 border-0 d-none d-md-block mt-0 mb-0" aria-label="Hamburger Button" style="padding-top:0px!important;">
-                  <i class="mdi menu-sidebar mdi-menu"></i>
-              </button>
-              <button data-bs-toggle="offcanvas" data-bs-target=".sidebar" aria-controls="sidebar" aria-label="Hamburger Button" class="sidebarCollapseMobile btn p-0 border-0 d-block d-md-none" style="padding-top:0px!important;">
-                  <i class="mdi menu-sidebar mdi-menu"></i>
-              </button>
+        <div class="avatar-icon">
+          <button class="sidebarCollapseDefault btn p-0 border-0 d-none d-md-block mt-0 mb-0" aria-label="Hamburger Button" style="padding-top:0px!important;">
+            <i class="mdi menu-sidebar mdi-menu"></i>
+          </button>
+          <button data-bs-toggle="offcanvas" data-bs-target=".sidebar" aria-controls="sidebar" aria-label="Hamburger Button" class="sidebarCollapseMobile btn p-0 border-0 d-block d-md-none" style="padding-top:0px!important;">
+            <i class="mdi menu-sidebar mdi-menu"></i>
+          </button>
+        </div>
+
+        <div class="d-flex align-items-center justify-content-end gap-4">
+          <!-- Notification Bell -->
+          <div class="notification-container" style="position: relative; margin-right: 10px;">
+            <button class="p-0" onclick="toggleNotifications()" style="position: relative; background-color: transparent; border: none;">
+              <i class="bi bi-bell" style="font-size: 20px; color: #5a7dbaff;"></i>
+              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="notificationBadge" style="display: none; font-size: 10px; padding: 3px 5px;">
+                0
+              </span>
+            </button>
+
+            <!-- Dropdown Notifikasi -->
+            <div class="dropdown-menu p-0" id="notificationDropdown" style="display: none; width: 320px; border: none; box-shadow: 0 4px 20px rgba(0,0,0,0.15); border-radius: 12px; overflow: hidden; right: 1px;">
+              <div class="d-flex justify-content-between align-items-center p-3" style="background-color: #f8f9fa; border-bottom: 1px solid #eee;">
+                <h6 class="mb-0 fw-bold" style="font-size: 15px;">Notifikasi</h6>
+                <a href="javascript:void(0)" onclick="markAllRead()" class="text-primary" style="font-size: 13px; text-decoration: none;">Tandai Semua Dibaca</a>
+              </div>
+              <div class="notification-list" id="notificationList" style="max-height: 400px; overflow-y: auto;">
+                <!-- Notifikasi akan dimuat di sini -->
+                <div class="text-center py-4 text-muted">
+                  <i class="bi bi-bell-slash" style="font-size: 24px;"></i>
+                  <p class="mt-2 mb-0">Tidak ada notifikasi</p>
+                </div>
+              </div>
+              <div class="text-center p-2" style="background-color: #f8f9fa; border-top: 1px solid #eee;">
+                <a href="<?= base_url('notifications') ?>" class="text-primary" style="font-size: 13px; text-decoration: none;">Lihat Semua Notifikasi</a>
+              </div>
+            </div>
           </div>
-          
-          <div class="d-flex align-items-center justify-content-end gap-4">
-              <!-- Notification Bell -->
-              <div class="notification-container" style="position: relative; margin-right: 10px;">
-                  <button class="p-0" onclick="toggleNotifications()" style="position: relative; background-color: transparent; border: none;">
-                      <i class="bi bi-bell" style="font-size: 20px; color: #5a7dbaff;"></i>
-                      <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="notificationBadge" style="display: none; font-size: 10px; padding: 3px 5px;">
-                          0
-                      </span>
-                  </button>
-                  
-                  <!-- Dropdown Notifikasi -->
-                  <div class="dropdown-menu p-0" id="notificationDropdown" style="display: none; width: 320px; border: none; box-shadow: 0 4px 20px rgba(0,0,0,0.15); border-radius: 12px; overflow: hidden; right: 1px;">
-                      <div class="d-flex justify-content-between align-items-center p-3" style="background-color: #f8f9fa; border-bottom: 1px solid #eee;">
-                          <h6 class="mb-0 fw-bold" style="font-size: 15px;">Notifikasi</h6>
-                          <a href="javascript:void(0)" onclick="markAllRead()" class="text-primary" style="font-size: 13px; text-decoration: none;">Tandai Semua Dibaca</a>
-                      </div>
-                      <div class="notification-list" id="notificationList" style="max-height: 400px; overflow-y: auto;">
-                          <!-- Notifikasi akan dimuat di sini -->
-                          <div class="text-center py-4 text-muted">
-                              <i class="bi bi-bell-slash" style="font-size: 24px;"></i>
-                              <p class="mt-2 mb-0">Tidak ada notifikasi</p>
-                          </div>
-                      </div>
-                      <div class="text-center p-2" style="background-color: #f8f9fa; border-top: 1px solid #eee;">
-                          <a href="<?= base_url('notifications') ?>" class="text-primary" style="font-size: 13px; text-decoration: none;">Lihat Semua Notifikasi</a>
-                      </div>
+
+          <!-- Profile Dropdown -->
+          <div class="dropdown">
+            <button class="btn p-0" type="button" id="profileDropdown" data-bs-toggle="dropdown" aria-expanded="false" style="border: none; background: none;">
+              <?php
+              $img = $_SESSION['user']['img'];
+              if ($img == "") {
+                $img = base_url() . '/assets/img/user/default.png';
+              } else {
+                $img = base_url() . '/assets/img/user/' . $img . '?token=' . DATE("Ymdhis", strtotime($_SESSION['user']['updated_at']));
+              }
+              ?>
+              <img src="<?= $img ?>" class="avatar" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; cursor: pointer;">
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end shadow" aria-labelledby="profileDropdown" style="border: none; border-radius: 12px; padding: 8px; min-width: 200px;">
+              <!-- User Info Header -->
+              <li class="dropdown-header px-3 py-2" style="background-color: #f8f9fa; border-radius: 8px; margin-bottom: 8px;">
+                <div class="d-flex align-items-center">
+                  <img src="<?= $img ?>" class="me-2" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;">
+                  <div>
+                    <div class="fw-bold text-dark" style="font-size: 14px;"><?= $_SESSION['user']['full_name'] ?></div>
+                    <small class="text-muted" style="font-size: 12px;"><?= $_SESSION['user']['role_text'] ?></small>
                   </div>
-              </div>
-                                        
-              <!-- Profile Dropdown -->
-              <div class="dropdown">
-                  <button class="btn p-0" type="button" id="profileDropdown" data-bs-toggle="dropdown" aria-expanded="false" style="border: none; background: none;">
-                      <?php
-                      $img = $_SESSION['user']['img'];
-                      if ($img == "") {
-                          $img = base_url() . '/assets/img/user/default.png';
-                      } else {
-                          $img = base_url() . '/assets/img/user/' . $img . '?token=' . DATE("Ymdhis", strtotime($_SESSION['user']['updated_at']));
-                      }
-                      ?>
-                      <img src="<?= $img ?>" class="avatar" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; cursor: pointer;">
-                  </button>
-                  <ul class="dropdown-menu dropdown-menu-end shadow" aria-labelledby="profileDropdown" style="border: none; border-radius: 12px; padding: 8px; min-width: 200px;">
-                      <!-- User Info Header -->
-                      <li class="dropdown-header px-3 py-2" style="background-color: #f8f9fa; border-radius: 8px; margin-bottom: 8px;">
-                          <div class="d-flex align-items-center">
-                              <img src="<?= $img ?>" class="me-2" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;">
-                              <div>
-                                  <div class="fw-bold text-dark" style="font-size: 14px;"><?= $_SESSION['user']['full_name'] ?></div>
-                                  <small class="text-muted" style="font-size: 12px;"><?= $_SESSION['user']['role_text'] ?></small>
-                              </div>
-                          </div>
-                      </li>
-                      
-                      <!-- Profile Link -->
-                      <li>
-                          <a class="dropdown-item d-flex align-items-center py-2 px-3" href="<?= base_url() ?>profile" style="border-radius: 8px; transition: all 0.2s;">
-                              <i class="bi bi-person-circle me-2 text-primary" style="font-size: 16px;"></i>
-                              <span>My Profile</span>
-                          </a>
-                      </li>
-                      
-                      <!-- Divider -->
-                      <li><hr class="dropdown-divider my-2"></li>
-                      
-                      <!-- Logout Link -->
-                      <li>
-                          <a class="dropdown-item d-flex align-items-center py-2 px-3 text-danger" href="javascript:void(0)" style="border-radius: 8px; transition: all 0.2s;" 
-                            onclick="showLogoutConfirmation();">
-                              <i class="bi bi-box-arrow-right me-2" style="font-size: 16px;"></i>
-                              <span>Logout</span>
-                          </a>
-                      </li>
-                  </ul>
-              </div>
+                </div>
+              </li>
+
+              <!-- Profile Link -->
+              <li>
+                <a class="dropdown-item d-flex align-items-center py-2 px-3" href="<?= base_url() ?>profile" style="border-radius: 8px; transition: all 0.2s;">
+                  <i class="bi bi-person-circle me-2 text-primary" style="font-size: 16px;"></i>
+                  <span>My Profile</span>
+                </a>
+              </li>
+
+              <!-- Divider -->
+              <li>
+                <hr class="dropdown-divider my-2">
+              </li>
+
+              <!-- Logout Link -->
+              <li>
+                <a class="dropdown-item d-flex align-items-center py-2 px-3 text-danger" href="javascript:void(0)" style="border-radius: 8px; transition: all 0.2s;"
+                  onclick="showLogoutConfirmation();">
+                  <i class="bi bi-box-arrow-right me-2" style="font-size: 16px;"></i>
+                  <span>Logout</span>
+                </a>
+              </li>
+            </ul>
           </div>
+        </div>
       </div>
-  </nav>
+    </nav>
 
 
     <div class="content-body">
@@ -1382,12 +1384,12 @@ if (!$_SESSION['is_login']) {
       </footer> -->
   </main>
   <style>
-  .notification-container {
+    .notification-container {
       position: relative;
       margin-right: 15px;
-  }
+    }
 
-  .notification-badge {
+    .notification-badge {
       position: absolute;
       top: 0;
       right: 0;
@@ -1402,9 +1404,9 @@ if (!$_SESSION['is_login']) {
       justify-content: center;
       font-weight: bold;
       transform: translate(25%, -25%);
-  }
+    }
 
-  .notification-dropdown {
+    .notification-dropdown {
       position: absolute;
       top: 100%;
       left: 0;
@@ -1412,143 +1414,143 @@ if (!$_SESSION['is_login']) {
       background: white;
       border: 1px solid #ddd;
       border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
       z-index: 1000;
       max-height: 400px;
       overflow-y: auto;
       display: none;
-  }
+    }
 
-  .notification-header {
+    .notification-header {
       padding: 12px 16px;
       border-bottom: 1px solid #eee;
       display: flex;
       justify-content: space-between;
       align-items: center;
       background-color: #f8f9fa;
-  }
+    }
 
-  .notification-header h6 {
+    .notification-header h6 {
       margin: 0;
       font-weight: 600;
       font-size: 15px;
       color: #212529;
-  }
+    }
 
-  .mark-all-read {
+    .mark-all-read {
       font-size: 13px;
       color: #0d6efd;
       text-decoration: none;
       cursor: pointer;
-  }
+    }
 
-  .mark-all-read:hover {
+    .mark-all-read:hover {
       text-decoration: underline;
-  }
+    }
 
-  .notification-list {
+    .notification-list {
       max-height: 400px;
       overflow-y: auto;
-  }
+    }
 
-  .notification-item {
+    .notification-item {
       padding: 12px 16px;
       border-bottom: 1px solid #f8f9fa;
       cursor: pointer;
       transition: background-color 0.2s;
-  }
+    }
 
-  .notification-item:hover {
+    .notification-item:hover {
       background-color: #f8f9fa;
-  }
+    }
 
-  .notification-item.unread {
+    .notification-item.unread {
       background-color: #f0f7ff;
       border-left: 3px solid #0d6efd;
-  }
+    }
 
-  .notification-content {
+    .notification-content {
       display: flex;
       gap: 12px;
-  }
+    }
 
-  .notification-icon {
+    .notification-icon {
       font-size: 18px;
       margin-top: 2px;
-  }
+    }
 
-  .notification-icon.info {
+    .notification-icon.info {
       color: #0dcaf0;
-  }
+    }
 
-  .notification-icon.success {
+    .notification-icon.success {
       color: #198754;
-  }
+    }
 
-  .notification-icon.warning {
+    .notification-icon.warning {
       color: #ffc107;
-  }
+    }
 
-  .notification-icon.danger {
+    .notification-icon.danger {
       color: #dc3545;
-  }
+    }
 
-  .notification-details {
+    .notification-details {
       flex: 1;
-  }
+    }
 
-  .notification-title {
+    .notification-title {
       font-weight: 600;
       font-size: 14px;
       color: #212529;
       margin-bottom: 4px;
-  }
+    }
 
-  .notification-message {
+    .notification-message {
       font-size: 13px;
       color: #6c757d;
       margin-bottom: 4px;
       line-height: 1.4;
-  }
+    }
 
-  .notification-time {
+    .notification-time {
       font-size: 12px;
       color: #adb5bd;
-  }
+    }
 
-  .notification-footer {
+    .notification-footer {
       padding: 10px 16px;
       text-align: center;
       border-top: 1px solid #eee;
       background-color: #f8f9fa;
-  }
+    }
 
-  .view-all {
+    .view-all {
       color: #0d6efd;
       text-decoration: none;
       font-size: 13px;
       cursor: pointer;
-  }
+    }
 
-  .view-all:hover {
+    .view-all:hover {
       text-decoration: underline;
-  }
+    }
 
-  .no-notifications {
+    .no-notifications {
       padding: 30px 15px;
       text-align: center;
       color: #adb5bd;
-  }
+    }
 
-  .no-notifications i {
+    .no-notifications i {
       font-size: 24px;
       margin-bottom: 8px;
-  }
+    }
 
-  .no-notifications p {
+    .no-notifications p {
       margin: 0;
       font-size: 14px;
-  }
+    }
   </style>
 
   <style>
@@ -1576,108 +1578,108 @@ if (!$_SESSION['is_login']) {
     let notificationDropdownOpen = false;
 
     function toggleNotifications() {
-        const dropdown = $('#notificationDropdown');
-        
-        if (notificationDropdownOpen) {
-            dropdown.hide();
-            notificationDropdownOpen = false;
-        } else {
-            dropdown.show();
-            notificationDropdownOpen = true;
-            loadNotifications();
-        }
+      const dropdown = $('#notificationDropdown');
+
+      if (notificationDropdownOpen) {
+        dropdown.hide();
+        notificationDropdownOpen = false;
+      } else {
+        dropdown.show();
+        notificationDropdownOpen = true;
+        loadNotifications();
+      }
     }
 
     $(document).on('click', function(event) {
-        const container = $('.notification-container');
-        if (!container.is(event.target) && !container.has(event.target).length && notificationDropdownOpen) {
-            $('#notificationDropdown').hide();
-            notificationDropdownOpen = false;
-        }
+      const container = $('.notification-container');
+      if (!container.is(event.target) && !container.has(event.target).length && notificationDropdownOpen) {
+        $('#notificationDropdown').hide();
+        notificationDropdownOpen = false;
+      }
     });
 
     var originalTitle = document.title;
 
     function loadNotifications() {
       $.ajax({
-          url: '<?= base_url("notifications/get_notifications") ?>',
-          method: 'GET',
-          dataType: 'json',
-          success: function(data) {
-              if (data.error === 'session_expired') {
-                  window.location.href = '<?= base_url("auth/login") ?>';
-                  return;
-              }
-
-              displayNotifications(data.notifications);
-              updateNotificationBadge(data.unread_count);
-
-              if (data.unread_count > 0) {
-                  document.title = '(' + data.unread_count + ') ' + originalTitle;
-              } else {
-                  document.title = originalTitle;
-              }
-          },
-          error: function(xhr, status, error) {
-              console.error('Error loading notifications:', error);
+        url: '<?= base_url("notifications/get_notifications") ?>',
+        method: 'GET',
+        dataType: 'json',
+        success: function(data) {
+          if (data.error === 'session_expired') {
+            window.location.href = '<?= base_url("auth/login") ?>';
+            return;
           }
+
+          displayNotifications(data.notifications);
+          updateNotificationBadge(data.unread_count);
+
+          if (data.unread_count > 0) {
+            document.title = '(' + data.unread_count + ') ' + originalTitle;
+          } else {
+            document.title = originalTitle;
+          }
+        },
+        error: function(xhr, status, error) {
+          console.error('Error loading notifications:', error);
+        }
       });
     }
 
 
     async function handleNotificationClick(notificationId, title, relatedTable, relatedId) {
-        try {
-            await markRead(notificationId);
+      try {
+        await markRead(notificationId);
 
-            // Route based on related_table for precise navigation
-            if (relatedTable === 'overtime_requests' && relatedId) {
-                if (title.includes('Perlu Disetujui')) {
-                    window.location.href = '<?= base_url("approvals/overtime") ?>';
-                } else {
-                    window.location.href = '<?= base_url("overtime/") ?>' + relatedId;
-                }
-            } else if (relatedTable === 'leave_requests' && relatedId) {
-                window.location.href = '<?= base_url("approvals/inbox/detail/") ?>' + relatedId;
-            } else if (title.includes('Review')) {
-                window.location.href = '<?= base_url("review-endorse?keyword_category=SPV&keyword=") ?>' +
-                                    encodeURIComponent('<?= $_SESSION['user']['full_name'] ?>');
-            } else if (title.includes('Pengajuan')) {
-                window.location.href = '<?= base_url("payment") ?>';
-            }
-        } catch (error) {
-            console.error('Error in notification process:', error);
+        // Route based on related_table for precise navigation
+        if (relatedTable === 'overtime_requests' && relatedId) {
+          if (title.includes('Perlu Disetujui')) {
+            window.location.href = '<?= base_url("approvals/overtime") ?>';
+          } else {
+            window.location.href = '<?= base_url("overtime/") ?>' + relatedId;
+          }
+        } else if (relatedTable === 'leave_requests' && relatedId) {
+          window.location.href = '<?= base_url("approvals/inbox/detail/") ?>' + relatedId;
+        } else if (title.includes('Review')) {
+          window.location.href = '<?= base_url("review-endorse?keyword_category=SPV&keyword=") ?>' +
+            encodeURIComponent('<?= $_SESSION['user']['full_name'] ?>');
+        } else if (title.includes('Pengajuan')) {
+          window.location.href = '<?= base_url("payment") ?>';
         }
+      } catch (error) {
+        console.error('Error in notification process:', error);
+      }
     }
 
 
     function displayNotifications(notifications) {
       const listContainer = $('#notificationList');
-      
+
       if (notifications.length === 0) {
-          listContainer.html(`
+        listContainer.html(`
               <div class="no-notifications">
                   <i class="bi bi-bell-slash"></i>
                   <p>Tidak ada notifikasi</p>
               </div>
           `);
-          return;
+        return;
       }
-      
+
       let html = '';
       notifications.forEach(notification => {
-          const unreadClass = notification.is_read == '0' ? 'unread' : '';
-          const timeAgo = formatTimeAgo(notification.created_at);
-          
-          let iconClass = 'bi-info-circle info';
-          if (notification.type === 'success') iconClass = 'bi-check-circle success';
-          if (notification.type === 'warning') iconClass = 'bi-exclamation-triangle warning';
-          if (notification.type === 'danger') iconClass = 'bi-x-circle danger';
-          
-          const escapedTitle = notification.title.replace(/'/g, "\\'");
-          const relatedTable = notification.related_table || '';
-          const relatedId = notification.related_id || '';
+        const unreadClass = notification.is_read == '0' ? 'unread' : '';
+        const timeAgo = formatTimeAgo(notification.created_at);
 
-          html += `
+        let iconClass = 'bi-info-circle info';
+        if (notification.type === 'success') iconClass = 'bi-check-circle success';
+        if (notification.type === 'warning') iconClass = 'bi-exclamation-triangle warning';
+        if (notification.type === 'danger') iconClass = 'bi-x-circle danger';
+
+        const escapedTitle = notification.title.replace(/'/g, "\\'");
+        const relatedTable = notification.related_table || '';
+        const relatedId = notification.related_id || '';
+
+        html += `
               <div class="notification-item ${unreadClass}" onclick="handleNotificationClick(${notification.id}, '${escapedTitle}', '${relatedTable}', '${relatedId}')">
                   <div class="notification-content">
                       <div class="notification-icon ${iconClass}"></div>
@@ -1690,110 +1692,110 @@ if (!$_SESSION['is_login']) {
               </div>
           `;
       });
-      
+
       listContainer.html(html);
     }
 
     function updateNotificationBadge(count) {
-        const badge = $('#notificationBadge');
-        if (count > 0) {
-            badge.text(count > 99 ? '99+' : count);
-            badge.css('display', 'flex');
-        } else {
-            badge.hide();
-        }
+      const badge = $('#notificationBadge');
+      if (count > 0) {
+        badge.text(count > 99 ? '99+' : count);
+        badge.css('display', 'flex');
+      } else {
+        badge.hide();
+      }
     }
 
     async function markRead(notificationId) {
       try {
-          const response = await $.ajax({
-              url: '<?= base_url("notifications/mark_read") ?>',
-              method: 'POST',
-              dataType: 'json',
-              contentType: 'application/json',
-              data: JSON.stringify({
-                  notification_id: notificationId
-              })
-          });
-          
-          if (response.success) {
-              loadNotifications();
-          }
-          return response;
+        const response = await $.ajax({
+          url: '<?= base_url("notifications/mark_read") ?>',
+          method: 'POST',
+          dataType: 'json',
+          contentType: 'application/json',
+          data: JSON.stringify({
+            notification_id: notificationId
+          })
+        });
+
+        if (response.success) {
+          loadNotifications();
+        }
+        return response;
       } catch (error) {
-          console.error('Error marking notification as read:', error);
-          throw error;
+        console.error('Error marking notification as read:', error);
+        throw error;
       }
     }
 
     function markAllRead() {
-        $.ajax({
-            url: '<?= base_url("notifications/mark_all_read") ?>',
-            method: 'POST',
-            dataType: 'json',
-            success: function(data) {
-                if (data.success) {
-                    loadNotifications();
-                }
-            },
-            error: function(xhr, status, error) {
-                console.error('Error marking all notifications as read:', error);
-            }
-        });
+      $.ajax({
+        url: '<?= base_url("notifications/mark_all_read") ?>',
+        method: 'POST',
+        dataType: 'json',
+        success: function(data) {
+          if (data.success) {
+            loadNotifications();
+          }
+        },
+        error: function(xhr, status, error) {
+          console.error('Error marking all notifications as read:', error);
+        }
+      });
     }
 
     function formatTimeAgo(dateString) {
-        const date = new Date(dateString);
-        const now = new Date();
-        const diffInSeconds = Math.floor((now - date) / 1000);
-        
-        if (diffInSeconds < 60) {
-            return 'Baru saja';
-        } else if (diffInSeconds < 3600) {
-            const minutes = Math.floor(diffInSeconds / 60);
-            return `${minutes} menit yang lalu`;
-        } else if (diffInSeconds < 86400) {
-            const hours = Math.floor(diffInSeconds / 3600);
-            return `${hours} jam yang lalu`;
-        } else if (diffInSeconds < 2592000) {
-            const days = Math.floor(diffInSeconds / 86400);
-            return `${days} hari yang lalu`;
-        } else {
-            return date.toLocaleDateString('id-ID');
-        }
+      const date = new Date(dateString);
+      const now = new Date();
+      const diffInSeconds = Math.floor((now - date) / 1000);
+
+      if (diffInSeconds < 60) {
+        return 'Baru saja';
+      } else if (diffInSeconds < 3600) {
+        const minutes = Math.floor(diffInSeconds / 60);
+        return `${minutes} menit yang lalu`;
+      } else if (diffInSeconds < 86400) {
+        const hours = Math.floor(diffInSeconds / 3600);
+        return `${hours} jam yang lalu`;
+      } else if (diffInSeconds < 2592000) {
+        const days = Math.floor(diffInSeconds / 86400);
+        return `${days} hari yang lalu`;
+      } else {
+        return date.toLocaleDateString('id-ID');
+      }
     }
 
     $(document).ready(function() {
-        $.ajax({
-            url: '<?= base_url("notifications/get_unread_count") ?>',
-            method: 'GET',
-            dataType: 'json',
-            success: function(data) {
-                updateNotificationBadge(data.count);
-            },
-            error: function(xhr, status, error) {
-                console.error('Error loading notification count:', error);
-            }
-        });
+      $.ajax({
+        url: '<?= base_url("notifications/get_unread_count") ?>',
+        method: 'GET',
+        dataType: 'json',
+        success: function(data) {
+          updateNotificationBadge(data.count);
+        },
+        error: function(xhr, status, error) {
+          console.error('Error loading notification count:', error);
+        }
+      });
     });
 
     setInterval(function() {
       $.ajax({
-          url: '<?= base_url("notifications/get_unread_count") ?>',
-          method: 'GET',
-          dataType: 'json',
-          success: function(data) {
-              updateNotificationBadge(data.count);
+        url: '<?= base_url("notifications/get_unread_count") ?>',
+        method: 'GET',
+        dataType: 'json',
+        success: function(data) {
+          updateNotificationBadge(data.count);
 
-              if (data.count > 0) {
-                  document.title = '(' + data.count + ') ' + originalTitle;
-              } else {
-                  document.title = originalTitle;
-              }
-          },
-          error: function(xhr, status, error) {
-              console.error('Error auto-refreshing notification count:', error);
+          if (data.count > 0) {
+            document.title = '(' + data.count + ') ' + originalTitle;
+          } else {
+            document.title = originalTitle;
           }
+        },
+        error: function(xhr, status, error) {
+          console.error('Error auto-refreshing notification count:', error);
+        }
       });
     }, 30000);
   </script>
@@ -2020,7 +2022,7 @@ if (!$_SESSION['is_login']) {
       });
     }
   </script>
-  
+
   <!-- Logout Confirmation with SweetAlert2 -->
   <script>
     function showLogoutConfirmation() {
@@ -2065,7 +2067,7 @@ if (!$_SESSION['is_login']) {
               Swal.showLoading();
             }
           });
-          
+
           // Redirect to logout after short delay for better UX
           setTimeout(() => {
             window.location.href = '<?= base_url() ?>auth/logout_process';
@@ -2074,7 +2076,7 @@ if (!$_SESSION['is_login']) {
       });
     }
   </script>
-  
+
   <!-- Profile Dropdown Styling -->
   <style>
     /* Profile dropdown enhanced styling */
@@ -2082,62 +2084,63 @@ if (!$_SESSION['is_login']) {
       box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1) !important;
       border: 1px solid rgba(0, 0, 0, 0.05) !important;
     }
-    
+
     .dropdown-item:hover {
       background-color: #f8f9fa !important;
       color: #495057 !important;
       transform: translateX(2px);
     }
-    
+
     .dropdown-item.text-danger:hover {
       background-color: #fee !important;
       color: #dc3545 !important;
     }
-    
+
     .avatar:hover {
       transform: scale(1.05);
       transition: transform 0.2s ease;
     }
-    
+
     /* Animation for dropdown */
     .dropdown-menu.show {
       animation: dropdownFadeIn 0.2s ease-out;
     }
-    
+
     @keyframes dropdownFadeIn {
       from {
         opacity: 0;
         transform: translateY(-10px);
       }
+
       to {
         opacity: 1;
         transform: translateY(0);
       }
     }
-    
+
     /* Profile button focus state */
     #profileDropdown:focus {
       box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.25) !important;
       border-radius: 50% !important;
     }
-    
+
     /* Custom SweetAlert2 Logout Styling */
     .logout-swal-popup {
       border-radius: 16px !important;
       box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15) !important;
     }
-    
+
     .logout-swal-title {
       color: #495057 !important;
       font-weight: 600 !important;
       font-size: 1.25rem !important;
     }
-    
+
     .logout-swal-content {
       color: #6c757d !important;
       font-size: 0.95rem !important;
     }
-    
+
     .logout-swal-confirm {
       border-radius: 8px !important;
       font-weight: 500 !important;
@@ -2145,7 +2148,7 @@ if (!$_SESSION['is_login']) {
       font-size: 0.9rem !important;
       box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3) !important;
     }
-    
+
     .logout-swal-cancel {
       border-radius: 8px !important;
       font-weight: 500 !important;
@@ -2153,13 +2156,13 @@ if (!$_SESSION['is_login']) {
       font-size: 0.9rem !important;
       box-shadow: 0 4px 12px rgba(108, 117, 125, 0.2) !important;
     }
-    
+
     /* SweetAlert2 button hover effects */
     .logout-swal-confirm:hover {
       transform: translateY(-1px) !important;
       box-shadow: 0 6px 16px rgba(220, 53, 69, 0.4) !important;
     }
-    
+
     .logout-swal-cancel:hover {
       transform: translateY(-1px) !important;
       box-shadow: 0 6px 16px rgba(108, 117, 125, 0.3) !important;

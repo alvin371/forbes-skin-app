@@ -9,13 +9,13 @@ if ($_SESSION['is_login']) {
 <head>
   <meta charset="UTF-8">
   <title><?= $title ?></title>
-  <meta name="description" content="We are Building Legacy, that Impactfull to the Society">
+  <meta name="description" content="Working as One, Growing as One — Aligned in Every Process, Stronger in Every Result">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
-  <link rel="shortcut icon" type="image/png" href="<?= base_url() ?>assets/img/fav.png">
+  <link rel="shortcut icon" type="image/jpeg" href="<?= base_url() ?>assets/img/acneno-icon.jpg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://icons.getbootstrap.com/assets/font/bootstrap-icons.css">
@@ -27,7 +27,7 @@ if ($_SESSION['is_login']) {
   } else {
     $img = base_url() . '/assets/img/acneno-logo.png';
   }
-  $img = base_url() . '/assets/img/fav.png';
+  $img = base_url() . '/assets/img/acneno-icon.jpg';
   ?>
   <meta property="og:image" content="<?= $img ?>" />
   <meta property="og:image:width" content="1000" />
