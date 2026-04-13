@@ -1,15 +1,17 @@
 <style>
-@keyframes pulse-career-badge {
-    0% {
-        box-shadow: 0 0 0 0 rgba(82, 196, 26, 0.7);
+    @keyframes pulse-career-badge {
+        0% {
+            box-shadow: 0 0 0 0 rgba(82, 196, 26, 0.7);
+        }
+
+        50% {
+            box-shadow: 0 0 0 8px rgba(82, 196, 26, 0);
+        }
+
+        100% {
+            box-shadow: 0 0 0 0 rgba(82, 196, 26, 0);
+        }
     }
-    50% {
-        box-shadow: 0 0 0 8px rgba(82, 196, 26, 0);
-    }
-    100% {
-        box-shadow: 0 0 0 0 rgba(82, 196, 26, 0);
-    }
-}
 </style>
 
 <div class="container-fluid py-3">
@@ -54,7 +56,7 @@
                                         <?php
                                         $img = $user_data['img'];
                                         if ($img == "") {
-                                            $img_url = base_url() . '/assets/img/user/default.png';
+                                            $img_url = base_url() . '/assets/img/acneno-icon.jpg';
                                         } else {
                                             $img_url = base_url() . '/assets/img/user/' . $img . '?token=' . DATE("Ymdhis", strtotime($user_data['updated_at']));
                                         }
@@ -100,7 +102,7 @@
                                                                         <?php
                                                                         // Check if this is the selected career path
                                                                         $is_selected = !empty($profile['preferred_career_path_id']) &&
-                                                                                       $path['target_position_id'] == $profile['preferred_career_path_id'];
+                                                                            $path['target_position_id'] == $profile['preferred_career_path_id'];
 
                                                                         // Special styling for selected path
                                                                         $card_bg = $is_selected ? '#f6ffed' : '#f8f9fa';
@@ -158,7 +160,7 @@
 
                                                                                     <?php if ($selected_career_path['quest_status'] == 'not_applied'): ?>
                                                                                         <a href="<?= base_url() ?>quest/main_quest_detail?id=<?= $selected_career_path['quest_id'] ?>"
-                                                                                           class="btn btn-outline-primary btn-sm w-100" style="font-size: 10px;">
+                                                                                            class="btn btn-outline-primary btn-sm w-100" style="font-size: 10px;">
                                                                                             <i class="bi bi-play me-1"></i>View & Apply for Quest
                                                                                         </a>
                                                                                     <?php elseif ($selected_career_path['quest_status'] == 'pending'): ?>
@@ -661,11 +663,11 @@
                                                         ?>
                                                         <?php if ($isEditable): ?>
                                                             <i class="bi bi-pencil text-warning edit-review"
-                                                               title="Edit Review"
-                                                               style="cursor: pointer;"
-                                                               data-submission-id="<?= $review['id'] ?>"
-                                                               data-quest-title="<?= htmlspecialchars($review['quest_title']) ?>"
-                                                               data-submission-title="<?= htmlspecialchars($review['submission_title']) ?>"></i>
+                                                                title="Edit Review"
+                                                                style="cursor: pointer;"
+                                                                data-submission-id="<?= $review['id'] ?>"
+                                                                data-quest-title="<?= htmlspecialchars($review['quest_title']) ?>"
+                                                                data-submission-title="<?= htmlspecialchars($review['submission_title']) ?>"></i>
                                                         <?php endif; ?>
                                                         <?php if ($isDeletable): ?>
                                                             <button class="btn btn-sm btn-outline-danger delete-review"
@@ -1002,7 +1004,7 @@
                                     <small class="text-muted">Gambar saat ini:</small>
                                     <div class="mt-1">
                                         <img id="current-image" src="" alt="Current Image"
-                                             class="img-thumbnail" style="max-height: 100px; max-width: 100px;">
+                                            class="img-thumbnail" style="max-height: 100px; max-width: 100px;">
                                         <small class="d-block text-muted mt-1">Upload file baru untuk mengubah gambar</small>
                                     </div>
                                 </div>
@@ -2006,7 +2008,9 @@
             $.ajax({
                 url: '<?= base_url() ?>profile/get_review_detail',
                 method: 'POST',
-                data: { submission_id: submissionId },
+                data: {
+                    submission_id: submissionId
+                },
                 success: function(response) {
                     try {
                         var data = JSON.parse(response);
@@ -2079,8 +2083,8 @@
                          alignleft aligncenter alignright alignjustify | \
                          bullist numlist outdent indent | link image | help',
                 content_style: 'body { font-family:Helvetica,Arial,sans-serif; font-size:14px }',
-                setup: function (editor) {
-                    editor.on('init', function () {
+                setup: function(editor) {
+                    editor.on('init', function() {
                         editor.setContent(content);
                     });
                 },
@@ -2284,25 +2288,25 @@
 
 <!-- Profile Tab Management Script -->
 <script>
-$(document).ready(function() {
-    // Handle tab switching to show/hide Activities & Reviews Card
-    $('#profile-tabs a[data-bs-toggle="tab"]').on('shown.bs.tab', function (e) {
-        var target = $(e.target).attr("href"); // activated tab
+    $(document).ready(function() {
+        // Handle tab switching to show/hide Activities & Reviews Card
+        $('#profile-tabs a[data-bs-toggle="tab"]').on('shown.bs.tab', function(e) {
+            var target = $(e.target).attr("href"); // activated tab
 
-        if (target === '#milestone-content') {
-            // Hide Activities & Reviews Card when milestone tab is active
+            if (target === '#milestone-content') {
+                // Hide Activities & Reviews Card when milestone tab is active
+                $('#activities-reviews-card').hide();
+            } else {
+                // Show Activities & Reviews Card when profile tab is active
+                $('#activities-reviews-card').show();
+            }
+        });
+
+        // Initially hide Activities & Reviews Card if milestone tab is active on page load
+        if ($('#milestone-tab').hasClass('active')) {
             $('#activities-reviews-card').hide();
-        } else {
-            // Show Activities & Reviews Card when profile tab is active
-            $('#activities-reviews-card').show();
         }
     });
-
-    // Initially hide Activities & Reviews Card if milestone tab is active on page load
-    if ($('#milestone-tab').hasClass('active')) {
-        $('#activities-reviews-card').hide();
-    }
-});
 </script>
 
 <!-- Profile CSS -->

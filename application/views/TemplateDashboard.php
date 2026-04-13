@@ -1319,7 +1319,7 @@ if (!$_SESSION['is_login']) {
               <?php
               $img = $_SESSION['user']['img'];
               if ($img == "") {
-                $img = base_url() . '/assets/img/user/default.png';
+                $img = base_url() . '/assets/img/acneno-icon.jpg';
               } else {
                 $img = base_url() . '/assets/img/user/' . $img . '?token=' . DATE("Ymdhis", strtotime($_SESSION['user']['updated_at']));
               }
