@@ -79,7 +79,7 @@
                         <label style="font-size: 13px; color: rgba(0,0,0,0.45);">Lampiran</label>
                         <div style="font-size: 14px; color: rgba(0,0,0,0.85);">
                             <?php if (!empty($request['attachment_path'])): ?>
-                                <a href="<?php echo base_url($request['attachment_path']); ?>" target="_blank" style="color: #1890ff;">Lihat Lampiran</a>
+                                <a href="<?php echo hrms_attachment_url($request['attachment_path']); ?>" target="_blank" style="color: #1890ff;">Lihat Lampiran</a>
                             <?php else: ?>
                                 -
                             <?php endif; ?>

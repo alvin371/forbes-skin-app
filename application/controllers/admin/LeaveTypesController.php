@@ -11,13 +11,16 @@ class LeaveTypesController extends BaseController
         $this->load->model('LeaveTypeModel');
         $this->load->database();
         $this->load->library('template');
-        $this->load->library('AdminAuthFilter');
-        $this->adminauthfilter->enforce();
+        $this->set_method_permissions([
+            'create' => 'create',
+            'edit' => 'edit',
+        ]);
     }
 
     public function index()
     {
         if ($this->input->method(TRUE) === 'POST') {
+            $this->require_permission('leave_types', 'create');
             return $this->store();
         }
 

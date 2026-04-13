@@ -80,13 +80,14 @@
                 <?php if (!empty($request['attachment_path'])): ?>
                     <div style="background: #fafafa; padding: 16px; border-radius: 2px; margin-bottom: 16px;">
                         <h5 style="font-size: 14px; font-weight: 600; color: rgba(0,0,0,0.85); margin-bottom: 12px;">Attachment</h5>
+                        <?php $attachmentUrl = hrms_attachment_url($request['attachment_path']); ?>
                         <div style="display: flex; align-items: center; padding: 8px 12px; background: #fff; border: 1px solid #d9d9d9; border-radius: 2px;">
                             <i class="bi bi-file-earmark-pdf" style="font-size: 24px; color: #ff4d4f; margin-right: 12px;"></i>
                             <div style="flex: 1;">
                                 <div style="color: rgba(0,0,0,0.85); font-size: 14px;"><?php echo basename($request['attachment_path']); ?></div>
                                 <div style="color: rgba(0,0,0,0.45); font-size: 12px;">Supporting document</div>
                             </div>
-                            <a href="<?php echo base_url($request['attachment_path']); ?>" target="_blank" style="color: #1890ff; text-decoration: none; padding: 4px 12px; border: 1px solid #1890ff; border-radius: 2px; font-size: 12px;">
+                            <a href="<?php echo $attachmentUrl; ?>" target="_blank" style="color: #1890ff; text-decoration: none; padding: 4px 12px; border: 1px solid #1890ff; border-radius: 2px; font-size: 12px;">
                                 <i class="bi bi-download"></i> Download
                             </a>
                         </div>

@@ -76,8 +76,8 @@
                         <div style="font-size: 12px; color: rgba(0,0,0,0.45); margin-bottom: 4px;">Attachment</div>
                         <?php if (!empty($request['attachment_path'])): ?>
                             <?php
-                            $attachmentUrl = base_url($request['attachment_path']);
-                            $fileExt = strtolower(pathinfo($request['attachment_path'], PATHINFO_EXTENSION));
+                            $attachmentUrl = hrms_attachment_url($request['attachment_path']);
+                            $fileExt = strtolower(pathinfo(parse_url($attachmentUrl, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION));
                             $isImage = in_array($fileExt, array('jpg', 'jpeg', 'png', 'gif', 'webp'));
                             $isPdf = $fileExt === 'pdf';
                             ?>
