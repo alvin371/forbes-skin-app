@@ -3,10 +3,21 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class LeaveQuotaModel extends CI_Model
 {
+    private $hasDefaultQuotaDaysColumn = null;
+
     public function __construct()
     {
         parent::__construct();
         $this->load->database();
+    }
+
+    private function leave_types_has_default_quota_days()
+    {
+        if ($this->hasDefaultQuotaDaysColumn === null) {
+            $this->hasDefaultQuotaDaysColumn = $this->db->field_exists('default_quota_days', 'leave_types');
+        }
+
+        return $this->hasDefaultQuotaDaysColumn;
     }
 
     public function get_by_user($userId)
@@ -79,6 +90,13 @@ class LeaveQuotaModel extends CI_Model
     {
         $userId = (int) $userId;
         if ($userId <= 0) {
+            return 0;
+        }
+
+        // Older databases may not have leave_types.default_quota_days yet.
+        // In that case, default quota seeding is skipped instead of failing user creation.
+        if (!$this->leave_types_has_default_quota_days()) {
+            log_message('debug', 'Skipping default leave quota seeding because leave_types.default_quota_days does not exist.');
             return 0;
         }
 
