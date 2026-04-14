@@ -43,7 +43,7 @@ class User extends BaseController
         return isset($_POST['response_format']) && $_POST['response_format'] === 'json';
     }
 
-    private function respond_store_result($is_success, $message, $redirect_url = '')
+    private function respond_store_result($is_success, $message, $redirect_url = '', $http_status_code = null)
     {
         if ($this->should_return_json()) {
             $payload = array(
@@ -56,6 +56,7 @@ class User extends BaseController
             }
 
             $this->output
+                ->set_status_header($http_status_code ?: ($is_success ? 200 : 422))
                 ->set_content_type('application/json')
                 ->set_output(json_encode($payload));
             return;
@@ -389,8 +390,8 @@ class User extends BaseController
 
         if ($other_user) {
             $msg = 'Username sudah digunakan user lain!';
-            echo $this->template->alert_danger($msg);
-            die;
+            $this->respond_store_result(false, $msg, '', 409);
+            return;
         }
 
         // $other_user = $this->mymodel->selectWithQuery("SELECT id FROM user
@@ -420,8 +421,8 @@ class User extends BaseController
             ));
             if (!empty($upload['error'])) {
                 $error = $upload['error'];
-                echo $this->template->alert_danger($error);
-                die;
+                $this->respond_store_result(false, $error, '', 422);
+                return;
             }
             $dt['img'] = $upload['filename'];
         }
@@ -471,21 +472,21 @@ class User extends BaseController
                     $error_message = $e->getMessage();
                     if (strpos($error_message, 'position_id') !== false) {
                         $msg = 'Harap pilih posisi jabatan terlebih dahulu untuk melengkapi profil karyawan.';
-                        echo $this->template->alert_danger($msg);
+                        $this->respond_store_result(false, $msg, '', 422);
                         return;
                     } else {
                         $msg = 'Terjadi kesalahan saat menyimpan profil. Silakan coba lagi.';
-                        echo $this->template->alert_danger($msg);
+                        $this->respond_store_result(false, $msg, '', 500);
                         return;
                     }
                 }
             }
             
             $msg = 'Update data berhasil!';
-            echo $this->template->alert_success($msg);
+            $this->respond_store_result(true, $msg, base_url() . '/user/detail?id=' . $id, 200);
         } else {
             $msg = 'Update data tidak berhasil!';
-            echo $this->template->alert_danger($msg);
+            $this->respond_store_result(false, $msg, '', 500);
         }
     }
 
@@ -561,7 +562,7 @@ class User extends BaseController
 
         if ($other_user) {
             $msg = 'Username sudah digunakan user lain!';
-            $this->respond_store_result(false, $msg);
+            $this->respond_store_result(false, $msg, '', 409);
             return;
         }
 
@@ -580,7 +581,7 @@ class User extends BaseController
             ));
             if (!empty($upload['error'])) {
                 $error = $upload['error'];
-                $this->respond_store_result(false, $error);
+                $this->respond_store_result(false, $error, '', 422);
                 return;
             }
             $dt['img'] = $upload['filename'];
@@ -622,21 +623,21 @@ class User extends BaseController
                     $error_message = $e->getMessage();
                     if (strpos($error_message, 'position_id') !== false) {
                         $msg = 'Harap pilih posisi jabatan terlebih dahulu untuk melengkapi profil karyawan.';
-                        $this->respond_store_result(false, $msg);
+                        $this->respond_store_result(false, $msg, '', 422);
                         return;
                     } else {
                         $msg = 'Terjadi kesalahan saat menyimpan profil. Silakan coba lagi.';
-                        $this->respond_store_result(false, $msg);
+                        $this->respond_store_result(false, $msg, '', 500);
                         return;
                     }
                 }
             }
             
             $msg = 'Tambah data berhasil!';
-            $this->respond_store_result(true, $msg, base_url() . '/user');
+            $this->respond_store_result(true, $msg, base_url() . '/user', 201);
         } else {
             $msg = 'Tambah data tidak berhasil!';
-            $this->respond_store_result(false, $msg);
+            $this->respond_store_result(false, $msg, '', 500);
         }
     }
 

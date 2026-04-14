@@ -2,6 +2,7 @@
     <div class="form-message"></div>
     <form action="<?= base_url() ?>/user/update" method="POST" id="form-edit" enctype="multipart/form-data">
         <input type="hidden" name="id" value="<?= $data['id'] ?>">
+        <input type="hidden" name="response_format" value="json">
         
         <!-- User Basic Information Card -->
         <div class="card mb-4">
@@ -290,6 +291,93 @@
 </div>
 
 <script type="text/javascript">
+    var isSubmitting = false;
+    var defaultSubmitLabel = '<i class="bi bi-save me-1"></i> Simpan Perubahan';
+    var loadingSubmitLabel = '<div class="spinner-border spinner-border-sm text-white me-2" role="status"></div>Menyimpan...';
+
+    function showUserFormToast(icon, message) {
+        if (typeof $.toast === "function") {
+            $.toast({
+                heading: icon === "success" ? "Berhasil" : (icon === "warning" ? "Peringatan" : "Gagal"),
+                text: message,
+                showHideTransition: "slide",
+                icon: icon,
+                position: "top-right",
+                loaderBg: icon === "success" ? "#def7f0" : "#fde2e2",
+                hideAfter: 3500,
+            });
+            return;
+        }
+
+        if (typeof Swal === "object" && typeof Swal.fire === "function") {
+            Swal.fire({
+                icon: icon,
+                title: icon === "success" ? "Berhasil" : (icon === "warning" ? "Peringatan" : "Gagal"),
+                text: message,
+            });
+        }
+    }
+
+    function renderUserFormMessage(type, message) {
+        var iconClass = type === "success" ? "bi-check-circle" : (type === "warning" ? "bi-exclamation-triangle" : "bi-exclamation-circle");
+        var alertClass = type === "success" ? "success" : (type === "warning" ? "warning" : "danger");
+
+        $(".form-message").hide().html(
+            '<div class="alert alert-' + alertClass + ' alert-dismissible fade show" role="alert">' +
+            '<i class="bi ' + iconClass + ' me-2"></i>' + message +
+            '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>' +
+            '</div>'
+        ).slideDown("fast");
+    }
+
+    function setEditSubmittingState(submitting) {
+        isSubmitting = submitting;
+        $(".btn-send")
+            .toggleClass("disabled", submitting)
+            .html(submitting ? loadingSubmitLabel : defaultSubmitLabel)
+            .attr("disabled", submitting);
+    }
+
+    function getUserFormAjaxErrorMessage(xhr, textStatus, errorThrown) {
+        if (xhr.responseJSON && xhr.responseJSON.message) {
+            return xhr.responseJSON.message;
+        }
+
+        if (xhr.status === 413) {
+            return 'Ukuran file terlalu besar. Silakan kompres gambar lalu coba lagi.';
+        }
+
+        if (xhr.status === 415) {
+            return 'Format file tidak didukung. Gunakan file JPG, JPEG, atau PNG.';
+        }
+
+        if (xhr.status === 409) {
+            return 'Username sudah digunakan user lain!';
+        }
+
+        if (xhr.status === 422) {
+            return 'Data tidak valid atau tidak lengkap. Periksa kembali isian Anda lalu coba lagi.';
+        }
+
+        if (xhr.status === 0) {
+            return 'Permintaan gagal dikirim. Periksa koneksi internet Anda lalu coba lagi.';
+        }
+
+        if (textStatus === 'timeout') {
+            return 'Permintaan melebihi batas waktu. Silakan coba lagi.';
+        }
+
+        if (xhr.responseText) {
+            return xhr.responseText;
+        }
+
+        if (errorThrown) {
+            return 'Terjadi kesalahan sistem: ' + errorThrown + '.';
+        }
+
+        return 'Terjadi kesalahan saat menyimpan data.';
+    }
+
     // Contract type field logic
     $("#jenis_kontrak").on('change', function() {
         var contractType = $(this).val();
@@ -318,8 +406,11 @@
     });
 
     $("#form-edit").submit(function() {
+        if (isSubmitting) {
+            return false;
+        }
+
         var form = $(this);
-        var isValid = true;
         
         // Validate position selection if any profile data is filled
         var hasProfileData = false;
@@ -350,10 +441,12 @@
                     '</div>';
                     
                 $(".form-message").html(alertHtml).slideDown("fast");
+                showUserFormToast('warning', 'Untuk melengkapi profil karyawan, Anda harus memilih posisi jabatan terlebih dahulu.');
                 return false;
             }
         }
         
+        setEditSubmittingState(true);
         var mydata = new FormData(this);
         $.ajax({
             type: "POST",
@@ -362,25 +455,30 @@
             cache: false,
             contentType: false,
             processData: false,
+            dataType: "json",
             beforeSend: function() {
-                $(".btn-send").addClass("disabled").html('<div class="spinner-border spinner-border-sm text-white me-2" role="status"></div>Menyimpan...').attr('disabled', true);
-                form.find(".form-message").slideUp().html("");
+                setEditSubmittingState(true);
+                $(".form-message").slideUp().html("");
             },
-            success: function(response, textStatus, xhr) {
-                console.log(response);
-                if (response.indexOf("success") != -1) {
-                    $(".form-message").hide().html(response).slideDown("fast");
+            success: function(response) {
+                if (response.status === "success") {
+                    renderUserFormMessage("success", response.message);
+                    showUserFormToast("success", response.message);
                     setTimeout(function() {
-                        window.location.href = "<?= base_url() ?>/user/detail?id=<?= $data['id'] ?>";
-                    }, 2000);
+                        window.location.href = response.redirect_url || "<?= base_url() ?>/user/detail?id=<?= $data['id'] ?>";
+                    }, 1200);
+                    return;
                 } else {
-                    $(".form-message").hide().html(response).slideDown("fast");
-                    $(".btn-send").removeClass("disabled").html('<i class="bi bi-save me-1"></i> Simpan Perubahan').attr('disabled', false);
+                    renderUserFormMessage("danger", response.message || 'Terjadi kesalahan saat menyimpan data.');
+                    showUserFormToast("error", response.message || 'Terjadi kesalahan saat menyimpan data.');
+                    setEditSubmittingState(false);
                 }
             },
             error: function(xhr, textStatus, errorThrown) {
-                $(".btn-send").removeClass("disabled").html('<i class="bi bi-save me-1"></i> Simpan Perubahan').attr('disabled', false);
-                $(".form-message").hide().html(xhr).slideDown("fast");
+                var errorMessage = getUserFormAjaxErrorMessage(xhr, textStatus, errorThrown);
+                renderUserFormMessage("danger", errorMessage);
+                showUserFormToast("error", errorMessage);
+                setEditSubmittingState(false);
             }
         });
         return false;
