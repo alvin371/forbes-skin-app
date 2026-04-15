@@ -70,43 +70,14 @@ class User extends BaseController
         echo $this->template->alert_danger($message);
     }
 
-    /**
-     * Check if user can view all users based on their role
-     * Uses RBAC system to determine permissions
-     *
-     * @param int $user_id User ID
-     * @return bool True if user can view all users, false if restricted
-     */
-    private function can_view_all_users($user_id)
+    private function get_assignable_roles()
     {
-        // Get user's roles from the RBAC system
-        $user_roles = $this->mymodel->selectWithQuery("
-            SELECT r.name, r.level, r.display_name
-            FROM user_roles ur
-            INNER JOIN roles r ON ur.role_id = r.id
-            WHERE ur.user_id = '$user_id' AND r.is_active = 1
+        return $this->mymodel->selectWithQuery("
+            SELECT id, name, display_name
+            FROM roles
+            WHERE is_active = 1
+            ORDER BY display_name ASC
         ");
-
-        if (empty($user_roles)) {
-            // If no roles found in RBAC system, return false for security
-            log_message('debug', 'No roles found in RBAC for user_id: ' . $user_id);
-            return false;
-        }
-
-        // Check if user has super_admin or admin role
-        foreach ($user_roles as $role) {
-            $role_name = strtolower($role['name']);
-            // Super admin can see all users
-            if ($role_name === 'super_admin') {
-                return true;
-            }
-            // Admin and HR roles can see most users
-            if (in_array($role_name, ['admin', 'hr', 'human_resources'])) {
-                return 'limited'; // Return 'limited' for partial access
-            }
-        }
-
-        return false;
     }
     public function index()
     {
@@ -152,38 +123,10 @@ class User extends BaseController
         $user_id = $data['user']['id'];
 
         // Use permission-based filtering instead of hardcoded roles
-        $access_level = $this->can_view_all_users($user_id);
-
-        if ($access_level === true) {
-            // Full access - see all users
-            $query = $this->mymodel->selectWithQuery("SELECT COUNT(id) AS count
-            FROM user
-            WHERE $qry
-            ");
-        } else if ($access_level === 'limited') {
-            // Limited access - see users except super_admin and admin roles
-            // Get super_admin and admin role IDs from roles table
-            $restricted_roles = $this->mymodel->selectWithQuery("
-                SELECT GROUP_CONCAT(id) as role_ids
-                FROM roles
-                WHERE name IN ('super_admin', 'admin') AND is_active = 1
-            ");
-
-            $restricted_role_ids = !empty($restricted_roles) && $restricted_roles[0]['role_ids']
-                ? $restricted_roles[0]['role_ids']
-                : "'999999'"; // Non-existent ID as fallback
-
-            $query = $this->mymodel->selectWithQuery("SELECT COUNT(id) AS count
-            FROM user
-            WHERE $qry AND role NOT IN ($restricted_role_ids)
-            ");
-        } else {
-            // No access - only see own profile
-            $query = $this->mymodel->selectWithQuery("SELECT COUNT(id) AS count
-            FROM user
-            WHERE $qry AND id = '$user_id'
-            ");
-        }
+        $query = $this->mymodel->selectWithQuery("SELECT COUNT(id) AS count
+        FROM user
+        WHERE $qry
+        ");
 
         $data['page'] = CEIL($query[0]['count'] / 10);
 
@@ -260,44 +203,12 @@ class User extends BaseController
         $user_id = $data['user']['id'];
 
         // Use permission-based filtering instead of hardcoded roles
-        $access_level = $this->can_view_all_users($user_id);
-
-        if ($access_level === true) {
-            // Full access - see all users
-            $query = $this->mymodel->selectWithQuery("SELECT u.*, up.jenis_kontrak, up.lama_kontrak FROM user u
-            LEFT JOIN user_profile up ON u.id = up.user_id
-            WHERE $qry
-            ORDER BY u.full_name ASC
-            LIMIT $offset, $limit
-            ");
-        } else if ($access_level === 'limited') {
-            // Limited access - see users except super_admin and admin roles
-            // Get super_admin and admin role IDs from roles table
-            $restricted_roles = $this->mymodel->selectWithQuery("
-                SELECT GROUP_CONCAT(id) as role_ids
-                FROM roles
-                WHERE name IN ('super_admin', 'admin') AND is_active = 1
-            ");
-
-            $restricted_role_ids = !empty($restricted_roles) && $restricted_roles[0]['role_ids']
-                ? $restricted_roles[0]['role_ids']
-                : "'999999'"; // Non-existent ID as fallback
-
-            $query = $this->mymodel->selectWithQuery("SELECT u.*, up.jenis_kontrak, up.lama_kontrak FROM user u
-            LEFT JOIN user_profile up ON u.id = up.user_id
-            WHERE $qry AND u.role NOT IN ($restricted_role_ids)
-            ORDER BY u.full_name ASC
-            LIMIT $offset, $limit
-            ");
-        } else {
-            // No access - only see own profile
-            $query = $this->mymodel->selectWithQuery("SELECT u.*, up.jenis_kontrak, up.lama_kontrak FROM user u
-            LEFT JOIN user_profile up ON u.id = up.user_id
-            WHERE $qry AND u.id = '$user_id'
-            ORDER BY u.full_name ASC
-            LIMIT $offset, $limit
-            ");
-        }
+        $query = $this->mymodel->selectWithQuery("SELECT u.*, up.jenis_kontrak, up.lama_kontrak FROM user u
+        LEFT JOIN user_profile up ON u.id = up.user_id
+        WHERE $qry
+        ORDER BY u.full_name ASC
+        LIMIT $offset, $limit
+        ");
 
 
         $data['data'] = $query;
@@ -314,14 +225,7 @@ class User extends BaseController
 
         $data['data'] = $query[0];
 
-        $data['user'] = $_SESSION['user'];
-        if (in_array($data['user']['role'], array('1'))) {
-            $query = $this->mymodel->selectWithQuery("SELECT * FROM role ORDER BY id ASC");
-        } else if (in_array($data['user']['role'], array('2', '7'))) {
-            $query = $this->mymodel->selectWithQuery("SELECT * FROM role WHERE id NOT IN ('1','2') ORDER BY id ASC");
-        }
-
-        $data['role'] = $query;
+        $data['role'] = $this->get_assignable_roles();
 
         $this->load->view("user/edit", $data);
     }
@@ -341,21 +245,7 @@ class User extends BaseController
         $data['user'] = $_SESSION['user'];
         $user_id = $data['user']['id'];
 
-        // Use permission-based role filtering
-        $access_level = $this->can_view_all_users($user_id);
-
-        if ($access_level === true) {
-            // Super Admin can assign any role
-            $query = $this->mymodel->selectWithQuery("SELECT id, name, display_name FROM roles WHERE is_active = 1 ORDER BY display_name ASC");
-        } else if ($access_level === 'limited') {
-            // Admin and HR can assign most roles (excluding super_admin)
-            $query = $this->mymodel->selectWithQuery("SELECT id, name, display_name FROM roles WHERE is_active = 1 AND name != 'super_admin' ORDER BY display_name ASC");
-        } else {
-            // Other users cannot assign roles
-            $query = [];
-        }
-
-        $data['role'] = $query;
+        $data['role'] = $this->get_assignable_roles();
 
         // Get positions for profile dropdown
         $data['positions'] = $this->mymodel->selectWithQuery("SELECT p.*, ql.name as level_name FROM positions p LEFT JOIN quest_levels ql ON p.level_id = ql.id ORDER BY ql.id ASC, p.name ASC");
@@ -495,13 +385,7 @@ class User extends BaseController
         $data['data'] = array();
 
         $data['user'] = $_SESSION['user'];
-        if (in_array($data['user']['role'], array('1'))) {
-            $query = $this->mymodel->selectWithQuery("SELECT * FROM role ORDER BY id ASC");
-        } else if (in_array($data['user']['role'], array('2', '7'))) {
-            $query = $this->mymodel->selectWithQuery("SELECT * FROM role WHERE id NOT IN ('1','2') ORDER BY id ASC");
-        }
-
-        $data['role'] = $query;
+        $data['role'] = $this->get_assignable_roles();
 
         $this->load->view("user/create", $data);
     }
@@ -513,21 +397,7 @@ class User extends BaseController
         $data['user'] = $_SESSION['user'];
         $user_id = $data['user']['id'];
 
-        // Use permission-based role filtering
-        $access_level = $this->can_view_all_users($user_id);
-
-        if ($access_level === true) {
-            // Super Admin can assign any role
-            $query = $this->mymodel->selectWithQuery("SELECT id, name, display_name FROM roles WHERE is_active = 1 ORDER BY display_name ASC");
-        } else if ($access_level === 'limited') {
-            // Admin and HR can assign most roles (excluding super_admin)
-            $query = $this->mymodel->selectWithQuery("SELECT id, name, display_name FROM roles WHERE is_active = 1 AND name != 'super_admin' ORDER BY display_name ASC");
-        } else {
-            // Other users cannot assign roles
-            $query = [];
-        }
-
-        $data['role'] = $query;
+        $data['role'] = $this->get_assignable_roles();
 
         // Get positions for profile dropdown
         $data['positions'] = $this->mymodel->selectWithQuery("SELECT p.*, ql.name as level_name FROM positions p LEFT JOIN quest_levels ql ON p.level_id = ql.id ORDER BY ql.id ASC, p.name ASC");

@@ -36,12 +36,6 @@ class Modules extends BaseController
     public function index()
     {
         $data['user'] = $_SESSION['user'];
-        $user_id = $data['user']['id'];
-        
-        // Check if user has permission (Super Admin only)
-        if (!in_array($data['user']['role'], array('1'))) {
-            redirect(base_url() . 'dashboard');
-        }
         
         sidebar_registry_sync($this);
 
@@ -753,7 +747,7 @@ class Modules extends BaseController
             'System Management' => array('dashboard', 'profile', 'modules', 'roles'),
             'HR Management' => array(
                 'hr_management',
-                'attendance', 'leave', 'leave_approvals', 'leave_types', 'leave_quotas',
+                'attendance', 'attendance_report', 'leave', 'leave_approvals', 'overtime_approvals', 'leave_types', 'leave_quotas',
                 'approval_routes', 'holidays', 'attendance_settings', 'offices',
                 'performance_admin',
                 'quest', 'quest_level', 'position', 'benefit', 'milestone',

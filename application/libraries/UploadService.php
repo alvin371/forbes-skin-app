@@ -92,6 +92,19 @@ class UploadService
                     'overwrite' => false,
                 );
 
+            case 'attendance':
+                if ($subdir === '') {
+                    return array('error' => 'Attendance upload subdirectory is required.');
+                }
+
+                return array(
+                    'relative_dir' => 'writable/uploads/attendance/' . $subdir,
+                    'allowed_types' => 'pdf|jpg|jpeg|png',
+                    'max_size' => self::DEFAULT_MAX_SIZE_KB,
+                    'encrypt_name' => true,
+                    'overwrite' => false,
+                );
+
             case 'hrms_profile':
                 return array(
                     'relative_dir' => 'assets/uploads/profile',

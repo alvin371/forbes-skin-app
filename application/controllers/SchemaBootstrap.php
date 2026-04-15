@@ -44,6 +44,16 @@ class SchemaBootstrap extends CI_Controller
                 $this->db->query("ALTER TABLE attendance_logs ADD COLUMN special_schedule TINYINT(1) NOT NULL DEFAULT 0");
                 $results[] = 'attendance_logs.special_schedule added';
             }
+
+            if (!$this->db->field_exists('attendance_reason', 'attendance_logs')) {
+                $this->db->query("ALTER TABLE attendance_logs ADD COLUMN attendance_reason TEXT NULL");
+                $results[] = 'attendance_logs.attendance_reason added';
+            }
+
+            if (!$this->db->field_exists('attachment_path', 'attendance_logs')) {
+                $this->db->query("ALTER TABLE attendance_logs ADD COLUMN attachment_path VARCHAR(255) NULL");
+                $results[] = 'attendance_logs.attachment_path added';
+            }
         }
 
         if ($this->db->table_exists('offices')) {
@@ -358,6 +368,15 @@ class SchemaBootstrap extends CI_Controller
                 'type' => 'TINYINT',
                 'constraint' => 1,
                 'default' => 0,
+            ),
+            'attendance_reason' => array(
+                'type' => 'TEXT',
+                'null' => TRUE,
+            ),
+            'attachment_path' => array(
+                'type' => 'VARCHAR',
+                'constraint' => 255,
+                'null' => TRUE,
             ),
             'created_at' => array(
                 'type' => 'DATETIME',

@@ -1,25 +1,33 @@
 <?php
 defined('BASEPATH') or exit('No direct script access allowed');
 
-class Milestone extends CI_Controller
+require_once APPPATH . 'core/BaseController.php';
+
+class Milestone extends BaseController
 {
     public function __construct()
     {
         parent::__construct();
         $this->load->database();
         $this->load->model('mymodel');
+        $this->load->library('permission');
         $this->load->library('template');
+
+        $this->set_public_methods([]);
+        $this->set_method_permissions([
+            'milestone_create_page' => 'create',
+            'initialize_stats' => 'edit',
+            'claimable_milestone' => 'edit',
+            'claimable_milestone_item' => 'edit',
+            'approve_claim' => 'approve',
+            'mark_delivered' => 'edit',
+        ]);
     }
 
     public function index()
     {
         $data['user'] = $_SESSION['user'];
         
-        // Check if user has permission (only HR/Admin roles 1 and 2)
-        if (!in_array($data['user']['role'], array('1', '2'))) {
-            redirect(base_url() . 'dashboard');
-        }
-
         $data['title'] = 'Milestone & Leaderboard - ' . $this->template->title();
         $data['content'] = $this->load->view("milestone/index", $data, true);
         $this->load->view("TemplateDashboard", $data);
@@ -112,10 +120,6 @@ class Milestone extends CI_Controller
     {
         $data['user'] = $_SESSION['user'];
         
-        if (!in_array($data['user']['role'], array('1', '2'))) {
-            redirect(base_url() . 'dashboard');
-        }
-
         $data['data'] = array();
         $data['title'] = 'Tambah Milestone Quest - ' . $this->template->title();
         $data['content'] = $this->load->view("milestone/milestone_create", $data, true);
@@ -436,8 +440,7 @@ class Milestone extends CI_Controller
     {
         $user = $_SESSION['user'];
         
-        // Check if user has permission (only HR/Admin roles 1 and 2)
-        if (!in_array($user['role'], array('1', '2'))) {
+        if (!$this->permission->check_permission($user['id'], 'milestone', 'edit')) {
             echo $this->template->alert_danger('Access denied! Only HR/Admin can initialize stats.');
             return;
         }
@@ -521,8 +524,7 @@ class Milestone extends CI_Controller
         $data['user'] = $_SESSION['user'];
         $data['template'] = $this->template;
         
-        // Check if user has permission (only HR/Admin roles 1 and 2)
-        if (!in_array($data['user']['role'], array('1', '2'))) {
+        if (!$this->permission->check_permission($data['user']['id'], 'milestone', 'edit')) {
             redirect(base_url() . 'dashboard');
         }
 
@@ -666,8 +668,7 @@ class Milestone extends CI_Controller
     {
         $user = $_SESSION['user'];
         
-        // Check if user has permission (only HR/Admin roles 1 and 2)
-        if (!in_array($user['role'], array('1', '2'))) {
+        if (!$this->permission->check_permission($user['id'], 'milestone', 'approve')) {
             echo $this->template->alert_danger('Anda tidak memiliki akses untuk menyetujui claim milestone.');
             return;
         }
@@ -746,8 +747,7 @@ class Milestone extends CI_Controller
     {
         $user = $_SESSION['user'];
         
-        // Check if user has permission (only HR/Admin roles 1 and 2)
-        if (!in_array($user['role'], array('1', '2'))) {
+        if (!$this->permission->check_permission($user['id'], 'milestone', 'edit')) {
             echo $this->template->alert_danger('Anda tidak memiliki akses untuk menandai milestone sebagai terkirim.');
             return;
         }

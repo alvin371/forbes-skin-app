@@ -29,7 +29,17 @@ Response 200:
     "id": 123,
     "name": "Jane Doe",
     "email": "user@example.com",
-    "role": "HR"
+    "role": "HR",
+    "role_id": 7,
+    "role_name": "Human Resources",
+    "position_id": 15,
+    "position_name": "Senior Recruiter",
+    "schedule": {
+      "start_time": "08:00",
+      "end_time": "17:00",
+      "source": "office",
+      "special_schedule": false
+    }
   }
 }
 ```
@@ -58,7 +68,17 @@ Response 200:
   "id": 123,
   "name": "Jane Doe",
   "email": "user@example.com",
-  "role": "HR"
+  "role": "HR",
+  "role_id": 7,
+  "role_name": "Human Resources",
+  "position_id": 15,
+  "position_name": "Senior Recruiter",
+  "schedule": {
+    "start_time": "08:00",
+    "end_time": "17:00",
+    "source": "office",
+    "special_schedule": false
+  }
 }
 ```
 
@@ -77,7 +97,17 @@ Response 200:
   "id": 123,
   "name": "Jane Updated",
   "email": "jane.updated@example.com",
-  "role": "HR"
+  "role": "HR",
+  "role_id": 7,
+  "role_name": "Human Resources",
+  "position_id": 15,
+  "position_name": "Senior Recruiter",
+  "schedule": {
+    "start_time": "08:00",
+    "end_time": "17:00",
+    "source": "office",
+    "special_schedule": false
+  }
 }
 ```
 
@@ -246,6 +276,7 @@ Response 200:
 ```json
 {
   "ok": true,
+  "attendance_log_id": 101,
   "type": "IN",
   "distanceMeters": 120.12,
   "notes": [
@@ -272,6 +303,8 @@ Response 200:
 }
 ```
 
+If `flags.late` is `true`, submit the follow-up reason to `POST /attendance/{attendance_log_id}/reason`.
+
 ### POST /attendance/check-out
 Request:
 ```json
@@ -289,6 +322,7 @@ Response 200:
 ```json
 {
   "ok": true,
+  "attendance_log_id": 102,
   "type": "OUT",
   "distanceMeters": 120.12,
   "notes": [
@@ -311,6 +345,35 @@ Response 200:
   "office": {
     "id": 1,
     "name": "HQ Office"
+  }
+}
+```
+
+If `flags.early_checkout` is `true`, submit the follow-up reason to `POST /attendance/{attendance_log_id}/reason`.
+
+### POST /attendance/{id}/reason
+Request:
+```json
+{
+  "reason": "Traffic was unusually heavy this morning."
+}
+```
+
+Request with optional attachment: `multipart/form-data`
+- `reason`: string, required
+- `attachment`: file, optional
+
+Response 200:
+```json
+{
+  "ok": true,
+  "id": 101,
+  "type": "IN",
+  "reason": "Traffic was unusually heavy this morning.",
+  "attachmentPath": "https://example.com/api/hrms/files/attendance/101/proof.png",
+  "flags": {
+    "late": true,
+    "early_checkout": false
   }
 }
 ```

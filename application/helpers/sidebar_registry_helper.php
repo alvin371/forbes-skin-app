@@ -203,6 +203,13 @@ if (!function_exists('sidebar_registry')) {
                 'sort_order' => 530,
                 'permissions' => ['view', 'approve'],
             ],
+            'overtime_approvals' => [
+                'display_name' => 'OVERTIME APPROVALS',
+                'controller' => 'overtimeapprovalcontroller',
+                'category' => 'HR Management',
+                'sort_order' => 535,
+                'permissions' => ['view', 'approve'],
+            ],
             'offices' => [
                 'display_name' => 'OFFICES',
                 'controller' => 'offices',

@@ -29,6 +29,7 @@ class Api_hrms extends CI_Controller
         $this->load->library('RequestNoGenerator');
         $this->load->library('ApprovalWorkflowEngine');
         $this->load->library('LeaveQuotaService');
+        $this->load->library('permission');
         $this->load->library('UploadService');
         $this->load->helper('attendance');
     }
@@ -399,6 +400,77 @@ class Api_hrms extends CI_Controller
         return $this->attendance_check('OUT');
     }
 
+    public function attendance_reason($id = null)
+    {
+        if ($this->input->method(TRUE) !== 'POST') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        $attendanceLogId = (int) $id;
+        if ($attendanceLogId <= 0) {
+            return $this->respond(400, array('message' => 'Attendance log ID is required.'));
+        }
+
+        $log = $this->db->get_where('attendance_logs', array(
+            'id' => $attendanceLogId,
+            'user_id' => (int) $user['id'],
+        ))->row_array();
+        if (!$log) {
+            return $this->respond(404, array('message' => 'Attendance log not found.'));
+        }
+
+        $context = $this->attendance_reason_context($log, $user);
+        if (empty($context['flags']['late']) && empty($context['flags']['early_checkout'])) {
+            return $this->respond(409, array('message' => 'Reason can only be submitted for late check-in or early checkout.'));
+        }
+
+        $payload = $this->json_input();
+        $reason = trim((string) ($payload['reason'] ?? ''));
+        $attachmentPath = trim((string) ($payload['attachment_path'] ?? $payload['attachment'] ?? ''));
+
+        $errors = array();
+        if ($reason === '') {
+            $errors['reason'] = 'Reason is required.';
+        }
+        if (!empty($errors)) {
+            return $this->respond(422, array('message' => 'Validation failed.', 'errors' => $errors));
+        }
+
+        if (!empty($_FILES['attachment']['name'])) {
+            $upload = $this->handle_attendance_attachment_upload($attendanceLogId, 'attachment');
+            if (isset($upload['error'])) {
+                return $this->respond(422, array(
+                    'message' => 'Attachment upload failed.',
+                    'errors' => array('attachment' => $upload['error']),
+                ));
+            }
+            $attachmentPath = $upload['path'];
+        } elseif ($attachmentPath === '') {
+            $attachmentPath = $log['attachment_path'] ?? null;
+        }
+
+        $updateData = array(
+            'attendance_reason' => $reason,
+            'attachment_path' => $attachmentPath !== '' ? $attachmentPath : null,
+        );
+
+        $this->db->where('id', $attendanceLogId)->update('attendance_logs', $updateData);
+
+        return $this->respond(200, array(
+            'ok' => true,
+            'id' => $attendanceLogId,
+            'type' => $log['type'],
+            'reason' => $reason,
+            'attachmentPath' => $this->absolute_attachment_url($updateData['attachment_path']),
+            'flags' => $context['flags'],
+        ));
+    }
+
     public function attendance_history()
     {
         if ($this->input->method(TRUE) !== 'GET') {
@@ -455,8 +527,8 @@ class Api_hrms extends CI_Controller
             return null;
         }
 
-        if (!$this->is_admin_hr_user($user['id'])) {
-            return $this->respond(403, array('message' => 'Not authorized.'));
+        if (!$this->require_module_permission($user['id'], 'attendance_report', 'edit')) {
+            return null;
         }
 
         $month = $this->input->get('month', TRUE);
@@ -609,7 +681,7 @@ class Api_hrms extends CI_Controller
 
     public function uploaded_file($scope = null)
     {
-        $allowedScopes = array('leaves', 'overtime');
+        $allowedScopes = array('leaves', 'overtime', 'attendance');
         if (!in_array($scope, $allowedScopes, true)) {
             show_404();
             return;
@@ -1424,8 +1496,11 @@ class Api_hrms extends CI_Controller
             return $this->respond(500, array('message' => 'Failed to store attendance log.'));
         }
 
+        $attendanceLogId = (int) $this->db->insert_id();
+
         return $this->respond(200, array(
             'ok' => true,
+            'attendance_log_id' => $attendanceLogId,
             'type' => $type,
             'distanceMeters' => round($distance, 2),
             'notes' => $noteData['notes'],
@@ -1498,6 +1573,11 @@ class Api_hrms extends CI_Controller
     private function handle_attachment_upload($requestNo, $fieldName)
     {
         return $this->uploadservice->upload('leave', $fieldName, array('subdir' => $requestNo));
+    }
+
+    private function handle_attendance_attachment_upload($attendanceLogId, $fieldName)
+    {
+        return $this->uploadservice->upload('attendance', $fieldName, array('subdir' => (string) ((int) $attendanceLogId)));
     }
 
     private function handle_hrms_upload($uploadDir, $relativeBase, $fieldName)
@@ -1587,6 +1667,16 @@ class Api_hrms extends CI_Controller
         return $user;
     }
 
+    private function require_module_permission($userId, $moduleName, $action = 'view')
+    {
+        if ($this->permission->check_permission((int) $userId, $moduleName, $action)) {
+            return true;
+        }
+
+        $this->respond(403, array('message' => 'Not authorized.'));
+        return false;
+    }
+
     /**
      * Get user AND JWT payload with role_id (for performance API)
      */
@@ -1621,6 +1711,16 @@ class Api_hrms extends CI_Controller
     private function user_response($user)
     {
         $employeeRole = $this->Performance_model->get_employee_primary_role($user['id']);
+        $position = $this->db
+            ->select('up.position_id, p.name as position_name')
+            ->from('user_profile up')
+            ->join('positions p', 'p.id = up.position_id', 'left')
+            ->where('up.user_id', (int) $user['id'])
+            ->limit(1)
+            ->get()
+            ->row_array();
+        $office = $this->Office_model->get_active_office();
+        $schedule = $this->resolve_attendance_times($office, $user);
 
         return array(
             'id' => (int) $user['id'],
@@ -1629,6 +1729,14 @@ class Api_hrms extends CI_Controller
             'role' => $user['role_text'] ?? ($user['role'] ?? null),
             'role_id' => $employeeRole ? (int) $employeeRole['id'] : null,
             'role_name' => $employeeRole['display_name'] ?? null,
+            'position_id' => isset($position['position_id']) ? (int) $position['position_id'] : null,
+            'position_name' => $position['position_name'] ?? null,
+            'schedule' => array(
+                'start_time' => $schedule['start'],
+                'end_time' => $schedule['end'],
+                'source' => $schedule['source'],
+                'special_schedule' => $schedule['source'] === 'user',
+            ),
         );
     }
 
@@ -1879,48 +1987,6 @@ class Api_hrms extends CI_Controller
         return false;
     }
 
-    private function is_admin_hr_user($userId)
-    {
-        $userId = (int) $userId;
-        try {
-            $rolesTable = $this->db->query("SHOW TABLES LIKE 'roles'")->result_array();
-            $userRolesTable = $this->db->query("SHOW TABLES LIKE 'user_roles'")->result_array();
-
-            if (!empty($rolesTable) && !empty($userRolesTable)) {
-                $roles = $this->db->query("
-                    SELECT r.name
-                    FROM user_roles ur
-                    INNER JOIN roles r ON ur.role_id = r.id
-                    WHERE ur.user_id = ? AND r.is_active = 1
-                ", array($userId))->result_array();
-
-                foreach ($roles as $role) {
-                    $name = strtolower((string) $role['name']);
-                    if (in_array($name, array('super_admin', 'admin', 'hr', 'human_resources'), true)) {
-                        return true;
-                    }
-                }
-            }
-        } catch (Exception $e) {
-            // fall through
-        }
-
-        $legacy = $this->db->query("SELECT role, role_text FROM user WHERE id = ? LIMIT 1", array($userId))->row_array();
-        if ($legacy) {
-            if (isset($legacy['role']) && in_array((string) $legacy['role'], array('1', '2', '7'), true)) {
-                return true;
-            }
-            if (!empty($legacy['role_text'])) {
-                $roleText = strtolower((string) $legacy['role_text']);
-                if (strpos($roleText, 'admin') !== false || strpos($roleText, 'hr') !== false) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
     private function user_requires_attendance($userId)
     {
         $allowed = $this->AttendanceSettingsModel->get_allowed_role_ids();
@@ -2061,6 +2127,10 @@ class Api_hrms extends CI_Controller
                 'last_out' => $lastOut,
                 'late' => $isLate,
                 'early_checkout' => $isEarlyCheckout,
+                'late_reason' => $isLate ? ($dayLogs['first_in_reason'] ?? null) : null,
+                'late_attachment_path' => $isLate ? $this->absolute_attachment_url($dayLogs['first_in_attachment_path'] ?? null) : null,
+                'early_checkout_reason' => $isEarlyCheckout ? ($dayLogs['last_out_reason'] ?? null) : null,
+                'early_checkout_attachment_path' => $isEarlyCheckout ? $this->absolute_attachment_url($dayLogs['last_out_attachment_path'] ?? null) : null,
                 'holiday_name' => $holidayName,
                 'notes' => $notes,
             );
@@ -2088,7 +2158,7 @@ class Api_hrms extends CI_Controller
     private function get_attendance_logs($userId, $startDate, $endDate)
     {
         $rows = $this->db->query("
-            SELECT type, created_at
+            SELECT type, created_at, attendance_reason, attachment_path
             FROM attendance_logs
             WHERE user_id = ? AND created_at >= ? AND created_at <= ?
             ORDER BY created_at ASC
@@ -2101,16 +2171,24 @@ class Api_hrms extends CI_Controller
                 $logs[$day] = array(
                     'first_in' => null,
                     'last_out' => null,
+                    'first_in_reason' => null,
+                    'last_out_reason' => null,
+                    'first_in_attachment_path' => null,
+                    'last_out_attachment_path' => null,
                 );
             }
             if ($row['type'] === 'IN') {
                 if ($logs[$day]['first_in'] === null || $row['created_at'] < $logs[$day]['first_in']) {
                     $logs[$day]['first_in'] = $row['created_at'];
+                    $logs[$day]['first_in_reason'] = $row['attendance_reason'] ?? null;
+                    $logs[$day]['first_in_attachment_path'] = $row['attachment_path'] ?? null;
                 }
             }
             if ($row['type'] === 'OUT') {
                 if ($logs[$day]['last_out'] === null || $row['created_at'] > $logs[$day]['last_out']) {
                     $logs[$day]['last_out'] = $row['created_at'];
+                    $logs[$day]['last_out_reason'] = $row['attendance_reason'] ?? null;
+                    $logs[$day]['last_out_attachment_path'] = $row['attachment_path'] ?? null;
                 }
             }
         }
@@ -2286,6 +2364,55 @@ class Api_hrms extends CI_Controller
             'flags' => $flags,
             'minutes' => $minutes,
         );
+    }
+
+    private function attendance_reason_context($log, $user)
+    {
+        $notes = $this->decode_attendance_notes($log['notes'] ?? null);
+        $flags = array(
+            'late' => false,
+            'early_checkout' => false,
+        );
+
+        foreach ($notes as $note) {
+            $note = strtolower(trim((string) $note));
+            if (strpos($note, 'late check-in by') === 0) {
+                $flags['late'] = true;
+            }
+            if (strpos($note, 'early checkout by') === 0) {
+                $flags['early_checkout'] = true;
+            }
+        }
+
+        if (!$flags['late'] && !$flags['early_checkout']) {
+            $office = !empty($log['office_id']) ? $this->Office_model->get_by_id((int) $log['office_id']) : null;
+            $computed = $this->build_attendance_notes($log['type'], $log['created_at'], ($this->resolve_attendance_times($office, $user))['start'], ($this->resolve_attendance_times($office, $user))['end']);
+            $flags = $computed['flags'];
+        }
+
+        return array(
+            'notes' => $notes,
+            'flags' => $flags,
+        );
+    }
+
+    private function decode_attendance_notes($notesValue)
+    {
+        if (is_array($notesValue)) {
+            return array_values($notesValue);
+        }
+
+        $notesValue = trim((string) $notesValue);
+        if ($notesValue === '') {
+            return array();
+        }
+
+        $decoded = json_decode($notesValue, true);
+        if (is_array($decoded)) {
+            return array_values($decoded);
+        }
+
+        return array($notesValue);
     }
 
     private function build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout)
@@ -2809,6 +2936,10 @@ class Api_hrms extends CI_Controller
             return null;
         }
 
+        if (!$this->require_module_permission($user['id'], 'overtime_approvals', 'view')) {
+            return null;
+        }
+
         $this->load->model('OvertimeApprovalStepModel');
 
         $steps = $this->OvertimeApprovalStepModel->get_pending_for_approver((int) $user['id']);
@@ -2850,6 +2981,10 @@ class Api_hrms extends CI_Controller
             return null;
         }
 
+        if (!$this->require_module_permission($user['id'], 'overtime_approvals', 'view')) {
+            return null;
+        }
+
         $this->load->model('OvertimeApprovalStepModel');
 
         $count = $this->OvertimeApprovalStepModel->count_pending_for_approver((int) $user['id']);
@@ -2869,6 +3004,10 @@ class Api_hrms extends CI_Controller
 
         $user = $this->require_user();
         if (!$user) {
+            return null;
+        }
+
+        if (!$this->require_module_permission($user['id'], 'overtime_approvals', 'approve')) {
             return null;
         }
 
@@ -2908,6 +3047,10 @@ class Api_hrms extends CI_Controller
 
         $user = $this->require_user();
         if (!$user) {
+            return null;
+        }
+
+        if (!$this->require_module_permission($user['id'], 'overtime_approvals', 'approve')) {
             return null;
         }
 
@@ -2953,6 +3096,10 @@ class Api_hrms extends CI_Controller
 
         $user = $this->require_user();
         if (!$user) {
+            return null;
+        }
+
+        if (!$this->require_module_permission($user['id'], 'overtime_approvals', 'view')) {
             return null;
         }
 

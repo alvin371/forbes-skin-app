@@ -11,8 +11,6 @@ class AttendanceSettingsController extends BaseController
         $this->load->database();
         $this->load->model('AttendanceSettingsModel');
         $this->load->library('template');
-        $this->load->library('HrAdminFilter');
-        $this->hradminfilter->enforce();
     }
 
     public function index()

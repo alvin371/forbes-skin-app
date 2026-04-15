@@ -311,7 +311,7 @@ function updateCategoryDisplay(moduleName) {
         'System Management': ['dashboard', 'profile', 'modules', 'roles', 'settings'],
         'HR Management': [
             'hr_management',
-            'attendance', 'leave', 'leave_approvals', 'leave_types', 'leave_quotas',
+            'attendance', 'attendance_report', 'leave', 'leave_approvals', 'overtime_approvals', 'leave_types', 'leave_quotas',
             'approval_routes', 'holidays', 'attendance_settings', 'offices',
             'performance_admin',
             'quest', 'quest_level', 'position', 'benefit', 'milestone',
