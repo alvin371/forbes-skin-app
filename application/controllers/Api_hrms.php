@@ -2242,6 +2242,106 @@ class Api_hrms extends CI_Controller
         return $list;
     }
 
+    private function extract_wifi_proof_from_query()
+    {
+        $wifiProofRaw = $this->input->get('wifi_proof', FALSE);
+        if ($wifiProofRaw !== null && trim((string) $wifiProofRaw) !== '') {
+            $decoded = json_decode((string) $wifiProofRaw, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                return $this->normalize_wifi_proof($decoded);
+            }
+            return $this->normalize_wifi_proof($wifiProofRaw);
+        }
+
+        $proof = array();
+        $bssid = $this->input->get('bssid', FALSE);
+        $ssid = $this->input->get('ssid', FALSE);
+        $bssids = $this->input->get('bssids', FALSE);
+        $ssids = $this->input->get('ssids', FALSE);
+
+        if ($bssid !== null && trim((string) $bssid) !== '') {
+            $proof['bssid'] = $bssid;
+        }
+        if ($ssid !== null && trim((string) $ssid) !== '') {
+            $proof['ssid'] = $ssid;
+        }
+        if ($bssids !== null && trim((string) $bssids) !== '') {
+            $proof['bssids'] = $this->parse_csv_list($bssids);
+        }
+        if ($ssids !== null && trim((string) $ssids) !== '') {
+            $proof['ssids'] = $this->parse_csv_list($ssids);
+        }
+
+        return empty($proof) ? null : $this->normalize_wifi_proof($proof);
+    }
+
+    private function normalize_wifi_proof($wifiProof)
+    {
+        if ($wifiProof === null) {
+            return null;
+        }
+
+        if (is_string($wifiProof)) {
+            $wifiProof = trim($wifiProof);
+            return $wifiProof === '' ? null : $wifiProof;
+        }
+
+        if (!is_array($wifiProof)) {
+            return null;
+        }
+
+        $normalized = array();
+        if (isset($wifiProof['bssid']) && trim((string) $wifiProof['bssid']) !== '') {
+            $normalized['bssid'] = trim((string) $wifiProof['bssid']);
+        }
+        if (isset($wifiProof['ssid']) && trim((string) $wifiProof['ssid']) !== '') {
+            $normalized['ssid'] = trim((string) $wifiProof['ssid']);
+        }
+        if (isset($wifiProof['bssids']) && is_array($wifiProof['bssids'])) {
+            $values = array();
+            foreach ($wifiProof['bssids'] as $value) {
+                $value = trim((string) $value);
+                if ($value !== '') {
+                    $values[] = $value;
+                }
+            }
+            if (!empty($values)) {
+                $normalized['bssids'] = $values;
+            }
+        }
+        if (isset($wifiProof['ssids']) && is_array($wifiProof['ssids'])) {
+            $values = array();
+            foreach ($wifiProof['ssids'] as $value) {
+                $value = trim((string) $value);
+                if ($value !== '') {
+                    $values[] = $value;
+                }
+            }
+            if (!empty($values)) {
+                $normalized['ssids'] = $values;
+            }
+        }
+
+        return empty($normalized) ? null : $normalized;
+    }
+
+    private function parse_csv_list($text)
+    {
+        if (is_array($text)) {
+            $items = $text;
+        } else {
+            $items = preg_split('/\r\n|\r|\n|,/', (string) $text);
+        }
+        $result = array();
+        foreach ($items as $item) {
+            $item = trim($item);
+            if ($item !== '') {
+                $result[] = $item;
+            }
+        }
+        return $result;
+    }
+
     private function has_wifi_rules($office)
     {
         $allowedBssids = $office['allowed_bssids'] ?? '';
