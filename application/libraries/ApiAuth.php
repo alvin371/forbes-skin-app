@@ -49,11 +49,11 @@ class ApiAuth
     {
         $header = $this->CI->input->get_request_header('Authorization', true);
         if (!$header) {
-            return null;
+            return $this->authenticate_from_session();
         }
 
         if (stripos($header, 'Bearer ') !== 0) {
-            return null;
+            return $this->authenticate_from_session();
         }
 
         $token = trim(substr($header, 7));
@@ -72,6 +72,16 @@ class ApiAuth
         }
 
         return $user;
+    }
+
+    private function authenticate_from_session()
+    {
+        $sessionUser = $_SESSION['user'] ?? null;
+        if (!is_array($sessionUser) || empty($sessionUser['id'])) {
+            return null;
+        }
+
+        return $this->CI->db->get_where('user', array('id' => (int) $sessionUser['id']))->row_array();
     }
 
     public function generate_access_token($user)

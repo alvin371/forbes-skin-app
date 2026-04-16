@@ -395,9 +395,209 @@ class Api_hrms extends CI_Controller
         return $this->attendance_check('IN');
     }
 
+    public function attendance_out_of_town_check_in()
+    {
+        return $this->attendance_out_of_town_check('IN');
+    }
+
+    public function attendance_out_of_town_check_out()
+    {
+        return $this->attendance_out_of_town_check('OUT');
+    }
+
+    public function attendance_status()
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->user_requires_attendance((int) $user['id'])) {
+            return $this->respond(403, array('message' => 'Attendance is not required for this account.'));
+        }
+
+        $lat = $this->input->get('lat', TRUE);
+        $lng = $this->input->get('lng', TRUE);
+        $accuracy = $this->input->get('accuracy', TRUE);
+        $wifiProof = $this->extract_wifi_proof_from_query();
+
+        $errors = array();
+        if (!is_numeric($lat) || $lat < -90 || $lat > 90) {
+            $errors['lat'] = 'Latitude must be between -90 and 90.';
+        }
+        if (!is_numeric($lng) || $lng < -180 || $lng > 180) {
+            $errors['lng'] = 'Longitude must be between -180 and 180.';
+        }
+        if (!is_numeric($accuracy) || $accuracy < 0) {
+            $errors['accuracy'] = 'Accuracy must be a positive number.';
+        }
+        if (!empty($errors)) {
+            return $this->respond(422, array('message' => 'Validation failed.', 'errors' => $errors));
+        }
+
+        $ipAddress = $this->input->ip_address();
+        $result = $this->attendanceeligibilityservice->evaluate($lat, $lng, $accuracy, $ipAddress, null, $wifiProof);
+        if (isset($result['error'])) {
+            return $this->respond(500, array('message' => 'Active office is not configured.'));
+        }
+
+        $office = $result['office'];
+        $officeRecord = $this->Office_model->get_by_id($office['id']);
+        if ($officeRecord) {
+            $office['allowed_bssids'] = $officeRecord['allowed_bssids'] ?? '';
+            $office['allowed_ip_cidrs'] = $officeRecord['allowed_ip_cidrs'] ?? '';
+            $office['allowed_ssids'] = $officeRecord['allowed_ssids'] ?? '';
+        }
+
+        $hasWifiRules = $this->has_wifi_rules($office);
+        $wifiOk = $this->wifi_proof_ok($office, $wifiProof);
+        $computed = $result['computed'];
+        $reasons = $computed['reasons'] ?? array();
+        if ($hasWifiRules) {
+            $computed['can_confirm'] = !empty($computed['can_confirm']) && $wifiOk;
+            if ($wifiProof === null) {
+                $reasons[] = 'WIFI_REQUIRED';
+            } elseif (!$wifiOk) {
+                $reasons[] = 'WIFI_NOT_ALLOWED';
+            }
+        }
+        $computed['reasons'] = array_values(array_unique($reasons));
+
+        $schedule = $this->resolve_attendance_times($officeRecord ?: $office, $user);
+
+        return $this->respond(200, array(
+            'office' => $result['office'],
+            'user' => $result['user'],
+            'computed' => $computed,
+            'wifi' => array(
+                'has_rules' => $hasWifiRules,
+                'provided' => $wifiProof !== null,
+                'ok' => $hasWifiRules ? $wifiOk : true,
+            ),
+            'schedule' => array(
+                'start_time' => $schedule['start'],
+                'end_time' => $schedule['end'],
+                'late_threshold' => date('H:i', strtotime('2000-01-01 ' . $schedule['start'] . ':00') + 15 * 60),
+                'early_threshold' => date('H:i', strtotime('2000-01-01 ' . $schedule['end'] . ':00') - 15 * 60),
+                'source' => $schedule['source'],
+                'is_special' => $schedule['source'] === 'user',
+            ),
+        ));
+    }
+
     public function attendance_check_out()
     {
         return $this->attendance_check('OUT');
+    }
+
+    private function attendance_out_of_town_check($type)
+    {
+        if ($this->input->method(TRUE) !== 'POST') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->user_requires_attendance((int) $user['id'])) {
+            return $this->respond(403, array('message' => 'Attendance is not required for this account.'));
+        }
+
+        $payload = $this->json_input();
+        $lat = $payload['lat'] ?? null;
+        $lng = $payload['lng'] ?? null;
+        $accuracy = $payload['gpsAccuracy'] ?? $payload['accuracy'] ?? null;
+        $attachmentPathInput = trim((string) ($payload['attachment_path'] ?? $payload['attachmentPath'] ?? $payload['photoPath'] ?? ''));
+
+        $errors = array();
+        if (!is_numeric($lat) || $lat < -90 || $lat > 90) {
+            $errors['lat'] = 'Latitude must be between -90 and 90.';
+        }
+        if (!is_numeric($lng) || $lng < -180 || $lng > 180) {
+            $errors['lng'] = 'Longitude must be between -180 and 180.';
+        }
+        if (!is_numeric($accuracy) || $accuracy < 0) {
+            $errors['gpsAccuracy'] = 'Accuracy must be a positive number.';
+        }
+
+        $proof = $this->validate_out_of_town_proof_path($attachmentPathInput, (int) $user['id']);
+        if (isset($proof['error'])) {
+            $errors['attachment_path'] = $proof['error'];
+        }
+
+        if (!empty($errors)) {
+            return $this->respond(422, array('message' => 'Validation failed.', 'errors' => $errors));
+        }
+
+        if ($this->Attendance_log_model->has_recent_log($user['id'], $this->cooldownSeconds)) {
+            return $this->respond(429, array('message' => 'Please wait before confirming again.'));
+        }
+
+        $ipAddress = $this->input->ip_address();
+        $result = $this->attendanceeligibilityservice->evaluate($lat, $lng, $accuracy, $ipAddress, null, null);
+        if (isset($result['error'])) {
+            return $this->respond(500, array('message' => 'Active office is not configured.'));
+        }
+
+        $office = $result['office'];
+        $officeRecord = $this->Office_model->get_by_id($office['id']);
+        $distance = $result['computed']['distance_m'];
+        $now = date('Y-m-d H:i:s');
+        $schedule = $this->resolve_attendance_times($officeRecord ?: $office, $user);
+        $noteData = $this->build_attendance_notes($type, $now, $schedule['start'], $schedule['end']);
+        $flags = $noteData['flags'];
+        $flags['special_schedule'] = $schedule['source'] === 'user';
+        $insertData = array(
+            'user_id' => (int) $user['id'],
+            'office_id' => (int) $office['id'],
+            'type' => $type,
+            'lat' => (float) $lat,
+            'lng' => (float) $lng,
+            'accuracy' => $accuracy,
+            'distance_m' => (float) $distance,
+            'method' => 'OUT_OF_TOWN+PHOTO',
+            'ip_address' => $ipAddress,
+            'user_agent' => $this->input->user_agent(),
+            'notes' => $noteData['notes'],
+            'special_schedule' => $flags['special_schedule'],
+            'attendance_category' => 'OUT_OF_TOWN',
+            'attachment_path' => $proof['path'],
+            'created_at' => $now,
+        );
+
+        if (!$this->Attendance_log_model->insert($insertData)) {
+            return $this->respond(500, array('message' => 'Failed to store attendance log.'));
+        }
+
+        $attendanceLogId = (int) $this->db->insert_id();
+
+        return $this->respond(200, array(
+            'ok' => true,
+            'attendance_log_id' => $attendanceLogId,
+            'type' => $type,
+            'attendanceCategory' => 'OUT_OF_TOWN',
+            'attendanceCategoryLabel' => $this->attendance_category_label('OUT_OF_TOWN'),
+            'attachmentPath' => $this->absolute_attachment_url($proof['path']),
+            'distanceMeters' => round($distance, 2),
+            'notes' => $noteData['notes'],
+            'flags' => $flags,
+            'minutes' => $noteData['minutes'],
+            'schedule' => array(
+                'start_time' => $schedule['start'],
+                'end_time' => $schedule['end'],
+                'source' => $schedule['source'],
+            ),
+            'office' => array(
+                'id' => (int) $office['id'],
+                'name' => $office['name'],
+            ),
+        ));
     }
 
     public function attendance_reason($id = null)
@@ -430,18 +630,22 @@ class Api_hrms extends CI_Controller
         }
 
         $payload = $this->json_input();
+        $formPayload = $this->input->post(NULL, TRUE);
+        if (is_array($formPayload) && !empty($formPayload)) {
+            $payload = array_merge($formPayload, is_array($payload) ? $payload : array());
+        }
+        $reasonProvided = array_key_exists('reason', $payload);
         $reason = trim((string) ($payload['reason'] ?? ''));
         $attachmentPath = trim((string) ($payload['attachment_path'] ?? $payload['attachment'] ?? ''));
-
-        $errors = array();
-        if ($reason === '') {
-            $errors['reason'] = 'Reason is required.';
-        }
-        if (!empty($errors)) {
-            return $this->respond(422, array('message' => 'Validation failed.', 'errors' => $errors));
-        }
+        $isOutOfTown = $this->is_out_of_town_attendance($log['attendance_category'] ?? null);
 
         if (!empty($_FILES['attachment']['name'])) {
+            if ($isOutOfTown && trim((string) ($log['attachment_path'] ?? '')) !== '') {
+                return $this->respond(422, array(
+                    'message' => 'Out-of-town attendance proof photo cannot be replaced.',
+                    'errors' => array('attachment' => 'Out-of-town attendance proof photo cannot be replaced.'),
+                ));
+            }
             $upload = $this->handle_attendance_attachment_upload($attendanceLogId, 'attachment');
             if (isset($upload['error'])) {
                 return $this->respond(422, array(
@@ -454,8 +658,19 @@ class Api_hrms extends CI_Controller
             $attachmentPath = $log['attachment_path'] ?? null;
         }
 
+        if ($isOutOfTown && trim((string) ($log['attachment_path'] ?? '')) !== '' && $attachmentPath !== '') {
+            $normalizedExisting = $this->normalize_attendance_upload_path($log['attachment_path']);
+            $normalizedIncoming = $this->normalize_attendance_upload_path($attachmentPath);
+            if ($normalizedExisting !== $normalizedIncoming) {
+                return $this->respond(422, array(
+                    'message' => 'Out-of-town attendance proof photo cannot be replaced.',
+                    'errors' => array('attachment_path' => 'Out-of-town attendance proof photo cannot be replaced.'),
+                ));
+            }
+        }
+
         $updateData = array(
-            'attendance_reason' => $reason,
+            'attendance_reason' => $reasonProvided ? ($reason !== '' ? $reason : null) : ($log['attendance_reason'] ?? null),
             'attachment_path' => $attachmentPath !== '' ? $attachmentPath : null,
         );
 
@@ -465,9 +680,10 @@ class Api_hrms extends CI_Controller
             'ok' => true,
             'id' => $attendanceLogId,
             'type' => $log['type'],
-            'reason' => $reason,
+            'reason' => $updateData['attendance_reason'],
             'attachmentPath' => $this->absolute_attachment_url($updateData['attachment_path']),
             'flags' => $context['flags'],
+            'hasReasonOrAttachment' => $this->attendance_has_reason_or_attachment($updateData),
         ));
     }
 
@@ -482,15 +698,56 @@ class Api_hrms extends CI_Controller
             return null;
         }
 
-        $office = $this->Office_model->get_active_office();
+        $month = trim((string) $this->input->get('month', TRUE));
         $items = null;
-        if ($office && !empty($office['attendance_history_days'])) {
-            $startDate = date('Y-m-d H:i:s', strtotime('-' . (int) $office['attendance_history_days'] . ' days'));
-            $items = $this->Attendance_log_model->get_by_user_since($user['id'], $startDate);
+        if ($month !== '' && preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $items = $this->Attendance_log_model->get_by_user_month($user['id'], $month);
         } else {
-            $items = $this->Attendance_log_model->get_by_user($user['id']);
+            $office = $this->Office_model->get_active_office();
+            if ($office && !empty($office['attendance_history_days'])) {
+                $startDate = date('Y-m-d H:i:s', strtotime('-' . (int) $office['attendance_history_days'] . ' days'));
+                $items = $this->Attendance_log_model->get_by_user_since($user['id'], $startDate);
+            } else {
+                $items = $this->Attendance_log_model->get_by_user($user['id']);
+            }
         }
-        return $this->respond(200, array('data' => $items));
+
+        foreach ($items as &$item) {
+            $item = $this->map_attendance_history_item($item, $user);
+        }
+        unset($item);
+
+        return $this->respond(200, array(
+            'month' => $month !== '' ? $month : null,
+            'data' => $items,
+        ));
+    }
+
+    private function map_attendance_history_item($item, $user)
+    {
+        $context = $this->attendance_reason_context($item, $user);
+        $notes = $this->decode_attendance_notes($item['notes'] ?? null);
+
+        $item['notes'] = $notes;
+        $item['flags'] = $context['flags'];
+        $item['attendance_reason'] = isset($item['attendance_reason']) && trim((string) $item['attendance_reason']) !== ''
+            ? trim((string) $item['attendance_reason'])
+            : null;
+        $item['attendanceCategory'] = $this->attendance_category_value($item['attendance_category'] ?? null);
+        $item['attendanceCategoryLabel'] = $this->attendance_category_label($item['attendanceCategory']);
+        $item['isOutOfTown'] = $this->is_out_of_town_attendance($item['attendanceCategory']);
+        $item['attachmentPath'] = $this->absolute_attachment_url($item['attachment_path'] ?? null);
+        $item['hasReasonOrAttachment'] = $this->attendance_has_reason_or_attachment($item);
+        $item['reasonEligible'] = !empty($context['flags']['late']) || !empty($context['flags']['early_checkout']);
+
+        return $item;
+    }
+
+    private function attendance_has_reason_or_attachment($item)
+    {
+        $reason = trim((string) ($item['attendance_reason'] ?? ''));
+        $attachmentPath = trim((string) ($item['attachment_path'] ?? ''));
+        return $reason !== '' || $attachmentPath !== '';
     }
 
     public function attendance_recap()
@@ -645,7 +902,7 @@ class Api_hrms extends CI_Controller
             $type = trim((string) $this->input->get('type', TRUE));
         }
 
-        $allowedTypes = array('leave', 'profile');
+        $allowedTypes = array('attendance', 'leave', 'profile');
         if ($type === '') {
             return $this->respond(400, array('message' => 'type is required.'));
         }
@@ -657,9 +914,9 @@ class Api_hrms extends CI_Controller
             return $this->respond(400, array('message' => 'file is required.'));
         }
 
-        $scope = $type === 'leave' ? 'leave' : 'hrms_profile';
+        $scope = $type === 'leave' ? 'leave' : ($type === 'attendance' ? 'attendance' : 'hrms_profile');
         $options = array();
-        if ($scope === 'leave') {
+        if ($scope === 'leave' || $scope === 'attendance') {
             $options['subdir'] = 'api-upload';
         }
 
@@ -1489,6 +1746,7 @@ class Api_hrms extends CI_Controller
             'user_agent' => $this->input->user_agent(),
             'notes' => $noteData['notes'],
             'special_schedule' => $flags['special_schedule'],
+            'attendance_category' => 'REGULAR',
             'created_at' => $now,
         );
 
@@ -1502,6 +1760,8 @@ class Api_hrms extends CI_Controller
             'ok' => true,
             'attendance_log_id' => $attendanceLogId,
             'type' => $type,
+            'attendanceCategory' => 'REGULAR',
+            'attendanceCategoryLabel' => $this->attendance_category_label('REGULAR'),
             'distanceMeters' => round($distance, 2),
             'notes' => $noteData['notes'],
             'flags' => $flags,
@@ -1760,6 +2020,77 @@ class Api_hrms extends CI_Controller
             default:
                 return $status;
         }
+    }
+
+    private function normalize_attendance_upload_path($path)
+    {
+        $path = trim((string) $path);
+        if ($path === '') {
+            return '';
+        }
+
+        $path = str_replace('\\', '/', $path);
+        if (preg_match('/^https?:\\/\\//i', $path)) {
+            $parsedPath = parse_url($path, PHP_URL_PATH);
+            if (is_string($parsedPath) && $parsedPath !== '') {
+                $path = ltrim($parsedPath, '/');
+            }
+        } else {
+            $path = ltrim($path, '/');
+        }
+
+        $path = preg_replace('#/+#', '/', $path);
+        $markers = array(
+            'writable/uploads/attendance/',
+            'api/hrms/files/attendance/',
+        );
+        foreach ($markers as $marker) {
+            $position = strpos($path, $marker);
+            if ($position === false) {
+                continue;
+            }
+
+            $suffix = ltrim(substr($path, $position + strlen($marker)), '/');
+            if ($suffix === '' || strpos($suffix, '..') !== false) {
+                return '';
+            }
+
+            return 'writable/uploads/attendance/' . $suffix;
+        }
+
+        return '';
+    }
+
+    private function validate_out_of_town_proof_path($path, $userId)
+    {
+        $normalizedPath = $this->normalize_attendance_upload_path($path);
+        if ($normalizedPath === '') {
+            return array('error' => 'Attendance photo is required and must come from the attendance upload endpoint.');
+        }
+
+        $extension = strtolower(pathinfo($normalizedPath, PATHINFO_EXTENSION));
+        if (!in_array($extension, array('jpg', 'jpeg', 'png'), true)) {
+            return array('error' => 'Attendance photo must be JPG, JPEG, or PNG.');
+        }
+
+        $fullPath = project_storage_path($normalizedPath);
+        if (!is_file($fullPath) || !is_readable($fullPath)) {
+            return array('error' => 'Attendance photo upload could not be found.');
+        }
+
+        $existing = $this->db
+            ->select('id')
+            ->from('attendance_logs')
+            ->where('user_id', (int) $userId)
+            ->where('attachment_path', $normalizedPath)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if ($existing) {
+            return array('error' => 'A new photo is required for each attendance action.');
+        }
+
+        return array('path' => $normalizedPath);
     }
 
     private function absolute_attachment_url($path)
@@ -2118,19 +2449,32 @@ class Api_hrms extends CI_Controller
                 $absentCount++;
             }
 
-            $notes = $this->build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout);
+            $notes = $this->build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout, $dayLogs);
+            $firstInCategory = $this->attendance_category_value($dayLogs['first_in_category'] ?? null);
+            $lastOutCategory = $this->attendance_category_value($dayLogs['last_out_category'] ?? null);
+            $firstInOutOfTown = $this->is_out_of_town_attendance($firstInCategory);
+            $lastOutOutOfTown = $this->is_out_of_town_attendance($lastOutCategory);
 
             $daily[] = array(
                 'date' => $day,
                 'status' => $status,
                 'first_in' => $firstIn,
                 'last_out' => $lastOut,
+                'first_in_category' => $firstInCategory,
+                'last_out_category' => $lastOutCategory,
+                'first_in_category_label' => $this->attendance_category_label($firstInCategory),
+                'last_out_category_label' => $this->attendance_category_label($lastOutCategory),
+                'first_in_is_out_of_town' => $firstInOutOfTown,
+                'last_out_is_out_of_town' => $lastOutOutOfTown,
                 'late' => $isLate,
                 'early_checkout' => $isEarlyCheckout,
                 'late_reason' => $isLate ? ($dayLogs['first_in_reason'] ?? null) : null,
-                'late_attachment_path' => $isLate ? $this->absolute_attachment_url($dayLogs['first_in_attachment_path'] ?? null) : null,
+                'late_attachment_path' => ($isLate && !$firstInOutOfTown) ? $this->absolute_attachment_url($dayLogs['first_in_attachment_path'] ?? null) : null,
                 'early_checkout_reason' => $isEarlyCheckout ? ($dayLogs['last_out_reason'] ?? null) : null,
-                'early_checkout_attachment_path' => $isEarlyCheckout ? $this->absolute_attachment_url($dayLogs['last_out_attachment_path'] ?? null) : null,
+                'early_checkout_attachment_path' => ($isEarlyCheckout && !$lastOutOutOfTown) ? $this->absolute_attachment_url($dayLogs['last_out_attachment_path'] ?? null) : null,
+                'first_in_proof_path' => $firstInOutOfTown ? $this->absolute_attachment_url($dayLogs['first_in_attachment_path'] ?? null) : null,
+                'last_out_proof_path' => $lastOutOutOfTown ? $this->absolute_attachment_url($dayLogs['last_out_attachment_path'] ?? null) : null,
+                'out_of_town' => $firstInOutOfTown || $lastOutOutOfTown,
                 'holiday_name' => $holidayName,
                 'notes' => $notes,
             );
@@ -2158,7 +2502,7 @@ class Api_hrms extends CI_Controller
     private function get_attendance_logs($userId, $startDate, $endDate)
     {
         $rows = $this->db->query("
-            SELECT type, created_at, attendance_reason, attachment_path
+            SELECT type, created_at, attendance_reason, attachment_path, attendance_category
             FROM attendance_logs
             WHERE user_id = ? AND created_at >= ? AND created_at <= ?
             ORDER BY created_at ASC
@@ -2171,15 +2515,21 @@ class Api_hrms extends CI_Controller
                 $logs[$day] = array(
                     'first_in' => null,
                     'last_out' => null,
+                    'first_in_category' => 'REGULAR',
+                    'last_out_category' => 'REGULAR',
                     'first_in_reason' => null,
                     'last_out_reason' => null,
                     'first_in_attachment_path' => null,
                     'last_out_attachment_path' => null,
                 );
             }
+            if (!$this->is_attendance_log_eligible($row)) {
+                continue;
+            }
             if ($row['type'] === 'IN') {
                 if ($logs[$day]['first_in'] === null || $row['created_at'] < $logs[$day]['first_in']) {
                     $logs[$day]['first_in'] = $row['created_at'];
+                    $logs[$day]['first_in_category'] = $this->attendance_category_value($row['attendance_category'] ?? null);
                     $logs[$day]['first_in_reason'] = $row['attendance_reason'] ?? null;
                     $logs[$day]['first_in_attachment_path'] = $row['attachment_path'] ?? null;
                 }
@@ -2187,6 +2537,7 @@ class Api_hrms extends CI_Controller
             if ($row['type'] === 'OUT') {
                 if ($logs[$day]['last_out'] === null || $row['created_at'] > $logs[$day]['last_out']) {
                     $logs[$day]['last_out'] = $row['created_at'];
+                    $logs[$day]['last_out_category'] = $this->attendance_category_value($row['attendance_category'] ?? null);
                     $logs[$day]['last_out_reason'] = $row['attendance_reason'] ?? null;
                     $logs[$day]['last_out_attachment_path'] = $row['attachment_path'] ?? null;
                 }
@@ -2415,9 +2766,17 @@ class Api_hrms extends CI_Controller
         return array($notesValue);
     }
 
-    private function build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout)
+    private function build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout, $dayLogs = array())
     {
         $notes = array();
+        $firstInCategory = $this->attendance_category_value($dayLogs['first_in_category'] ?? null);
+        $lastOutCategory = $this->attendance_category_value($dayLogs['last_out_category'] ?? null);
+        if ($firstIn && $this->is_out_of_town_attendance($firstInCategory)) {
+            $notes[] = 'Check-in recorded as Dinas Luar Kota.';
+        }
+        if ($lastOut && $this->is_out_of_town_attendance($lastOutCategory)) {
+            $notes[] = 'Check-out recorded as Dinas Luar Kota.';
+        }
         if ($isLate && $firstIn) {
             $lateMinutes = $this->minutes_after_start($firstIn, $startTime);
             if ($lateMinutes !== null) {
@@ -2432,6 +2791,30 @@ class Api_hrms extends CI_Controller
         }
 
         return $notes;
+    }
+
+    private function attendance_category_value($value)
+    {
+        return strtoupper(trim((string) $value)) === 'OUT_OF_TOWN' ? 'OUT_OF_TOWN' : 'REGULAR';
+    }
+
+    private function attendance_category_label($value)
+    {
+        return $this->is_out_of_town_attendance($value) ? 'Dinas Luar Kota' : 'Kantor';
+    }
+
+    private function is_out_of_town_attendance($value)
+    {
+        return $this->attendance_category_value($value) === 'OUT_OF_TOWN';
+    }
+
+    private function is_attendance_log_eligible($row)
+    {
+        if (!$this->is_out_of_town_attendance($row['attendance_category'] ?? null)) {
+            return true;
+        }
+
+        return trim((string) ($row['attachment_path'] ?? '')) !== '';
     }
 
     private function is_weekend_day($weekday, $weekendType)

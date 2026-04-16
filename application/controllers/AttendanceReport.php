@@ -257,19 +257,32 @@ class AttendanceReport extends BaseController
                 $absentCount++;
             }
 
-            $notes = $this->build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout);
+            $notes = $this->build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout, $dayLogs);
+            $firstInCategory = $this->attendance_category_value($dayLogs['first_in_category'] ?? null);
+            $lastOutCategory = $this->attendance_category_value($dayLogs['last_out_category'] ?? null);
+            $firstInOutOfTown = $this->is_out_of_town_attendance($firstInCategory);
+            $lastOutOutOfTown = $this->is_out_of_town_attendance($lastOutCategory);
 
             $daily[] = array(
                 'date' => $day,
                 'status' => $status,
                 'first_in' => $firstIn,
                 'last_out' => $lastOut,
+                'first_in_category' => $firstInCategory,
+                'last_out_category' => $lastOutCategory,
+                'first_in_category_label' => $this->attendance_category_label($firstInCategory),
+                'last_out_category_label' => $this->attendance_category_label($lastOutCategory),
+                'first_in_is_out_of_town' => $firstInOutOfTown,
+                'last_out_is_out_of_town' => $lastOutOutOfTown,
                 'late' => $isLate,
                 'early_checkout' => $isEarlyCheckout,
                 'late_reason' => $isLate ? ($dayLogs['first_in_reason'] ?? null) : null,
-                'late_attachment_path' => $isLate ? $this->public_attachment_url($dayLogs['first_in_attachment_path'] ?? null) : null,
+                'late_attachment_path' => ($isLate && !$firstInOutOfTown) ? $this->public_attachment_url($dayLogs['first_in_attachment_path'] ?? null) : null,
                 'early_checkout_reason' => $isEarlyCheckout ? ($dayLogs['last_out_reason'] ?? null) : null,
-                'early_checkout_attachment_path' => $isEarlyCheckout ? $this->public_attachment_url($dayLogs['last_out_attachment_path'] ?? null) : null,
+                'early_checkout_attachment_path' => ($isEarlyCheckout && !$lastOutOutOfTown) ? $this->public_attachment_url($dayLogs['last_out_attachment_path'] ?? null) : null,
+                'first_in_proof_path' => $firstInOutOfTown ? $this->public_attachment_url($dayLogs['first_in_attachment_path'] ?? null) : null,
+                'last_out_proof_path' => $lastOutOutOfTown ? $this->public_attachment_url($dayLogs['last_out_attachment_path'] ?? null) : null,
+                'out_of_town' => $firstInOutOfTown || $lastOutOutOfTown,
                 'holiday_name' => $holidayName,
                 'notes' => $notes,
             );
@@ -297,7 +310,7 @@ class AttendanceReport extends BaseController
     private function get_attendance_logs($userId, $startDate, $endDate)
     {
         $rows = $this->db->query("
-            SELECT type, created_at, attendance_reason, attachment_path
+            SELECT type, created_at, attendance_reason, attachment_path, attendance_category
             FROM attendance_logs
             WHERE user_id = ? AND created_at >= ? AND created_at <= ?
             ORDER BY created_at ASC
@@ -310,15 +323,21 @@ class AttendanceReport extends BaseController
                 $logs[$day] = array(
                     'first_in' => null,
                     'last_out' => null,
+                    'first_in_category' => 'REGULAR',
+                    'last_out_category' => 'REGULAR',
                     'first_in_reason' => null,
                     'last_out_reason' => null,
                     'first_in_attachment_path' => null,
                     'last_out_attachment_path' => null,
                 );
             }
+            if (!$this->is_attendance_log_eligible($row)) {
+                continue;
+            }
             if ($row['type'] === 'IN') {
                 if ($logs[$day]['first_in'] === null || $row['created_at'] < $logs[$day]['first_in']) {
                     $logs[$day]['first_in'] = $row['created_at'];
+                    $logs[$day]['first_in_category'] = $this->attendance_category_value($row['attendance_category'] ?? null);
                     $logs[$day]['first_in_reason'] = $row['attendance_reason'] ?? null;
                     $logs[$day]['first_in_attachment_path'] = $row['attachment_path'] ?? null;
                 }
@@ -326,6 +345,7 @@ class AttendanceReport extends BaseController
             if ($row['type'] === 'OUT') {
                 if ($logs[$day]['last_out'] === null || $row['created_at'] > $logs[$day]['last_out']) {
                     $logs[$day]['last_out'] = $row['created_at'];
+                    $logs[$day]['last_out_category'] = $this->attendance_category_value($row['attendance_category'] ?? null);
                     $logs[$day]['last_out_reason'] = $row['attendance_reason'] ?? null;
                     $logs[$day]['last_out_attachment_path'] = $row['attachment_path'] ?? null;
                 }
@@ -470,9 +490,17 @@ class AttendanceReport extends BaseController
         return (int) floor($delta / 60);
     }
 
-    private function build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout)
+    private function build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout, $dayLogs = array())
     {
         $notes = array();
+        $firstInCategory = $this->attendance_category_value($dayLogs['first_in_category'] ?? null);
+        $lastOutCategory = $this->attendance_category_value($dayLogs['last_out_category'] ?? null);
+        if ($firstIn && $this->is_out_of_town_attendance($firstInCategory)) {
+            $notes[] = 'Check-in recorded as Dinas Luar Kota.';
+        }
+        if ($lastOut && $this->is_out_of_town_attendance($lastOutCategory)) {
+            $notes[] = 'Check-out recorded as Dinas Luar Kota.';
+        }
         if ($isLate && $firstIn) {
             $lateMinutes = $this->minutes_after_start($firstIn, $startTime);
             if ($lateMinutes !== null) {
@@ -487,6 +515,30 @@ class AttendanceReport extends BaseController
         }
 
         return $notes;
+    }
+
+    private function attendance_category_value($value)
+    {
+        return strtoupper(trim((string) $value)) === 'OUT_OF_TOWN' ? 'OUT_OF_TOWN' : 'REGULAR';
+    }
+
+    private function attendance_category_label($value)
+    {
+        return $this->is_out_of_town_attendance($value) ? 'Dinas Luar Kota' : 'Kantor';
+    }
+
+    private function is_out_of_town_attendance($value)
+    {
+        return $this->attendance_category_value($value) === 'OUT_OF_TOWN';
+    }
+
+    private function is_attendance_log_eligible($row)
+    {
+        if (!$this->is_out_of_town_attendance($row['attendance_category'] ?? null)) {
+            return true;
+        }
+
+        return trim((string) ($row['attachment_path'] ?? '')) !== '';
     }
 
     private function parse_response_times($text)

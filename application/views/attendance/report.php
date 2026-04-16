@@ -172,6 +172,7 @@
                                 <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Early Checkout</th>
                                 <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Late Reason</th>
                                 <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Early Reason</th>
+                                <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Proof</th>
                                 <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Notes</th>
                             </tr>
                         </thead>
@@ -190,6 +191,8 @@
                                     $lateAttachmentPath = trim((string) ($row['late_attachment_path'] ?? ''));
                                     $earlyReason = trim((string) ($row['early_checkout_reason'] ?? ''));
                                     $earlyAttachmentPath = trim((string) ($row['early_checkout_attachment_path'] ?? ''));
+                                    $firstInProofPath = trim((string) ($row['first_in_proof_path'] ?? ''));
+                                    $lastOutProofPath = trim((string) ($row['last_out_proof_path'] ?? ''));
                                 ?>
                                 <tr style="border-bottom: 1px solid #f0f0f0; transition: background-color 0.3s; <?php echo $rowStyle; ?>">
                                     <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);"><?php echo htmlspecialchars($row['date']); ?></td>
@@ -198,6 +201,11 @@
                                         <?php if (!empty($row['holiday_name'])): ?>
                                             <span style="background-color: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; padding: 0 8px; height: 22px; display: inline-flex; align-items: center; border-radius: 2px; font-size: 12px; margin-left: 4px;">
                                                 <?php echo htmlspecialchars($row['holiday_name']); ?>
+                                            </span>
+                                        <?php endif; ?>
+                                        <?php if (!empty($row['out_of_town'])): ?>
+                                            <span style="background-color: #fff7e6; color: #d46b08; border: 1px solid #ffd591; padding: 0 8px; height: 22px; display: inline-flex; align-items: center; border-radius: 2px; font-size: 12px; margin-left: 4px;">
+                                                Dinas Luar Kota
                                             </span>
                                         <?php endif; ?>
                                     </td>
@@ -239,6 +247,24 @@
                                             <?php if ($earlyAttachmentPath !== ''): ?>
                                                 <div style="margin-top: 4px;">
                                                     <a href="<?php echo htmlspecialchars($earlyAttachmentPath); ?>" target="_blank" rel="noopener" style="color: #1890ff; text-decoration: none;">View attachment</a>
+                                                </div>
+                                            <?php endif; ?>
+                                        <?php else: ?>
+                                            <span style="color: rgba(0,0,0,0.45);">-</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);">
+                                        <?php if ($firstInProofPath !== '' || $lastOutProofPath !== ''): ?>
+                                            <?php if ($firstInProofPath !== ''): ?>
+                                                <div>
+                                                    <span style="background-color: #fff7e6; color: #d46b08; border: 1px solid #ffd591; padding: 0 8px; height: 20px; display: inline-flex; align-items: center; border-radius: 2px; font-size: 12px; margin-right: 6px;">IN</span>
+                                                    <a href="<?php echo htmlspecialchars($firstInProofPath); ?>" target="_blank" rel="noopener" style="color: #1890ff; text-decoration: none;">View photo</a>
+                                                </div>
+                                            <?php endif; ?>
+                                            <?php if ($lastOutProofPath !== ''): ?>
+                                                <div style="margin-top: 4px;">
+                                                    <span style="background-color: #fff7e6; color: #d46b08; border: 1px solid #ffd591; padding: 0 8px; height: 20px; display: inline-flex; align-items: center; border-radius: 2px; font-size: 12px; margin-right: 6px;">OUT</span>
+                                                    <a href="<?php echo htmlspecialchars($lastOutProofPath); ?>" target="_blank" rel="noopener" style="color: #1890ff; text-decoration: none;">View photo</a>
                                                 </div>
                                             <?php endif; ?>
                                         <?php else: ?>
