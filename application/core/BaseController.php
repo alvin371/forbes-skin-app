@@ -117,7 +117,7 @@ class BaseController extends CI_Controller
      */
     protected function get_module_name()
     {
-        $controller = $this->router->class;
+        $controller = strtolower($this->router->class);
         
         // Handle special cases with parameters
         if ($controller === 'ads') {
