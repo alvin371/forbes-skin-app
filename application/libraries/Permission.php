@@ -444,9 +444,6 @@ class Permission
     public function show_403_if_no_permission($user_id, $module_name, $action = 'view', $data = [])
     {
         if (!$this->check_permission($user_id, $module_name, $action)) {
-            // Set HTTP status code
-            $this->CI->output->set_status_header(403);
-            
             // Prepare data for the error page
             $error_data = array_merge([
                 'heading' => 'Access Forbidden',
@@ -455,9 +452,10 @@ class Permission
                 'action' => $action,
                 'user_id' => $user_id
             ], $data);
-            
-            // Load and display the 403 error page
-            $this->CI->load->view('errors/html/error_403', $error_data);
+
+            // Echo the view directly so output is not lost when exit is called
+            http_response_code(403);
+            echo $this->CI->load->view('errors/html/error_403', $error_data, TRUE);
             exit;
         }
     }

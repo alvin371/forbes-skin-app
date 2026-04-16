@@ -510,31 +510,48 @@ defined('BASEPATH') OR exit('No direct script access allowed');
             <?php if (isset($_SESSION['user'])): ?>
             <div class="user-info">
                 <h6>Current User Information</h6>
-                <p><strong>User:</strong> <?php echo $_SESSION['user']['name'] ?? 'Unknown User'; ?></p>
-                <p><strong>Role:</strong> 
-                    <?php 
-                    $role_names = [
-                        '1' => 'Super Admin',
-                        '2' => 'Admin', 
-                        '7' => 'HR Manager',
-                        'default' => 'Employee'
-                    ];
-                    echo $role_names[$_SESSION['user']['role']] ?? $role_names['default'];
-                    ?>
-                </p>
+                <p><strong>User:</strong> <?php echo htmlspecialchars($_SESSION['user']['full_name'] ?? $_SESSION['user']['username'] ?? 'Unknown User'); ?></p>
+                <p><strong>User ID:</strong> <?php echo (int) ($_SESSION['user']['id'] ?? 0); ?></p>
                 <p><strong>Last Login:</strong> <?php echo date('F j, Y g:i A', strtotime($_SESSION['user']['updated_at'] ?? 'now')); ?></p>
             </div>
             <?php endif; ?>
-            
-            <!-- Restriction Details -->
+
+            <!-- Debug: Access Details -->
             <div class="restriction-details">
-                <h6>Why am I seeing this?</h6>
+                <h6>Access Denied Details</h6>
                 <ul>
-                    <li>This page requires specific permissions that your role doesn't have</li>
-                    <li>You may need to be assigned to a different role or position</li>
-                    <li>Some features are restricted to administrators only</li>
-                    <li>Your session may have expired - try logging in again</li>
+                    <?php if (isset($module)): ?>
+                    <li><strong>Module required:</strong> <code><?php echo htmlspecialchars($module); ?></code></li>
+                    <?php endif; ?>
+                    <?php if (isset($action)): ?>
+                    <li><strong>Permission required:</strong> <code>can_<?php echo htmlspecialchars($action); ?></code></li>
+                    <?php endif; ?>
+                    <?php if (isset($controller)): ?>
+                    <li><strong>Controller:</strong> <code><?php echo htmlspecialchars($controller); ?></code></li>
+                    <?php endif; ?>
+                    <?php if (isset($method)): ?>
+                    <li><strong>Method:</strong> <code><?php echo htmlspecialchars($method); ?></code></li>
+                    <?php endif; ?>
                 </ul>
+            </div>
+
+            <!-- Debug: DB Permission State -->
+            <div class="restriction-details" style="border-color: rgba(52,152,219,0.3); background: rgba(52,152,219,0.08);">
+                <h6 style="color:#2980b9;">Your Permission Record (user_module_permissions)</h6>
+                <?php if (isset($db_permission) && $db_permission !== null): ?>
+                <ul>
+                    <li>can_view: <strong><?php echo $db_permission['can_view'] ? '✅ Yes' : '❌ No'; ?></strong></li>
+                    <li>can_create: <strong><?php echo $db_permission['can_create'] ? '✅ Yes' : '❌ No'; ?></strong></li>
+                    <li>can_edit: <strong><?php echo $db_permission['can_edit'] ? '✅ Yes' : '❌ No'; ?></strong></li>
+                    <li>can_delete: <strong><?php echo $db_permission['can_delete'] ? '✅ Yes' : '❌ No'; ?></strong></li>
+                    <li>can_approve: <strong><?php echo $db_permission['can_approve'] ? '✅ Yes' : '❌ No'; ?></strong></li>
+                </ul>
+                <?php elseif (isset($module)): ?>
+                <p style="color:#e74c3c;">⚠️ No record found in <code>user_module_permissions</code> for module <code><?php echo htmlspecialchars($module); ?></code>.<br>
+                Access may depend on role-based fallback or admin bypass.</p>
+                <?php else: ?>
+                <p>No permission data available.</p>
+                <?php endif; ?>
             </div>
             
             <!-- Action Buttons -->
