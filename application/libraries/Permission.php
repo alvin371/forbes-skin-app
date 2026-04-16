@@ -76,7 +76,12 @@ class Permission
                     LIMIT 1
                 ");
                 
-                $has_permission = !empty($result) && $result[0]['has_permission'] == 1;
+                if (empty($result)) {
+                    // No permission found, use fallback
+                    $has_permission = $this->fallback_permission_check($user_id, $module_name, $action);
+                } else {
+                    $has_permission = $result[0]['has_permission'] == 1;
+                }
             } catch (Exception $e) {
                 // If any error occurs, use fallback
                 $has_permission = $this->fallback_permission_check($user_id, $module_name, $action);
@@ -275,6 +280,21 @@ class Permission
 
             if (!empty($result) && isset($result[0]['has_permission'])) {
                 return $result[0]['has_permission'] == 1;
+            }
+
+            // If no specific permission found, check if user has admin role
+            $user_roles = $this->CI->mymodel->selectWithQuery("
+                SELECT r.name, r.level
+                FROM user_roles ur
+                INNER JOIN roles r ON ur.role_id = r.id
+                WHERE ur.user_id = $user_id AND r.is_active = 1
+            ");
+
+            // Super admin and admin roles get full access
+            foreach ($user_roles as $role) {
+                if (in_array(strtolower($role['name']), ['super_admin', 'admin'])) {
+                    return true;
+                }
             }
 
             // Basic modules everyone can view
