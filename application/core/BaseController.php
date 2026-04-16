@@ -164,22 +164,38 @@ class BaseController extends CI_Controller
         // Check if user has permission
         if (!$this->permission->check_permission($this->user_id, $this->module_name, $action)) {
             // Set HTTP status code
-            $this->output->set_status_header(403);
-            
+            http_response_code(403);
+
+            // Query actual DB permission state for debug output
+            $db_permission = null;
+            try {
+                $perm_result = $this->db->query(
+                    "SELECT can_view, can_create, can_edit, can_delete, can_approve
+                     FROM user_module_permissions
+                     WHERE user_id = ? AND module_name = ?
+                     LIMIT 1",
+                    array((int) $this->user_id, $this->module_name)
+                )->result_array();
+                $db_permission = !empty($perm_result) ? $perm_result[0] : null;
+            } catch (Exception $e) {
+                // ignore
+            }
+
             // Prepare data for the error page
             $error_data = [
-                'heading' => 'Access Forbidden',
-                'message' => 'You do not have permission to access this resource.',
-                'module' => $this->module_name,
-                'action' => $action,
-                'user_id' => $this->user_id,
-                'controller' => $controller,
-                'method' => $method,
-                'attempted_action' => $action
+                'heading'          => 'Access Forbidden',
+                'message'          => 'You do not have permission to access this resource.',
+                'module'           => $this->module_name,
+                'action'           => $action,
+                'user_id'          => $this->user_id,
+                'controller'       => $controller,
+                'method'           => $method,
+                'attempted_action' => $action,
+                'db_permission'    => $db_permission,
             ];
-            
-            // Load and display the 403 error page directly
-            $this->load->view('errors/html/error_403', $error_data);
+
+            // Echo the view directly so output is not lost when exit is called
+            echo $this->load->view('errors/html/error_403', $error_data, TRUE);
             exit;
         }
     }
