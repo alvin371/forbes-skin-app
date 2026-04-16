@@ -798,14 +798,17 @@ class ApprovalWorkflowEngine
      */
     protected function notifyHrAdmins($leaveRequestId, $request)
     {
-        // Find users with HR admin role
+        // Notify users who can maintain approval routes instead of relying on role names.
+        if (!$this->db->table_exists('user_module_permissions')) {
+            return;
+        }
+
         $hrAdmins = $this->db->query("
-            SELECT u.id
+            SELECT DISTINCT u.id
             FROM user u
-            INNER JOIN user_roles ur ON u.id = ur.user_id
-            INNER JOIN roles r ON ur.role_id = r.id
-            WHERE LOWER(r.name) IN ('super_admin', 'admin', 'hr', 'head_of_hr', 'human_resources')
-              AND r.is_active = 1
+            INNER JOIN user_module_permissions ump ON u.id = ump.user_id
+            WHERE ump.module_name = 'approval_routes'
+              AND ump.can_edit = 1
               AND u.status = 'Aktif'
         ")->result_array();
 

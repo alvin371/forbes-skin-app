@@ -10,8 +10,6 @@ class HolidaysController extends BaseController
         parent::__construct();
         $this->load->model('HolidayModel');
         $this->load->library('template');
-        $this->load->library('HrAdminFilter');
-        $this->hradminfilter->enforce();
     }
 
     public function index()

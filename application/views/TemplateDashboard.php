@@ -612,9 +612,11 @@ if (!$_SESSION['is_login']) {
       $CI->permission->check_permission($user_id, 'milestone', 'view') ||
       $CI->permission->check_permission($user_id, 'recruitment', 'view') ||
       $CI->permission->check_permission($user_id, 'attendance', 'view') ||
+      $CI->permission->check_permission($user_id, 'attendance_report', 'view') ||
       $CI->permission->check_permission($user_id, 'leave', 'view') ||
       $CI->permission->check_permission($user_id, 'overtime', 'view') ||
       $CI->permission->check_permission($user_id, 'leave_approvals', 'view') ||
+      $CI->permission->check_permission($user_id, 'overtime_approvals', 'view') ||
       $CI->permission->check_permission($user_id, 'offices', 'view') ||
       $CI->permission->check_permission($user_id, 'attendance_settings', 'view') ||
       $CI->permission->check_permission($user_id, 'holidays', 'view') ||
@@ -674,6 +676,7 @@ if (!$_SESSION['is_login']) {
       'leave' => $CI->permission->check_permission($user_id, 'leave', 'view'),
       'overtime' => $CI->permission->check_permission($user_id, 'overtime', 'view'),
       'leave_approvals' => $CI->permission->check_permission($user_id, 'leave_approvals', 'view'),
+      'overtime_approvals' => $CI->permission->check_permission($user_id, 'overtime_approvals', 'view'),
       'offices' => $CI->permission->check_permission($user_id, 'offices', 'view'),
       'leave_types' => $CI->permission->check_permission($user_id, 'leave_types', 'view'),
       'leave_quotas' => $CI->permission->check_permission($user_id, 'leave_quotas', 'view'),
@@ -1123,7 +1126,7 @@ if (!$_SESSION['is_login']) {
                 LEAVE APPROVALS
               </a>
             <?php endif; ?>
-            <?php if ($modules_permissions['overtime']): ?>
+            <?php if ($modules_permissions['overtime_approvals']): ?>
               <a href="<?= base_url() ?>approvals/overtime" class="ms-3 item-menu <?= $menu_overtime_approvals ?>">
                 <i class="icon bi bi-clock-history"></i>
                 OVERTIME APPROVALS

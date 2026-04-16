@@ -44,6 +44,10 @@ if (!function_exists('hrms_attachment_url')) {
             return 'api/hrms/files/overtime/' . substr($normalizedPath, strlen('writable/uploads/overtime/'));
         }
 
+        if (strpos($normalizedPath, 'writable/uploads/attendance/') === 0) {
+            return 'api/hrms/files/attendance/' . substr($normalizedPath, strlen('writable/uploads/attendance/'));
+        }
+
         return $normalizedPath;
     }
 

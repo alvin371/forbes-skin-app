@@ -231,6 +231,67 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/hrms/attendance/status:
+    get:
+      tags: [Attendance]
+      summary: Evaluate current attendance eligibility for office check-in/out
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+            format: float
+        - name: lng
+          in: query
+          required: true
+          schema:
+            type: number
+            format: float
+        - name: accuracy
+          in: query
+          required: true
+          schema:
+            type: number
+            format: float
+        - name: bssid
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: ssid
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: bssids
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Comma-separated BSSID list.
+        - name: ssids
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Comma-separated SSID list.
+      responses:
+        '200':
+          description: Attendance status evaluation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceStatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/hrms/attendance/check-in:
     post:
       tags: [Attendance]
@@ -244,6 +305,62 @@ paths:
       responses:
         '200':
           description: Check-in saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceCheckResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/hrms/attendance/out-of-town/check-in:
+    post:
+      tags: [Attendance]
+      summary: Check in Dinas Luar Kota attendance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceOutOfTownCheckRequest'
+      responses:
+        '200':
+          description: Out-of-town check-in saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceCheckResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/hrms/attendance/out-of-town/check-out:
+    post:
+      tags: [Attendance]
+      summary: Check out Dinas Luar Kota attendance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceOutOfTownCheckRequest'
+      responses:
+        '200':
+          description: Out-of-town check-out saved
           content:
             application/json:
               schema:
@@ -287,25 +404,62 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/hrms/attendance/{id}/reason:
+    post:
+      tags: [Attendance]
+      summary: Add or update late/early attendance reason and optional attachment
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceReasonRequest'
+          multipart/form-data:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/AttendanceReasonRequest'
+                - type: object
+                  properties:
+                    attachment:
+                      type: string
+                      format: binary
+      responses:
+        '200':
+          description: Reason saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceReasonResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
   /api/hrms/attendance/history:
     get:
       tags: [Attendance]
       summary: Get attendance logs for current user
+      parameters:
+        - $ref: '#/components/parameters/MonthParam'
       responses:
         '200':
           description: Attendance history
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      type: object
-                      additionalProperties: true
+                $ref: '#/components/schemas/AttendanceHistoryResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
 
   /api/hrms/attendance/recap:
     get:
@@ -400,7 +554,7 @@ paths:
   /api/hrms/upload:
     post:
       tags: [Upload]
-      summary: Upload leave/profile attachment
+      summary: Upload attendance, leave, or profile attachment
       requestBody:
         required: true
         content:
@@ -411,7 +565,7 @@ paths:
               properties:
                 type:
                   type: string
-                  enum: [leave, profile]
+                  enum: [attendance, leave, profile]
                 file:
                   type: string
                   format: binary
@@ -1239,6 +1393,26 @@ components:
         role_name:
           type: string
           nullable: true
+        position_id:
+          type: integer
+          nullable: true
+        position_name:
+          type: string
+          nullable: true
+        schedule:
+          $ref: '#/components/schemas/UserSchedule'
+
+    UserSchedule:
+      type: object
+      properties:
+        start_time:
+          type: string
+        end_time:
+          type: string
+        source:
+          type: string
+        special_schedule:
+          type: boolean
 
     AuthLoginRequest:
       type: object
@@ -1504,14 +1678,170 @@ components:
         wifiProof:
           $ref: '#/components/schemas/WifiProof'
 
+    AttendanceOutOfTownCheckRequest:
+      type: object
+      required: [lat, lng, gpsAccuracy, attachment_path]
+      properties:
+        lat:
+          type: number
+          format: float
+        lng:
+          type: number
+          format: float
+        gpsAccuracy:
+          type: number
+          format: float
+        accuracy:
+          type: number
+          format: float
+        attachment_path:
+          type: string
+        attachmentPath:
+          type: string
+        photoPath:
+          type: string
+
+    AttendanceCategory:
+      type: string
+      enum: [REGULAR, OUT_OF_TOWN]
+
+    AttendanceFlags:
+      type: object
+      properties:
+        late:
+          type: boolean
+        early_checkout:
+          type: boolean
+        special_schedule:
+          type: boolean
+
+    AttendanceMinutes:
+      type: object
+      properties:
+        late:
+          type: integer
+          nullable: true
+        early_checkout:
+          type: integer
+          nullable: true
+
+    AttendanceSchedule:
+      type: object
+      properties:
+        start_time:
+          type: string
+        end_time:
+          type: string
+        source:
+          type: string
+
+    AttendanceStatusSchedule:
+      allOf:
+        - $ref: '#/components/schemas/AttendanceSchedule'
+        - type: object
+          properties:
+            late_threshold:
+              type: string
+            early_threshold:
+              type: string
+            is_special:
+              type: boolean
+
+    AttendanceOfficeRef:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+
+    AttendanceStatusOffice:
+      allOf:
+        - $ref: '#/components/schemas/AttendanceOfficeRef'
+        - type: object
+          properties:
+            lat:
+              type: number
+              format: float
+            lng:
+              type: number
+              format: float
+            radius_m:
+              type: integer
+            min_accuracy_m:
+              type: integer
+
+    AttendanceStatusUserLocation:
+      type: object
+      properties:
+        lat:
+          type: number
+          format: float
+        lng:
+          type: number
+          format: float
+        accuracy:
+          type: number
+          format: float
+
+    AttendanceStatusComputed:
+      type: object
+      properties:
+        inside_radius:
+          type: boolean
+        distance_m:
+          type: number
+          format: float
+        ip_ok:
+          type: boolean
+        can_confirm:
+          type: boolean
+        reasons:
+          type: array
+          items:
+            type: string
+
+    AttendanceStatusWifi:
+      type: object
+      properties:
+        has_rules:
+          type: boolean
+        provided:
+          type: boolean
+        ok:
+          type: boolean
+
+    AttendanceStatusResponse:
+      type: object
+      properties:
+        office:
+          $ref: '#/components/schemas/AttendanceStatusOffice'
+        user:
+          $ref: '#/components/schemas/AttendanceStatusUserLocation'
+        computed:
+          $ref: '#/components/schemas/AttendanceStatusComputed'
+        wifi:
+          $ref: '#/components/schemas/AttendanceStatusWifi'
+        schedule:
+          $ref: '#/components/schemas/AttendanceStatusSchedule'
+
     AttendanceCheckResponse:
       type: object
       properties:
         ok:
           type: boolean
+        attendance_log_id:
+          type: integer
         type:
           type: string
           enum: [IN, OUT]
+        attendanceCategory:
+          $ref: '#/components/schemas/AttendanceCategory'
+        attendanceCategoryLabel:
+          type: string
+        attachmentPath:
+          type: string
+          nullable: true
         distanceMeters:
           type: number
           format: float
@@ -1520,21 +1850,114 @@ components:
           items:
             type: string
         flags:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/AttendanceFlags'
         minutes:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/AttendanceMinutes'
         schedule:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/AttendanceSchedule'
         office:
-          type: object
-          properties:
-            id:
-              type: integer
-            name:
-              type: string
+          $ref: '#/components/schemas/AttendanceOfficeRef'
+
+    AttendanceReasonRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+        attachment_path:
+          type: string
+        attachment:
+          type: string
+
+    AttendanceReasonResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [IN, OUT]
+        reason:
+          type: string
+          nullable: true
+        attachmentPath:
+          type: string
+          nullable: true
+        flags:
+          $ref: '#/components/schemas/AttendanceFlags'
+        hasReasonOrAttachment:
+          type: boolean
+
+    AttendanceHistoryItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        user_id:
+          type: integer
+        office_id:
+          type: integer
+        type:
+          type: string
+          enum: [IN, OUT]
+        lat:
+          type: number
+          format: float
+        lng:
+          type: number
+          format: float
+        accuracy:
+          type: number
+          format: float
+        distance_m:
+          type: number
+          format: float
+        method:
+          type: string
+        ip_address:
+          type: string
+        user_agent:
+          type: string
+          nullable: true
+        notes:
+          type: array
+          items:
+            type: string
+        flags:
+          $ref: '#/components/schemas/AttendanceFlags'
+        attendance_reason:
+          type: string
+          nullable: true
+        attachmentPath:
+          type: string
+          nullable: true
+        hasReasonOrAttachment:
+          type: boolean
+        reasonEligible:
+          type: boolean
+        attendanceCategory:
+          $ref: '#/components/schemas/AttendanceCategory'
+        attendanceCategoryLabel:
+          type: string
+        isOutOfTown:
+          type: boolean
+        created_at:
+          type: string
+        office_name:
+          type: string
+          nullable: true
+
+    AttendanceHistoryResponse:
+      type: object
+      properties:
+        month:
+          type: string
+          nullable: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceHistoryItem'
 
     AttendanceRecapSummary:
       type: object
@@ -1560,6 +1983,64 @@ components:
         special_schedule:
           type: boolean
 
+    AttendanceReportDailyItem:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        status:
+          type: string
+        first_in:
+          type: string
+          nullable: true
+        last_out:
+          type: string
+          nullable: true
+        first_in_category:
+          $ref: '#/components/schemas/AttendanceCategory'
+        last_out_category:
+          $ref: '#/components/schemas/AttendanceCategory'
+        first_in_category_label:
+          type: string
+        last_out_category_label:
+          type: string
+        first_in_is_out_of_town:
+          type: boolean
+        last_out_is_out_of_town:
+          type: boolean
+        late:
+          type: boolean
+        early_checkout:
+          type: boolean
+        late_reason:
+          type: string
+          nullable: true
+        late_attachment_path:
+          type: string
+          nullable: true
+        early_checkout_reason:
+          type: string
+          nullable: true
+        early_checkout_attachment_path:
+          type: string
+          nullable: true
+        first_in_proof_path:
+          type: string
+          nullable: true
+        last_out_proof_path:
+          type: string
+          nullable: true
+        out_of_town:
+          type: boolean
+        holiday_name:
+          type: string
+          nullable: true
+        notes:
+          type: array
+          items:
+            type: string
+
     AttendanceReportResponse:
       type: object
       properties:
@@ -1568,8 +2049,7 @@ components:
         daily:
           type: array
           items:
-            type: object
-            additionalProperties: true
+            $ref: '#/components/schemas/AttendanceReportDailyItem'
 
     HolidayItem:
       type: object
@@ -1591,7 +2071,12 @@ components:
       properties:
         type:
           type: string
+          enum: [attendance, leave, profile]
         path:
+          type: string
+        storedPath:
+          type: string
+        url:
           type: string
         filename:
           type: string

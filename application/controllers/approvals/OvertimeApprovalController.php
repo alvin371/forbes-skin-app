@@ -266,7 +266,7 @@ class OvertimeApprovalController extends CI_Controller
             exit;
         }
 
-        if ($this->permission->check_permission($userId, 'approval_inbox', $action)) {
+        if ($this->permission->check_permission($userId, 'overtime_approvals', $action)) {
             return;
         }
 

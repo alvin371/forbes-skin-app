@@ -350,7 +350,7 @@ class ApprovalInboxController extends CI_Controller
             exit;
         }
 
-        if ($this->permission->check_permission($userId, 'approval_inbox', $action)) {
+        if ($this->permission->check_permission($userId, 'leave_approvals', $action)) {
             return;
         }
 

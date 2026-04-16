@@ -29,7 +29,17 @@ Response 200:
     "id": 123,
     "name": "Jane Doe",
     "email": "user@example.com",
-    "role": "HR"
+    "role": "HR",
+    "role_id": 7,
+    "role_name": "Human Resources",
+    "position_id": 15,
+    "position_name": "Senior Recruiter",
+    "schedule": {
+      "start_time": "08:00",
+      "end_time": "17:00",
+      "source": "office",
+      "special_schedule": false
+    }
   }
 }
 ```
@@ -58,7 +68,17 @@ Response 200:
   "id": 123,
   "name": "Jane Doe",
   "email": "user@example.com",
-  "role": "HR"
+  "role": "HR",
+  "role_id": 7,
+  "role_name": "Human Resources",
+  "position_id": 15,
+  "position_name": "Senior Recruiter",
+  "schedule": {
+    "start_time": "08:00",
+    "end_time": "17:00",
+    "source": "office",
+    "special_schedule": false
+  }
 }
 ```
 
@@ -77,7 +97,17 @@ Response 200:
   "id": 123,
   "name": "Jane Updated",
   "email": "jane.updated@example.com",
-  "role": "HR"
+  "role": "HR",
+  "role_id": 7,
+  "role_name": "Human Resources",
+  "position_id": 15,
+  "position_name": "Senior Recruiter",
+  "schedule": {
+    "start_time": "08:00",
+    "end_time": "17:00",
+    "source": "office",
+    "special_schedule": false
+  }
 }
 ```
 
@@ -212,6 +242,13 @@ Notes:
 
 ## Attendance
 
+Notes:
+- Attendance has two categories:
+  - `REGULAR` / `Kantor`: normal office attendance with geofence/IP/WiFi validation.
+  - `OUT_OF_TOWN` / `Dinas Luar Kota`: GPS is still captured, but office radius/IP/WiFi checks are skipped.
+- `Dinas Luar Kota` attendance requires a fresh uploaded photo for each `IN` and `OUT`.
+- For out-of-town attendance, the request must send `attachment_path` using the `storedPath` returned by `POST /upload` with `type=attendance`.
+
 ### POST /attendance/office-proof
 Request:
 ```json
@@ -229,6 +266,52 @@ Response 200:
 }
 ```
 
+### GET /attendance/status
+Query:
+- `lat`: float, required
+- `lng`: float, required
+- `accuracy`: float, required
+- `bssid`, `ssid`, `bssids`, `ssids`: optional WiFi proof query params
+
+Response 200:
+```json
+{
+  "office": {
+    "id": 1,
+    "name": "HQ Office",
+    "lat": -6.2000000,
+    "lng": 106.8166667,
+    "radius_m": 150,
+    "min_accuracy_m": 50
+  },
+  "user": {
+    "lat": -6.200123,
+    "lng": 106.816789,
+    "accuracy": 15
+  },
+  "computed": {
+    "inside_radius": true,
+    "distance_m": 120.12,
+    "ip_ok": true,
+    "can_confirm": true,
+    "reasons": []
+  },
+  "wifi": {
+    "has_rules": true,
+    "provided": true,
+    "ok": true
+  },
+  "schedule": {
+    "start_time": "08:00",
+    "end_time": "17:00",
+    "late_threshold": "08:15",
+    "early_threshold": "16:45",
+    "source": "office",
+    "is_special": false
+  }
+}
+```
+
 ### POST /attendance/check-in
 Request:
 ```json
@@ -236,7 +319,6 @@ Request:
   "lat": -6.200123,
   "lng": 106.816789,
   "gpsAccuracy": 15,
-  "distanceMeters": 120,
   "wifiProof": {
     "bssid": "aa:bb:cc:dd:ee:ff"
   }
@@ -246,7 +328,10 @@ Response 200:
 ```json
 {
   "ok": true,
+  "attendance_log_id": 101,
   "type": "IN",
+  "attendanceCategory": "REGULAR",
+  "attendanceCategoryLabel": "Kantor",
   "distanceMeters": 120.12,
   "notes": [
     "Late check-in by 20 minutes."
@@ -272,6 +357,8 @@ Response 200:
 }
 ```
 
+If `flags.late` is `true`, submit the follow-up reason to `POST /attendance/{attendance_log_id}/reason`.
+
 ### POST /attendance/check-out
 Request:
 ```json
@@ -279,7 +366,6 @@ Request:
   "lat": -6.200123,
   "lng": 106.816789,
   "gpsAccuracy": 15,
-  "distanceMeters": 120,
   "wifiProof": {
     "bssid": "aa:bb:cc:dd:ee:ff"
   }
@@ -289,7 +375,10 @@ Response 200:
 ```json
 {
   "ok": true,
+  "attendance_log_id": 102,
   "type": "OUT",
+  "attendanceCategory": "REGULAR",
+  "attendanceCategoryLabel": "Kantor",
   "distanceMeters": 120.12,
   "notes": [
     "Early checkout by 25 minutes."
@@ -315,10 +404,173 @@ Response 200:
 }
 ```
 
-### GET /attendance/history
+If `flags.early_checkout` is `true`, submit the follow-up reason to `POST /attendance/{attendance_log_id}/reason`.
+
+### POST /upload
+Request: `multipart/form-data`
+- `type`: `attendance`, `leave`, or `profile`
+- `file`: uploaded file
+
+Attendance upload example:
+```bash
+curl -X POST "/api/hrms/upload" \
+  -H "Authorization: Bearer <accessToken>" \
+  -F "type=attendance" \
+  -F "file=@proof.jpg"
+```
+
 Response 200:
 ```json
 {
+  "type": "attendance",
+  "path": "api/hrms/files/attendance/api-upload/abc123.jpg",
+  "storedPath": "writable/uploads/attendance/api-upload/abc123.jpg",
+  "url": "https://example.com/api/hrms/files/attendance/api-upload/abc123.jpg",
+  "filename": "abc123.jpg",
+  "originalName": "proof.jpg",
+  "sizeBytes": 245123
+}
+```
+
+Use `storedPath` as `attachment_path` when calling `POST /attendance/out-of-town/check-in` or `POST /attendance/out-of-town/check-out`.
+
+### POST /attendance/out-of-town/check-in
+Request:
+```json
+{
+  "lat": -7.290110,
+  "lng": 112.734210,
+  "gpsAccuracy": 18,
+  "attachment_path": "writable/uploads/attendance/api-upload/abc123.jpg"
+}
+```
+
+Response 200:
+```json
+{
+  "ok": true,
+  "attendance_log_id": 201,
+  "type": "IN",
+  "attendanceCategory": "OUT_OF_TOWN",
+  "attendanceCategoryLabel": "Dinas Luar Kota",
+  "attachmentPath": "https://example.com/api/hrms/files/attendance/api-upload/abc123.jpg",
+  "distanceMeters": 12450.33,
+  "notes": [
+    "Late check-in by 10 minutes."
+  ],
+  "flags": {
+    "late": true,
+    "early_checkout": false,
+    "special_schedule": false
+  },
+  "minutes": {
+    "late": 10,
+    "early_checkout": null
+  },
+  "schedule": {
+    "start_time": "08:00",
+    "end_time": "17:00",
+    "source": "office"
+  },
+  "office": {
+    "id": 1,
+    "name": "HQ Office"
+  }
+}
+```
+
+Notes:
+- Photo proof is mandatory.
+- A fresh uploaded photo is required for each attendance action.
+- Office geofence, IP, and WiFi validation are skipped for this endpoint.
+
+### POST /attendance/out-of-town/check-out
+Request:
+```json
+{
+  "lat": -7.290110,
+  "lng": 112.734210,
+  "gpsAccuracy": 18,
+  "attachment_path": "writable/uploads/attendance/api-upload/xyz456.jpg"
+}
+```
+
+Response 200:
+```json
+{
+  "ok": true,
+  "attendance_log_id": 202,
+  "type": "OUT",
+  "attendanceCategory": "OUT_OF_TOWN",
+  "attendanceCategoryLabel": "Dinas Luar Kota",
+  "attachmentPath": "https://example.com/api/hrms/files/attendance/api-upload/xyz456.jpg",
+  "distanceMeters": 12450.33,
+  "notes": [],
+  "flags": {
+    "late": false,
+    "early_checkout": false,
+    "special_schedule": false
+  },
+  "minutes": {
+    "late": null,
+    "early_checkout": null
+  },
+  "schedule": {
+    "start_time": "08:00",
+    "end_time": "17:00",
+    "source": "office"
+  },
+  "office": {
+    "id": 1,
+    "name": "HQ Office"
+  }
+}
+```
+
+### POST /attendance/{id}/reason
+Request JSON body (all fields optional):
+```json
+{
+  "reason": "Traffic was unusually heavy this morning.",
+  "attachment_path": "writable/uploads/attendance/api-upload/abc123.jpg"
+}
+```
+
+- `reason`: string, optional
+- `attachment_path`: string, optional — use `storedPath` from `POST /upload` instead of uploading a file inline
+
+Request with file upload: `multipart/form-data`
+- `reason`: string, optional
+- `attachment`: file, optional
+
+Response 200:
+```json
+{
+  "ok": true,
+  "id": 101,
+  "type": "IN",
+  "reason": "Traffic was unusually heavy this morning.",
+  "attachmentPath": "https://example.com/api/hrms/files/attendance/101/proof.png",
+  "flags": {
+    "late": true,
+    "early_checkout": false
+  },
+  "hasReasonOrAttachment": true
+}
+```
+
+Notes:
+- Reason follow-up is only allowed for late `IN` or early `OUT`.
+- For `Dinas Luar Kota`, the original proof photo is locked and cannot be replaced by this endpoint.
+
+### GET /attendance/history
+Query:
+- `month=YYYY-MM` optional
+
+Response 200:
+```json
+{
+  "month": "2025-01",
   "data": [
     {
       "id": 10,
@@ -332,6 +584,20 @@ Response 200:
       "method": "GEOFENCE+IP+WIFI",
       "ip_address": "203.0.113.10",
       "user_agent": "okhttp/4.x",
+      "notes": [
+        "Check-in recorded as Dinas Luar Kota."
+      ],
+      "flags": {
+        "late": false,
+        "early_checkout": false
+      },
+      "attendance_reason": null,
+      "attachmentPath": "https://example.com/api/hrms/files/attendance/api-upload/abc123.jpg",
+      "hasReasonOrAttachment": true,
+      "reasonEligible": false,
+      "attendanceCategory": "OUT_OF_TOWN",
+      "attendanceCategoryLabel": "Dinas Luar Kota",
+      "isOutOfTown": true,
       "created_at": "2025-01-01 09:00:00",
       "office_name": "HQ Office"
     }
@@ -410,14 +676,33 @@ Response 200:
       "status": "Present",
       "first_in": "2025-01-02 08:05:00",
       "last_out": "2025-01-02 17:02:00",
+      "first_in_category": "OUT_OF_TOWN",
+      "last_out_category": "REGULAR",
+      "first_in_category_label": "Dinas Luar Kota",
+      "last_out_category_label": "Kantor",
+      "first_in_is_out_of_town": true,
+      "last_out_is_out_of_town": false,
       "late": false,
       "early_checkout": false,
+      "late_reason": null,
+      "late_attachment_path": null,
+      "early_checkout_reason": null,
+      "early_checkout_attachment_path": null,
+      "first_in_proof_path": "https://example.com/api/hrms/files/attendance/api-upload/abc123.jpg",
+      "last_out_proof_path": null,
+      "out_of_town": true,
       "holiday_name": null,
-      "notes": []
+      "notes": [
+        "Check-in recorded as Dinas Luar Kota."
+      ]
     }
   ]
 }
 ```
+
+Notes:
+- Out-of-town attendance is counted as eligible/present only when the attendance log has a photo attachment.
+- `first_in_proof_path` and `last_out_proof_path` are only filled for out-of-town logs.
 
 ## Leave
 

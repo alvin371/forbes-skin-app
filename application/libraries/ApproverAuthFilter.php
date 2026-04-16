@@ -12,7 +12,7 @@ class ApproverAuthFilter
         $this->CI->load->library('permission');
     }
 
-    public function enforce()
+    public function enforce($module_name = 'leave_approvals', $action = 'view')
     {
         $userId = isset($_SESSION['user']['id']) ? (int) $_SESSION['user']['id'] : 0;
         if (!$userId) {
@@ -20,7 +20,7 @@ class ApproverAuthFilter
             return;
         }
 
-        if ($this->CI->permission->check_permission($userId, 'leave_approvals', 'view')) {
+        if ($this->CI->permission->check_permission($userId, $module_name, $action)) {
             return;
         }
 

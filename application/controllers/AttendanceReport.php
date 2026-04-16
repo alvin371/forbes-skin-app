@@ -12,6 +12,7 @@ class AttendanceReport extends BaseController
     {
         parent::__construct();
         $this->load->database();
+        $this->load->helper('attachment');
         $this->load->library('template');
         $this->load->model('AttendanceSettingsModel');
         $this->load->model('HolidayModel');
@@ -25,19 +26,23 @@ class AttendanceReport extends BaseController
         $month = $this->input->get('month', TRUE);
         $month = $month ?: date('Y-m');
         $userId = isset($_SESSION['user']['id']) ? (int) $_SESSION['user']['id'] : 0;
+        $selectedUserId = (int) $this->input->get('user_id', TRUE);
 
-        $isAdminHr = $this->is_admin_hr_user($userId);
+        $canManageReports = $this->can_manage_reports($userId);
         $targetUserId = $userId;
 
-        if ($isAdminHr && $this->input->get('user_id', TRUE)) {
-            $targetUserId = (int) $this->input->get('user_id', TRUE);
+        if ($selectedUserId > 0) {
+            if (!$canManageReports && $selectedUserId !== $userId) {
+                $this->permission->show_403_if_no_permission($userId, 'attendance_report', 'edit');
+            }
+            $targetUserId = $selectedUserId;
         }
 
         $office = $this->Office_model->get_active_office();
         $targetUser = $this->get_user($targetUserId);
         $report = $this->build_monthly_report($targetUserId, $month, $office, $targetUser);
         $summaries = array();
-        if ($isAdminHr && !$this->input->get('user_id', TRUE)) {
+        if ($canManageReports && $selectedUserId === 0) {
             foreach ($this->get_attendance_users() as $member) {
                 $memberReport = $this->build_monthly_report((int) $member['id'], $month, $office, $member);
                 if (!empty($memberReport['summary'])) {
@@ -48,12 +53,12 @@ class AttendanceReport extends BaseController
 
         $data['title'] = 'Attendance Report - ' . $this->template->title();
         $data['month'] = $month;
-        $data['is_admin_hr'] = $isAdminHr;
+        $data['is_admin_hr'] = $canManageReports;
         $data['report'] = $report;
         $data['summaries'] = $summaries;
-        $data['users'] = $isAdminHr ? $this->get_attendance_users() : array();
+        $data['users'] = $canManageReports ? $this->get_attendance_users() : array();
         $data['target_user'] = $targetUser;
-        $data['selected_user_id'] = $this->input->get('user_id', TRUE) ? (int) $this->input->get('user_id', TRUE) : 0;
+        $data['selected_user_id'] = $selectedUserId;
         $data['content'] = $this->load->view('attendance/report', $data, true);
         $this->load->view('TemplateDashboard', $data);
     }
@@ -63,12 +68,16 @@ class AttendanceReport extends BaseController
         $month = $this->input->get('month', TRUE);
         $month = $month ?: date('Y-m');
         $userId = isset($_SESSION['user']['id']) ? (int) $_SESSION['user']['id'] : 0;
+        $selectedUserId = (int) $this->input->get('user_id', TRUE);
 
-        $isAdminHr = $this->is_admin_hr_user($userId);
+        $canManageReports = $this->can_manage_reports($userId);
         $targetUserId = $userId;
 
-        if ($isAdminHr && $this->input->get('user_id', TRUE)) {
-            $targetUserId = (int) $this->input->get('user_id', TRUE);
+        if ($selectedUserId > 0) {
+            if (!$canManageReports && $selectedUserId !== $userId) {
+                $this->permission->show_403_if_no_permission($userId, 'attendance_report', 'edit');
+            }
+            $targetUserId = $selectedUserId;
         }
 
         $office = $this->Office_model->get_active_office();
@@ -88,7 +97,7 @@ class AttendanceReport extends BaseController
     public function set_user_schedule()
     {
         $currentUserId = isset($_SESSION['user']['id']) ? (int) $_SESSION['user']['id'] : 0;
-        if (!$this->is_admin_hr_user($currentUserId)) {
+        if (!$this->permission->check_permission($currentUserId, 'attendance_report', 'edit')) {
             return $this->output
                 ->set_status_header(403)
                 ->set_content_type('application/json')
@@ -154,46 +163,9 @@ class AttendanceReport extends BaseController
         return $this->db->get_where('user', array('id' => (int) $userId))->row_array();
     }
 
-    private function is_admin_hr_user($userId)
+    private function can_manage_reports($userId)
     {
-        $userId = (int) $userId;
-        try {
-            $rolesTable = $this->db->query("SHOW TABLES LIKE 'roles'")->result_array();
-            $userRolesTable = $this->db->query("SHOW TABLES LIKE 'user_roles'")->result_array();
-
-            if (!empty($rolesTable) && !empty($userRolesTable)) {
-                $roles = $this->db->query("
-                    SELECT r.name
-                    FROM user_roles ur
-                    INNER JOIN roles r ON ur.role_id = r.id
-                    WHERE ur.user_id = ? AND r.is_active = 1
-                ", array($userId))->result_array();
-
-                foreach ($roles as $role) {
-                    $name = strtolower((string) $role['name']);
-                    if (in_array($name, array('super_admin', 'admin', 'hr', 'human_resources'), true)) {
-                        return true;
-                    }
-                }
-            }
-        } catch (Exception $e) {
-            // fall through
-        }
-
-        $legacy = $this->db->query("SELECT role, role_text FROM user WHERE id = ? LIMIT 1", array($userId))->row_array();
-        if ($legacy) {
-            if (isset($legacy['role']) && in_array((string) $legacy['role'], array('1', '2', '7'), true)) {
-                return true;
-            }
-            if (!empty($legacy['role_text'])) {
-                $roleText = strtolower((string) $legacy['role_text']);
-                if (strpos($roleText, 'admin') !== false || strpos($roleText, 'hr') !== false) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
+        return $this->permission->check_permission((int) $userId, 'attendance_report', 'edit');
     }
 
     private function get_attendance_users()
@@ -285,15 +257,32 @@ class AttendanceReport extends BaseController
                 $absentCount++;
             }
 
-            $notes = $this->build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout);
+            $notes = $this->build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout, $dayLogs);
+            $firstInCategory = $this->attendance_category_value($dayLogs['first_in_category'] ?? null);
+            $lastOutCategory = $this->attendance_category_value($dayLogs['last_out_category'] ?? null);
+            $firstInOutOfTown = $this->is_out_of_town_attendance($firstInCategory);
+            $lastOutOutOfTown = $this->is_out_of_town_attendance($lastOutCategory);
 
             $daily[] = array(
                 'date' => $day,
                 'status' => $status,
                 'first_in' => $firstIn,
                 'last_out' => $lastOut,
+                'first_in_category' => $firstInCategory,
+                'last_out_category' => $lastOutCategory,
+                'first_in_category_label' => $this->attendance_category_label($firstInCategory),
+                'last_out_category_label' => $this->attendance_category_label($lastOutCategory),
+                'first_in_is_out_of_town' => $firstInOutOfTown,
+                'last_out_is_out_of_town' => $lastOutOutOfTown,
                 'late' => $isLate,
                 'early_checkout' => $isEarlyCheckout,
+                'late_reason' => $isLate ? ($dayLogs['first_in_reason'] ?? null) : null,
+                'late_attachment_path' => ($isLate && !$firstInOutOfTown) ? $this->public_attachment_url($dayLogs['first_in_attachment_path'] ?? null) : null,
+                'early_checkout_reason' => $isEarlyCheckout ? ($dayLogs['last_out_reason'] ?? null) : null,
+                'early_checkout_attachment_path' => ($isEarlyCheckout && !$lastOutOutOfTown) ? $this->public_attachment_url($dayLogs['last_out_attachment_path'] ?? null) : null,
+                'first_in_proof_path' => $firstInOutOfTown ? $this->public_attachment_url($dayLogs['first_in_attachment_path'] ?? null) : null,
+                'last_out_proof_path' => $lastOutOutOfTown ? $this->public_attachment_url($dayLogs['last_out_attachment_path'] ?? null) : null,
+                'out_of_town' => $firstInOutOfTown || $lastOutOutOfTown,
                 'holiday_name' => $holidayName,
                 'notes' => $notes,
             );
@@ -321,7 +310,7 @@ class AttendanceReport extends BaseController
     private function get_attendance_logs($userId, $startDate, $endDate)
     {
         $rows = $this->db->query("
-            SELECT type, created_at
+            SELECT type, created_at, attendance_reason, attachment_path, attendance_category
             FROM attendance_logs
             WHERE user_id = ? AND created_at >= ? AND created_at <= ?
             ORDER BY created_at ASC
@@ -334,16 +323,31 @@ class AttendanceReport extends BaseController
                 $logs[$day] = array(
                     'first_in' => null,
                     'last_out' => null,
+                    'first_in_category' => 'REGULAR',
+                    'last_out_category' => 'REGULAR',
+                    'first_in_reason' => null,
+                    'last_out_reason' => null,
+                    'first_in_attachment_path' => null,
+                    'last_out_attachment_path' => null,
                 );
+            }
+            if (!$this->is_attendance_log_eligible($row)) {
+                continue;
             }
             if ($row['type'] === 'IN') {
                 if ($logs[$day]['first_in'] === null || $row['created_at'] < $logs[$day]['first_in']) {
                     $logs[$day]['first_in'] = $row['created_at'];
+                    $logs[$day]['first_in_category'] = $this->attendance_category_value($row['attendance_category'] ?? null);
+                    $logs[$day]['first_in_reason'] = $row['attendance_reason'] ?? null;
+                    $logs[$day]['first_in_attachment_path'] = $row['attachment_path'] ?? null;
                 }
             }
             if ($row['type'] === 'OUT') {
                 if ($logs[$day]['last_out'] === null || $row['created_at'] > $logs[$day]['last_out']) {
                     $logs[$day]['last_out'] = $row['created_at'];
+                    $logs[$day]['last_out_category'] = $this->attendance_category_value($row['attendance_category'] ?? null);
+                    $logs[$day]['last_out_reason'] = $row['attendance_reason'] ?? null;
+                    $logs[$day]['last_out_attachment_path'] = $row['attachment_path'] ?? null;
                 }
             }
         }
@@ -486,9 +490,17 @@ class AttendanceReport extends BaseController
         return (int) floor($delta / 60);
     }
 
-    private function build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout)
+    private function build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout, $dayLogs = array())
     {
         $notes = array();
+        $firstInCategory = $this->attendance_category_value($dayLogs['first_in_category'] ?? null);
+        $lastOutCategory = $this->attendance_category_value($dayLogs['last_out_category'] ?? null);
+        if ($firstIn && $this->is_out_of_town_attendance($firstInCategory)) {
+            $notes[] = 'Check-in recorded as Dinas Luar Kota.';
+        }
+        if ($lastOut && $this->is_out_of_town_attendance($lastOutCategory)) {
+            $notes[] = 'Check-out recorded as Dinas Luar Kota.';
+        }
         if ($isLate && $firstIn) {
             $lateMinutes = $this->minutes_after_start($firstIn, $startTime);
             if ($lateMinutes !== null) {
@@ -503,6 +515,30 @@ class AttendanceReport extends BaseController
         }
 
         return $notes;
+    }
+
+    private function attendance_category_value($value)
+    {
+        return strtoupper(trim((string) $value)) === 'OUT_OF_TOWN' ? 'OUT_OF_TOWN' : 'REGULAR';
+    }
+
+    private function attendance_category_label($value)
+    {
+        return $this->is_out_of_town_attendance($value) ? 'Dinas Luar Kota' : 'Kantor';
+    }
+
+    private function is_out_of_town_attendance($value)
+    {
+        return $this->attendance_category_value($value) === 'OUT_OF_TOWN';
+    }
+
+    private function is_attendance_log_eligible($row)
+    {
+        if (!$this->is_out_of_town_attendance($row['attendance_category'] ?? null)) {
+            return true;
+        }
+
+        return trim((string) ($row['attachment_path'] ?? '')) !== '';
     }
 
     private function parse_response_times($text)
@@ -539,5 +575,15 @@ class AttendanceReport extends BaseController
         $end = strtotime(substr($timestamp, 0, 10) . ' ' . $endTime . ':00');
         $threshold = $end - ($this->earlyGraceMinutes * 60);
         return strtotime($timestamp) < $threshold;
+    }
+
+    private function public_attachment_url($path)
+    {
+        $path = trim((string) $path);
+        if ($path === '') {
+            return null;
+        }
+
+        return project_uploaded_file_url($path);
     }
 }
