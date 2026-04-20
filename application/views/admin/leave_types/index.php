@@ -16,7 +16,7 @@
             <table class="table" style="border: 1px solid #f0f0f0; border-collapse: separate; border-spacing: 0;">
                 <thead>
                     <tr style="background-color: #fafafa;">
-                        <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">ID</th>
+                        <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">No</th>
                         <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Code</th>
                         <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Name</th>
                         <th style="padding: 12px 8px; border-bottom: 1px solid #f0f0f0; font-weight: 500; color: rgba(0,0,0,0.85); font-size: 14px;">Paid</th>
@@ -32,9 +32,9 @@
                             <td colspan="8" style="padding: 24px; text-align: center; font-size: 14px; color: rgba(0,0,0,0.45);">No leave types configured.</td>
                         </tr>
                     <?php else: ?>
-                        <?php foreach ($leave_types as $leaveType): ?>
+                        <?php foreach ($leave_types as $index => $leaveType): ?>
                             <tr style="border-bottom: 1px solid #f0f0f0; transition: background-color 0.3s;">
-                                <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);"><?php echo (int) $leaveType['id']; ?></td>
+                                <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);"><?php echo (($current_page - 1) * $per_page) + $index + 1; ?></td>
                                 <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);"><?php echo htmlspecialchars($leaveType['code']); ?></td>
                                 <td style="padding: 12px 8px; font-size: 14px; color: rgba(0,0,0,0.65);"><?php echo htmlspecialchars($leaveType['name']); ?></td>
                                 <td style="padding: 12px 8px; font-size: 14px;">
@@ -85,6 +85,17 @@
                     <?php endif; ?>
                 </tbody>
             </table>
+        </div>
+
+        <div style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div style="font-size: 13px; color: rgba(0,0,0,0.55);">
+                Showing <?php echo count($leave_types); ?> of <?php echo (int) $total_rows; ?> leave types.
+            </div>
+            <div>
+                <?php if (!empty($total_rows)): ?>
+                    <?php echo $pagination; ?>
+                <?php endif; ?>
+            </div>
         </div>
     </div>
 </div>

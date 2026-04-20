@@ -42,28 +42,39 @@ class Api_hrms extends CI_Controller
         }
 
         $payload = $this->json_input();
-        $identifier = '';
+        $identifiers = array();
         foreach (array('email', 'username', 'identifier', 'login') as $field) {
             if (!array_key_exists($field, $payload)) {
                 continue;
             }
 
             $value = trim((string) $payload[$field]);
-            if ($value !== '') {
-                $identifier = $value;
-                break;
+            if ($value === '') {
+                continue;
             }
+
+            $identifiers[] = $value;
         }
+        $identifiers = array_values(array_unique($identifiers));
         $password = (string) ($payload['password'] ?? '');
 
-        if ($identifier === '' || $password === '') {
+        if (empty($identifiers) || $password === '') {
             return $this->respond(400, array('message' => 'Email/username and password are required.'));
         }
 
         $this->db->from('user');
         $this->db->group_start();
-        $this->db->where('email', $identifier);
-        $this->db->or_where('username', $identifier);
+        foreach ($identifiers as $index => $identifier) {
+            if ($index === 0) {
+                $this->db->group_start();
+            } else {
+                $this->db->or_group_start();
+            }
+
+            $this->db->where('email', $identifier);
+            $this->db->or_where('username', $identifier);
+            $this->db->group_end();
+        }
         $this->db->group_end();
         $user = $this->db->get()->row_array();
 
@@ -1482,6 +1493,59 @@ class Api_hrms extends CI_Controller
         ));
     }
 
+    public function leave_types()
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->user_requires_attendance((int) $user['id'])) {
+            return $this->respond(403, array('message' => 'Attendance is not required for this account.'));
+        }
+
+        $this->load->model('LeaveQuotaModel');
+
+        $leaveTypes = $this->LeaveTypeModel->get_active();
+        $quotas = $this->LeaveQuotaModel->get_by_user((int) $user['id']);
+        $quotasByType = array();
+
+        foreach ($quotas as $quota) {
+            $quotasByType[(int) $quota['leave_type_id']] = $quota;
+        }
+
+        $items = array();
+        foreach ($leaveTypes as $leaveType) {
+            $leaveTypeId = (int) $leaveType['id'];
+            $quota = $quotasByType[$leaveTypeId] ?? null;
+            $totalDays = $quota ? (int) $quota['total_days'] : 0;
+            $remainingDays = $quota ? (int) $quota['remaining_days'] : 0;
+            $usedDays = max(0, $totalDays - $remainingDays);
+            $percentage = $totalDays > 0 ? round(($remainingDays / $totalDays) * 100, 1) : 0;
+            $quotaStatus = $quota ? $this->get_quota_status($percentage) : 'not_set';
+
+            $items[] = array(
+                'id' => $leaveTypeId,
+                'code' => $leaveType['code'],
+                'name' => $leaveType['name'],
+                'requiresAttachment' => (int) ($leaveType['requires_attachment'] ?? 0) === 1,
+                'maxDaysPerRequest' => $leaveType['max_days_per_request'] !== null ? (int) $leaveType['max_days_per_request'] : null,
+                'isActive' => (int) ($leaveType['is_active'] ?? 0) === 1,
+                'quotaTotalDays' => $totalDays,
+                'quotaRemainingDays' => $remainingDays,
+                'quotaUsedDays' => $usedDays,
+                'quotaStatus' => $quotaStatus,
+                'canApply' => $remainingDays > 0,
+            );
+        }
+
+        return $this->respond(200, array('data' => $items));
+    }
+
     public function leave_quota()
     {
         if ($this->input->method(TRUE) !== 'GET') {
@@ -2146,8 +2210,26 @@ class Api_hrms extends CI_Controller
             ->limit(1)
             ->get()
             ->row_array();
+        $this->load->model('LeaveQuotaModel');
+        $quotas = $this->LeaveQuotaModel->get_by_user((int) $user['id']);
         $office = $this->Office_model->get_active_office();
         $schedule = $this->resolve_attendance_times($office, $user);
+        $leaveQuota = array();
+
+        foreach ($quotas as $quota) {
+            $total = (int) $quota['total_days'];
+            $remaining = (int) $quota['remaining_days'];
+            $percentage = $total > 0 ? round(($remaining / $total) * 100, 1) : 0;
+
+            $leaveQuota[] = array(
+                'leave_type_id' => (int) $quota['leave_type_id'],
+                'leave_type_name' => $quota['leave_type_name'] ?? null,
+                'leave_type_code' => $quota['leave_type_code'] ?? null,
+                'total_days' => $total,
+                'remaining_days' => $remaining,
+                'status' => $this->get_quota_status($percentage),
+            );
+        }
 
         return array(
             'id' => (int) $user['id'],
@@ -2170,6 +2252,7 @@ class Api_hrms extends CI_Controller
                 'source' => $schedule['source'],
                 'special_schedule' => $schedule['source'] === 'user',
             ),
+            'leave_quota' => $leaveQuota,
         );
     }
 

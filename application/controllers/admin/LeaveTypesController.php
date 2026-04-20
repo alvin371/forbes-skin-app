@@ -24,8 +24,28 @@ class LeaveTypesController extends BaseController
             return $this->store();
         }
 
+        $perPage = 10;
+        $currentPage = (int) $this->input->get('page');
+        if ($currentPage < 1) {
+            $currentPage = 1;
+        }
+
+        $totalRows = $this->LeaveTypeModel->count_all(TRUE);
+        $totalPages = max(1, (int) ceil($totalRows / $perPage));
+        if ($currentPage > $totalPages) {
+            $currentPage = $totalPages;
+        }
+
+        $offset = ($currentPage - 1) * $perPage;
+
         $data['title'] = 'Leave Types - ' . $this->template->title();
-        $data['leave_types'] = $this->LeaveTypeModel->get_all(TRUE);
+        $data['leave_types'] = $this->LeaveTypeModel->get_paginated($perPage, $offset, TRUE);
+        $data['per_page'] = $perPage;
+        $data['current_page'] = $currentPage;
+        $data['total_rows'] = $totalRows;
+        $data['page'] = $totalPages;
+        $data['param_pagination'] = site_url('admin/leave-types') . $this->template->get_param_without('page');
+        $data['pagination'] = $this->template->pagination($data['page'], $currentPage, $data['param_pagination']);
         $data['csrf_name'] = $this->security->get_csrf_token_name();
         $data['csrf_hash'] = $this->security->get_csrf_hash();
         $data['content'] = $this->load->view('admin/leave_types/index', $data, true);

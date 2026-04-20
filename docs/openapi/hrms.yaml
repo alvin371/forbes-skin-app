@@ -29,6 +29,7 @@ paths:
     post:
       tags: [Auth]
       summary: Login and issue access/refresh token
+      description: Accepts any non-empty value from `email`, `username`, `identifier`, or `login` as the login identifier.
       security: []
       requestBody:
         required: true
@@ -930,6 +931,23 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
+  /api/hrms/leave/types:
+    get:
+      tags: [Leave]
+      summary: Get active leave types with personal quota
+      description: Returns active leave types together with quota information for the authenticated user. Use this to drive the leave creation form and pre-check quota and attachment requirements.
+      responses:
+        '200':
+          description: Leave types with personal quota data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveTypesResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
   /api/hrms/leave/quota/detail:
     get:
       tags: [Leave]
@@ -1596,6 +1614,28 @@ components:
           nullable: true
         schedule:
           $ref: '#/components/schemas/UserSchedule'
+        leave_quota:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserLeaveQuotaItem'
+
+    UserLeaveQuotaItem:
+      type: object
+      properties:
+        leave_type_id:
+          type: integer
+        leave_type_name:
+          type: string
+          nullable: true
+        leave_type_code:
+          type: string
+          nullable: true
+        total_days:
+          type: integer
+        remaining_days:
+          type: integer
+        status:
+          type: string
 
     UserRoleInfo:
       type: object
@@ -1629,6 +1669,8 @@ components:
         username:
           type: string
         identifier:
+          type: string
+        login:
           type: string
         password:
           type: string
@@ -2839,6 +2881,43 @@ components:
           items:
             type: object
             additionalProperties: true
+
+    LeaveTypesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaveTypeWithQuotaItem'
+
+    LeaveTypeWithQuotaItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        code:
+          type: string
+        name:
+          type: string
+        requiresAttachment:
+          type: boolean
+        maxDaysPerRequest:
+          type: integer
+          nullable: true
+        isActive:
+          type: boolean
+        quotaTotalDays:
+          type: integer
+        quotaRemainingDays:
+          type: integer
+        quotaUsedDays:
+          type: integer
+        quotaStatus:
+          type: string
+          description: Personal quota status for the authenticated user. Values may include `healthy`, `low`, `critical`, or `not_set`.
+        canApply:
+          type: boolean
+          description: Advisory flag for form UX. Final leave validation still happens on the leave create and submit endpoints.
 
     LeaveQuotaDetailResponse:
       type: object

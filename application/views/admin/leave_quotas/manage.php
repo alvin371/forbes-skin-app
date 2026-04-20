@@ -24,6 +24,17 @@
             </div>
         </div>
 
+        <div style="background-color: #fffbe6; border: 1px solid #ffe58f; border-radius: 2px; padding: 12px; margin-bottom: 16px;">
+            <div style="font-size: 14px; color: rgba(0,0,0,0.85);">
+                <i class="bi bi-info-circle"></i> Only active leave types can be managed here.
+                Showing <strong><?php echo (int) $active_leave_type_count; ?></strong> active leave types of
+                <strong><?php echo (int) $total_leave_type_count; ?></strong> total.
+                <?php if ((int) $inactive_leave_type_count > 0): ?>
+                    <span style="color: rgba(0,0,0,0.65);">Inactive excluded: <?php echo (int) $inactive_leave_type_count; ?>.</span>
+                <?php endif; ?>
+            </div>
+        </div>
+
         <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
             <div style="flex: 1; min-width: 220px; background-color: #fafafa; border: 1px solid #d9d9d9; border-radius: 2px; padding: 12px;">
                 <div style="font-size: 12px; font-weight: 500; color: rgba(0,0,0,0.85); margin-bottom: 8px;">Quick Set All</div>

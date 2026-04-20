@@ -18,6 +18,25 @@ class LeaveTypeModel extends CI_Model
         return $this->db->get('leave_types')->result_array();
     }
 
+    public function count_all($include_inactive = TRUE)
+    {
+        if (!$include_inactive) {
+            $this->db->where('is_active', 1);
+        }
+
+        return (int) $this->db->count_all_results('leave_types');
+    }
+
+    public function get_paginated($limit, $offset = 0, $include_inactive = TRUE)
+    {
+        if (!$include_inactive) {
+            $this->db->where('is_active', 1);
+        }
+
+        $this->db->order_by('name', 'ASC');
+        return $this->db->get('leave_types', (int) $limit, (int) $offset)->result_array();
+    }
+
     public function get_active()
     {
         return $this->get_all(FALSE);
