@@ -1,0 +1,28 @@
+{
+    "name": "acneno/forbes-skin-app",
+    "description": "Forbes Skin HRMS application",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "appolous/lazada-php-sdk": "1.6",
+        "doctrine/annotations": "1.14.4",
+        "illuminate/support": "v12.20.0",
+        "kint-php/kint": "5.1.1",
+        "phpoffice/phpspreadsheet": "2.3.9",
+        "predis/predis": "v2.4.0",
+        "sentry/sentry": "^4.18"
+    },
+    "require-dev": {
+        "codeigniter/coding-standard": "v1.7.1",
+        "fakerphp/faker": "v1.24.1",
+        "friendsofphp/php-cs-fixer": "v3.13.0",
+        "mikey179/vfsstream": "v1.6.12",
+        "nexusphp/cs-config": "v3.8.0",
+        "phpunit/phpunit": "9.6.23"
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

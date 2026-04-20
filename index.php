@@ -54,8 +54,37 @@ date_default_timezone_set('Asia/Jakarta');
  *
  * NOTE: If you change these, also change the error_reporting() code below
  */
-// define('ENVIRONMENT', isset($_SERVER['CI_ENV']) ? $_SERVER['CI_ENV'] : 'development');
-define('ENVIRONMENT', 'development');
+if (!function_exists('bootstrap_env_value')) {
+	function bootstrap_env_value($key, $default = null)
+	{
+		if (isset($_SERVER[$key]) && $_SERVER[$key] !== '') {
+			return $_SERVER[$key];
+		}
+
+		$envFile = __DIR__ . DIRECTORY_SEPARATOR . '.env';
+		if (!is_readable($envFile)) {
+			return $default;
+		}
+
+		foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+			$line = trim($line);
+			if ($line === '' || strpos($line, '#') === 0 || strpos($line, '=') === false) {
+				continue;
+			}
+
+			list($name, $value) = explode('=', $line, 2);
+			if (trim($name) !== $key) {
+				continue;
+			}
+
+			return trim(trim($value), "\"'");
+		}
+
+		return $default;
+	}
+}
+
+define('ENVIRONMENT', bootstrap_env_value('CI_ENV', 'development'));
 
 
 /*
@@ -281,6 +310,33 @@ if (!isset($view_folder[0]) && is_dir(APPPATH . 'views' . DIRECTORY_SEPARATOR)) 
 }
 
 define('VIEWPATH', $view_folder . DIRECTORY_SEPARATOR);
+
+$vendorAutoload = FCPATH . 'vendor/autoload.php';
+if (is_readable($vendorAutoload)) {
+	require_once $vendorAutoload;
+}
+
+$envHelper = APPPATH . 'helpers/env_helper.php';
+if (is_readable($envHelper)) {
+	require_once $envHelper;
+}
+
+if (function_exists('env')
+	&& class_exists('\\Sentry\\State\\HubInterface')
+	&& !defined('SENTRY_INITIALIZED')
+) {
+	$sentryDsn = env('SENTRY_DSN', '');
+	if ($sentryDsn !== '') {
+		\Sentry\init(array(
+			'dsn' => $sentryDsn,
+			'environment' => env('SENTRY_ENVIRONMENT', env('CI_ENV', ENVIRONMENT)),
+			'release' => env('SENTRY_RELEASE', null),
+			'attach_stacktrace' => true,
+		));
+
+		define('SENTRY_INITIALIZED', true);
+	}
+}
 
 /*
  * --------------------------------------------------------------------

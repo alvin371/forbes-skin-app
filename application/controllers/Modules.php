@@ -178,6 +178,11 @@ class Modules extends BaseController
             $this->load->view("modules/item", $data);
         } catch (Exception $e) {
             log_message('error', 'Modules::item() - Database error: ' . $e->getMessage());
+            sentry_capture_exception($e, array(
+                'controller' => 'Modules',
+                'method' => 'item',
+                'page' => $current_page,
+            ));
             $this->output
                 ->set_status_header(500)
                 ->set_content_type('text/html')

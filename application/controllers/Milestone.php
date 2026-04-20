@@ -381,6 +381,12 @@ class Milestone extends BaseController
             if (method_exists($this, 'log_message')) {
                 log_message('error', 'Monthly leaderboard error: ' . $e->getMessage());
             }
+
+            sentry_capture_exception($e, array(
+                'controller' => 'Milestone',
+                'method' => 'monthly_leaderboard',
+                'current_month' => $current_month,
+            ));
         }
         
         $this->load->view("milestone/monthly_leaderboard_item", $data);
@@ -430,6 +436,11 @@ class Milestone extends BaseController
             if (method_exists($this, 'log_message')) {
                 log_message('error', 'Ongoing leaderboard error: ' . $e->getMessage());
             }
+
+            sentry_capture_exception($e, array(
+                'controller' => 'Milestone',
+                'method' => 'ongoing_leaderboard',
+            ));
         }
         
         $this->load->view("milestone/ongoing_leaderboard_item", $data);
