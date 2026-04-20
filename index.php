@@ -311,14 +311,14 @@ if (!isset($view_folder[0]) && is_dir(APPPATH . 'views' . DIRECTORY_SEPARATOR)) 
 
 define('VIEWPATH', $view_folder . DIRECTORY_SEPARATOR);
 
-$vendorAutoload = FCPATH . 'vendor/autoload.php';
-if (is_readable($vendorAutoload)) {
-	require_once $vendorAutoload;
-}
-
 $envHelper = APPPATH . 'helpers/env_helper.php';
 if (is_readable($envHelper)) {
 	require_once $envHelper;
+}
+
+$vendorAutoload = FCPATH . 'vendor/autoload.php';
+if (is_readable($vendorAutoload)) {
+	require_once $vendorAutoload;
 }
 
 if (function_exists('env')
