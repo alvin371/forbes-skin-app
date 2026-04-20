@@ -43,8 +43,10 @@ class LeaveController extends CI_Controller
 
     public function create()
     {
+        $userId = $this->current_user_id();
         $data['title'] = 'Submit Leave Request - ' . $this->template->title();
         $data['leave_types'] = $this->LeaveTypeModel->get_active();
+        $data['leave_type_options'] = $this->build_leave_type_options($userId, $data['leave_types']);
         $data['request'] = $this->empty_request();
         $data['errors'] = array();
         $data['holidays'] = $this->HolidayModel->get_active();
@@ -272,6 +274,7 @@ class LeaveController extends CI_Controller
         if (!empty($errors)) {
             $data['title'] = 'Submit Leave Request - ' . $this->template->title();
             $data['leave_types'] = $this->LeaveTypeModel->get_active();
+            $data['leave_type_options'] = $this->build_leave_type_options($userId, $data['leave_types']);
             $data['request'] = array_merge($this->empty_request(), $clean);
             $data['errors'] = $errors;
             $data['holidays'] = $this->HolidayModel->get_active();
@@ -298,6 +301,7 @@ class LeaveController extends CI_Controller
                 ));
                 $data['title'] = 'Submit Leave Request - ' . $this->template->title();
                 $data['leave_types'] = $this->LeaveTypeModel->get_active();
+                $data['leave_type_options'] = $this->build_leave_type_options($userId, $data['leave_types']);
                 $data['request'] = array_merge($this->empty_request(), $clean);
                 $data['errors'] = array('attachment' => $upload['error']);
                 $data['holidays'] = $this->HolidayModel->get_active();
@@ -322,6 +326,7 @@ class LeaveController extends CI_Controller
                 ));
                 $data['title'] = 'Submit Leave Request - ' . $this->template->title();
                 $data['leave_types'] = $this->LeaveTypeModel->get_active();
+                $data['leave_type_options'] = $this->build_leave_type_options($userId, $data['leave_types']);
                 $data['request'] = array_merge($this->empty_request(), $clean);
                 $data['errors'] = array('attachment' => $upload['error']);
                 $data['holidays'] = $this->HolidayModel->get_active();
@@ -457,6 +462,33 @@ class LeaveController extends CI_Controller
     private function current_user_id()
     {
         return isset($_SESSION['user']['id']) ? (int) $_SESSION['user']['id'] : 0;
+    }
+
+    private function build_leave_type_options($userId, $leaveTypes)
+    {
+        $quotaRows = $this->LeaveQuotaModel->get_by_user($userId);
+        $quotasByType = array();
+        foreach ($quotaRows as $quota) {
+            $quotasByType[(int) $quota['leave_type_id']] = $quota;
+        }
+
+        $options = array();
+        foreach ((array) $leaveTypes as $leaveType) {
+            $leaveTypeId = (int) $leaveType['id'];
+            $isUnlimited = $this->leavequotaservice->isUnlimitedLeaveTypeRecord($leaveType);
+            $quota = $quotasByType[$leaveTypeId] ?? null;
+
+            $options[$leaveTypeId] = array(
+                'id' => $leaveTypeId,
+                'is_unlimited' => $isUnlimited,
+                'requires_attachment' => (int) ($leaveType['requires_attachment'] ?? 0) === 1,
+                'usage_count' => $isUnlimited ? $this->leavequotaservice->getUnlimitedLeaveUsageCount($userId, $leaveTypeId) : null,
+                'quota_remaining_days' => $quota ? (int) $quota['remaining_days'] : 0,
+                'quota_total_days' => $quota ? (int) $quota['total_days'] : 0,
+            );
+        }
+
+        return $options;
     }
 
     private function empty_request()

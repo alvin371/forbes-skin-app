@@ -31,6 +31,11 @@
                 </select>
             </div>
 
+            <div id="leave-type-info" style="display: none; margin-bottom: 16px; padding: 12px; border-radius: 2px; border: 1px solid #d9d9d9; background: #fafafa;">
+                <div id="leave-type-info-main" style="font-size: 14px; color: rgba(0,0,0,0.85);"></div>
+                <div id="leave-type-info-sub" style="margin-top: 4px; font-size: 12px; color: rgba(0,0,0,0.55);"></div>
+            </div>
+
             <div class="row g-2">
                 <div class="col-md-6">
                     <div style="margin-bottom: 16px;">
@@ -102,11 +107,41 @@
         }
 
         var holidays = <?php echo json_encode($holidays ?? array(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
+        var leaveTypeOptions = <?php echo json_encode($leave_type_options ?? array(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
         var holidayLookup = {};
         var holidayDates = holidays.map(function (holiday) {
             holidayLookup[holiday.date] = holiday.name || '';
             return holiday.date;
         });
+        var leaveTypeSelect = document.querySelector('select[name="leave_type_id"]');
+        var leaveTypeInfo = document.getElementById('leave-type-info');
+        var leaveTypeInfoMain = document.getElementById('leave-type-info-main');
+        var leaveTypeInfoSub = document.getElementById('leave-type-info-sub');
+
+        function updateLeaveTypeInfo() {
+            if (!leaveTypeSelect || !leaveTypeInfo || !leaveTypeInfoMain || !leaveTypeInfoSub) {
+                return;
+            }
+
+            var selectedId = leaveTypeSelect.value;
+            var selected = leaveTypeOptions[selectedId];
+            if (!selected) {
+                leaveTypeInfo.style.display = 'none';
+                leaveTypeInfoMain.textContent = '';
+                leaveTypeInfoSub.textContent = '';
+                return;
+            }
+
+            leaveTypeInfo.style.display = 'block';
+            if (selected.is_unlimited) {
+                leaveTypeInfoMain.textContent = 'Unlimited leave. This type does not use quota.';
+                leaveTypeInfoSub.textContent = 'Used ' + (selected.usage_count || 0) + ' time(s). Attachment ' + (selected.requires_attachment ? 'is required.' : 'is not required.');
+                return;
+            }
+
+            leaveTypeInfoMain.textContent = 'Remaining quota: ' + (selected.quota_remaining_days || 0) + ' of ' + (selected.quota_total_days || 0) + ' day(s).';
+            leaveTypeInfoSub.textContent = 'Attachment ' + (selected.requires_attachment ? 'is required.' : 'is not required.');
+        }
 
         function attachLeaveDatepicker(selector, options) {
             var input = document.querySelector(selector);
@@ -148,5 +183,10 @@
                 }
             }
         });
+
+        if (leaveTypeSelect) {
+            leaveTypeSelect.addEventListener('change', updateLeaveTypeInfo);
+            updateLeaveTypeInfo();
+        }
     })();
 </script>
