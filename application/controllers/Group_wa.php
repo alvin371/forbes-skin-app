@@ -197,7 +197,7 @@ class Group_wa extends BaseController
                 'file' => [
                     'uploaded[file]',
                     'mime_in[file,image/jpg,image/jpeg,image/png]',
-                    'max_size[file,1024]',
+                    'max_size[file,5120]',
                 ]
             ]);
 
@@ -259,7 +259,7 @@ class Group_wa extends BaseController
                 'file' => [
                     'uploaded[file]',
                     'mime_in[file,image/jpg,image/jpeg,image/png]',
-                    'max_size[file,1024]',
+                    'max_size[file,5120]',
                 ]
             ]);
 

@@ -10,6 +10,7 @@ class Auth extends CI_Controller
         $this->load->model('mymodel');
         $this->load->model('LeaveQuotaModel');
         $this->load->helper('url');
+        $this->load->helper('sentry');
         $this->load->library('form_validation');
         $this->load->library('permission');
         $this->load->library('UploadService');
@@ -153,7 +154,13 @@ class Auth extends CI_Controller
                     return base_url() . 'user';
                 }
             } catch (Exception $e) {
-                // Fallback
+                sentry_capture_exception($e, array(
+                    'controller' => 'Auth',
+                    'method' => 'get_user_default_page',
+                    'user_id' => $user_id,
+                    'user_role' => $user_role,
+                    'module' => 'user',
+                ));
             }
             return base_url() . 'profile';
         }
@@ -166,7 +173,13 @@ class Auth extends CI_Controller
                     return base_url() . 'influencer';
                 }
             } catch (Exception $e) {
-                // Fallback
+                sentry_capture_exception($e, array(
+                    'controller' => 'Auth',
+                    'method' => 'get_user_default_page',
+                    'user_id' => $user_id,
+                    'user_role' => $user_role,
+                    'module' => 'influencer',
+                ));
             }
             // Try CRM as second option
             try {
@@ -174,7 +187,13 @@ class Auth extends CI_Controller
                     return base_url() . 'crm';
                 }
             } catch (Exception $e) {
-                // Fallback
+                sentry_capture_exception($e, array(
+                    'controller' => 'Auth',
+                    'method' => 'get_user_default_page',
+                    'user_id' => $user_id,
+                    'user_role' => $user_role,
+                    'module' => 'crm',
+                ));
             }
             return base_url() . 'profile';
         }
@@ -187,7 +206,13 @@ class Auth extends CI_Controller
                     return base_url() . 'transaction';
                 }
             } catch (Exception $e) {
-                // Fallback
+                sentry_capture_exception($e, array(
+                    'controller' => 'Auth',
+                    'method' => 'get_user_default_page',
+                    'user_id' => $user_id,
+                    'user_role' => $user_role,
+                    'module' => 'transaction',
+                ));
             }
             // Try product management as second option
             try {
@@ -195,7 +220,13 @@ class Auth extends CI_Controller
                     return base_url() . 'product';
                 }
             } catch (Exception $e) {
-                // Fallback
+                sentry_capture_exception($e, array(
+                    'controller' => 'Auth',
+                    'method' => 'get_user_default_page',
+                    'user_id' => $user_id,
+                    'user_role' => $user_role,
+                    'module' => 'product',
+                ));
             }
             return base_url() . 'profile';
         }
@@ -462,6 +493,13 @@ class Auth extends CI_Controller
         if (!empty($db_error['code']) && $db_error['code'] != 0) {
             $this->db->trans_rollback();
             log_message('error', 'Signup insert failed with DB error: ' . json_encode($db_error) . ' | User data: ' . json_encode($user_data));
+            sentry_capture_message('Signup insert failed', array(
+                'controller' => 'Auth',
+                'method' => 'signup_process',
+                'username' => $username,
+                'email' => $email,
+                'db_error' => $db_error,
+            ));
 
             // User-friendly error messages based on error type
             if (strpos($db_error['message'], 'Duplicate entry') !== false) {
@@ -489,6 +527,12 @@ class Auth extends CI_Controller
             } else {
                 $this->db->trans_rollback();
                 log_message('error', 'Signup failed: insert_id returned 0 and could not find user. Table may lack AUTO_INCREMENT. User: ' . $username);
+                sentry_capture_message('Signup insert_id returned 0', array(
+                    'controller' => 'Auth',
+                    'method' => 'signup_process',
+                    'username' => $username,
+                    'email' => $email,
+                ));
                 $msg = 'Registration failed. The user table may need database maintenance. Please contact support with error code: DB_AUTO_INCREMENT';
                 echo $this->template->alert_danger($msg);
                 return;
@@ -513,6 +557,13 @@ class Auth extends CI_Controller
         if ($this->db->trans_status() === FALSE) {
             $db_error = $this->db->error();
             log_message('error', 'Signup transaction failed for username: ' . $username . ' | DB Error: ' . json_encode($db_error));
+            sentry_capture_message('Signup transaction failed', array(
+                'controller' => 'Auth',
+                'method' => 'signup_process',
+                'username' => $username,
+                'email' => $email,
+                'db_error' => $db_error,
+            ));
             $msg = 'Registration failed. Please try again.';
             echo $this->template->alert_danger($msg);
         } else {

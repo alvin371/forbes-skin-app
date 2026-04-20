@@ -32,6 +32,7 @@ class Api_hrms extends CI_Controller
         $this->load->library('permission');
         $this->load->library('UploadService');
         $this->load->helper('attendance');
+        $this->load->helper('sentry');
     }
 
     public function auth_login()
@@ -1324,6 +1325,13 @@ class Api_hrms extends CI_Controller
 
         $result = $this->approvalworkflowengine->initializeWorkflow((int) $request['id']);
         if (!$result['success']) {
+            sentry_capture_message('Leave submit workflow failed', array(
+                'controller' => 'Api_hrms',
+                'method' => 'leave_submit',
+                'leave_request_id' => (int) $request['id'],
+                'user_id' => (int) $user['id'],
+                'workflow' => $result,
+            ));
             return $this->respond(400, array(
                 'message' => 'Failed to submit leave request: ' . ($result['message'] ?? 'Unknown error.'),
                 'workflow' => $result,
@@ -1371,6 +1379,13 @@ class Api_hrms extends CI_Controller
 
         $result = $this->approvalworkflowengine->cancelWorkflow((int) $request['id'], (int) $user['id']);
         if (!$result['success']) {
+            sentry_capture_message('Leave cancel workflow fallback used', array(
+                'controller' => 'Api_hrms',
+                'method' => 'leave_cancel',
+                'leave_request_id' => (int) $request['id'],
+                'user_id' => (int) $user['id'],
+                'workflow' => $result,
+            ));
             $now = date('Y-m-d H:i:s');
             $this->db->trans_start();
 
@@ -2007,10 +2022,40 @@ class Api_hrms extends CI_Controller
             $payload = array_merge($payload, $normalized);
         }
 
+        if ($this->should_report_sentry_api_error($statusCode, $payload)) {
+            sentry_capture_message('HRMS API request failed', array(
+                'controller' => 'Api_hrms',
+                'status_code' => (int) $statusCode,
+                'error_code' => $payload['code'] ?? null,
+                'message' => $payload['message'] ?? null,
+                'request_uri' => $_SERVER['REQUEST_URI'] ?? null,
+                'request_method' => $_SERVER['REQUEST_METHOD'] ?? null,
+                'errors' => $payload['errors'] ?? null,
+            ));
+        }
+
         return $this->output
             ->set_status_header($statusCode)
             ->set_content_type('application/json')
             ->set_output(json_encode($payload));
+    }
+
+    private function should_report_sentry_api_error($statusCode, array $payload)
+    {
+        if ($statusCode >= 500) {
+            return true;
+        }
+
+        if (!in_array((int) $statusCode, array(400, 409, 422, 429), true)) {
+            return false;
+        }
+
+        $code = (string) ($payload['code'] ?? '');
+        if (in_array($code, array('UNAUTHORIZED', 'FORBIDDEN', 'NOT_FOUND', 'METHOD_NOT_ALLOWED'), true)) {
+            return false;
+        }
+
+        return true;
     }
 
     private function default_error_code($statusCode, $message)
@@ -3477,6 +3522,13 @@ class Api_hrms extends CI_Controller
         $workflowResult = $this->overtimeworkflowengine->initializeWorkflow($requestId);
 
         if (!$workflowResult['success'] && isset($workflowResult['code']) && in_array($workflowResult['code'], array('NO_ROUTE', 'NO_STEPS'), true)) {
+            sentry_capture_message('Overtime workflow initialization failed', array(
+                'controller' => 'Api_hrms',
+                'method' => 'overtime_store',
+                'overtime_request_id' => (int) $requestId,
+                'user_id' => (int) $user['id'],
+                'workflow' => $workflowResult,
+            ));
             $this->OvertimeRequestModel->delete($requestId);
             return $this->respond(422, array('message' => $workflowResult['message']));
         }
@@ -3602,6 +3654,13 @@ class Api_hrms extends CI_Controller
         $result = $this->overtimeworkflowengine->cancelWorkflow((int) $id, (int) $user['id']);
 
         if (!$result['success']) {
+            sentry_capture_message('Overtime cancel failed', array(
+                'controller' => 'Api_hrms',
+                'method' => 'overtime_cancel',
+                'overtime_request_id' => (int) $id,
+                'user_id' => (int) $user['id'],
+                'workflow' => $result,
+            ));
             return $this->respond(409, array('message' => $result['message']));
         }
 

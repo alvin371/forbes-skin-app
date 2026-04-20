@@ -31,6 +31,7 @@ class OvertimeWorkflowEngine
         $this->CI->load->model('OvertimeLedgerModel');
         $this->CI->load->library('ApprovalRouteResolver');
         $this->CI->load->library('OvertimeNotificationService');
+        $this->CI->load->helper('sentry');
     }
 
     /**
@@ -44,6 +45,11 @@ class OvertimeWorkflowEngine
         // Get overtime request details
         $request = $this->CI->OvertimeRequestModel->get_by_id($overtimeRequestId);
         if (!$request) {
+            sentry_capture_message('Overtime workflow initialization failed: request not found', array(
+                'library' => 'OvertimeWorkflowEngine',
+                'method' => 'initializeWorkflow',
+                'overtime_request_id' => (int) $overtimeRequestId,
+            ));
             return array(
                 'success' => false,
                 'message' => 'Overtime request not found',
@@ -53,6 +59,12 @@ class OvertimeWorkflowEngine
         // Check if workflow already exists
         $existing = $this->CI->OvertimeApprovalInstanceModel->get_by_overtime_request($overtimeRequestId);
         if ($existing) {
+            sentry_capture_message('Overtime workflow already exists', array(
+                'library' => 'OvertimeWorkflowEngine',
+                'method' => 'initializeWorkflow',
+                'overtime_request_id' => (int) $overtimeRequestId,
+                'instance_id' => $existing['id'] ?? null,
+            ));
             return array(
                 'success' => false,
                 'message' => 'Workflow already exists for this request',
@@ -72,6 +84,12 @@ class OvertimeWorkflowEngine
 
         if (!$route) {
             log_message('error', 'OvertimeWorkflowEngine: No matching route found for overtime request ' . $overtimeRequestId);
+            sentry_capture_message('Overtime workflow missing route', array(
+                'library' => 'OvertimeWorkflowEngine',
+                'method' => 'initializeWorkflow',
+                'overtime_request_id' => (int) $overtimeRequestId,
+                'user_id' => $request['user_id'] ?? null,
+            ));
             return array(
                 'success' => false,
                 'code' => 'NO_ROUTE',
@@ -81,6 +99,12 @@ class OvertimeWorkflowEngine
 
         if (empty($route['steps'])) {
             log_message('error', 'OvertimeWorkflowEngine: Route has no steps for overtime request ' . $overtimeRequestId);
+            sentry_capture_message('Overtime workflow route has no steps', array(
+                'library' => 'OvertimeWorkflowEngine',
+                'method' => 'initializeWorkflow',
+                'overtime_request_id' => (int) $overtimeRequestId,
+                'route_code' => $route['route_code'] ?? null,
+            ));
             return array(
                 'success' => false,
                 'code' => 'NO_STEPS',
@@ -127,6 +151,12 @@ class OvertimeWorkflowEngine
         $this->db->trans_complete();
 
         if ($this->db->trans_status() === FALSE) {
+            sentry_capture_message('Overtime workflow transaction failed', array(
+                'library' => 'OvertimeWorkflowEngine',
+                'method' => 'initializeWorkflow',
+                'overtime_request_id' => (int) $overtimeRequestId,
+                'route_code' => $route['route_code'] ?? null,
+            ));
             return array(
                 'success' => false,
                 'message' => 'Failed to initialize workflow',
@@ -340,6 +370,12 @@ class OvertimeWorkflowEngine
         $ledgerId = $this->CI->OvertimeLedgerModel->create_from_request($request, $approverId);
         if (!$ledgerId) {
             log_message('error', 'OvertimeWorkflowEngine: Failed to create ledger entry for request ' . $overtimeRequestId);
+            sentry_capture_message('Overtime ledger creation failed', array(
+                'library' => 'OvertimeWorkflowEngine',
+                'method' => 'handleFinalApproval',
+                'overtime_request_id' => (int) $overtimeRequestId,
+                'approver_id' => (int) $approverId,
+            ));
         }
 
         // Update instance status
@@ -416,6 +452,12 @@ class OvertimeWorkflowEngine
     {
         $request = $this->CI->OvertimeRequestModel->get_by_id($overtimeRequestId);
         if (!$request) {
+            sentry_capture_message('Overtime workflow cancel failed: request not found', array(
+                'library' => 'OvertimeWorkflowEngine',
+                'method' => 'cancelWorkflow',
+                'overtime_request_id' => (int) $overtimeRequestId,
+                'user_id' => (int) $userId,
+            ));
             return array(
                 'success' => false,
                 'message' => 'Overtime request not found',
@@ -424,6 +466,13 @@ class OvertimeWorkflowEngine
 
         // Only requester can cancel
         if ($request['user_id'] != $userId) {
+            sentry_capture_message('Overtime workflow cancel denied', array(
+                'library' => 'OvertimeWorkflowEngine',
+                'method' => 'cancelWorkflow',
+                'overtime_request_id' => (int) $overtimeRequestId,
+                'user_id' => (int) $userId,
+                'request_owner_id' => $request['user_id'] ?? null,
+            ));
             return array(
                 'success' => false,
                 'message' => 'Only the requester can cancel this request',
@@ -432,6 +481,13 @@ class OvertimeWorkflowEngine
 
         // Check if can be cancelled (SUBMITTED or IN_REVIEW, before any approval)
         if (!in_array($request['status'], array('SUBMITTED', 'IN_REVIEW'))) {
+            sentry_capture_message('Overtime workflow cancel rejected due to status', array(
+                'library' => 'OvertimeWorkflowEngine',
+                'method' => 'cancelWorkflow',
+                'overtime_request_id' => (int) $overtimeRequestId,
+                'user_id' => (int) $userId,
+                'status' => $request['status'],
+            ));
             return array(
                 'success' => false,
                 'message' => 'Request cannot be cancelled in current status',
@@ -446,6 +502,13 @@ class OvertimeWorkflowEngine
         ", array($overtimeRequestId))->row_array();
 
         if ($approvedSteps && (int) $approvedSteps['count'] > 0) {
+            sentry_capture_message('Overtime workflow cancel rejected after approvals', array(
+                'library' => 'OvertimeWorkflowEngine',
+                'method' => 'cancelWorkflow',
+                'overtime_request_id' => (int) $overtimeRequestId,
+                'user_id' => (int) $userId,
+                'approved_steps' => (int) $approvedSteps['count'],
+            ));
             return array(
                 'success' => false,
                 'message' => 'Cannot cancel request that has already received approvals',

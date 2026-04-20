@@ -28,6 +28,7 @@ class ApprovalWorkflowEngine
         // Load required libraries
         $this->CI->load->library('ApprovalRouteResolver');
         $this->CI->load->library('NotificationService');
+        $this->CI->load->helper('sentry');
     }
 
     /**
@@ -41,6 +42,11 @@ class ApprovalWorkflowEngine
         // Get leave request details
         $request = $this->getLeaveRequest($leaveRequestId);
         if (!$request) {
+            sentry_capture_message('Leave workflow initialization failed: request not found', array(
+                'library' => 'ApprovalWorkflowEngine',
+                'method' => 'initializeWorkflow',
+                'leave_request_id' => (int) $leaveRequestId,
+            ));
             return array(
                 'success' => false,
                 'message' => 'Leave request not found',
@@ -50,6 +56,12 @@ class ApprovalWorkflowEngine
         // Check if workflow already exists
         $existing = $this->getApprovalInstance($leaveRequestId);
         if ($existing) {
+            sentry_capture_message('Leave workflow already exists', array(
+                'library' => 'ApprovalWorkflowEngine',
+                'method' => 'initializeWorkflow',
+                'leave_request_id' => (int) $leaveRequestId,
+                'instance_id' => $existing['id'] ?? null,
+            ));
             return array(
                 'success' => false,
                 'message' => 'Workflow already exists for this request',
@@ -97,6 +109,12 @@ class ApprovalWorkflowEngine
 
             // Notify HR admins
             $this->notifyHrAdmins($leaveRequestId, $request);
+            sentry_capture_message('Leave workflow needs manual route', array(
+                'library' => 'ApprovalWorkflowEngine',
+                'method' => 'initializeWorkflow',
+                'leave_request_id' => (int) $leaveRequestId,
+                'user_id' => $request['user_id'] ?? null,
+            ));
 
             return array(
                 'success' => true,
@@ -151,6 +169,12 @@ class ApprovalWorkflowEngine
         $this->db->trans_complete();
 
         if ($this->db->trans_status() === FALSE) {
+            sentry_capture_message('Leave workflow transaction failed', array(
+                'library' => 'ApprovalWorkflowEngine',
+                'method' => 'initializeWorkflow',
+                'leave_request_id' => (int) $leaveRequestId,
+                'route_code' => $route['route_code'] ?? null,
+            ));
             return array(
                 'success' => false,
                 'message' => 'Failed to initialize workflow',
@@ -359,6 +383,12 @@ class ApprovalWorkflowEngine
 
         $request = $this->getLeaveRequest($leaveRequestId);
         if (!$request) {
+            sentry_capture_message('Leave workflow cancel failed: request not found', array(
+                'library' => 'ApprovalWorkflowEngine',
+                'method' => 'cancelWorkflow',
+                'leave_request_id' => (int) $leaveRequestId,
+                'user_id' => (int) $userId,
+            ));
             return array(
                 'success' => false,
                 'message' => 'Leave request not found',
@@ -471,6 +501,13 @@ class ApprovalWorkflowEngine
 
         // Only requester can cancel
         if ($request['user_id'] != $userId) {
+            sentry_capture_message('Leave workflow cancel denied', array(
+                'library' => 'ApprovalWorkflowEngine',
+                'method' => 'cancelWorkflow',
+                'leave_request_id' => (int) $leaveRequestId,
+                'user_id' => (int) $userId,
+                'request_owner_id' => $request['user_id'] ?? null,
+            ));
             return array(
                 'success' => false,
                 'message' => 'Only the requester can cancel this request',
@@ -479,6 +516,13 @@ class ApprovalWorkflowEngine
 
         // Check if can be cancelled
         if (in_array($request['status'], array('APPROVED', 'REJECTED', 'CANCELLED'))) {
+            sentry_capture_message('Leave workflow cancel rejected due to status', array(
+                'library' => 'ApprovalWorkflowEngine',
+                'method' => 'cancelWorkflow',
+                'leave_request_id' => (int) $leaveRequestId,
+                'user_id' => (int) $userId,
+                'status' => $request['status'],
+            ));
             return array(
                 'success' => false,
                 'message' => 'Request cannot be cancelled in current status',

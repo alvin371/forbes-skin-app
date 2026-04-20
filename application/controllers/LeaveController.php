@@ -15,6 +15,7 @@ class LeaveController extends CI_Controller
         $this->load->library('ApprovalWorkflowEngine');
         $this->load->library('LeaveQuotaService');
         $this->load->library('UploadService');
+        $this->load->helper('sentry');
         $this->load->model('LeaveTypeModel');
         $this->load->model('LeaveRequestModel');
         $this->load->model('LeaveApprovalModel');
@@ -120,11 +121,25 @@ class LeaveController extends CI_Controller
 
         if ($result['success']) {
             if (isset($result['needs_route']) && $result['needs_route']) {
+                sentry_capture_message('Leave submit requires manual route', array(
+                    'controller' => 'LeaveController',
+                    'method' => 'submit',
+                    'leave_request_id' => (int) $id,
+                    'user_id' => (int) $userId,
+                    'workflow' => $result,
+                ));
                 $this->session->set_flashdata('warning', $result['message']);
             } else {
                 $this->session->set_flashdata('success', 'Pengajuan cuti berhasil disubmit untuk persetujuan.');
             }
         } else {
+            sentry_capture_message('Leave submit failed', array(
+                'controller' => 'LeaveController',
+                'method' => 'submit',
+                'leave_request_id' => (int) $id,
+                'user_id' => (int) $userId,
+                'workflow' => $result,
+            ));
             $this->session->set_flashdata('error', 'Gagal submit pengajuan: ' . $result['message']);
         }
 
@@ -202,6 +217,13 @@ class LeaveController extends CI_Controller
         $result = $this->approvalworkflowengine->cancelWorkflow($id, $userId);
 
         if (!$result['success']) {
+            sentry_capture_message('Leave cancel workflow fallback used', array(
+                'controller' => 'LeaveController',
+                'method' => 'cancel',
+                'leave_request_id' => (int) $id,
+                'user_id' => (int) $userId,
+                'workflow' => $result,
+            ));
             // Fallback to direct update if workflow engine fails
             $now = date('Y-m-d H:i:s');
             $this->db->trans_start();
@@ -267,6 +289,13 @@ class LeaveController extends CI_Controller
         if ($leaveType && (int) $leaveType['requires_attachment'] === 1) {
             $upload = $this->handle_attachment_upload($requestNo, 'attachment');
             if (isset($upload['error'])) {
+                sentry_capture_message('Leave attachment upload failed', array(
+                    'controller' => 'LeaveController',
+                    'method' => 'store',
+                    'user_id' => (int) $userId,
+                    'request_no' => $requestNo,
+                    'upload_error' => $upload['error'],
+                ));
                 $data['title'] = 'Submit Leave Request - ' . $this->template->title();
                 $data['leave_types'] = $this->LeaveTypeModel->get_active();
                 $data['request'] = array_merge($this->empty_request(), $clean);
@@ -284,6 +313,13 @@ class LeaveController extends CI_Controller
         } elseif (!empty($_FILES['attachment']['name'])) {
             $upload = $this->handle_attachment_upload($requestNo, 'attachment');
             if (isset($upload['error'])) {
+                sentry_capture_message('Leave attachment upload failed', array(
+                    'controller' => 'LeaveController',
+                    'method' => 'store',
+                    'user_id' => (int) $userId,
+                    'request_no' => $requestNo,
+                    'upload_error' => $upload['error'],
+                ));
                 $data['title'] = 'Submit Leave Request - ' . $this->template->title();
                 $data['leave_types'] = $this->LeaveTypeModel->get_active();
                 $data['request'] = array_merge($this->empty_request(), $clean);
@@ -327,11 +363,25 @@ class LeaveController extends CI_Controller
             $result = $this->approvalworkflowengine->initializeWorkflow($requestId);
             if ($result['success']) {
                 if (isset($result['needs_route']) && $result['needs_route']) {
+                    sentry_capture_message('Leave workflow needs manual route', array(
+                        'controller' => 'LeaveController',
+                        'method' => 'store',
+                        'leave_request_id' => (int) $requestId,
+                        'user_id' => (int) $userId,
+                        'workflow' => $result,
+                    ));
                     $this->session->set_flashdata('warning', 'Pengajuan tersimpan tapi tidak ada rute approval yang cocok. HR akan menentukan rute secara manual.');
                 } else {
                     $this->session->set_flashdata('success', 'Pengajuan cuti berhasil disubmit untuk persetujuan.');
                 }
             } else {
+                sentry_capture_message('Leave workflow initialization failed', array(
+                    'controller' => 'LeaveController',
+                    'method' => 'store',
+                    'leave_request_id' => (int) $requestId,
+                    'user_id' => (int) $userId,
+                    'workflow' => $result,
+                ));
                 $this->session->set_flashdata('warning', 'Pengajuan tersimpan tapi gagal memulai workflow: ' . $result['message']);
             }
         } else {

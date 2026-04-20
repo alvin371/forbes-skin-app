@@ -25,6 +25,7 @@ class Api_v2 extends CI_Controller
         parent::__construct();
         $this->load->library('Template');
         $this->load->helper('env');
+        $this->load->helper('sentry');
 
         // TikTok Shop API credentials
         $this->app_key_tiktok = env('TIKTOK_APP_KEY', '');
@@ -795,6 +796,15 @@ class Api_v2 extends CI_Controller
             echo json_encode($html, true);
             die;
         }
+    }
+
+    private function report_marketplace_curl_error($endpoint, $error, array $context = array())
+    {
+        $context['controller'] = 'Api_v2';
+        $context['endpoint'] = $endpoint;
+        $context['curl_error'] = $error;
+
+        sentry_capture_message('Marketplace integration CURL error', $context);
     }
 
     function customer_summary()
@@ -6038,6 +6048,9 @@ class Api_v2 extends CI_Controller
         curl_close($curl);
 
         if ($curl_error) {
+            $this->report_marketplace_curl_error('tts_get_shipping_providers', $curl_error, array(
+                'shop_id' => $shop_id ?? null,
+            ));
             echo json_encode(['status' => false, 'message' => 'CURL Error: ' . $curl_error]);
             return;
         }
@@ -6268,6 +6281,10 @@ class Api_v2 extends CI_Controller
                 curl_close($curl);
 
                 if ($curl_error) {
+                    $this->report_marketplace_curl_error('tts_ship_packages_bulk', $curl_error, array(
+                        'shop_id' => $shop_id,
+                        'chunk_size' => count($transaction_chunk),
+                    ));
                     foreach ($transaction_chunk as $tx) {
                         $results[] = [
                             'transaction_id' => $tx['order_id'],
@@ -6553,6 +6570,10 @@ class Api_v2 extends CI_Controller
                     $http_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
 
                     if ($curl_error) {
+                        $this->report_marketplace_curl_error('tts_get_shipping_documents_bulk', $curl_error, array(
+                            'transaction_id' => $tx_id,
+                            'package_id' => $package_id,
+                        ));
                         $results[] = ['transaction_id' => $tx_id, 'status' => false, 'message' => $curl_error];
                         continue;
                     }
@@ -6716,6 +6737,11 @@ class Api_v2 extends CI_Controller
         curl_close($curl);
 
         if ($curl_error) {
+            $this->report_marketplace_curl_error('get_shop_products_performance', $curl_error, array(
+                'shop_id' => $shop_id,
+                'start_date' => $start_date,
+                'end_date' => $end_date,
+            ));
             echo json_encode(['status' => false, 'message' => 'CURL Error: ' . $curl_error]);
             return;
         }
@@ -6812,6 +6838,10 @@ class Api_v2 extends CI_Controller
         curl_close($curl);
 
         if ($curl_error) {
+            $this->report_marketplace_curl_error('get_affiliate_performance', $curl_error, array(
+                'shop_id' => $shop_id,
+                'creator_id' => $creator_id,
+            ));
             echo json_encode(['status' => false, 'message' => 'CURL Error: ' . $curl_error]);
             return;
         }
@@ -6953,6 +6983,9 @@ class Api_v2 extends CI_Controller
         curl_close($curl);
 
         if ($curl_error) {
+            $this->report_marketplace_curl_error('search_marketplace_creators', $curl_error, array(
+                'shop_id' => $shop_id,
+            ));
             echo json_encode(['status' => false, 'message' => 'CURL Error: ' . $curl_error]);
             return;
         }
@@ -7060,6 +7093,12 @@ class Api_v2 extends CI_Controller
         curl_close($curl);
 
         if ($curl_error) {
+            $this->report_marketplace_curl_error('get_shop_product_performance_detail', $curl_error, array(
+                'shop_id' => $shop_id,
+                'product_id' => $product_id,
+                'start_date' => $start_date,
+                'end_date' => $end_date,
+            ));
             echo json_encode(['status' => false, 'message' => 'CURL Error: ' . $curl_error]);
             return;
         }
