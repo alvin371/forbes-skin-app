@@ -4,7 +4,7 @@ defined('BASEPATH') or exit('No direct script access allowed');
 if (!function_exists('sentry_sdk_available')) {
     function sentry_sdk_available()
     {
-        return class_exists('\\Sentry\\State\\HubInterface') && function_exists('\\Sentry\\captureException');
+        return function_exists('\\Sentry\\init') && function_exists('\\Sentry\\captureException');
     }
 }
 

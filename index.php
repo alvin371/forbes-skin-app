@@ -344,7 +344,7 @@ if (is_readable($vendorAutoload)) {
 }
 
 if (function_exists('env')
-	&& class_exists('\\Sentry\\State\\HubInterface')
+	&& function_exists('\\Sentry\\init')
 	&& !defined('SENTRY_INITIALIZED')
 ) {
 	$sentryDsn = env('SENTRY_DSN', '');
