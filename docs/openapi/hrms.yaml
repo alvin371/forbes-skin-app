@@ -935,7 +935,7 @@ paths:
     get:
       tags: [Leave]
       summary: Get active leave types with personal quota
-      description: Returns active leave types together with quota information for the authenticated user. Use this to drive the leave creation form and pre-check quota and attachment requirements.
+      description: Returns active leave types together with quota information for the authenticated user. `SPECIAL` is unlimited, does not use quota, and includes `usageCount` instead.
       responses:
         '200':
           description: Leave types with personal quota data
@@ -2906,15 +2906,24 @@ components:
           nullable: true
         isActive:
           type: boolean
+        isUnlimited:
+          type: boolean
         quotaTotalDays:
           type: integer
+          nullable: true
         quotaRemainingDays:
           type: integer
+          nullable: true
         quotaUsedDays:
           type: integer
+          nullable: true
         quotaStatus:
           type: string
-          description: Personal quota status for the authenticated user. Values may include `healthy`, `low`, `critical`, or `not_set`.
+          description: Personal quota status for the authenticated user. Values may include `healthy`, `low`, `critical`, `not_set`, or `unlimited`.
+        usageCount:
+          type: integer
+          nullable: true
+          description: Non-cancelled and non-rejected request count for unlimited leave types such as `SPECIAL`.
         canApply:
           type: boolean
           description: Advisory flag for form UX. Final leave validation still happens on the leave create and submit endpoints.

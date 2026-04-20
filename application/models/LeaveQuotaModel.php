@@ -26,6 +26,7 @@ class LeaveQuotaModel extends CI_Model
         $this->db->from('leave_quotas lq');
         $this->db->join('leave_types lt', 'lt.id = lq.leave_type_id', 'left');
         $this->db->where('lq.user_id', (int) $userId);
+        $this->db->where('lt.code !=', 'SPECIAL');
         $this->db->order_by('lt.name', 'ASC');
         return $this->db->get()->result_array();
     }
@@ -43,6 +44,7 @@ class LeaveQuotaModel extends CI_Model
         $this->db->from('leave_quotas lq');
         $this->db->join('user u', 'u.id = lq.user_id', 'left');
         $this->db->join('leave_types lt', 'lt.id = lq.leave_type_id', 'left');
+        $this->db->where('lt.code !=', 'SPECIAL');
         $this->db->order_by('u.full_name', 'ASC');
         $this->db->order_by('lt.name', 'ASC');
         return $this->db->get()->result_array();

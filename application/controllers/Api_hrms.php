@@ -1521,12 +1521,22 @@ class Api_hrms extends CI_Controller
         $items = array();
         foreach ($leaveTypes as $leaveType) {
             $leaveTypeId = (int) $leaveType['id'];
+            $isUnlimited = $this->leavequotaservice->isUnlimitedLeaveTypeRecord($leaveType);
             $quota = $quotasByType[$leaveTypeId] ?? null;
-            $totalDays = $quota ? (int) $quota['total_days'] : 0;
-            $remainingDays = $quota ? (int) $quota['remaining_days'] : 0;
-            $usedDays = max(0, $totalDays - $remainingDays);
-            $percentage = $totalDays > 0 ? round(($remainingDays / $totalDays) * 100, 1) : 0;
-            $quotaStatus = $quota ? $this->get_quota_status($percentage) : 'not_set';
+            $usageCount = null;
+            if ($isUnlimited) {
+                $totalDays = null;
+                $remainingDays = null;
+                $usedDays = null;
+                $quotaStatus = 'unlimited';
+                $usageCount = $this->leavequotaservice->getUnlimitedLeaveUsageCount((int) $user['id'], $leaveTypeId);
+            } else {
+                $totalDays = $quota ? (int) $quota['total_days'] : 0;
+                $remainingDays = $quota ? (int) $quota['remaining_days'] : 0;
+                $usedDays = max(0, $totalDays - $remainingDays);
+                $percentage = $totalDays > 0 ? round(($remainingDays / $totalDays) * 100, 1) : 0;
+                $quotaStatus = $quota ? $this->get_quota_status($percentage) : 'not_set';
+            }
 
             $items[] = array(
                 'id' => $leaveTypeId,
@@ -1535,11 +1545,13 @@ class Api_hrms extends CI_Controller
                 'requiresAttachment' => (int) ($leaveType['requires_attachment'] ?? 0) === 1,
                 'maxDaysPerRequest' => $leaveType['max_days_per_request'] !== null ? (int) $leaveType['max_days_per_request'] : null,
                 'isActive' => (int) ($leaveType['is_active'] ?? 0) === 1,
+                'isUnlimited' => $isUnlimited,
                 'quotaTotalDays' => $totalDays,
                 'quotaRemainingDays' => $remainingDays,
                 'quotaUsedDays' => $usedDays,
                 'quotaStatus' => $quotaStatus,
-                'canApply' => $remainingDays > 0,
+                'usageCount' => $usageCount,
+                'canApply' => $isUnlimited ? true : ($remainingDays > 0),
             );
         }
 

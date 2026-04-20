@@ -67,11 +67,14 @@ $totalLeaveTypes = count($leave_types);
 
         <div style="background-color: #fffbe6; border: 1px solid #ffe58f; border-radius: 2px; padding: 12px; margin-bottom: 16px;">
             <div style="color: rgba(0,0,0,0.85); font-size: 14px;">
-                <i class="bi bi-info-circle"></i> Leave quota management only applies to active leave types.
-                Showing <strong><?php echo (int) $active_leave_type_count; ?></strong> active leave types of
+                <i class="bi bi-info-circle"></i> Leave quota management only applies to quota-managed active leave types.
+                Showing <strong><?php echo (int) $quota_managed_leave_type_count; ?></strong> quota-managed active leave types of
                 <strong><?php echo (int) $total_leave_type_count; ?></strong> total.
                 <?php if ((int) $inactive_leave_type_count > 0): ?>
                     <span style="color: rgba(0,0,0,0.65);">Inactive excluded: <?php echo (int) $inactive_leave_type_count; ?>.</span>
+                <?php endif; ?>
+                <?php if (!empty($unlimited_leave_types)): ?>
+                    <span style="color: rgba(0,0,0,0.65);">Unlimited excluded: <?php echo htmlspecialchars(implode(', ', array_column($unlimited_leave_types, 'name'))); ?>.</span>
                 <?php endif; ?>
             </div>
         </div>

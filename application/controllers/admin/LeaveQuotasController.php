@@ -10,6 +10,7 @@ class LeaveQuotasController extends BaseController
         parent::__construct();
         $this->load->model('LeaveQuotaModel');
         $this->load->model('LeaveTypeModel');
+        $this->load->library('LeaveQuotaService');
         $this->load->database();
         $this->load->library('template');
         $this->set_method_permissions([
@@ -25,10 +26,13 @@ class LeaveQuotasController extends BaseController
     {
         $data['title'] = 'Leave Quotas - ' . $this->template->title();
         $data['quotas'] = $this->LeaveQuotaModel->get_all_with_details();
-        $data['leave_types'] = $this->LeaveTypeModel->get_active();
+        $activeLeaveTypes = $this->LeaveTypeModel->get_active();
+        list($data['leave_types'], $data['unlimited_leave_types']) = $this->separate_leave_types($activeLeaveTypes);
         $data['total_leave_type_count'] = $this->LeaveTypeModel->count_all(TRUE);
-        $data['active_leave_type_count'] = count($data['leave_types']);
+        $data['active_leave_type_count'] = count($activeLeaveTypes);
         $data['inactive_leave_type_count'] = max(0, $data['total_leave_type_count'] - $data['active_leave_type_count']);
+        $data['quota_managed_leave_type_count'] = count($data['leave_types']);
+        $data['unlimited_leave_type_count'] = count($data['unlimited_leave_types']);
 
         $this->db->select('u.id, u.full_name, u.email');
         $this->db->from('user u');
@@ -61,10 +65,13 @@ class LeaveQuotasController extends BaseController
 
         $data['title'] = 'Manage Leave Quotas - ' . $this->template->title();
         $data['user'] = $user;
-        $data['leave_types'] = $this->LeaveTypeModel->get_active();
+        $activeLeaveTypes = $this->LeaveTypeModel->get_active();
+        list($data['leave_types'], $data['unlimited_leave_types']) = $this->separate_leave_types($activeLeaveTypes);
         $data['total_leave_type_count'] = $this->LeaveTypeModel->count_all(TRUE);
-        $data['active_leave_type_count'] = count($data['leave_types']);
+        $data['active_leave_type_count'] = count($activeLeaveTypes);
         $data['inactive_leave_type_count'] = max(0, $data['total_leave_type_count'] - $data['active_leave_type_count']);
+        $data['quota_managed_leave_type_count'] = count($data['leave_types']);
+        $data['unlimited_leave_type_count'] = count($data['unlimited_leave_types']);
         $data['quotas'] = $this->LeaveQuotaModel->get_by_user($userId);
         $this->db->select('u.id, u.full_name, u.email');
         $this->db->from('user u');
@@ -107,7 +114,8 @@ class LeaveQuotasController extends BaseController
         }
 
         $data['title'] = 'Bulk Set Leave Quotas - ' . $this->template->title();
-        $data['leave_types'] = $this->LeaveTypeModel->get_active();
+        $activeLeaveTypes = $this->LeaveTypeModel->get_active();
+        list($data['leave_types'], $data['unlimited_leave_types']) = $this->separate_leave_types($activeLeaveTypes);
 
         $this->db->select('id, full_name, email');
         $this->db->from('user');
@@ -135,6 +143,10 @@ class LeaveQuotasController extends BaseController
         $this->db->trans_start();
 
         foreach ($quotas as $leaveTypeId => $totalDays) {
+            if ($this->is_unlimited_leave_type($leaveTypeId)) {
+                continue;
+            }
+
             $totalDays = (int) $totalDays;
             if ($totalDays >= 0) {
                 $this->LeaveQuotaModel->upsert($userId, $leaveTypeId, $totalDays);
@@ -156,6 +168,12 @@ class LeaveQuotasController extends BaseController
 
         if ($leaveTypeId <= 0) {
             $this->session->set_flashdata('error', 'Please select a leave type.');
+            redirect('admin/leave-quotas/bulk-set');
+            return;
+        }
+
+        if ($this->is_unlimited_leave_type($leaveTypeId)) {
+            $this->session->set_flashdata('error', 'Special Leaves is unlimited and does not use quotas.');
             redirect('admin/leave-quotas/bulk-set');
             return;
         }
@@ -217,6 +235,11 @@ class LeaveQuotasController extends BaseController
                     continue;
                 }
 
+                if ($this->is_unlimited_leave_type($leaveTypeId)) {
+                    $skipped++;
+                    continue;
+                }
+
                 if ($totalDays === '' || $totalDays === null) {
                     $skipped++;
                     continue;
@@ -256,6 +279,12 @@ class LeaveQuotasController extends BaseController
 
         if ($leaveTypeId <= 0) {
             $this->session->set_flashdata('error', 'Please select a leave type.');
+            redirect('admin/leave-quotas');
+            return;
+        }
+
+        if ($this->is_unlimited_leave_type($leaveTypeId)) {
+            $this->session->set_flashdata('error', 'Special Leaves is unlimited and does not use quotas.');
             redirect('admin/leave-quotas');
             return;
         }
@@ -326,6 +355,9 @@ class LeaveQuotasController extends BaseController
         $this->db->trans_start();
         $count = 0;
         foreach ($sourceQuotas as $quota) {
+            if ($this->is_unlimited_leave_type($quota['leave_type_id'])) {
+                continue;
+            }
             $this->LeaveQuotaModel->upsert((int) $userId, (int) $quota['leave_type_id'], (int) $quota['total_days']);
             $count++;
         }
@@ -351,5 +383,26 @@ class LeaveQuotasController extends BaseController
         $this->LeaveQuotaModel->delete($id);
         $this->session->set_flashdata('message', 'Leave quota deleted.');
         redirect('admin/leave-quotas');
+    }
+
+    private function separate_leave_types($leaveTypes)
+    {
+        $quotaManaged = array();
+        $unlimited = array();
+
+        foreach ((array) $leaveTypes as $leaveType) {
+            if ($this->leavequotaservice->isUnlimitedLeaveTypeRecord($leaveType)) {
+                $unlimited[] = $leaveType;
+            } else {
+                $quotaManaged[] = $leaveType;
+            }
+        }
+
+        return array($quotaManaged, $unlimited);
+    }
+
+    private function is_unlimited_leave_type($leaveTypeId)
+    {
+        return $this->leavequotaservice->isUnlimitedLeaveType((int) $leaveTypeId);
     }
 }

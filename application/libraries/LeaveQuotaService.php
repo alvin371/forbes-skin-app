@@ -20,6 +20,7 @@ class LeaveQuotaService
 {
     protected $CI;
     protected $db;
+    protected $unlimitedLeaveTypeCache = array();
 
     /**
      * Quota policy constants
@@ -27,6 +28,7 @@ class LeaveQuotaService
     const POLICY_BLOCK = 'BLOCK';
     const POLICY_CONVERT_UNPAID = 'CONVERT_UNPAID';
     const POLICY_PARTIAL = 'PARTIAL';
+    const UNLIMITED_LEAVE_TYPE_CODE = 'SPECIAL';
 
     public function __construct()
     {
@@ -45,6 +47,20 @@ class LeaveQuotaService
      */
     public function validateQuota($userId, $leaveTypeId, $daysRequested, $excludeRequestId = null)
     {
+        if ($this->isUnlimitedLeaveType($leaveTypeId)) {
+            return array(
+                'valid' => true,
+                'unlimited' => true,
+                'message' => 'Special Leaves is unlimited and does not use quota.',
+                'remaining' => null,
+                'effective_remaining' => null,
+                'pending_days' => 0,
+                'requested' => $daysRequested,
+                'after_deduction' => null,
+                'usage_count' => $this->getUnlimitedLeaveUsageCount($userId, $leaveTypeId),
+            );
+        }
+
         $quota = $this->getQuota($userId, $leaveTypeId);
 
         if (!$quota) {
@@ -101,6 +117,16 @@ class LeaveQuotaService
      */
     public function deductQuota($userId, $leaveTypeId, $days, $leaveRequestId, $performedBy, $policy = self::POLICY_BLOCK)
     {
+        if ($this->isUnlimitedLeaveType($leaveTypeId)) {
+            return array(
+                'success' => true,
+                'unlimited' => true,
+                'message' => 'Special Leaves is unlimited and does not deduct quota.',
+                'deducted' => 0,
+                'remaining' => null,
+            );
+        }
+
         $quota = $this->getQuota($userId, $leaveTypeId);
 
         if (!$quota) {
@@ -232,6 +258,16 @@ class LeaveQuotaService
      */
     public function restoreQuota($userId, $leaveTypeId, $days, $leaveRequestId, $performedBy, $reason = 'Leave request cancelled')
     {
+        if ($this->isUnlimitedLeaveType($leaveTypeId)) {
+            return array(
+                'success' => true,
+                'unlimited' => true,
+                'message' => 'Special Leaves is unlimited and does not restore quota.',
+                'restored' => 0,
+                'remaining' => null,
+            );
+        }
+
         $quota = $this->getQuota($userId, $leaveTypeId);
 
         if (!$quota) {
@@ -395,6 +431,56 @@ class LeaveQuotaService
         );
     }
 
+    public function isUnlimitedLeaveType($leaveTypeId)
+    {
+        $leaveTypeId = (int) $leaveTypeId;
+        if ($leaveTypeId <= 0) {
+            return false;
+        }
+
+        if (array_key_exists($leaveTypeId, $this->unlimitedLeaveTypeCache)) {
+            return $this->unlimitedLeaveTypeCache[$leaveTypeId];
+        }
+
+        $leaveType = $this->db->select('code')
+            ->from('leave_types')
+            ->where('id', $leaveTypeId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $isUnlimited = $this->isUnlimitedLeaveTypeRecord($leaveType);
+        $this->unlimitedLeaveTypeCache[$leaveTypeId] = $isUnlimited;
+
+        return $isUnlimited;
+    }
+
+    public function isUnlimitedLeaveTypeRecord($leaveType)
+    {
+        return is_array($leaveType)
+            && strtoupper(trim((string) ($leaveType['code'] ?? ''))) === self::UNLIMITED_LEAVE_TYPE_CODE;
+    }
+
+    public function getUnlimitedLeaveUsageCount($userId, $leaveTypeId)
+    {
+        $userId = (int) $userId;
+        $leaveTypeId = (int) $leaveTypeId;
+        if ($userId <= 0 || $leaveTypeId <= 0 || !$this->isUnlimitedLeaveType($leaveTypeId)) {
+            return 0;
+        }
+
+        $query = $this->db->query("
+            SELECT COUNT(*) AS total
+            FROM leave_requests
+            WHERE user_id = ?
+              AND leave_type_id = ?
+              AND status NOT IN ('CANCELLED', 'REJECTED')
+        ", array($userId, $leaveTypeId));
+
+        $result = $query->row_array();
+        return (int) ($result['total'] ?? 0);
+    }
+
     /**
      * Delete ledger entry (for cancelled approved leave)
      *
@@ -436,8 +522,9 @@ class LeaveQuotaService
             INNER JOIN leave_types lt ON lq.leave_type_id = lt.id
             WHERE lq.user_id = ?
               AND lq.year = ?
+              AND lt.code != ?
             ORDER BY lt.name
-        ", array($userId, $year));
+        ", array($userId, $year, self::UNLIMITED_LEAVE_TYPE_CODE));
 
         return $query->result_array();
     }
