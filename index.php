@@ -84,6 +84,28 @@ if (!function_exists('bootstrap_env_value')) {
 	}
 }
 
+if (!function_exists('bootstrap_env_bool')) {
+	function bootstrap_env_bool($key, $default = false)
+	{
+		$value = bootstrap_env_value($key, null);
+		if ($value === null) {
+			return $default;
+		}
+
+		$normalized = strtolower(trim((string) $value));
+
+		if (in_array($normalized, array('1', 'true', 'yes', 'on'), true)) {
+			return true;
+		}
+
+		if (in_array($normalized, array('0', 'false', 'no', 'off'), true)) {
+			return false;
+		}
+
+		return $default;
+	}
+}
+
 define('ENVIRONMENT', bootstrap_env_value('CI_ENV', 'development'));
 
 
@@ -327,15 +349,80 @@ if (function_exists('env')
 ) {
 	$sentryDsn = env('SENTRY_DSN', '');
 	if ($sentryDsn !== '') {
+		$traceSampleRate = env('SENTRY_TRACES_SAMPLE_RATE', ENVIRONMENT === 'development' ? 1.0 : 0.0);
+		$traceSampleRate = is_numeric($traceSampleRate) ? (float) $traceSampleRate : (ENVIRONMENT === 'development' ? 1.0 : 0.0);
+
 		\Sentry\init(array(
 			'dsn' => $sentryDsn,
 			'environment' => env('SENTRY_ENVIRONMENT', env('CI_ENV', ENVIRONMENT)),
 			'release' => env('SENTRY_RELEASE', null),
 			'attach_stacktrace' => true,
+			'traces_sample_rate' => max(0.0, min(1.0, $traceSampleRate)),
 		));
 
 		define('SENTRY_INITIALIZED', true);
 	}
+}
+
+if (defined('SENTRY_INITIALIZED')
+	&& class_exists('\\Sentry\\Tracing\\TransactionContext')
+	&& class_exists('\\Sentry\\Tracing\\TransactionSource')
+	&& function_exists('\\Sentry\\startTransaction')
+	&& (!isset($_SERVER['argv']) || PHP_SAPI !== 'cli')
+) {
+		$requestMethod = isset($_SERVER['REQUEST_METHOD']) ? strtoupper((string) $_SERVER['REQUEST_METHOD']) : 'CLI';
+		$requestUri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '/';
+		$transactionName = trim($requestMethod . ' ' . $requestUri);
+
+		$transactionContext = \Sentry\Tracing\TransactionContext::make()
+			->setName($transactionName !== '' ? $transactionName : 'HTTP request')
+			->setOp('http.server')
+			->setSource(\Sentry\Tracing\TransactionSource::url());
+
+		$bootstrapTransaction = \Sentry\startTransaction($transactionContext);
+		$bootstrapTransaction->setData(array(
+			'http.method' => $requestMethod,
+			'http.request_uri' => $requestUri,
+			'server_name' => $_SERVER['SERVER_NAME'] ?? null,
+			'query_string' => $_SERVER['QUERY_STRING'] ?? null,
+		));
+
+		\Sentry\configureScope(static function (\Sentry\State\Scope $scope) use ($bootstrapTransaction): void {
+			$scope->setSpan($bootstrapTransaction);
+		});
+
+		register_shutdown_function(static function () use ($bootstrapTransaction): void {
+			$statusCode = (int) http_response_code();
+			if ($statusCode <= 0) {
+				$statusCode = 200;
+			}
+
+			$lastError = error_get_last();
+			if ($lastError !== null && in_array($lastError['type'], array(E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR), true)) {
+				$statusCode = 500;
+				$bootstrapTransaction->setStatus(\Sentry\Tracing\SpanStatus::internalError());
+				$bootstrapTransaction->setData(array(
+					'php.shutdown_error' => array(
+						'type' => $lastError['type'],
+						'message' => $lastError['message'],
+						'file' => $lastError['file'],
+						'line' => $lastError['line'],
+					),
+				));
+			} else {
+				$bootstrapTransaction->setHttpStatus($statusCode);
+			}
+
+			$bootstrapTransaction->setData(array(
+				'http.status_code' => $statusCode,
+			));
+
+			$bootstrapTransaction->finish();
+
+			\Sentry\configureScope(static function (\Sentry\State\Scope $scope): void {
+				$scope->setSpan(null);
+			});
+		});
 }
 
 /*
