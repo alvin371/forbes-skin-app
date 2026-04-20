@@ -21,12 +21,22 @@ class Dashboard extends BaseController
             log_message('info', 'Memcached cache initialized successfully');
         } catch (Exception $e) {
             log_message('error', 'Memcached initialization failed, falling back to file cache: ' . $e->getMessage());
+            sentry_capture_exception($e, array(
+                'controller' => 'Dashboard',
+                'method' => '__construct',
+                'cache_adapter' => 'memcached',
+            ));
             try {
                 // Fallback to file cache if Memcached fails
                 $this->load->driver('cache', array('adapter' => 'file'));
                 log_message('info', 'File cache initialized as fallback');
             } catch (Exception $e2) {
                 log_message('error', 'All cache initialization failed: ' . $e2->getMessage());
+                sentry_capture_exception($e2, array(
+                    'controller' => 'Dashboard',
+                    'method' => '__construct',
+                    'cache_adapter' => 'file',
+                ));
             }
         }
     }

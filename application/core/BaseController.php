@@ -83,6 +83,7 @@ class BaseController extends CI_Controller
         parent::__construct();
         
         // Load required libraries
+        $this->load->helper('sentry');
         $this->load->library('permission');
         $this->load->library('template');
         
@@ -110,6 +111,10 @@ class BaseController extends CI_Controller
         
         $this->user_data = $_SESSION['user'];
         $this->user_id = $this->user_data['id'];
+
+        if (function_exists('sentry_set_user')) {
+            sentry_set_user($this->user_data);
+        }
     }
     
     /**

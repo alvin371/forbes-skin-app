@@ -117,3 +117,8 @@ Performance:
 - Environment variables are loaded via `.env` and the `env()` helper.
 - Web UI routes should remain unchanged if the compatibility option is used.
 - Biometrics are handled client-side; no backend endpoints required.
+
+## Sentry
+- Sentry is initialized from `index.php` when `SENTRY_DSN` is set.
+- Configure `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE` in the root `.env`.
+- Set `zend.exception_ignore_args = Off` in `php.ini` if stack trace arguments are needed in Sentry.

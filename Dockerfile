@@ -63,7 +63,8 @@ RUN echo "upload_max_filesize = 50M" >> /usr/local/etc/php/conf.d/custom.ini \
     && echo "post_max_size = 50M" >> /usr/local/etc/php/conf.d/custom.ini \
     && echo "memory_limit = 256M" >> /usr/local/etc/php/conf.d/custom.ini \
     && echo "max_execution_time = 300" >> /usr/local/etc/php/conf.d/custom.ini \
-    && echo "date.timezone = Asia/Jakarta" >> /usr/local/etc/php/conf.d/custom.ini
+    && echo "date.timezone = Asia/Jakarta" >> /usr/local/etc/php/conf.d/custom.ini \
+    && echo "zend.exception_ignore_args = Off" >> /usr/local/etc/php/conf.d/custom.ini
 
 # Apache virtual host configuration
 RUN echo '<VirtualHost *:80>\n\
