@@ -3,6 +3,87 @@ defined('BASEPATH') or exit('No direct script access allowed');
 
 class DiagnosticController extends CI_Controller
 {
+    public function sentry()
+    {
+        if (!defined('SENTRY_INITIALIZED') || !function_exists('sentry_capture_message')) {
+            return $this->output
+                ->set_status_header(503)
+                ->set_content_type('application/json')
+                ->set_output(json_encode(array(
+                    'ok' => false,
+                    'message' => 'Sentry is not initialized for this environment.',
+                )));
+        }
+
+        $this->load->helper('sentry');
+
+        $requestPath = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : 'diagnostic/sentry';
+        $requestMethod = isset($_SERVER['REQUEST_METHOD']) ? strtoupper((string) $_SERVER['REQUEST_METHOD']) : 'GET';
+        $timestamp = gmdate('c');
+
+        $messageId = sentry_capture_message('Diagnostic Sentry verification message', array(
+            'area' => 'diagnostic',
+            'request_path' => $requestPath,
+            'request_method' => $requestMethod,
+            'verified_at' => $timestamp,
+            'environment' => function_exists('env') ? env('SENTRY_ENVIRONMENT', env('CI_ENV', ENVIRONMENT)) : ENVIRONMENT,
+        ));
+
+        $traceAttempted = false;
+        if (class_exists('\\Sentry\\Tracing\\TransactionContext') && function_exists('\\Sentry\\startTransaction')) {
+            $traceAttempted = true;
+
+            $transaction = \Sentry\startTransaction(
+                \Sentry\Tracing\TransactionContext::make()
+                    ->setName('GET /diagnostic/sentry verification')
+                    ->setOp('diagnostic.http')
+                    ->setSource(\Sentry\Tracing\TransactionSource::route())
+            );
+
+            \Sentry\configureScope(static function (\Sentry\State\Scope $scope) use ($transaction): void {
+                $scope->setSpan($transaction);
+            });
+
+            $span = $transaction->startChild(
+                \Sentry\Tracing\SpanContext::make()
+                    ->setOp('diagnostic.step')
+                    ->setDescription('Emit diagnostic Sentry trace')
+            );
+
+            usleep(50000);
+
+            $span->setData(array(
+                'diagnostic' => true,
+                'timestamp' => $timestamp,
+            ));
+            $span->setHttpStatus(200);
+            $span->finish();
+
+            $transaction->setData(array(
+                'request_path' => $requestPath,
+                'request_method' => $requestMethod,
+                'verification' => 'manual',
+            ));
+            $transaction->setHttpStatus(200);
+            $transaction->finish();
+
+            \Sentry\configureScope(static function (\Sentry\State\Scope $scope): void {
+                $scope->setSpan(null);
+            });
+        }
+
+        return $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode(array(
+                'ok' => true,
+                'message' => 'Diagnostic Sentry message and trace were attempted.',
+                'message_id' => $messageId ? (string) $messageId : null,
+                'trace_attempted' => $traceAttempted,
+                'request_path' => $requestPath,
+                'verified_at' => $timestamp,
+            )));
+    }
+
     public function check_leave_data()
     {
         $this->load->database();

@@ -120,5 +120,8 @@ Performance:
 
 ## Sentry
 - Sentry is initialized from `index.php` when `SENTRY_DSN` is set.
-- Configure `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE` in the root `.env`.
+- This app uses PHP front-controller instrumentation in `index.php`; Node-style `instrument.js` startup files do not apply here.
+- Configure `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`, and `SENTRY_TRACES_SAMPLE_RATE` in the root `.env`.
+- HTTP requests start a transaction in `index.php` and finish it during shutdown so normal web and API traffic can produce traces.
+- Use `/diagnostic/sentry` to trigger one explicit verification message and trace.
 - Set `zend.exception_ignore_args = Off` in `php.ini` if stack trace arguments are needed in Sentry.
