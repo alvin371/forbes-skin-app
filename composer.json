@@ -8,7 +8,7 @@
         "doctrine/annotations": "1.14.4",
         "illuminate/support": "v12.20.0",
         "kint-php/kint": "5.1.1",
-        "phpoffice/phpspreadsheet": "2.3.9",
+        "phpoffice/phpspreadsheet": "^2.4",
         "predis/predis": "v2.4.0",
         "sentry/sentry": "^4.18"
     },
@@ -20,8 +20,14 @@
         "nexusphp/cs-config": "v3.8.0",
         "phpunit/phpunit": "9.6.23"
     },
-    "config": {
-        "sort-packages": true
+     "config": {
+        "sort-packages": true,
+        "platform": {
+        "php": "8.2.30"
+        },
+        "audit": {
+        "block-insecure": false
+        }
     },
     "minimum-stability": "stable",
     "prefer-stable": true

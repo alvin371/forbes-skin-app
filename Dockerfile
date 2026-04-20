@@ -56,7 +56,7 @@ RUN chown -R www-data:www-data /var/www/html \
     && chmod -R 775 /var/www/html/assets/uploads
 
 # Install Composer dependencies
-RUN composer install --no-dev --optimize-autoloader || true
+RUN composer install --no-dev --optimize-autoloader
 
 # PHP configuration
 RUN echo "upload_max_filesize = 50M" >> /usr/local/etc/php/conf.d/custom.ini \
