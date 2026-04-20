@@ -6,13 +6,6 @@ info:
     OpenAPI documentation for `application/controllers/Api_hrms.php`.
 
     Base path: `/api/hrms`
-
-    This spec intentionally excludes the following routes because their controller methods are currently missing:
-    - `/api/hrms/approvals/inbox`
-    - `/api/hrms/approvals/inbox/count`
-    - `/api/hrms/approvals/{id}/approve`
-    - `/api/hrms/approvals/{id}/reject`
-    - `/api/hrms/approvals/history`
 servers:
   - url: /
     description: Relative base URL
@@ -122,6 +115,30 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /api/hrms/profile/password:
+    post:
+      tags: [Profile]
+      summary: Change authenticated user password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfilePasswordChangeRequest'
+      responses:
+        '200':
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
         '422':
           $ref: '#/components/responses/ValidationFailed'
 
@@ -461,6 +478,24 @@ paths:
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
 
+  /api/hrms/attendance/dashboard:
+    get:
+      tags: [Attendance]
+      summary: Get monthly attendance dashboard statistics for current user
+      parameters:
+        - $ref: '#/components/parameters/MonthParam'
+      responses:
+        '200':
+          description: Dashboard statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceDashboardResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /api/hrms/attendance/recap:
     get:
       tags: [Attendance]
@@ -605,7 +640,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
     post:
       tags: [Leave]
-      summary: Create leave request (draft or submit)
+      summary: Create leave request
+      description: Attachment follows the selected leave type. If the chosen leave type has `requiresAttachment = true`, provide either an uploaded `attachment` file or an `attachment_path` value.
       requestBody:
         required: true
         content:
@@ -760,6 +796,123 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /api/hrms/leave/approvals:
+    get:
+      tags: [Leave]
+      summary: Get leave approval tasks for current approver
+      parameters:
+        - $ref: '#/components/parameters/ApprovalListStatusParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Leave approval task list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveApprovalTaskListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /api/hrms/leave/approvals/{stepId}:
+    get:
+      tags: [Leave]
+      summary: Get leave approval task detail for current approver
+      parameters:
+        - $ref: '#/components/parameters/StepIdParam'
+      responses:
+        '200':
+          description: Leave approval detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveApprovalDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/hrms/leave/approvals/{stepId}/approve:
+    post:
+      tags: [Leave]
+      summary: Approve leave approval step
+      parameters:
+        - $ref: '#/components/parameters/StepIdParam'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalActionRequest'
+      responses:
+        '200':
+          description: Leave approval recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveApprovalActionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/hrms/leave/approvals/{stepId}/reject:
+    post:
+      tags: [Leave]
+      summary: Reject leave approval step
+      parameters:
+        - $ref: '#/components/parameters/StepIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalActionRequest'
+      responses:
+        '200':
+          description: Leave rejection recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveApprovalActionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /api/hrms/leave/approvals/history:
+    get:
+      tags: [Leave]
+      summary: Get leave approval history for current approver
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Leave approval history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveApprovalTaskListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
   /api/hrms/leave/quota:
     get:
@@ -1077,6 +1230,47 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  /api/hrms/overtime/approvals:
+    get:
+      tags: [Overtime]
+      summary: Get overtime approval tasks for current approver
+      parameters:
+        - $ref: '#/components/parameters/ApprovalListStatusParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Overtime approval task list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OvertimeApprovalTaskListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /api/hrms/overtime/approvals/{stepId}:
+    get:
+      tags: [Overtime]
+      summary: Get overtime approval task detail for current approver
+      parameters:
+        - $ref: '#/components/parameters/StepIdParam'
+      responses:
+        '200':
+          description: Overtime approval detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OvertimeApprovalDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/hrms/overtime/approvals/inbox:
     get:
       tags: [Overtime]
@@ -1087,15 +1281,11 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      type: object
-                      additionalProperties: true
+                $ref: '#/components/schemas/OvertimeApprovalTaskListResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
   /api/hrms/overtime/approvals/inbox/count:
     get:
@@ -1113,6 +1303,8 @@ paths:
                     type: integer
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
   /api/hrms/overtime/approvals/{stepId}/approve:
     post:
@@ -1132,19 +1324,13 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  message:
-                    type: string
-                  isFinal:
-                    type: boolean
-                  nextStep:
-                    type: integer
-                    nullable: true
+                $ref: '#/components/schemas/ApprovalActionResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
 
@@ -1166,16 +1352,13 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  message:
-                    type: string
-                  isFinal:
-                    type: boolean
+                $ref: '#/components/schemas/ApprovalActionResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
         '422':
@@ -1193,15 +1376,11 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      type: object
-                      additionalProperties: true
+                $ref: '#/components/schemas/OvertimeApprovalTaskListResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
 components:
   securitySchemes:
@@ -1225,6 +1404,14 @@ components:
       schema:
         type: integer
         minimum: 1
+    ApprovalListStatusParam:
+      name: status
+      in: query
+      required: false
+      description: Approval task filter. Defaults to `pending`.
+      schema:
+        type: string
+        enum: [pending, history, all]
     MonthParam:
       name: month
       in: query
@@ -1384,6 +1571,12 @@ components:
         email:
           type: string
           nullable: true
+        profilePicture:
+          type: string
+          nullable: true
+        keterangan:
+          type: string
+          nullable: true
         role:
           type: string
           nullable: true
@@ -1393,6 +1586,8 @@ components:
         role_name:
           type: string
           nullable: true
+        roleInfo:
+          $ref: '#/components/schemas/UserRoleInfo'
         position_id:
           type: integer
           nullable: true
@@ -1401,6 +1596,16 @@ components:
           nullable: true
         schedule:
           $ref: '#/components/schemas/UserSchedule'
+
+    UserRoleInfo:
+      type: object
+      properties:
+        id:
+          type: integer
+          nullable: true
+        name:
+          type: string
+          nullable: true
 
     UserSchedule:
       type: object
@@ -1463,9 +1668,24 @@ components:
         email:
           type: string
           format: email
+        profilePicture:
+          type: string
+        keterangan:
+          type: string
         phone:
           type: string
         phone_number:
+          type: string
+
+    ProfilePasswordChangeRequest:
+      type: object
+      required: [oldPassword, newPassword, passwordConfirmation]
+      properties:
+        oldPassword:
+          type: string
+        newPassword:
+          type: string
+        passwordConfirmation:
           type: string
 
     PinSetupRequest:
@@ -1680,22 +1900,14 @@ components:
 
     AttendanceOutOfTownCheckRequest:
       type: object
-      required: [lat, lng, gpsAccuracy, attachment_path]
+      required: [attachmentPath]
       properties:
-        lat:
-          type: number
-          format: float
-        lng:
-          type: number
-          format: float
-        gpsAccuracy:
-          type: number
-          format: float
-        accuracy:
-          type: number
-          format: float
-        attachment_path:
+        dinasLocation:
           type: string
+          example: Borobudur, Jogjakarta
+        notes:
+          type: string
+          nullable: true
         attachmentPath:
           type: string
         photoPath:
@@ -1839,12 +2051,19 @@ components:
           $ref: '#/components/schemas/AttendanceCategory'
         attendanceCategoryLabel:
           type: string
+        dinasLocation:
+          type: string
+          nullable: true
+        notesText:
+          type: string
+          nullable: true
         attachmentPath:
           type: string
           nullable: true
         distanceMeters:
           type: number
           format: float
+          nullable: true
         notes:
           type: array
           items:
@@ -1942,6 +2161,12 @@ components:
           type: string
         isOutOfTown:
           type: boolean
+        dinasLocation:
+          type: string
+          nullable: true
+        notesText:
+          type: string
+          nullable: true
         created_at:
           type: string
         office_name:
@@ -1974,6 +2199,8 @@ components:
           type: integer
         leave_days:
           type: integer
+        dashboard_statistics:
+          $ref: '#/components/schemas/AttendanceDashboardStatistics'
         start_time:
           type: string
         end_time:
@@ -1982,6 +2209,30 @@ components:
           type: string
         special_schedule:
           type: boolean
+
+    AttendanceDashboardStatistics:
+      type: object
+      properties:
+        on_time:
+          type: integer
+        late:
+          type: integer
+        absent:
+          type: integer
+        leave:
+          type: integer
+        not_absent_out:
+          type: integer
+        early_leave:
+          type: integer
+
+    AttendanceDashboardResponse:
+      type: object
+      properties:
+        month:
+          type: string
+        statistics:
+          $ref: '#/components/schemas/AttendanceDashboardStatistics'
 
     AttendanceReportDailyItem:
       type: object
@@ -2080,6 +2331,9 @@ components:
           type: string
         filename:
           type: string
+        value:
+          type: string
+          description: Preferred value to send back into subsequent API requests. For profile uploads this is the avatar filename.
         originalName:
           type: string
         sizeBytes:
@@ -2091,6 +2345,7 @@ components:
       properties:
         leave_type_id:
           type: integer
+          description: Leave type ID. The selected leave type controls whether attachment is required via its `requiresAttachment` value.
         start_date:
           type: string
           format: date
@@ -2101,12 +2356,16 @@ components:
           type: string
         attachment_path:
           type: string
+          description: Existing uploaded attachment path. Required when the selected leave type requires attachment and no `attachment` file is sent.
         attachment:
           type: string
+          description: Attachment file or attachment value alias. Required when the selected leave type requires attachment and no `attachment_path` is sent.
         submit_now:
           type: boolean
+          description: Optional legacy flag. Leave-type validation still applies when this field is sent.
         submitNow:
           type: boolean
+          description: Optional camelCase alias for `submit_now`. Leave-type validation still applies when this field is sent.
 
     LeaveCreateResponse:
       type: object
@@ -2203,8 +2462,365 @@ components:
         approvals:
           type: array
           items:
-            type: object
-            additionalProperties: true
+            $ref: '#/components/schemas/LeaveApprovalProgressStep'
+
+    ApprovalTaskCounts:
+      type: object
+      properties:
+        pending:
+          type: integer
+        returned:
+          type: integer
+        total:
+          type: integer
+
+    ApprovalTaskListItem:
+      type: object
+      properties:
+        stepId:
+          type: integer
+        requestId:
+          type: integer
+          nullable: true
+        requestNo:
+          type: string
+          nullable: true
+        module:
+          type: string
+        requesterId:
+          type: integer
+          nullable: true
+        requesterName:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        stepNo:
+          type: integer
+          nullable: true
+        stepName:
+          type: string
+          nullable: true
+        totalSteps:
+          type: integer
+          nullable: true
+        currentStep:
+          type: integer
+          nullable: true
+        action:
+          type: string
+          nullable: true
+        actionAt:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        canTakeAction:
+          type: boolean
+
+    LeaveApprovalTaskItem:
+      allOf:
+        - $ref: '#/components/schemas/ApprovalTaskListItem'
+        - type: object
+          properties:
+            requesterRole:
+              type: string
+              nullable: true
+            leaveTypeName:
+              type: string
+              nullable: true
+            startDate:
+              type: string
+              format: date
+              nullable: true
+            endDate:
+              type: string
+              format: date
+              nullable: true
+            daysCount:
+              type: integer
+              nullable: true
+
+    OvertimeApprovalTaskItem:
+      allOf:
+        - $ref: '#/components/schemas/ApprovalTaskListItem'
+        - type: object
+          properties:
+            overtimeTypeName:
+              type: string
+              nullable: true
+            overtimeDate:
+              type: string
+              format: date
+              nullable: true
+            startTime:
+              type: string
+              nullable: true
+            endTime:
+              type: string
+              nullable: true
+            durationHours:
+              type: number
+              format: float
+              nullable: true
+
+    LeaveApprovalTaskListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        limit:
+          type: integer
+        counts:
+          $ref: '#/components/schemas/ApprovalTaskCounts'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaveApprovalTaskItem'
+
+    OvertimeApprovalTaskListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        limit:
+          type: integer
+        counts:
+          $ref: '#/components/schemas/ApprovalTaskCounts'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/OvertimeApprovalTaskItem'
+
+    ApprovalStepDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+        stepNo:
+          type: integer
+        stepName:
+          type: string
+          nullable: true
+        action:
+          type: string
+        actionAt:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        canTakeAction:
+          type: boolean
+
+    ApprovalRequester:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        positionName:
+          type: string
+          nullable: true
+
+    LeaveApprovalProgressStep:
+      type: object
+      properties:
+        id:
+          type: integer
+        stepNo:
+          type: integer
+        stepName:
+          type: string
+          nullable: true
+        assignedApproverId:
+          type: integer
+          nullable: true
+        assignedApproverName:
+          type: string
+          nullable: true
+        assignedApproverRole:
+          type: string
+          nullable: true
+        actualApproverId:
+          type: integer
+          nullable: true
+        actualApproverName:
+          type: string
+          nullable: true
+        action:
+          type: string
+        actionAt:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+
+    OvertimeApprovalProgressStep:
+      type: object
+      properties:
+        id:
+          type: integer
+        stepNo:
+          type: integer
+        stepName:
+          type: string
+          nullable: true
+        assignedApproverId:
+          type: integer
+          nullable: true
+        assignedApproverName:
+          type: string
+          nullable: true
+        actualApproverId:
+          type: integer
+          nullable: true
+        actualApproverName:
+          type: string
+          nullable: true
+        action:
+          type: string
+        actionAt:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+
+    LeaveApprovalRequestSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        requestNo:
+          type: string
+        leaveTypeId:
+          type: integer
+        leaveTypeName:
+          type: string
+          nullable: true
+        leaveTypeCode:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        daysCount:
+          type: integer
+        reason:
+          type: string
+        status:
+          type: string
+        statusRaw:
+          type: string
+        attachmentPath:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    OvertimeApprovalRequestSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        requestNo:
+          type: string
+        overtimeTypeId:
+          type: integer
+        overtimeTypeName:
+          type: string
+          nullable: true
+        overtimeTypeCode:
+          type: string
+          nullable: true
+        overtimeDate:
+          type: string
+          format: date
+        startTime:
+          type: string
+        endTime:
+          type: string
+        durationHours:
+          type: number
+          format: float
+        reason:
+          type: string
+        status:
+          type: string
+        statusRaw:
+          type: string
+        attachmentPath:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    ApprovalWorkflowDetail:
+      type: object
+      properties:
+        currentStep:
+          type: integer
+          nullable: true
+        totalSteps:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          nullable: true
+
+    LeaveApprovalDetailResponse:
+      type: object
+      properties:
+        step:
+          $ref: '#/components/schemas/ApprovalStepDetail'
+        request:
+          $ref: '#/components/schemas/LeaveApprovalRequestSummary'
+        requester:
+          $ref: '#/components/schemas/ApprovalRequester'
+        workflow:
+          allOf:
+            - $ref: '#/components/schemas/ApprovalWorkflowDetail'
+            - type: object
+              properties:
+                steps:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/LeaveApprovalProgressStep'
+
+    OvertimeApprovalDetailResponse:
+      type: object
+      properties:
+        step:
+          $ref: '#/components/schemas/ApprovalStepDetail'
+        request:
+          $ref: '#/components/schemas/OvertimeApprovalRequestSummary'
+        requester:
+          $ref: '#/components/schemas/ApprovalRequester'
+        workflow:
+          allOf:
+            - $ref: '#/components/schemas/ApprovalWorkflowDetail'
+            - type: object
+              properties:
+                steps:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/OvertimeApprovalProgressStep'
 
     LeaveQuotaResponse:
       type: object
@@ -2385,8 +3001,7 @@ components:
         approvals:
           type: array
           items:
-            type: object
-            additionalProperties: true
+            $ref: '#/components/schemas/OvertimeApprovalProgressStep'
 
     OvertimeSummaryResponse:
       type: object
@@ -2418,3 +3033,33 @@ components:
       properties:
         notes:
           type: string
+
+    ApprovalActionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        action:
+          type: string
+        isFinal:
+          type: boolean
+        nextStep:
+          type: integer
+          nullable: true
+        requestStatus:
+          type: string
+          nullable: true
+        requestStatusRaw:
+          type: string
+          nullable: true
+
+    LeaveApprovalActionResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApprovalActionResponse'
+        - type: object
+          properties:
+            quotaWarning:
+              type: string
+              nullable: true

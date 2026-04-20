@@ -41,7 +41,18 @@ class Api_hrms extends CI_Controller
         }
 
         $payload = $this->json_input();
-        $identifier = trim((string) ($payload['email'] ?? $payload['username'] ?? $payload['identifier'] ?? ''));
+        $identifier = '';
+        foreach (array('email', 'username', 'identifier', 'login') as $field) {
+            if (!array_key_exists($field, $payload)) {
+                continue;
+            }
+
+            $value = trim((string) $payload[$field]);
+            if ($value !== '') {
+                $identifier = $value;
+                break;
+            }
+        }
         $password = (string) ($payload['password'] ?? '');
 
         if ($identifier === '' || $password === '') {
@@ -155,6 +166,35 @@ class Api_hrms extends CI_Controller
             }
         }
 
+        if (isset($payload['keterangan']) || isset($payload['description'])) {
+            $updates['desc'] = trim((string) ($payload['keterangan'] ?? $payload['description']));
+        }
+
+        if (
+            isset($payload['profilePicture']) ||
+            isset($payload['profilePicturePath']) ||
+            isset($payload['profile_picture']) ||
+            isset($payload['profile_picture_path'])
+        ) {
+            $profilePicture = trim((string) (
+                $payload['profilePicture']
+                ?? $payload['profilePicturePath']
+                ?? $payload['profile_picture']
+                ?? $payload['profile_picture_path']
+            ));
+
+            if ($profilePicture === '') {
+                $updates['img'] = null;
+            } else {
+                $normalizedProfileImage = $this->normalize_profile_image_input($profilePicture, (int) $user['id']);
+                if ($normalizedProfileImage === '') {
+                    $errors['profilePicture'] = 'Profile picture must come from the HRMS profile upload endpoint.';
+                } else {
+                    $updates['img'] = $normalizedProfileImage;
+                }
+            }
+        }
+
         $phoneNumber = null;
         if (isset($payload['phone']) || isset($payload['phone_number'])) {
             $phoneNumber = trim((string) ($payload['phone_number'] ?? $payload['phone']));
@@ -184,6 +224,64 @@ class Api_hrms extends CI_Controller
 
         $user = $this->db->get_where('user', array('id' => $user['id']))->row_array();
         return $this->respond(200, $this->user_response($user));
+    }
+
+    public function profile_password()
+    {
+        if (!in_array($this->input->method(TRUE), array('POST', 'PATCH'), true)) {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        $payload = $this->json_input();
+        $oldPassword = (string) ($payload['oldPassword'] ?? $payload['old_password'] ?? '');
+        $newPassword = (string) ($payload['newPassword'] ?? $payload['new_password'] ?? '');
+        $passwordConfirmation = (string) ($payload['passwordConfirmation'] ?? $payload['password_confirmation'] ?? '');
+
+        $errors = array();
+        if ($oldPassword === '') {
+            $errors['oldPassword'] = 'Old password is required.';
+        }
+        if ($newPassword === '') {
+            $errors['newPassword'] = 'New password is required.';
+        }
+        if ($passwordConfirmation === '') {
+            $errors['passwordConfirmation'] = 'Password confirmation is required.';
+        }
+        if (!empty($errors)) {
+            return $this->respond(422, array('message' => 'Validation failed.', 'errors' => $errors));
+        }
+
+        if (!$this->verify_user_password($user, $oldPassword)) {
+            return $this->respond(422, array(
+                'message' => 'Validation failed.',
+                'errors' => array('oldPassword' => 'Old password is incorrect.'),
+            ));
+        }
+
+        if ($newPassword !== $passwordConfirmation) {
+            return $this->respond(422, array(
+                'message' => 'Validation failed.',
+                'errors' => array('passwordConfirmation' => 'Password confirmation does not match.'),
+            ));
+        }
+
+        if ($this->verify_user_password($user, $newPassword)) {
+            return $this->respond(422, array(
+                'message' => 'Validation failed.',
+                'errors' => array('newPassword' => 'New password must be different from the current password.'),
+            ));
+        }
+
+        $this->db->update('user', array(
+            'password' => password_hash($newPassword, PASSWORD_DEFAULT),
+        ), array('id' => (int) $user['id']));
+
+        return $this->respond(200, array('ok' => true));
     }
 
     public function pin_setup()
@@ -510,25 +608,14 @@ class Api_hrms extends CI_Controller
         }
 
         $payload = $this->json_input();
-        $lat = $payload['lat'] ?? null;
-        $lng = $payload['lng'] ?? null;
-        $accuracy = $payload['gpsAccuracy'] ?? $payload['accuracy'] ?? null;
-        $attachmentPathInput = trim((string) ($payload['attachment_path'] ?? $payload['attachmentPath'] ?? $payload['photoPath'] ?? ''));
+        $attachmentPathInput = trim((string) ($payload['attachmentPath'] ?? $payload['photoPath'] ?? $payload['attachment_path'] ?? ''));
+        $dinasLocation = trim((string) ($payload['dinasLocation'] ?? $payload['lokasiDinas'] ?? ''));
+        $dinasNotes = trim((string) ($payload['notes'] ?? $payload['catatan'] ?? ''));
 
         $errors = array();
-        if (!is_numeric($lat) || $lat < -90 || $lat > 90) {
-            $errors['lat'] = 'Latitude must be between -90 and 90.';
-        }
-        if (!is_numeric($lng) || $lng < -180 || $lng > 180) {
-            $errors['lng'] = 'Longitude must be between -180 and 180.';
-        }
-        if (!is_numeric($accuracy) || $accuracy < 0) {
-            $errors['gpsAccuracy'] = 'Accuracy must be a positive number.';
-        }
-
         $proof = $this->validate_out_of_town_proof_path($attachmentPathInput, (int) $user['id']);
         if (isset($proof['error'])) {
-            $errors['attachment_path'] = $proof['error'];
+            $errors['attachmentPath'] = $proof['error'];
         }
 
         if (!empty($errors)) {
@@ -540,27 +627,32 @@ class Api_hrms extends CI_Controller
         }
 
         $ipAddress = $this->input->ip_address();
-        $result = $this->attendanceeligibilityservice->evaluate($lat, $lng, $accuracy, $ipAddress, null, null);
-        if (isset($result['error'])) {
+        $office = $this->Office_model->get_active_office();
+        if (!$office) {
             return $this->respond(500, array('message' => 'Active office is not configured.'));
         }
 
-        $office = $result['office'];
-        $officeRecord = $this->Office_model->get_by_id($office['id']);
-        $distance = $result['computed']['distance_m'];
         $now = date('Y-m-d H:i:s');
-        $schedule = $this->resolve_attendance_times($officeRecord ?: $office, $user);
-        $noteData = $this->build_attendance_notes($type, $now, $schedule['start'], $schedule['end']);
+        $schedule = $this->resolve_attendance_times($office, $user);
+        $notesMeta = array();
+        if ($dinasLocation !== '') {
+            $notesMeta['dinasLocation'] = $dinasLocation;
+        }
+        if ($dinasNotes !== '') {
+            $notesMeta['dinasNotes'] = $dinasNotes;
+        }
+
+        $noteData = $this->build_attendance_notes($type, $now, $schedule['start'], $schedule['end'], $notesMeta);
         $flags = $noteData['flags'];
         $flags['special_schedule'] = $schedule['source'] === 'user';
         $insertData = array(
             'user_id' => (int) $user['id'],
             'office_id' => (int) $office['id'],
             'type' => $type,
-            'lat' => (float) $lat,
-            'lng' => (float) $lng,
-            'accuracy' => $accuracy,
-            'distance_m' => (float) $distance,
+            'lat' => null,
+            'lng' => null,
+            'accuracy' => null,
+            'distance_m' => null,
             'method' => 'OUT_OF_TOWN+PHOTO',
             'ip_address' => $ipAddress,
             'user_agent' => $this->input->user_agent(),
@@ -583,8 +675,10 @@ class Api_hrms extends CI_Controller
             'type' => $type,
             'attendanceCategory' => 'OUT_OF_TOWN',
             'attendanceCategoryLabel' => $this->attendance_category_label('OUT_OF_TOWN'),
+            'dinasLocation' => $dinasLocation !== '' ? $dinasLocation : null,
+            'notesText' => $dinasNotes !== '' ? $dinasNotes : null,
             'attachmentPath' => $this->absolute_attachment_url($proof['path']),
-            'distanceMeters' => round($distance, 2),
+            'distanceMeters' => null,
             'notes' => $noteData['notes'],
             'flags' => $flags,
             'minutes' => $noteData['minutes'],
@@ -736,6 +830,8 @@ class Api_hrms extends CI_Controller
         $item['attendanceCategory'] = $this->attendance_category_value($item['attendance_category'] ?? null);
         $item['attendanceCategoryLabel'] = $this->attendance_category_label($item['attendanceCategory']);
         $item['isOutOfTown'] = $this->is_out_of_town_attendance($item['attendanceCategory']);
+        $item['dinasLocation'] = $this->attendance_note_meta_value($item['notes'] ?? null, 'dinasLocation');
+        $item['notesText'] = $this->attendance_note_meta_value($item['notes'] ?? null, 'dinasNotes');
         $item['attachmentPath'] = $this->absolute_attachment_url($item['attachment_path'] ?? null);
         $item['hasReasonOrAttachment'] = $this->attendance_has_reason_or_attachment($item);
         $item['reasonEligible'] = !empty($context['flags']['late']) || !empty($context['flags']['early_checkout']);
@@ -771,6 +867,32 @@ class Api_hrms extends CI_Controller
         }
 
         return $this->respond(200, $report['summary']);
+    }
+
+    public function attendance_dashboard()
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        $month = $this->input->get('month', TRUE);
+        $month = $month ?: date('Y-m');
+
+        $office = $this->Office_model->get_active_office();
+        $report = $this->build_monthly_report((int) $user['id'], $month, $office, $user);
+        if (isset($report['error'])) {
+            return $this->respond(400, array('message' => $report['error']));
+        }
+
+        return $this->respond(200, array(
+            'month' => $report['summary']['month'],
+            'statistics' => $report['summary']['dashboard_statistics'],
+        ));
     }
 
     public function attendance_recap_all()
@@ -914,10 +1036,12 @@ class Api_hrms extends CI_Controller
             return $this->respond(400, array('message' => 'file is required.'));
         }
 
-        $scope = $type === 'leave' ? 'leave' : ($type === 'attendance' ? 'attendance' : 'hrms_profile');
+        $scope = $type === 'leave' ? 'leave' : ($type === 'attendance' ? 'attendance' : 'user_avatar');
         $options = array();
         if ($scope === 'leave' || $scope === 'attendance') {
             $options['subdir'] = 'api-upload';
+        } elseif ($scope === 'user_avatar') {
+            $options['file_name'] = (string) ((int) $user['id']);
         }
 
         $upload = $this->uploadservice->upload($scope, 'file', $options);
@@ -931,6 +1055,7 @@ class Api_hrms extends CI_Controller
             'storedPath' => $upload['path'],
             'url' => $upload['url'],
             'filename' => $upload['filename'],
+            'value' => $type === 'profile' ? $upload['filename'] : $upload['path'],
             'originalName' => $upload['original_name'],
             'sizeBytes' => $upload['size_bytes'],
         ));
@@ -1038,15 +1163,7 @@ class Api_hrms extends CI_Controller
         $requestNo = $this->requestnogenerator->generate_unique();
         $attachmentPath = $clean['attachment_path'] !== '' ? $clean['attachment_path'] : null;
 
-        if ($leaveType && (int) $leaveType['requires_attachment'] === 1) {
-            if (!empty($_FILES['attachment']['name'])) {
-                $upload = $this->handle_attachment_upload($requestNo, 'attachment');
-                if (isset($upload['error'])) {
-                    return $this->respond(422, array('message' => $upload['error']));
-                }
-                $attachmentPath = $upload['path'];
-            }
-        } elseif (!empty($_FILES['attachment']['name'])) {
+        if (!empty($_FILES['attachment']['name'])) {
             $upload = $this->handle_attachment_upload($requestNo, 'attachment');
             if (isset($upload['error'])) {
                 return $this->respond(422, array('message' => $upload['error']));
@@ -1821,13 +1938,18 @@ class Api_hrms extends CI_Controller
             $errors['start_date'] = 'A leave application already exists for the selected date range.';
         }
 
-        if ($leaveType && (int) $leaveType['requires_attachment'] === 1) {
+        if ($this->leave_type_requires_attachment($leaveType)) {
             if (empty($_FILES['attachment']['name']) && $clean['attachment_path'] === '') {
                 $errors['attachment'] = 'Attachment is required for this leave type.';
             }
         }
 
         return array($errors, $clean, $leaveType);
+    }
+
+    private function leave_type_requires_attachment($leaveType)
+    {
+        return is_array($leaveType) && (int) ($leaveType['requires_attachment'] ?? 0) === 1;
     }
 
     private function handle_attachment_upload($requestNo, $fieldName)
@@ -1989,6 +2111,12 @@ class Api_hrms extends CI_Controller
             'role' => $user['role_text'] ?? ($user['role'] ?? null),
             'role_id' => $employeeRole ? (int) $employeeRole['id'] : null,
             'role_name' => $employeeRole['display_name'] ?? null,
+            'roleInfo' => array(
+                'id' => $employeeRole ? (int) $employeeRole['id'] : null,
+                'name' => $employeeRole['display_name'] ?? ($user['role_text'] ?? ($user['role'] ?? null)),
+            ),
+            'profilePicture' => $this->profile_picture_url($user),
+            'keterangan' => $user['desc'] ?? null,
             'position_id' => isset($position['position_id']) ? (int) $position['position_id'] : null,
             'position_name' => $position['position_name'] ?? null,
             'schedule' => array(
@@ -2105,6 +2233,97 @@ class Api_hrms extends CI_Controller
         }
 
         return project_uploaded_file_url($path);
+    }
+
+    private function profile_picture_url($user)
+    {
+        $image = trim((string) ($user['img'] ?? ''));
+        if ($image === '') {
+            return null;
+        }
+
+        if (preg_match('/^https?:\\/\\//i', $image)) {
+            return $image;
+        }
+
+        $image = str_replace('\\', '/', $image);
+        if (strpos($image, '/') !== false) {
+            return base_url(ltrim($image, '/'));
+        }
+
+        return base_url('assets/img/user/' . $image);
+    }
+
+    private function normalize_profile_image_input($value, $userId)
+    {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return '';
+        }
+
+        if (preg_match('/^https?:\\/\\//i', $value)) {
+            $parsedPath = parse_url($value, PHP_URL_PATH);
+            if (is_string($parsedPath) && $parsedPath !== '') {
+                $value = ltrim($parsedPath, '/');
+            }
+        } else {
+            $value = ltrim(str_replace('\\', '/', $value), '/');
+        }
+
+        $value = preg_replace('#/+#', '/', $value);
+        if ($value === '') {
+            return '';
+        }
+
+        if ($value === basename($value)) {
+            if (preg_match('/^' . preg_quote((string) $userId, '/') . '\.(jpg|jpeg|png)$/i', $value)) {
+                return $value;
+            }
+
+            return '';
+        }
+
+        $markers = array(
+            'assets/img/user/',
+        );
+        foreach ($markers as $marker) {
+            $position = strpos($value, $marker);
+            if ($position === false) {
+                continue;
+            }
+
+            $suffix = ltrim(substr($value, $position + strlen($marker)), '/');
+            if ($suffix === '' || strpos($suffix, '/') !== false || strpos($suffix, '..') !== false) {
+                return '';
+            }
+
+            if (!preg_match('/^' . preg_quote((string) $userId, '/') . '\.(jpg|jpeg|png)$/i', $suffix)) {
+                return '';
+            }
+
+            return $suffix;
+        }
+
+        return '';
+    }
+
+    private function verify_user_password($user, $password)
+    {
+        $password = (string) $password;
+        if ($password === '') {
+            return false;
+        }
+
+        $currentHash = (string) ($user['password'] ?? '');
+        if ($currentHash === '') {
+            return false;
+        }
+
+        if (password_verify($password, $currentHash)) {
+            return true;
+        }
+
+        return $currentHash === md5($password);
     }
 
     private function detect_uploaded_file_mime_type($fullPath)
@@ -2501,10 +2720,12 @@ class Api_hrms extends CI_Controller
         $weekendType = $this->AttendanceSettingsModel->get_settings()['weekend_type'] ?? 'SATURDAY_SUNDAY';
 
         $presentDays = 0;
+        $onTimeCount = 0;
         $lateCount = 0;
         $earlyCheckoutCount = 0;
         $absentCount = 0;
         $leaveCount = 0;
+        $notAbsentOutCount = 0;
         $daily = array();
 
         $period = new DatePeriod(new DateTime($startDate), new DateInterval('P1D'), (new DateTime($endDate))->modify('+1 day'));
@@ -2544,6 +2765,12 @@ class Api_hrms extends CI_Controller
                 if ($hasOut && $this->is_early_checkout($lastOut, $endTime)) {
                     $isEarlyCheckout = true;
                     $earlyCheckoutCount++;
+                }
+                if ($hasIn && !$hasOut) {
+                    $notAbsentOutCount++;
+                }
+                if ($hasIn && $hasOut && !$isLate && !$isEarlyCheckout) {
+                    $onTimeCount++;
                 }
             } else {
                 $absentCount++;
@@ -2587,6 +2814,14 @@ class Api_hrms extends CI_Controller
             'early_checkout_count' => $earlyCheckoutCount,
             'absent_count' => $absentCount,
             'leave_days' => $leaveCount,
+            'dashboard_statistics' => array(
+                'on_time' => $onTimeCount,
+                'late' => $lateCount,
+                'absent' => $absentCount,
+                'leave' => $leaveCount,
+                'not_absent_out' => $notAbsentOutCount,
+                'early_leave' => $earlyCheckoutCount,
+            ),
             'start_time' => $startTime,
             'end_time' => $endTime,
             'schedule_source' => $times['source'],
@@ -2782,7 +3017,7 @@ class Api_hrms extends CI_Controller
         return (int) floor($delta / 60);
     }
 
-    private function build_attendance_notes($type, $timestamp, $startTime, $endTime)
+    private function build_attendance_notes($type, $timestamp, $startTime, $endTime, $meta = array())
     {
         $notes = array();
         $flags = array(
@@ -2810,8 +3045,16 @@ class Api_hrms extends CI_Controller
             }
         }
 
+        $notesPayload = $notes;
+        if (!empty($meta)) {
+            $notesPayload = array(
+                'items' => $notes,
+                'meta' => $meta,
+            );
+        }
+
         return array(
-            'notes' => $notes,
+            'notes' => $notesPayload,
             'flags' => $flags,
             'minutes' => $minutes,
         );
@@ -2850,6 +3093,9 @@ class Api_hrms extends CI_Controller
     private function decode_attendance_notes($notesValue)
     {
         if (is_array($notesValue)) {
+            if (isset($notesValue['items']) && is_array($notesValue['items'])) {
+                return array_values($notesValue['items']);
+            }
             return array_values($notesValue);
         }
 
@@ -2860,10 +3106,38 @@ class Api_hrms extends CI_Controller
 
         $decoded = json_decode($notesValue, true);
         if (is_array($decoded)) {
+            if (isset($decoded['items']) && is_array($decoded['items'])) {
+                return array_values($decoded['items']);
+            }
             return array_values($decoded);
         }
 
         return array($notesValue);
+    }
+
+    private function decode_attendance_notes_meta($notesValue)
+    {
+        if (is_array($notesValue)) {
+            return isset($notesValue['meta']) && is_array($notesValue['meta']) ? $notesValue['meta'] : array();
+        }
+
+        $notesValue = trim((string) $notesValue);
+        if ($notesValue === '') {
+            return array();
+        }
+
+        $decoded = json_decode($notesValue, true);
+        if (is_array($decoded) && isset($decoded['meta']) && is_array($decoded['meta'])) {
+            return $decoded['meta'];
+        }
+
+        return array();
+    }
+
+    private function attendance_note_meta_value($notesValue, $key)
+    {
+        $meta = $this->decode_attendance_notes_meta($notesValue);
+        return isset($meta[$key]) && trim((string) $meta[$key]) !== '' ? trim((string) $meta[$key]) : null;
     }
 
     private function build_daily_notes($firstIn, $lastOut, $startTime, $endTime, $isLate, $isEarlyCheckout, $dayLogs = array())
@@ -3404,6 +3678,116 @@ class Api_hrms extends CI_Controller
         ));
     }
 
+    public function leave_approvals()
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->require_module_permission($user['id'], 'leave_approvals', 'view')) {
+            return null;
+        }
+
+        $statusFilter = $this->normalize_approval_status_filter();
+        if (isset($statusFilter['error'])) {
+            return $this->respond(422, array(
+                'message' => 'Validation failed.',
+                'errors' => array('status' => $statusFilter['error']),
+            ));
+        }
+
+        $limit = $this->normalize_approval_list_limit();
+        $steps = $this->get_leave_approval_steps_for_filter((int) $user['id'], $statusFilter);
+
+        $items = array();
+        foreach (array_slice($steps, 0, $limit) as $step) {
+            $items[] = $this->map_leave_approval_step_item($step, (int) $user['id']);
+        }
+
+        return $this->respond(200, array(
+            'status' => $statusFilter,
+            'limit' => $limit,
+            'counts' => array(
+                'pending' => $this->ApprovalStepModel->get_pending_count((int) $user['id']),
+                'returned' => count($items),
+                'total' => count($steps),
+            ),
+            'data' => $items,
+        ));
+    }
+
+    public function leave_approval_detail($stepId)
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->require_module_permission($user['id'], 'leave_approvals', 'view')) {
+            return null;
+        }
+
+        $payload = $this->build_leave_approval_detail_payload((int) $stepId, (int) $user['id']);
+        if (isset($payload['status_code'])) {
+            return $this->respond($payload['status_code'], array('message' => $payload['message']));
+        }
+
+        return $this->respond(200, $payload);
+    }
+
+    public function leave_approval_approve($stepId)
+    {
+        return $this->handle_leave_approval_action($stepId, 'APPROVED');
+    }
+
+    public function leave_approval_reject($stepId)
+    {
+        return $this->handle_leave_approval_action($stepId, 'REJECTED');
+    }
+
+    public function leave_approvals_history()
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->require_module_permission($user['id'], 'leave_approvals', 'view')) {
+            return null;
+        }
+
+        $limit = $this->normalize_approval_list_limit();
+        $steps = $this->ApprovalStepModel->get_history_for_approver((int) $user['id'], $limit);
+        $items = array();
+        foreach ($steps as $step) {
+            $items[] = $this->map_leave_approval_step_item($step, (int) $user['id']);
+        }
+
+        return $this->respond(200, array(
+            'status' => 'history',
+            'limit' => $limit,
+            'counts' => array(
+                'pending' => $this->ApprovalStepModel->get_pending_count((int) $user['id']),
+                'returned' => count($items),
+                'total' => count($items),
+            ),
+            'data' => $items,
+        ));
+    }
+
     /**
      * Get pending overtime approvals inbox
      * GET /api/hrms/overtime/approvals/inbox
@@ -3423,30 +3807,7 @@ class Api_hrms extends CI_Controller
             return null;
         }
 
-        $this->load->model('OvertimeApprovalStepModel');
-
-        $steps = $this->OvertimeApprovalStepModel->get_pending_for_approver((int) $user['id']);
-
-        $items = array();
-        foreach ($steps as $step) {
-            $items[] = array(
-                'stepId' => (int) $step['id'],
-                'requestNo' => $step['request_no'],
-                'requesterId' => (int) $step['requester_id'],
-                'requesterName' => $step['requester_name'],
-                'overtimeTypeName' => $step['overtime_type_name'],
-                'overtimeDate' => $step['overtime_date'],
-                'startTime' => $step['start_time'],
-                'endTime' => $step['end_time'],
-                'durationHours' => (float) $step['duration_hours'],
-                'reason' => $step['reason'],
-                'stepNo' => (int) $step['step_no'],
-                'totalSteps' => (int) $step['total_steps'],
-                'currentStep' => (int) $step['current_step'],
-            );
-        }
-
-        return $this->respond(200, array('data' => $items));
+        return $this->respond(200, $this->build_overtime_approvals_list_response((int) $user['id'], 'pending'));
     }
 
     /**
@@ -3481,41 +3842,7 @@ class Api_hrms extends CI_Controller
      */
     public function overtime_approval_approve($stepId)
     {
-        if ($this->input->method(TRUE) !== 'POST') {
-            return $this->respond(405, array('message' => 'Method not allowed'));
-        }
-
-        $user = $this->require_user();
-        if (!$user) {
-            return null;
-        }
-
-        if (!$this->require_module_permission($user['id'], 'overtime_approvals', 'approve')) {
-            return null;
-        }
-
-        $this->load->library('OvertimeWorkflowEngine');
-
-        $input = $this->json_input();
-        $notes = trim((string) ($input['notes'] ?? ''));
-
-        $result = $this->overtimeworkflowengine->processApproval(
-            (int) $stepId,
-            (int) $user['id'],
-            'APPROVED',
-            $notes !== '' ? $notes : null
-        );
-
-        if (!$result['success']) {
-            return $this->respond(409, array('message' => $result['message']));
-        }
-
-        return $this->respond(200, array(
-            'success' => true,
-            'message' => $result['message'],
-            'isFinal' => $result['is_final'] ?? false,
-            'nextStep' => $result['next_step'] ?? null,
-        ));
+        return $this->handle_overtime_approval_action($stepId, 'APPROVED');
     }
 
     /**
@@ -3524,47 +3851,7 @@ class Api_hrms extends CI_Controller
      */
     public function overtime_approval_reject($stepId)
     {
-        if ($this->input->method(TRUE) !== 'POST') {
-            return $this->respond(405, array('message' => 'Method not allowed'));
-        }
-
-        $user = $this->require_user();
-        if (!$user) {
-            return null;
-        }
-
-        if (!$this->require_module_permission($user['id'], 'overtime_approvals', 'approve')) {
-            return null;
-        }
-
-        $this->load->library('OvertimeWorkflowEngine');
-
-        $input = $this->json_input();
-        $notes = trim((string) ($input['notes'] ?? ''));
-
-        if ($notes === '') {
-            return $this->respond(422, array(
-                'message' => 'Validation failed.',
-                'errors' => array('notes' => 'Rejection reason is required.')
-            ));
-        }
-
-        $result = $this->overtimeworkflowengine->processApproval(
-            (int) $stepId,
-            (int) $user['id'],
-            'REJECTED',
-            $notes
-        );
-
-        if (!$result['success']) {
-            return $this->respond(409, array('message' => $result['message']));
-        }
-
-        return $this->respond(200, array(
-            'success' => true,
-            'message' => $result['message'],
-            'isFinal' => true,
-        ));
+        return $this->handle_overtime_approval_action($stepId, 'REJECTED');
     }
 
     /**
@@ -3586,30 +3873,496 @@ class Api_hrms extends CI_Controller
             return null;
         }
 
+        return $this->respond(200, $this->build_overtime_approvals_list_response((int) $user['id'], 'history'));
+    }
+
+    public function overtime_approvals()
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->require_module_permission($user['id'], 'overtime_approvals', 'view')) {
+            return null;
+        }
+
+        $statusFilter = $this->normalize_approval_status_filter();
+        if (isset($statusFilter['error'])) {
+            return $this->respond(422, array(
+                'message' => 'Validation failed.',
+                'errors' => array('status' => $statusFilter['error']),
+            ));
+        }
+
+        return $this->respond(200, $this->build_overtime_approvals_list_response((int) $user['id'], $statusFilter));
+    }
+
+    public function overtime_approval_detail($stepId)
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->require_module_permission($user['id'], 'overtime_approvals', 'view')) {
+            return null;
+        }
+
+        $payload = $this->build_overtime_approval_detail_payload((int) $stepId, (int) $user['id']);
+        if (isset($payload['status_code'])) {
+            return $this->respond($payload['status_code'], array('message' => $payload['message']));
+        }
+
+        return $this->respond(200, $payload);
+    }
+
+    private function normalize_approval_status_filter()
+    {
+        $status = strtolower(trim((string) $this->input->get('status', TRUE)));
+        if ($status === '') {
+            return 'pending';
+        }
+
+        if (!in_array($status, array('pending', 'history', 'all'), true)) {
+            return array('error' => 'Status must be one of: pending, history, all.');
+        }
+
+        return $status;
+    }
+
+    private function normalize_approval_list_limit()
+    {
+        $limit = (int) $this->input->get('limit', TRUE);
+        return $limit > 0 ? min($limit, 100) : 50;
+    }
+
+    private function get_leave_approval_steps_for_filter($userId, $statusFilter)
+    {
+        if ($statusFilter === 'pending') {
+            return $this->ApprovalStepModel->get_pending_for_approver($userId);
+        }
+
+        if ($statusFilter === 'history') {
+            return $this->ApprovalStepModel->get_history_for_approver($userId, $this->normalize_approval_list_limit());
+        }
+
+        $pending = $this->ApprovalStepModel->get_pending_for_approver($userId);
+        $history = $this->ApprovalStepModel->get_history_for_approver($userId, $this->normalize_approval_list_limit());
+        return array_merge($pending, $history);
+    }
+
+    private function get_overtime_approval_steps_for_filter($userId, $statusFilter)
+    {
         $this->load->model('OvertimeApprovalStepModel');
 
-        $limit = (int) $this->input->get('limit', TRUE);
-        $limit = $limit > 0 ? min($limit, 100) : 50;
+        if ($statusFilter === 'pending') {
+            return $this->OvertimeApprovalStepModel->get_pending_for_approver($userId);
+        }
 
-        $steps = $this->OvertimeApprovalStepModel->get_history_for_approver((int) $user['id'], $limit);
+        if ($statusFilter === 'history') {
+            return $this->OvertimeApprovalStepModel->get_history_for_approver($userId, $this->normalize_approval_list_limit());
+        }
 
+        $pending = $this->OvertimeApprovalStepModel->get_pending_for_approver($userId);
+        $history = $this->OvertimeApprovalStepModel->get_history_for_approver($userId, $this->normalize_approval_list_limit());
+        return array_merge($pending, $history);
+    }
+
+    private function build_overtime_approvals_list_response($userId, $statusFilter)
+    {
+        $steps = $this->get_overtime_approval_steps_for_filter($userId, $statusFilter);
+        $limit = $this->normalize_approval_list_limit();
         $items = array();
-        foreach ($steps as $step) {
-            $items[] = array(
-                'stepId' => (int) $step['id'],
-                'requestNo' => $step['request_no'],
-                'requesterId' => (int) $step['requester_id'],
-                'requesterName' => $step['requester_name'],
-                'overtimeTypeName' => $step['overtime_type_name'],
-                'overtimeDate' => $step['overtime_date'],
-                'durationHours' => (float) $step['duration_hours'],
-                'action' => $step['action'],
-                'actionAt' => $step['action_at'],
-                'notes' => $step['notes'],
+        foreach (array_slice($steps, 0, $limit) as $step) {
+            $items[] = $this->map_overtime_approval_step_item($step, $userId);
+        }
+
+        $this->load->model('OvertimeApprovalStepModel');
+
+        return array(
+            'status' => $statusFilter,
+            'limit' => $limit,
+            'counts' => array(
+                'pending' => $this->OvertimeApprovalStepModel->count_pending_for_approver($userId),
+                'returned' => count($items),
+                'total' => count($steps),
+            ),
+            'data' => $items,
+        );
+    }
+
+    private function map_leave_approval_step_item($step, $userId)
+    {
+        $isProcessed = in_array((string) ($step['action'] ?? ''), array('APPROVED', 'REJECTED'), true);
+
+        return array(
+            'stepId' => (int) $step['id'],
+            'requestId' => isset($step['leave_request_id']) ? (int) $step['leave_request_id'] : null,
+            'requestNo' => $step['request_no'] ?? null,
+            'module' => 'leave',
+            'requesterId' => isset($step['requester_id']) ? (int) $step['requester_id'] : null,
+            'requesterName' => $step['requester_name'] ?? null,
+            'requesterRole' => $step['requester_role'] ?? null,
+            'leaveTypeName' => $step['leave_type_name'] ?? null,
+            'startDate' => $step['start_date'] ?? null,
+            'endDate' => $step['end_date'] ?? null,
+            'daysCount' => isset($step['days_count']) ? (int) $step['days_count'] : null,
+            'reason' => $step['reason'] ?? null,
+            'stepNo' => isset($step['step_no']) ? (int) $step['step_no'] : null,
+            'stepName' => $step['step_name'] ?? null,
+            'totalSteps' => isset($step['total_steps']) ? (int) $step['total_steps'] : null,
+            'currentStep' => isset($step['current_step']) ? (int) $step['current_step'] : null,
+            'action' => $step['action'] ?? null,
+            'actionAt' => $step['action_at'] ?? null,
+            'notes' => $step['notes'] ?? null,
+            'canTakeAction' => !$isProcessed && isset($step['assigned_approver_id']) && (int) $step['assigned_approver_id'] === $userId,
+        );
+    }
+
+    private function map_overtime_approval_step_item($step, $userId)
+    {
+        $isProcessed = in_array((string) ($step['action'] ?? ''), array('APPROVED', 'REJECTED'), true);
+
+        return array(
+            'stepId' => (int) $step['id'],
+            'requestId' => isset($step['overtime_request_id']) ? (int) $step['overtime_request_id'] : null,
+            'requestNo' => $step['request_no'] ?? null,
+            'module' => 'overtime',
+            'requesterId' => isset($step['requester_id']) ? (int) $step['requester_id'] : null,
+            'requesterName' => $step['requester_name'] ?? null,
+            'overtimeTypeName' => $step['overtime_type_name'] ?? null,
+            'overtimeDate' => $step['overtime_date'] ?? null,
+            'startTime' => $step['start_time'] ?? null,
+            'endTime' => $step['end_time'] ?? null,
+            'durationHours' => isset($step['duration_hours']) ? (float) $step['duration_hours'] : null,
+            'reason' => $step['reason'] ?? null,
+            'stepNo' => isset($step['step_no']) ? (int) $step['step_no'] : null,
+            'stepName' => $step['step_name'] ?? null,
+            'totalSteps' => isset($step['total_steps']) ? (int) $step['total_steps'] : null,
+            'currentStep' => isset($step['current_step']) ? (int) $step['current_step'] : null,
+            'action' => $step['action'] ?? null,
+            'actionAt' => $step['action_at'] ?? null,
+            'notes' => $step['notes'] ?? null,
+            'canTakeAction' => !$isProcessed && isset($step['assigned_approver_id']) && (int) $step['assigned_approver_id'] === $userId,
+        );
+    }
+
+    private function build_leave_approval_detail_payload($stepId, $userId)
+    {
+        $this->load->model('ApprovalInstanceModel');
+
+        $step = $this->ApprovalStepModel->get_by_id($stepId);
+        if (!$step) {
+            return array('status_code' => 404, 'message' => 'Approval step not found.');
+        }
+
+        $instance = $this->ApprovalInstanceModel->get_by_id((int) $step['approval_instance_id']);
+        $request = $this->LeaveRequestModel->get_by_id((int) $step['leave_request_id']);
+        if (!$request) {
+            return array('status_code' => 404, 'message' => 'Leave request not found.');
+        }
+
+        if (!$this->can_access_leave_approval_step($step, $instance, $userId)) {
+            return array('status_code' => 403, 'message' => 'You do not have access to this approval step.');
+        }
+
+        $progress = $this->approvalworkflowengine->getWorkflowProgress((int) $step['leave_request_id']);
+        $requester = $this->db->query("
+            SELECT u.id, u.full_name, u.email, p.name as position_name
+            FROM user u
+            LEFT JOIN user_profile up ON u.id = up.user_id
+            LEFT JOIN positions p ON up.position_id = p.id
+            WHERE u.id = ?
+            LIMIT 1
+        ", array((int) $request['user_id']))->row_array();
+
+        $stepsPayload = array();
+        foreach ($this->ApprovalStepModel->get_by_leave_request((int) $step['leave_request_id']) as $approvalStep) {
+            $stepsPayload[] = array(
+                'id' => (int) $approvalStep['id'],
+                'stepNo' => (int) $approvalStep['step_no'],
+                'stepName' => $approvalStep['step_name'] ?? null,
+                'assignedApproverId' => isset($approvalStep['assigned_approver_id']) ? (int) $approvalStep['assigned_approver_id'] : null,
+                'assignedApproverName' => $approvalStep['assigned_approver_name'] ?? null,
+                'assignedApproverRole' => $approvalStep['assigned_approver_role'] ?? null,
+                'actualApproverId' => isset($approvalStep['actual_approver_id']) ? (int) $approvalStep['actual_approver_id'] : null,
+                'actualApproverName' => $approvalStep['actual_approver_name'] ?? null,
+                'action' => $approvalStep['action'],
+                'actionAt' => $approvalStep['action_at'],
+                'notes' => $approvalStep['notes'],
             );
         }
 
-        return $this->respond(200, array('data' => $items));
+        return array(
+            'step' => array(
+                'id' => (int) $step['id'],
+                'stepNo' => (int) $step['step_no'],
+                'stepName' => $step['step_name'] ?? null,
+                'action' => $step['action'],
+                'actionAt' => $step['action_at'],
+                'notes' => $step['notes'],
+                'canTakeAction' => $this->is_current_pending_step_for_user($step, $instance, $userId),
+            ),
+            'request' => array(
+                'id' => (int) $request['id'],
+                'requestNo' => $request['request_no'],
+                'leaveTypeId' => (int) $request['leave_type_id'],
+                'leaveTypeName' => $request['leave_type_name'] ?? null,
+                'leaveTypeCode' => $request['leave_type_code'] ?? null,
+                'startDate' => $request['start_date'],
+                'endDate' => $request['end_date'],
+                'daysCount' => (int) $request['days_count'],
+                'reason' => $request['reason'],
+                'status' => $this->map_leave_status($request['status']),
+                'statusRaw' => $request['status'],
+                'attachmentPath' => $this->absolute_attachment_url($request['attachment_path']),
+                'createdAt' => $request['created_at'],
+                'updatedAt' => $request['updated_at'],
+            ),
+            'requester' => array(
+                'id' => (int) ($requester['id'] ?? 0),
+                'name' => $requester['full_name'] ?? null,
+                'email' => $requester['email'] ?? null,
+                'positionName' => $requester['position_name'] ?? null,
+            ),
+            'workflow' => array(
+                'currentStep' => isset($progress['current_step']) ? (int) $progress['current_step'] : (isset($instance['current_step']) ? (int) $instance['current_step'] : null),
+                'totalSteps' => isset($progress['total_steps']) ? (int) $progress['total_steps'] : (isset($instance['total_steps']) ? (int) $instance['total_steps'] : null),
+                'status' => $progress['status'] ?? ($instance['status'] ?? null),
+                'steps' => $stepsPayload,
+            ),
+        );
+    }
+
+    private function build_overtime_approval_detail_payload($stepId, $userId)
+    {
+        $this->load->model('OvertimeApprovalStepModel');
+        $this->load->model('OvertimeApprovalInstanceModel');
+        $this->load->model('OvertimeRequestModel');
+
+        $step = $this->OvertimeApprovalStepModel->get_by_id($stepId);
+        if (!$step) {
+            return array('status_code' => 404, 'message' => 'Approval step not found.');
+        }
+
+        $instance = $this->OvertimeApprovalInstanceModel->get_by_id((int) $step['approval_instance_id']);
+        $request = $this->OvertimeRequestModel->get_by_id((int) $step['overtime_request_id']);
+        if (!$request) {
+            return array('status_code' => 404, 'message' => 'Overtime request not found.');
+        }
+
+        if (!$this->can_access_overtime_approval_step($step, $instance, $userId)) {
+            return array('status_code' => 403, 'message' => 'You do not have access to this approval step.');
+        }
+
+        $this->load->library('OvertimeWorkflowEngine');
+        $progress = $this->overtimeworkflowengine->getWorkflowProgress((int) $step['overtime_request_id']);
+        $requester = $this->db->query("
+            SELECT u.id, u.full_name, u.email, p.name as position_name
+            FROM user u
+            LEFT JOIN user_profile up ON u.id = up.user_id
+            LEFT JOIN positions p ON up.position_id = p.id
+            WHERE u.id = ?
+            LIMIT 1
+        ", array((int) $request['user_id']))->row_array();
+
+        $stepsPayload = array();
+        foreach ($this->OvertimeApprovalStepModel->get_by_overtime_request((int) $step['overtime_request_id']) as $approvalStep) {
+            $stepsPayload[] = array(
+                'id' => (int) $approvalStep['id'],
+                'stepNo' => (int) $approvalStep['step_no'],
+                'stepName' => $approvalStep['step_name'] ?? null,
+                'assignedApproverId' => isset($approvalStep['assigned_approver_id']) ? (int) $approvalStep['assigned_approver_id'] : null,
+                'assignedApproverName' => $approvalStep['approver_name'] ?? null,
+                'actualApproverId' => isset($approvalStep['actual_approver_id']) ? (int) $approvalStep['actual_approver_id'] : null,
+                'actualApproverName' => $approvalStep['actual_approver_name'] ?? null,
+                'action' => $approvalStep['action'],
+                'actionAt' => $approvalStep['action_at'],
+                'notes' => $approvalStep['notes'],
+            );
+        }
+
+        return array(
+            'step' => array(
+                'id' => (int) $step['id'],
+                'stepNo' => (int) $step['step_no'],
+                'stepName' => $step['step_name'] ?? null,
+                'action' => $step['action'],
+                'actionAt' => $step['action_at'],
+                'notes' => $step['notes'],
+                'canTakeAction' => $this->is_current_pending_step_for_user($step, $instance, $userId),
+            ),
+            'request' => array(
+                'id' => (int) $request['id'],
+                'requestNo' => $request['request_no'],
+                'overtimeTypeId' => (int) $request['overtime_type_id'],
+                'overtimeTypeName' => $request['overtime_type_name'] ?? null,
+                'overtimeTypeCode' => $request['overtime_type_code'] ?? null,
+                'overtimeDate' => $request['overtime_date'],
+                'startTime' => $request['start_time'],
+                'endTime' => $request['end_time'],
+                'durationHours' => (float) $request['duration_hours'],
+                'reason' => $request['reason'],
+                'status' => $this->map_overtime_status($request['status']),
+                'statusRaw' => $request['status'],
+                'attachmentPath' => $this->absolute_attachment_url($request['attachment_path']),
+                'createdAt' => $request['created_at'],
+                'updatedAt' => $request['updated_at'],
+            ),
+            'requester' => array(
+                'id' => (int) ($requester['id'] ?? 0),
+                'name' => $requester['full_name'] ?? null,
+                'email' => $requester['email'] ?? null,
+                'positionName' => $requester['position_name'] ?? null,
+            ),
+            'workflow' => array(
+                'currentStep' => isset($progress['current_step']) ? (int) $progress['current_step'] : (isset($instance['current_step']) ? (int) $instance['current_step'] : null),
+                'totalSteps' => isset($progress['total_steps']) ? (int) $progress['total_steps'] : (isset($instance['total_steps']) ? (int) $instance['total_steps'] : null),
+                'status' => $progress['status'] ?? ($instance['status'] ?? null),
+                'steps' => $stepsPayload,
+            ),
+        );
+    }
+
+    private function can_access_leave_approval_step($step, $instance, $userId)
+    {
+        if ($this->is_current_pending_step_for_user($step, $instance, $userId)) {
+            return true;
+        }
+
+        return isset($step['actual_approver_id']) && (int) $step['actual_approver_id'] === $userId;
+    }
+
+    private function can_access_overtime_approval_step($step, $instance, $userId)
+    {
+        if ($this->is_current_pending_step_for_user($step, $instance, $userId)) {
+            return true;
+        }
+
+        return isset($step['actual_approver_id']) && (int) $step['actual_approver_id'] === $userId;
+    }
+
+    private function is_current_pending_step_for_user($step, $instance, $userId)
+    {
+        return
+            isset($step['assigned_approver_id']) &&
+            (int) $step['assigned_approver_id'] === $userId &&
+            isset($step['action']) &&
+            $step['action'] === 'PENDING' &&
+            !empty($instance) &&
+            (($instance['status'] ?? null) === 'IN_PROGRESS') &&
+            isset($instance['current_step']) &&
+            (int) $instance['current_step'] === (int) ($step['step_no'] ?? 0);
+    }
+
+    private function handle_leave_approval_action($stepId, $action)
+    {
+        if ($this->input->method(TRUE) !== 'POST') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->require_module_permission($user['id'], 'leave_approvals', 'approve')) {
+            return null;
+        }
+
+        $input = $this->json_input();
+        $notes = trim((string) ($input['notes'] ?? ''));
+        if ($action === 'REJECTED' && $notes === '') {
+            return $this->respond(422, array(
+                'message' => 'Validation failed.',
+                'errors' => array('notes' => 'Rejection reason is required.'),
+            ));
+        }
+
+        $step = $this->ApprovalStepModel->get_by_id((int) $stepId);
+        if (!$step) {
+            return $this->respond(404, array('message' => 'Approval step not found.'));
+        }
+
+        $request = $this->LeaveRequestModel->get_by_id((int) $step['leave_request_id']);
+        $result = $this->approvalworkflowengine->processApproval((int) $stepId, (int) $user['id'], $action, $notes !== '' ? $notes : null);
+        if (!$result['success']) {
+            return $this->respond(409, array('message' => $result['message']));
+        }
+
+        $request = $request ? $this->LeaveRequestModel->get_by_id((int) $request['id']) : null;
+
+        return $this->respond(200, array(
+            'success' => true,
+            'message' => $result['message'],
+            'action' => $action,
+            'isFinal' => !empty($result['is_final']),
+            'nextStep' => isset($result['next_step']) ? (int) $result['next_step'] : null,
+            'requestStatus' => $request ? $this->map_leave_status($request['status']) : null,
+            'requestStatusRaw' => $request['status'] ?? null,
+            'quotaWarning' => $result['quota_warning'] ?? null,
+        ));
+    }
+
+    private function handle_overtime_approval_action($stepId, $action)
+    {
+        if ($this->input->method(TRUE) !== 'POST') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        if (!$this->require_module_permission($user['id'], 'overtime_approvals', 'approve')) {
+            return null;
+        }
+
+        $this->load->library('OvertimeWorkflowEngine');
+        $this->load->model('OvertimeApprovalStepModel');
+        $this->load->model('OvertimeRequestModel');
+
+        $input = $this->json_input();
+        $notes = trim((string) ($input['notes'] ?? ''));
+        if ($action === 'REJECTED' && $notes === '') {
+            return $this->respond(422, array(
+                'message' => 'Validation failed.',
+                'errors' => array('notes' => 'Rejection reason is required.'),
+            ));
+        }
+
+        $step = $this->OvertimeApprovalStepModel->get_by_id((int) $stepId);
+        if (!$step) {
+            return $this->respond(404, array('message' => 'Approval step not found.'));
+        }
+
+        $request = $this->OvertimeRequestModel->get_by_id((int) $step['overtime_request_id']);
+        $result = $this->overtimeworkflowengine->processApproval((int) $stepId, (int) $user['id'], $action, $notes !== '' ? $notes : null);
+        if (!$result['success']) {
+            return $this->respond(409, array('message' => $result['message']));
+        }
+
+        $request = $request ? $this->OvertimeRequestModel->get_by_id((int) $request['id']) : null;
+
+        return $this->respond(200, array(
+            'success' => true,
+            'message' => $result['message'],
+            'action' => $action,
+            'isFinal' => !empty($result['is_final']),
+            'nextStep' => isset($result['next_step']) ? (int) $result['next_step'] : null,
+            'requestStatus' => $request ? $this->map_overtime_status($request['status']) : null,
+            'requestStatusRaw' => $request['status'] ?? null,
+        ));
     }
 
     /**
