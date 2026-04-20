@@ -215,6 +215,7 @@ $route['api/hrms/attendance/out-of-town/check-in'] = 'Api_hrms/attendance_out_of
 $route['api/hrms/attendance/out-of-town/check-out'] = 'Api_hrms/attendance_out_of_town_check_out';
 $route['api/hrms/attendance/(:num)/reason'] = 'Api_hrms/attendance_reason/$1';
 $route['api/hrms/attendance/history'] = 'Api_hrms/attendance_history';
+$route['api/hrms/attendance/dashboard'] = 'Api_hrms/attendance_dashboard';
 $route['api/hrms/attendance/recap'] = 'Api_hrms/attendance_recap';
 $route['api/hrms/attendance/recap-all'] = 'Api_hrms/attendance_recap_all';
 $route['api/hrms/attendance/report'] = 'Api_hrms/attendance_report';

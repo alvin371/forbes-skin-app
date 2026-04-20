@@ -12,7 +12,10 @@ class Attendance_log_model extends CI_Model
     {
         if (array_key_exists('notes', $data)) {
             if (is_array($data['notes'])) {
-                $data['notes'] = !empty($data['notes']) ? json_encode(array_values($data['notes'])) : null;
+                $isAssoc = array_keys($data['notes']) !== range(0, count($data['notes']) - 1);
+                $data['notes'] = !empty($data['notes'])
+                    ? json_encode($isAssoc ? $data['notes'] : array_values($data['notes']))
+                    : null;
             } elseif ($data['notes'] === '') {
                 $data['notes'] = null;
             }
