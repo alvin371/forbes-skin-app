@@ -65,6 +65,17 @@ $totalLeaveTypes = count($leave_types);
             </div>
         <?php endif; ?>
 
+        <div style="background-color: #fffbe6; border: 1px solid #ffe58f; border-radius: 2px; padding: 12px; margin-bottom: 16px;">
+            <div style="color: rgba(0,0,0,0.85); font-size: 14px;">
+                <i class="bi bi-info-circle"></i> Leave quota management only applies to active leave types.
+                Showing <strong><?php echo (int) $active_leave_type_count; ?></strong> active leave types of
+                <strong><?php echo (int) $total_leave_type_count; ?></strong> total.
+                <?php if ((int) $inactive_leave_type_count > 0): ?>
+                    <span style="color: rgba(0,0,0,0.65);">Inactive excluded: <?php echo (int) $inactive_leave_type_count; ?>.</span>
+                <?php endif; ?>
+            </div>
+        </div>
+
         <div style="background-color: #e6f7ff; border: 1px solid #91d5ff; border-radius: 2px; padding: 12px; margin-bottom: 16px;">
             <div style="color: #1890ff; font-size: 14px;">
                 <i class="bi bi-info-circle"></i> Tip: Use <strong>By Leave Type</strong> to update all users for one leave type without opening each profile.
@@ -176,8 +187,8 @@ $totalLeaveTypes = count($leave_types);
                                             </div>
                                         </td>
                                         <td style="padding: 12px 8px; font-size: 13px; color: rgba(0,0,0,0.85);">
-                                            <strong><?php echo $setCount; ?></strong> / <?php echo $totalLeaveTypes; ?> set
-                                            <div style="color: rgba(0,0,0,0.45); font-size: 12px;">Missing: <?php echo $missingCount; ?></div>
+                                            <strong><?php echo $setCount; ?></strong> / <?php echo $totalLeaveTypes; ?> active types set
+                                            <div style="color: rgba(0,0,0,0.45); font-size: 12px;">Missing active types: <?php echo $missingCount; ?></div>
                                         </td>
                                         <td style="padding: 12px 8px; font-size: 13px; color: rgba(0,0,0,0.45);">
                                             <?php echo $userUpdatedAt ? date('d M Y', strtotime($userUpdatedAt)) : '-'; ?>

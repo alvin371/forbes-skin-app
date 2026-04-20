@@ -26,6 +26,9 @@ class LeaveQuotasController extends BaseController
         $data['title'] = 'Leave Quotas - ' . $this->template->title();
         $data['quotas'] = $this->LeaveQuotaModel->get_all_with_details();
         $data['leave_types'] = $this->LeaveTypeModel->get_active();
+        $data['total_leave_type_count'] = $this->LeaveTypeModel->count_all(TRUE);
+        $data['active_leave_type_count'] = count($data['leave_types']);
+        $data['inactive_leave_type_count'] = max(0, $data['total_leave_type_count'] - $data['active_leave_type_count']);
 
         $this->db->select('u.id, u.full_name, u.email');
         $this->db->from('user u');
@@ -59,6 +62,9 @@ class LeaveQuotasController extends BaseController
         $data['title'] = 'Manage Leave Quotas - ' . $this->template->title();
         $data['user'] = $user;
         $data['leave_types'] = $this->LeaveTypeModel->get_active();
+        $data['total_leave_type_count'] = $this->LeaveTypeModel->count_all(TRUE);
+        $data['active_leave_type_count'] = count($data['leave_types']);
+        $data['inactive_leave_type_count'] = max(0, $data['total_leave_type_count'] - $data['active_leave_type_count']);
         $data['quotas'] = $this->LeaveQuotaModel->get_by_user($userId);
         $this->db->select('u.id, u.full_name, u.email');
         $this->db->from('user u');
