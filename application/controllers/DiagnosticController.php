@@ -5,17 +5,22 @@ class DiagnosticController extends CI_Controller
 {
     public function sentry()
     {
-        if (!defined('SENTRY_INITIALIZED') || !function_exists('sentry_capture_message')) {
+        $this->load->helper('sentry');
+
+        $sentryInitialized = defined('SENTRY_INITIALIZED');
+        $helperAvailable = function_exists('sentry_capture_message');
+
+        if (!$sentryInitialized || !$helperAvailable) {
             return $this->output
                 ->set_status_header(503)
                 ->set_content_type('application/json')
                 ->set_output(json_encode(array(
                     'ok' => false,
-                    'message' => 'Sentry is not initialized for this environment.',
+                    'message' => 'Sentry is not ready for this request.',
+                    'sentry_initialized' => $sentryInitialized,
+                    'sentry_helper_available' => $helperAvailable,
                 )));
         }
-
-        $this->load->helper('sentry');
 
         $requestPath = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : 'diagnostic/sentry';
         $requestMethod = isset($_SERVER['REQUEST_METHOD']) ? strtoupper((string) $_SERVER['REQUEST_METHOD']) : 'GET';
