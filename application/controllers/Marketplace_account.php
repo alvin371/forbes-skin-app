@@ -8,6 +8,7 @@ class Marketplace_account extends CI_Controller
     {
         parent::__construct();
         $this->load->helper('env');
+        $this->load->helper('sentry');
         $this->tiktok_service_id = env('TIKTOK_SERVICE_ID', '');
     }
     public function index()
@@ -369,6 +370,13 @@ class Marketplace_account extends CI_Controller
             $this->load->library('upload', $config);
             if (!$this->upload->do_upload('file')) {
                 $error = $this->upload->display_errors();
+                sentry_capture_message('Marketplace account upload failed', array(
+                    'controller' => 'Marketplace_account',
+                    'method' => 'update',
+                    'marketplace_config_id' => $id,
+                    'user_id' => $user['id'] ?? null,
+                    'upload_error' => strip_tags($error),
+                ));
                 echo $this->template->alert_danger($error);
                 die;
             } else {
@@ -384,6 +392,12 @@ class Marketplace_account extends CI_Controller
             $msg = 'Update data berhasil!';
             echo $this->template->alert_success($msg);
         } else {
+            sentry_capture_message('Marketplace account update failed', array(
+                'controller' => 'Marketplace_account',
+                'method' => 'update',
+                'marketplace_config_id' => $id,
+                'user_id' => $user['id'] ?? null,
+            ));
             $msg = 'Update data tidak berhasil!';
             echo $this->template->alert_danger($msg);
         }

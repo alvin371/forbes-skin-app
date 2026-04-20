@@ -48,7 +48,7 @@ class Label extends BaseController
                 'file' => [
                     'uploaded[file]',
                     'mime_in[file,image/jpg,image/jpeg,image/png]',
-                    'max_size[file,1024]',
+                    'max_size[file,5120]',
                 ]
             ]);
 
@@ -107,7 +107,7 @@ class Label extends BaseController
                 'file' => [
                     'uploaded[file]',
                     'mime_in[file,image/jpg,image/jpeg,image/png]',
-                    'max_size[file,1024]',
+                    'max_size[file,5120]',
                 ]
             ]);
 

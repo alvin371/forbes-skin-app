@@ -3654,7 +3654,7 @@ class Transaction extends BaseController
         // Set upload configuration
         $config['upload_path'] = './assets/webfile/excel/';  // Ensure this directory exists and is writable
         $config['allowed_types'] = 'xls|xlsx';
-        // $config['max_size'] = 2048;  // 2MB
+        $config['max_size'] = 5120;  // 5MB
         $config['encrypt_name'] = TRUE;  // To avoid file name conflicts
 
         $this->upload->initialize($config);
@@ -3876,7 +3876,7 @@ class Transaction extends BaseController
         // Set upload configuration
         $config['upload_path'] = './assets/webfile/excel/';  // Ensure this directory exists and is writable
         $config['allowed_types'] = 'xls|xlsx';
-        // $config['max_size'] = 2048;  // 2MB
+        $config['max_size'] = 5120;  // 5MB
         $config['encrypt_name'] = TRUE;  // To avoid file name conflicts
 
         $this->upload->initialize($config);
@@ -4087,7 +4087,7 @@ class Transaction extends BaseController
         // Set upload configuration
         $config['upload_path'] = './assets/webfile/excel/';  // Ensure this directory exists and is writable
         $config['allowed_types'] = 'xls|xlsx';
-        // $config['max_size'] = 2048;  // 2MB
+        $config['max_size'] = 5120;  // 5MB
         $config['encrypt_name'] = TRUE;  // To avoid file name conflicts
 
         $this->upload->initialize($config);
@@ -4604,7 +4604,7 @@ class Transaction extends BaseController
         // Set upload configuration
         $config['upload_path'] = './assets/webfile/excel/';  // Ensure this directory exists and is writable
         $config['allowed_types'] = 'xls|xlsx';
-        // $config['max_size'] = 2048;  // 2MB
+        $config['max_size'] = 5120;  // 5MB
         $config['encrypt_name'] = TRUE;  // To avoid file name conflicts
 
         $this->upload->initialize($config);

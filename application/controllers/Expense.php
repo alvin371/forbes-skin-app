@@ -469,7 +469,7 @@ class Expense extends BaseController
         if ($_FILES['file']['name']) {
             $config['upload_path'] = FCPATH . 'assets/img/transaction/';
             $config['allowed_types'] = 'jpg|jpeg|png';
-            $config['max_size'] = 1024;
+            $config['max_size'] = 5120;
             $config['file_name'] = $id;
 
             $this->load->library('upload', $config);
@@ -548,7 +548,7 @@ class Expense extends BaseController
         if ($_FILES['file']['name']) {
             $config['upload_path'] = FCPATH . 'assets/img/transaction/';
             $config['allowed_types'] = 'jpg|jpeg|png';
-            $config['max_size'] = 1024;
+            $config['max_size'] = 5120;
             $config['file_name'] = DATE('Ymdhis');
 
             $this->load->library('upload', $config);

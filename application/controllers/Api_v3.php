@@ -34,6 +34,7 @@ class Api_v3 extends CI_Controller
         $this->load->model('mymodel');
         $this->load->database();
         $this->load->helper('env');
+        $this->load->helper('sentry');
 
         // TikTok Shop API credentials
         $this->app_key_tiktok = env('TIKTOK_APP_KEY', '');
@@ -58,6 +59,15 @@ class Api_v3 extends CI_Controller
         // Ambil tax saat class diinisialisasi
         $tax = $this->mymodel->selectWithQuery("SELECT tax FROM config WHERE id = 'TAX'");
         $this->current_tax = $tax[0]['tax'] ?? 0; // Gunakan 0 jika data tidak ditemukan
+    }
+
+    private function report_marketplace_curl_error($endpoint, $error, array $context = array())
+    {
+        $context['controller'] = 'Api_v3';
+        $context['endpoint'] = $endpoint;
+        $context['curl_error'] = $error;
+
+        sentry_capture_message('Marketplace integration CURL error', $context);
     }
 
     public function index()
@@ -395,6 +405,7 @@ class Api_v3 extends CI_Controller
 
                 $advertiser_response = curl_exec($ch);
                 if (curl_errno($ch)) {
+                    $this->report_marketplace_curl_error('dashboard_tiktok_advertiser_get', curl_error($ch));
                     echo "Error: " . curl_error($ch);
                     curl_close($ch);
                     exit;
@@ -474,6 +485,7 @@ class Api_v3 extends CI_Controller
                     
 
                     if (curl_errno($ch)) {
+                        $this->report_marketplace_curl_error('dashboard_tiktok_report_get', curl_error($ch));
                         echo "Error: " . curl_error($ch);
                         curl_close($ch);
                         continue;
@@ -506,6 +518,7 @@ class Api_v3 extends CI_Controller
                         $response = curl_exec($ch);
 
                         if (curl_errno($ch)) {
+                            $this->report_marketplace_curl_error('dashboard_currency_rate', curl_error($ch));
                             echo "cURL Error: " . curl_error($ch);
                         } else {
                             $responseData = json_decode($response, true);
@@ -607,6 +620,7 @@ class Api_v3 extends CI_Controller
 
         $advertiser_response = curl_exec($ch);
         if (curl_errno($ch)) {
+            $this->report_marketplace_curl_error('get_tiktok_gmv_advertiser_get', curl_error($ch));
             echo "Error: " . curl_error($ch);
             curl_close($ch);
             exit;
@@ -673,6 +687,7 @@ class Api_v3 extends CI_Controller
 
             if ($response === false) {
                 $error = curl_error($ch);
+                $this->report_marketplace_curl_error('get_tiktok_gmv_report_get', $error);
                 echo "cURL Error: " . $error;
             } else {
                 $responseData = json_decode($response, true);
@@ -701,6 +716,7 @@ class Api_v3 extends CI_Controller
                             $response = curl_exec($ch);
 
                             if (curl_errno($ch)) {
+                                $this->report_marketplace_curl_error('get_tiktok_gmv_currency_rate', curl_error($ch));
                                 echo "cURL Error: " . curl_error($ch);
                             } else {
                                 $responseData = json_decode($response, true);
@@ -809,6 +825,7 @@ class Api_v3 extends CI_Controller
             curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Access-Token: $access_token"]);
             $report_response = curl_exec($ch);
             if ($report_response === false) {
+                $this->report_marketplace_curl_error('facebook_campaign_report', curl_error($ch));
                 echo "Error fetching campaign report: " . curl_error($ch);
                 continue;
             }

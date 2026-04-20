@@ -314,6 +314,12 @@ class Profile extends BaseController
 
             if (!empty($upload['error'])) {
                 $error = strip_tags($upload['error']);
+                sentry_capture_message('Profile update upload failed', array(
+                    'controller' => 'Profile',
+                    'method' => 'update_process',
+                    'user_id' => $user_id,
+                    'upload_error' => $error,
+                ));
                 $status_code = stripos($error, 'filetype') !== false || stripos($error, 'type') !== false ? 415 : 422;
                 $this->output->set_status_header($status_code);
                 echo $this->template->alert_danger($this->normalize_profile_upload_error($error));
@@ -329,6 +335,12 @@ class Profile extends BaseController
             $msg = 'Update profil berhasil!';
             echo $this->template->alert_success($msg);
         } else {
+            sentry_capture_message('Profile update failed', array(
+                'controller' => 'Profile',
+                'method' => 'update_process',
+                'user_id' => $user_id,
+                'username' => $username,
+            ));
             $msg = 'Update profil tidak berhasil!';
             echo $this->template->alert_danger($msg);
         }

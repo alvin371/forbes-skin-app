@@ -2060,7 +2060,7 @@ class Endorse extends BaseController
                 'file' => [
                     'uploaded[file]',
                     'mime_in[file,image/jpg,image/jpeg,image/png]',
-                    'max_size[file,1024]',
+                    'max_size[file,5120]',
                 ]
             ]);
 
@@ -2095,7 +2095,7 @@ class Endorse extends BaseController
 
             $config['upload_path'] = $upload_path;
             $config['allowed_types'] = 'jpg|jpeg|png|mp4|mov|avi';
-            $config['max_size'] = 10240; // 10MB
+            $config['max_size'] = 5120; // 5MB
             $config['file_name'] = DATE('Ymdhis') . '_media_' . $id;
             $config['overwrite'] = FALSE;
 
@@ -2488,7 +2488,7 @@ class Endorse extends BaseController
                 'file' => [
                     'uploaded[file]',
                     'mime_in[file,image/jpg,image/jpeg,image/png]',
-                    'max_size[file,1024]',
+                    'max_size[file,5120]',
                 ]
             ]);
 
@@ -2523,7 +2523,7 @@ class Endorse extends BaseController
 
             $config['upload_path'] = $upload_path;
             $config['allowed_types'] = 'jpg|jpeg|png|mp4|mov|avi';
-            $config['max_size'] = 10240; // 10MB
+            $config['max_size'] = 5120; // 5MB
             $config['file_name'] = DATE('Ymdhis') . '_media';
             $config['overwrite'] = FALSE;
 

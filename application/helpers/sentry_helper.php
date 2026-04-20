@@ -34,6 +34,32 @@ if (!function_exists('sentry_capture_exception')) {
     }
 }
 
+if (!function_exists('sentry_capture_message')) {
+    function sentry_capture_message($message, array $context = array())
+    {
+        if (!sentry_sdk_available() || !function_exists('\\Sentry\\captureMessage')) {
+            return null;
+        }
+
+        return \Sentry\withScope(function (\Sentry\State\Scope $scope) use ($message, $context) {
+            foreach ($context as $key => $value) {
+                if ($value === null || $value === '') {
+                    continue;
+                }
+
+                if (is_scalar($value)) {
+                    $scope->setTag((string) $key, (string) $value);
+                    continue;
+                }
+
+                $scope->setExtra((string) $key, $value);
+            }
+
+            return \Sentry\captureMessage((string) $message);
+        });
+    }
+}
+
 if (!function_exists('sentry_set_user')) {
     function sentry_set_user(array $user = array())
     {
