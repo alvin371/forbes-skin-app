@@ -41,7 +41,18 @@ class Api_hrms extends CI_Controller
         }
 
         $payload = $this->json_input();
-        $identifier = trim((string) ($payload['email'] ?? $payload['username'] ?? $payload['identifier'] ?? ''));
+        $identifier = '';
+        foreach (array('email', 'username', 'identifier', 'login') as $field) {
+            if (!array_key_exists($field, $payload)) {
+                continue;
+            }
+
+            $value = trim((string) $payload[$field]);
+            if ($value !== '') {
+                $identifier = $value;
+                break;
+            }
+        }
         $password = (string) ($payload['password'] ?? '');
 
         if ($identifier === '' || $password === '') {
@@ -155,6 +166,35 @@ class Api_hrms extends CI_Controller
             }
         }
 
+        if (isset($payload['keterangan']) || isset($payload['description'])) {
+            $updates['desc'] = trim((string) ($payload['keterangan'] ?? $payload['description']));
+        }
+
+        if (
+            isset($payload['profilePicture']) ||
+            isset($payload['profilePicturePath']) ||
+            isset($payload['profile_picture']) ||
+            isset($payload['profile_picture_path'])
+        ) {
+            $profilePicture = trim((string) (
+                $payload['profilePicture']
+                ?? $payload['profilePicturePath']
+                ?? $payload['profile_picture']
+                ?? $payload['profile_picture_path']
+            ));
+
+            if ($profilePicture === '') {
+                $updates['img'] = null;
+            } else {
+                $normalizedProfileImage = $this->normalize_profile_image_input($profilePicture, (int) $user['id']);
+                if ($normalizedProfileImage === '') {
+                    $errors['profilePicture'] = 'Profile picture must come from the HRMS profile upload endpoint.';
+                } else {
+                    $updates['img'] = $normalizedProfileImage;
+                }
+            }
+        }
+
         $phoneNumber = null;
         if (isset($payload['phone']) || isset($payload['phone_number'])) {
             $phoneNumber = trim((string) ($payload['phone_number'] ?? $payload['phone']));
@@ -184,6 +224,64 @@ class Api_hrms extends CI_Controller
 
         $user = $this->db->get_where('user', array('id' => $user['id']))->row_array();
         return $this->respond(200, $this->user_response($user));
+    }
+
+    public function profile_password()
+    {
+        if (!in_array($this->input->method(TRUE), array('POST', 'PATCH'), true)) {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        $payload = $this->json_input();
+        $oldPassword = (string) ($payload['oldPassword'] ?? $payload['old_password'] ?? '');
+        $newPassword = (string) ($payload['newPassword'] ?? $payload['new_password'] ?? '');
+        $passwordConfirmation = (string) ($payload['passwordConfirmation'] ?? $payload['password_confirmation'] ?? '');
+
+        $errors = array();
+        if ($oldPassword === '') {
+            $errors['oldPassword'] = 'Old password is required.';
+        }
+        if ($newPassword === '') {
+            $errors['newPassword'] = 'New password is required.';
+        }
+        if ($passwordConfirmation === '') {
+            $errors['passwordConfirmation'] = 'Password confirmation is required.';
+        }
+        if (!empty($errors)) {
+            return $this->respond(422, array('message' => 'Validation failed.', 'errors' => $errors));
+        }
+
+        if (!$this->verify_user_password($user, $oldPassword)) {
+            return $this->respond(422, array(
+                'message' => 'Validation failed.',
+                'errors' => array('oldPassword' => 'Old password is incorrect.'),
+            ));
+        }
+
+        if ($newPassword !== $passwordConfirmation) {
+            return $this->respond(422, array(
+                'message' => 'Validation failed.',
+                'errors' => array('passwordConfirmation' => 'Password confirmation does not match.'),
+            ));
+        }
+
+        if ($this->verify_user_password($user, $newPassword)) {
+            return $this->respond(422, array(
+                'message' => 'Validation failed.',
+                'errors' => array('newPassword' => 'New password must be different from the current password.'),
+            ));
+        }
+
+        $this->db->update('user', array(
+            'password' => password_hash($newPassword, PASSWORD_DEFAULT),
+        ), array('id' => (int) $user['id']));
+
+        return $this->respond(200, array('ok' => true));
     }
 
     public function pin_setup()
@@ -914,10 +1012,12 @@ class Api_hrms extends CI_Controller
             return $this->respond(400, array('message' => 'file is required.'));
         }
 
-        $scope = $type === 'leave' ? 'leave' : ($type === 'attendance' ? 'attendance' : 'hrms_profile');
+        $scope = $type === 'leave' ? 'leave' : ($type === 'attendance' ? 'attendance' : 'user_avatar');
         $options = array();
         if ($scope === 'leave' || $scope === 'attendance') {
             $options['subdir'] = 'api-upload';
+        } elseif ($scope === 'user_avatar') {
+            $options['file_name'] = (string) ((int) $user['id']);
         }
 
         $upload = $this->uploadservice->upload($scope, 'file', $options);
@@ -931,6 +1031,7 @@ class Api_hrms extends CI_Controller
             'storedPath' => $upload['path'],
             'url' => $upload['url'],
             'filename' => $upload['filename'],
+            'value' => $type === 'profile' ? $upload['filename'] : $upload['path'],
             'originalName' => $upload['original_name'],
             'sizeBytes' => $upload['size_bytes'],
         ));
@@ -1989,6 +2090,12 @@ class Api_hrms extends CI_Controller
             'role' => $user['role_text'] ?? ($user['role'] ?? null),
             'role_id' => $employeeRole ? (int) $employeeRole['id'] : null,
             'role_name' => $employeeRole['display_name'] ?? null,
+            'roleInfo' => array(
+                'id' => $employeeRole ? (int) $employeeRole['id'] : null,
+                'name' => $employeeRole['display_name'] ?? ($user['role_text'] ?? ($user['role'] ?? null)),
+            ),
+            'profilePicture' => $this->profile_picture_url($user),
+            'keterangan' => $user['desc'] ?? null,
             'position_id' => isset($position['position_id']) ? (int) $position['position_id'] : null,
             'position_name' => $position['position_name'] ?? null,
             'schedule' => array(
@@ -2105,6 +2212,97 @@ class Api_hrms extends CI_Controller
         }
 
         return project_uploaded_file_url($path);
+    }
+
+    private function profile_picture_url($user)
+    {
+        $image = trim((string) ($user['img'] ?? ''));
+        if ($image === '') {
+            return null;
+        }
+
+        if (preg_match('/^https?:\\/\\//i', $image)) {
+            return $image;
+        }
+
+        $image = str_replace('\\', '/', $image);
+        if (strpos($image, '/') !== false) {
+            return base_url(ltrim($image, '/'));
+        }
+
+        return base_url('assets/img/user/' . $image);
+    }
+
+    private function normalize_profile_image_input($value, $userId)
+    {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return '';
+        }
+
+        if (preg_match('/^https?:\\/\\//i', $value)) {
+            $parsedPath = parse_url($value, PHP_URL_PATH);
+            if (is_string($parsedPath) && $parsedPath !== '') {
+                $value = ltrim($parsedPath, '/');
+            }
+        } else {
+            $value = ltrim(str_replace('\\', '/', $value), '/');
+        }
+
+        $value = preg_replace('#/+#', '/', $value);
+        if ($value === '') {
+            return '';
+        }
+
+        if ($value === basename($value)) {
+            if (preg_match('/^' . preg_quote((string) $userId, '/') . '\.(jpg|jpeg|png)$/i', $value)) {
+                return $value;
+            }
+
+            return '';
+        }
+
+        $markers = array(
+            'assets/img/user/',
+        );
+        foreach ($markers as $marker) {
+            $position = strpos($value, $marker);
+            if ($position === false) {
+                continue;
+            }
+
+            $suffix = ltrim(substr($value, $position + strlen($marker)), '/');
+            if ($suffix === '' || strpos($suffix, '/') !== false || strpos($suffix, '..') !== false) {
+                return '';
+            }
+
+            if (!preg_match('/^' . preg_quote((string) $userId, '/') . '\.(jpg|jpeg|png)$/i', $suffix)) {
+                return '';
+            }
+
+            return $suffix;
+        }
+
+        return '';
+    }
+
+    private function verify_user_password($user, $password)
+    {
+        $password = (string) $password;
+        if ($password === '') {
+            return false;
+        }
+
+        $currentHash = (string) ($user['password'] ?? '');
+        if ($currentHash === '') {
+            return false;
+        }
+
+        if (password_verify($password, $currentHash)) {
+            return true;
+        }
+
+        return $currentHash === md5($password);
     }
 
     private function detect_uploaded_file_mime_type($fullPath)

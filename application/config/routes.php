@@ -202,6 +202,7 @@ $route['api/marketplace/order/download'] = 'Api_v2/marketplace_order_download';
 $route['api/hrms/auth/login'] = 'Api_hrms/auth_login';
 $route['api/hrms/auth/refresh'] = 'Api_hrms/auth_refresh';
 $route['api/hrms/profile'] = 'Api_hrms/profile';
+$route['api/hrms/profile/password'] = 'Api_hrms/profile_password';
 $route['api/hrms/pin/setup'] = 'Api_hrms/pin_setup';
 $route['api/hrms/pin/verify'] = 'Api_hrms/pin_verify';
 $route['api/hrms/pin/reset'] = 'Api_hrms/pin_reset';
