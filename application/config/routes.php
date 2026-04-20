@@ -238,6 +238,7 @@ $route['api/hrms/leave/approvals/(:num)'] = 'Api_hrms/leave_approval_detail/$1';
 $route['api/hrms/leave/approvals/(:num)/approve'] = 'Api_hrms/leave_approval_approve/$1';
 $route['api/hrms/leave/approvals/(:num)/reject'] = 'Api_hrms/leave_approval_reject/$1';
 $route['api/hrms/leave/approvals/history'] = 'Api_hrms/leave_approvals_history';
+$route['api/hrms/leave/types'] = 'Api_hrms/leave_types';
 $route['api/hrms/leave/quota'] = 'Api_hrms/leave_quota';
 $route['api/hrms/leave/quota/detail'] = 'Api_hrms/leave_quota_detail';
 $route['api/hrms/approvals/inbox'] = 'Api_hrms/approvals_inbox';
