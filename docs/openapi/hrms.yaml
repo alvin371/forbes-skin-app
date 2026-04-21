@@ -2114,6 +2114,11 @@ components:
           $ref: '#/components/schemas/AttendanceFlags'
         minutes:
           $ref: '#/components/schemas/AttendanceMinutes'
+        reasonEligible:
+          type: boolean
+          description: True when the log is late/early and still inside the 1-hour schedule-based reason window.
+        reasonWindow:
+          $ref: '#/components/schemas/AttendanceReasonWindow'
         schedule:
           $ref: '#/components/schemas/AttendanceSchedule'
         office:
@@ -2147,6 +2152,11 @@ components:
           nullable: true
         flags:
           $ref: '#/components/schemas/AttendanceFlags'
+        reasonEligible:
+          type: boolean
+          description: True when the log is still inside the 1-hour schedule-based reason window.
+        reasonWindow:
+          $ref: '#/components/schemas/AttendanceReasonWindow'
         hasReasonOrAttachment:
           type: boolean
 
@@ -2197,6 +2207,9 @@ components:
           type: boolean
         reasonEligible:
           type: boolean
+          description: True when the log is late/early and still inside the 1-hour window derived from the resolved schedule.
+        reasonWindow:
+          $ref: '#/components/schemas/AttendanceReasonWindow'
         attendanceCategory:
           $ref: '#/components/schemas/AttendanceCategory'
         attendanceCategoryLabel:
@@ -2213,7 +2226,33 @@ components:
           type: string
         office_name:
           type: string
+
+    AttendanceReasonWindow:
+      type: object
+      properties:
+        eligible:
+          type: boolean
+          description: Backend-calculated schedule-based reason eligibility.
+        type:
+          type: string
+          enum: [IN, OUT]
+        window_start:
+          type: string
           nullable: true
+          description: Inclusive start of the 1-hour reason window for the attendance log date.
+        window_end:
+          type: string
+          nullable: true
+          description: Inclusive end of the 1-hour reason window for the attendance log date.
+        schedule_start_time:
+          type: string
+          description: Resolved schedule start time used for the calculation.
+        schedule_end_time:
+          type: string
+          description: Resolved schedule end time used for the calculation.
+        schedule_source:
+          type: string
+          description: Source of the resolved schedule, such as default, office, or user.
 
     AttendanceHistoryResponse:
       type: object

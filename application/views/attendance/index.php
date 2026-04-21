@@ -104,6 +104,9 @@
             reasonBaseUrl: "<?php echo site_url('api/hrms/attendance'); ?>",
             uploadUrl: "<?php echo site_url('api/hrms/upload'); ?>"
         };
+        var attendanceWebValidationHeader = {
+            'X-Attendance-Web-Validation': 'location-only'
+        };
         var csrfName = "<?php echo isset($csrf_name) ? $csrf_name : ''; ?>";
         var csrfHash = "<?php echo isset($csrf_hash) ? $csrf_hash : ''; ?>";
         var confirmInBtn = document.getElementById('confirm-in');
@@ -412,7 +415,8 @@
             return apiFetch(type === 'IN' ? attendanceApi.checkInUrl : attendanceApi.checkOutUrl, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'X-Attendance-Web-Validation': attendanceWebValidationHeader['X-Attendance-Web-Validation']
                 },
                 body: JSON.stringify(payload)
             });
@@ -579,6 +583,7 @@
                 switch (reason) {
                     case 'OUTSIDE_RADIUS':
                         return 'You are outside the office radius.';
+                    case 'ACCURACY_TOO_LOW':
                     case 'GPS_ACCURACY_LOW':
                         return 'GPS accuracy is too low.';
                     case 'WIFI_REQUIRED':
@@ -764,7 +769,9 @@
                 '&accuracy=' + encodeURIComponent(position.coords.accuracy);
             url = appendWifiProofToQuery(url, getWifiProof());
 
-            return apiFetch(url)
+            return apiFetch(url, {
+                headers: attendanceWebValidationHeader
+            })
                 .then(function (data) {
                     renderStatus(data);
                     return data;
