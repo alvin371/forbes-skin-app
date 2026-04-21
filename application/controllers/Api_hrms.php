@@ -101,10 +101,11 @@ class Api_hrms extends CI_Controller
         }
 
         $tokens = $this->apiauth->issue_tokens($user, $this->input->user_agent(), $this->input->ip_address());
+        $latestUser = $this->latest_user_record((int) $user['id']) ?: $user;
         return $this->respond(200, array(
             'accessToken' => $tokens['accessToken'],
             'refreshToken' => $tokens['refreshToken'],
-            'user' => $this->user_response($user),
+            'user' => $this->user_response($latestUser),
         ));
     }
 
@@ -200,7 +201,7 @@ class Api_hrms extends CI_Controller
             } else {
                 $normalizedProfileImage = $this->normalize_profile_image_input($profilePicture, (int) $user['id']);
                 if ($normalizedProfileImage === '') {
-                    $errors['profilePicture'] = 'Profile picture must come from the HRMS profile upload endpoint.';
+                    $errors['profilePicture'] = 'Profile picture must come from the profile upload endpoint.';
                 } else {
                     $updates['img'] = $normalizedProfileImage;
                 }
@@ -567,7 +568,13 @@ class Api_hrms extends CI_Controller
         $wifiOk = $this->wifi_proof_ok($office, $wifiProof);
         $computed = $result['computed'];
         $reasons = $computed['reasons'] ?? array();
-        if ($hasWifiRules) {
+        $locationOnlyWebValidation = $this->is_attendance_web_location_only_request();
+        if ($locationOnlyWebValidation) {
+            $computed['can_confirm'] = !empty($computed['inside_radius']) && !empty($computed['accuracy_ok']);
+            $reasons = array_values(array_filter($reasons, function ($reason) {
+                return in_array($reason, array('OUTSIDE_RADIUS', 'ACCURACY_TOO_LOW'), true);
+            }));
+        } elseif ($hasWifiRules) {
             $computed['can_confirm'] = !empty($computed['can_confirm']) && $wifiOk;
             if ($wifiProof === null) {
                 $reasons[] = 'WIFI_REQUIRED';
@@ -586,7 +593,7 @@ class Api_hrms extends CI_Controller
             'wifi' => array(
                 'has_rules' => $hasWifiRules,
                 'provided' => $wifiProof !== null,
-                'ok' => $hasWifiRules ? $wifiOk : true,
+                'ok' => $locationOnlyWebValidation ? true : ($hasWifiRules ? $wifiOk : true),
             ),
             'schedule' => array(
                 'start_time' => $schedule['start'],
@@ -680,6 +687,10 @@ class Api_hrms extends CI_Controller
         }
 
         $attendanceLogId = (int) $this->db->insert_id();
+        $reasonWindow = $this->build_attendance_reason_window(array(
+            'type' => $type,
+            'created_at' => $now,
+        ), $officeRecord ?: $office, $user, $flags);
 
         return $this->respond(200, array(
             'ok' => true,
@@ -694,6 +705,8 @@ class Api_hrms extends CI_Controller
             'notes' => $noteData['notes'],
             'flags' => $flags,
             'minutes' => $noteData['minutes'],
+            'reasonEligible' => $reasonWindow['eligible'],
+            'reasonWindow' => $reasonWindow,
             'schedule' => array(
                 'start_time' => $schedule['start'],
                 'end_time' => $schedule['end'],
@@ -733,6 +746,11 @@ class Api_hrms extends CI_Controller
         $context = $this->attendance_reason_context($log, $user);
         if (empty($context['flags']['late']) && empty($context['flags']['early_checkout'])) {
             return $this->respond(409, array('message' => 'Reason can only be submitted for late check-in or early checkout.'));
+        }
+        if (empty($context['reason_window']['eligible'])) {
+            return $this->respond(409, array(
+                'message' => 'Reason can only be submitted within the 1-hour schedule window for late check-in or early checkout.',
+            ));
         }
 
         $payload = $this->json_input();
@@ -789,6 +807,8 @@ class Api_hrms extends CI_Controller
             'reason' => $updateData['attendance_reason'],
             'attachmentPath' => $this->absolute_attachment_url($updateData['attachment_path']),
             'flags' => $context['flags'],
+            'reasonEligible' => $context['reason_window']['eligible'],
+            'reasonWindow' => $context['reason_window'],
             'hasReasonOrAttachment' => $this->attendance_has_reason_or_attachment($updateData),
         ));
     }
@@ -846,7 +866,8 @@ class Api_hrms extends CI_Controller
         $item['notesText'] = $this->attendance_note_meta_value($item['notes'] ?? null, 'dinasNotes');
         $item['attachmentPath'] = $this->absolute_attachment_url($item['attachment_path'] ?? null);
         $item['hasReasonOrAttachment'] = $this->attendance_has_reason_or_attachment($item);
-        $item['reasonEligible'] = !empty($context['flags']['late']) || !empty($context['flags']['early_checkout']);
+        $item['reasonEligible'] = $context['reason_window']['eligible'];
+        $item['reasonWindow'] = $context['reason_window'];
 
         return $item;
     }
@@ -1911,15 +1932,21 @@ class Api_hrms extends CI_Controller
         }
         $hasWifiRules = $this->has_wifi_rules($office);
         $wifiOk = $this->wifi_proof_ok($office, $wifiProof);
-        $ipOk = $result['computed']['ip_ok'] ?? true;
-        if ($hasWifiRules) {
+        $locationOnlyWebValidation = $this->is_attendance_web_location_only_request();
+        if ($locationOnlyWebValidation) {
+            $canConfirm = !empty($result['computed']['inside_radius']) && !empty($result['computed']['accuracy_ok']);
+        } elseif ($hasWifiRules) {
             $canConfirm = $wifiOk;
         } else {
             $canConfirm = $result['computed']['can_confirm'];
         }
         if (!$canConfirm) {
             $reasons = $hasWifiRules ? array() : $result['computed']['reasons'];
-            if ($hasWifiRules && $wifiProof === null) {
+            if ($locationOnlyWebValidation) {
+                $reasons = array_values(array_filter($result['computed']['reasons'], function ($reason) {
+                    return in_array($reason, array('OUTSIDE_RADIUS', 'ACCURACY_TOO_LOW'), true);
+                }));
+            } elseif ($hasWifiRules && $wifiProof === null) {
                 $reasons[] = 'WIFI_REQUIRED';
             } elseif ($hasWifiRules && !$wifiOk) {
                 $reasons[] = 'WIFI_NOT_ALLOWED';
@@ -1930,8 +1957,11 @@ class Api_hrms extends CI_Controller
             ));
         }
 
-        $method = $office['has_ip_rule'] ? 'GEOFENCE+IP' : 'GEOFENCE';
-        if ($this->has_wifi_rules($office)) {
+        $method = 'GEOFENCE';
+        if (!$locationOnlyWebValidation && $office['has_ip_rule']) {
+            $method = 'GEOFENCE+IP';
+        }
+        if (!$locationOnlyWebValidation && $this->has_wifi_rules($office)) {
             $method = $office['has_ip_rule'] ? 'GEOFENCE+IP+WIFI' : 'GEOFENCE+WIFI';
         }
 
@@ -1963,6 +1993,10 @@ class Api_hrms extends CI_Controller
         }
 
         $attendanceLogId = (int) $this->db->insert_id();
+        $reasonWindow = $this->build_attendance_reason_window(array(
+            'type' => $type,
+            'created_at' => $now,
+        ), $office, $user, $flags);
 
         return $this->respond(200, array(
             'ok' => true,
@@ -1974,6 +2008,8 @@ class Api_hrms extends CI_Controller
             'notes' => $noteData['notes'],
             'flags' => $flags,
             'minutes' => $noteData['minutes'],
+            'reasonEligible' => $reasonWindow['eligible'],
+            'reasonWindow' => $reasonWindow,
             'schedule' => array(
                 'start_time' => $schedule['start'],
                 'end_time' => $schedule['end'],
@@ -1984,6 +2020,12 @@ class Api_hrms extends CI_Controller
                 'name' => $office['name'],
             ),
         ));
+    }
+
+    private function is_attendance_web_location_only_request()
+    {
+        $header = $this->input->get_request_header('X-Attendance-Web-Validation', TRUE);
+        return is_string($header) && strtolower(trim($header)) === 'location-only';
     }
 
     private function validate_leave_request($input, $userId)
@@ -2213,6 +2255,7 @@ class Api_hrms extends CI_Controller
 
     private function user_response($user)
     {
+        $user = $this->latest_user_record((int) $user['id']) ?: $user;
         $employeeRole = $this->Performance_model->get_employee_primary_role($user['id']);
         $position = $this->db
             ->select('up.position_id, p.name as position_name')
@@ -2375,6 +2418,16 @@ class Api_hrms extends CI_Controller
         return project_uploaded_file_url($path);
     }
 
+    private function latest_user_record($userId)
+    {
+        $userId = (int) $userId;
+        if ($userId <= 0) {
+            return null;
+        }
+
+        return $this->db->get_where('user', array('id' => $userId))->row_array();
+    }
+
     private function profile_picture_url($user)
     {
         $image = trim((string) ($user['img'] ?? ''));
@@ -2382,16 +2435,35 @@ class Api_hrms extends CI_Controller
             return null;
         }
 
+        $url = null;
         if (preg_match('/^https?:\\/\\//i', $image)) {
-            return $image;
+            $url = $image;
+        } else {
+            $image = str_replace('\\', '/', $image);
+            if (strpos($image, '/') !== false) {
+                $url = base_url(ltrim($image, '/'));
+            } else {
+                $url = base_url('assets/img/user/' . $image);
+            }
         }
 
-        $image = str_replace('\\', '/', $image);
-        if (strpos($image, '/') !== false) {
-            return base_url(ltrim($image, '/'));
+        return $this->append_cache_buster($url, $user);
+    }
+
+    private function append_cache_buster($url, $user)
+    {
+        $url = trim((string) $url);
+        if ($url === '') {
+            return null;
         }
 
-        return base_url('assets/img/user/' . $image);
+        $version = trim((string) ($user['updated_at'] ?? $user['created_at'] ?? ''));
+        if ($version === '') {
+            return $url;
+        }
+
+        $separator = strpos($url, '?') === false ? '?' : '&';
+        return $url . $separator . 'v=' . rawurlencode($version);
     }
 
     private function normalize_profile_image_input($value, $userId)
@@ -3218,16 +3290,62 @@ class Api_hrms extends CI_Controller
             }
         }
 
+        $office = !empty($log['office_id']) ? $this->Office_model->get_by_id((int) $log['office_id']) : null;
         if (!$flags['late'] && !$flags['early_checkout']) {
-            $office = !empty($log['office_id']) ? $this->Office_model->get_by_id((int) $log['office_id']) : null;
-            $computed = $this->build_attendance_notes($log['type'], $log['created_at'], ($this->resolve_attendance_times($office, $user))['start'], ($this->resolve_attendance_times($office, $user))['end']);
+            $schedule = $this->resolve_attendance_times($office, $user);
+            $computed = $this->build_attendance_notes($log['type'], $log['created_at'], $schedule['start'], $schedule['end']);
             $flags = $computed['flags'];
         }
 
         return array(
             'notes' => $notes,
             'flags' => $flags,
+            'reason_window' => $this->build_attendance_reason_window($log, $office, $user, $flags),
         );
+    }
+
+    private function build_attendance_reason_window($log, $office, $user, $flags = null)
+    {
+        $schedule = $this->resolve_attendance_times($office, $user);
+        $window = array(
+            'eligible' => false,
+            'type' => strtoupper(trim((string) ($log['type'] ?? ''))),
+            'window_start' => null,
+            'window_end' => null,
+            'schedule_start_time' => $schedule['start'],
+            'schedule_end_time' => $schedule['end'],
+            'schedule_source' => $schedule['source'],
+        );
+
+        $timestamp = trim((string) ($log['created_at'] ?? ''));
+        $logTime = strtotime($timestamp);
+        if ($timestamp === '' || $logTime === false) {
+            return $window;
+        }
+
+        $date = substr($timestamp, 0, 10);
+        $startTime = strtotime($date . ' ' . $schedule['start'] . ':00');
+        $endTime = strtotime($date . ' ' . $schedule['end'] . ':00');
+        if ($startTime === false || $endTime === false) {
+            return $window;
+        }
+
+        $flags = is_array($flags) ? $flags : array();
+        if ($window['type'] === 'IN') {
+            $windowStart = $startTime;
+            $windowEnd = $startTime + 3600;
+            $window['window_start'] = date('Y-m-d H:i:s', $windowStart);
+            $window['window_end'] = date('Y-m-d H:i:s', $windowEnd);
+            $window['eligible'] = !empty($flags['late']) && $logTime >= $windowStart && $logTime <= $windowEnd;
+        } elseif ($window['type'] === 'OUT') {
+            $windowStart = $endTime - 3600;
+            $windowEnd = $endTime;
+            $window['window_start'] = date('Y-m-d H:i:s', $windowStart);
+            $window['window_end'] = date('Y-m-d H:i:s', $windowEnd);
+            $window['eligible'] = !empty($flags['early_checkout']) && $logTime >= $windowStart && $logTime <= $windowEnd;
+        }
+
+        return $window;
     }
 
     private function decode_attendance_notes($notesValue)
