@@ -445,20 +445,20 @@ class User extends BaseController
             $query = $this->mymodel->selectWithQuery("SELECT role FROM role WHERE id = '$role'");
             $dt['role_text'] = !empty($query) ? strval($query[0]['role']) : '';
         }
-        if (!empty($_FILES['file']['name'])) {
-            $upload = $this->uploadservice->upload('user_avatar', 'file', array(
-                'file_name' => DATE("Ymdhis"),
-            ));
-            if (!empty($upload['error'])) {
-                $error = $upload['error'];
-                $this->respond_store_result(false, $error, '', 422);
-                return;
-            }
-            $dt['img'] = $upload['filename'];
-        }
-
         if ($this->db->insert('user', $dt)) {
             $user_id = $this->db->insert_id();
+
+            if (!empty($_FILES['file']['name'])) {
+                $upload = $this->uploadservice->upload('user_avatar', 'file', array(
+                    'file_name' => (string) $user_id,
+                ));
+                if (!empty($upload['error'])) {
+                    $error = $upload['error'];
+                    $this->respond_store_result(false, $error, '', 422);
+                    return;
+                }
+                $this->db->update('user', array('img' => $upload['filename']), array('id' => $user_id));
+            }
             
             // Add user to RBAC system - assign role
             $role_assignment = array(

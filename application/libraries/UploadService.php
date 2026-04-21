@@ -107,7 +107,7 @@ class UploadService
 
             case 'hrms_profile':
                 return array(
-                    'relative_dir' => 'assets/uploads/profile',
+                    'relative_dir' => 'writable/uploads/profile',
                     'allowed_types' => 'pdf|jpg|jpeg|png',
                     'max_size' => self::DEFAULT_MAX_SIZE_KB,
                     'encrypt_name' => true,
@@ -116,7 +116,7 @@ class UploadService
 
             case 'user_avatar':
                 return array(
-                    'relative_dir' => 'assets/img/user',
+                    'relative_dir' => 'writable/uploads/profile',
                     'allowed_types' => 'jpg|jpeg|png',
                     'max_size' => self::DEFAULT_MAX_SIZE_KB,
                     'encrypt_name' => false,

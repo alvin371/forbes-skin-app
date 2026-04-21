@@ -54,12 +54,11 @@
                                 <div class="col-md-3 mb-4">
                                     <div class="text-center">
                                         <?php
-                                        $img = $user_data['img'];
-                                        if ($img == "") {
-                                            $img_url = base_url() . '/assets/img/acneno-icon.jpg';
-                                        } else {
-                                            $img_url = base_url() . '/assets/img/user/' . $img . '?token=' . DATE("Ymdhis", strtotime($user_data['updated_at']));
-                                        }
+                                        $img_url = project_user_avatar_url(
+                                            $user_data['img'] ?? '',
+                                            $user_data['updated_at'] ?? ($user_data['created_at'] ?? ''),
+                                            base_url('assets/img/acneno-icon.jpg')
+                                        );
                                         ?>
                                         <div class="profile-image-container">
                                             <img src="<?= $img_url ?>" class="img-fluid rounded-circle mb-3"
