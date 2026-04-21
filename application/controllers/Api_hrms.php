@@ -2435,35 +2435,19 @@ class Api_hrms extends CI_Controller
             return null;
         }
 
-        $url = null;
         if (preg_match('/^https?:\\/\\//i', $image)) {
-            $url = $image;
-        } else {
-            $image = str_replace('\\', '/', $image);
-            if (strpos($image, '/') !== false) {
-                $url = base_url(ltrim($image, '/'));
-            } else {
-                $url = base_url('assets/img/user/' . $image);
-            }
+            return $image;
         }
 
-        return $this->append_cache_buster($url, $user);
-    }
-
-    private function append_cache_buster($url, $user)
-    {
-        $url = trim((string) $url);
-        if ($url === '') {
-            return null;
-        }
-
+        $image = str_replace('\\', '/', $image);
         $version = trim((string) ($user['updated_at'] ?? $user['created_at'] ?? ''));
-        if ($version === '') {
-            return $url;
+        $token = $version !== '' ? '?token=' . DATE('Ymdhis', strtotime($version)) : '';
+
+        if (strpos($image, '/') !== false) {
+            return base_url() . '/' . ltrim($image, '/') . $token;
         }
 
-        $separator = strpos($url, '?') === false ? '?' : '&';
-        return $url . $separator . 'v=' . rawurlencode($version);
+        return base_url() . '/assets/img/user/' . $image . $token;
     }
 
     private function normalize_profile_image_input($value, $userId)
