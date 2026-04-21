@@ -80,6 +80,17 @@
 
         <div id="api-response" style="font-size: 14px;"></div>
 
+        <div id="reason-panel" style="margin-top:16px; border:1px solid #d9d9d9; border-radius:2px; padding:16px; background-color:#fafafa;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+                <div>
+                    <div style="font-size:16px; font-weight:500; color:rgba(0,0,0,0.85);">Late / Early Reason</div>
+                    <div style="font-size:13px; color:rgba(0,0,0,0.45); margin-top:4px;">Manage late check-in and early checkout reasons directly from this page.</div>
+                </div>
+                <div id="reason-panel-month-label" style="font-size:13px; color:rgba(0,0,0,0.45);">Current month</div>
+            </div>
+            <div id="reason-panel-wrap" style="font-size:14px; color:rgba(0,0,0,0.45);">Loading reason records...</div>
+        </div>
+
         <div id="logs-panel" style="display:none; margin-top: 16px;">
             <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
                 <input type="month" id="logs-month" value="" style="height:32px; padding:4px 11px; border:1px solid #d9d9d9; border-radius:2px; font-size:14px;">
@@ -1084,6 +1095,8 @@
         var logsLoadBtn = document.getElementById('logs-load-btn');
         var logsTableWrap = document.getElementById('logs-table-wrap');
         var viewLogsBtn = document.getElementById('view-logs-btn');
+        var reasonPanelWrap = document.getElementById('reason-panel-wrap');
+        var reasonPanelMonthLabel = document.getElementById('reason-panel-month-label');
 
         logsMonthEl.value = (new Date()).toISOString().slice(0, 7);
 
@@ -1103,21 +1116,131 @@
         function loadLogs() {
             var month = logsMonthEl.value || (new Date()).toISOString().slice(0, 7);
             logsTableWrap.innerHTML = '<p style="font-size:14px;color:rgba(0,0,0,0.45);">Loading...</p>';
+            reasonPanelMonthLabel.textContent = 'Month: ' + month;
+            reasonPanelWrap.innerHTML = '<p style="font-size:14px;color:rgba(0,0,0,0.45);">Loading reason records...</p>';
 
             apiFetch(attendanceApi.historyUrl + '?month=' + encodeURIComponent(month))
                 .then(function (data) {
                     if (!data.data || data.data.length === 0) {
                         currentLogs = [];
                         logsTableWrap.innerHTML = '<p style="font-size:14px;color:rgba(0,0,0,0.45);">No records found for this month.</p>';
+                        renderReasonPanel([]);
                         return;
                     }
                     currentLogs = data.data;
                     logsTableWrap.innerHTML = buildLogsTable(data.data);
                     bindReasonButtons();
+                    renderReasonPanel(data.data);
                 })
                 .catch(function (error) {
                     logsTableWrap.innerHTML = '<p style="color:#ff4d4f;font-size:14px;">' + escapeHtml(error && error.message ? error.message : 'Failed to load logs.') + '</p>';
+                    reasonPanelWrap.innerHTML = '<p style="color:#ff4d4f;font-size:14px;">' + escapeHtml(error && error.message ? error.message : 'Failed to load reason records.') + '</p>';
                 });
+        }
+
+        function formatDateTime(value) {
+            if (!value) {
+                return '-';
+            }
+
+            var date = new Date(value);
+            if (Number.isNaN(date.getTime())) {
+                return escapeHtml(String(value));
+            }
+
+            return escapeHtml(date.toLocaleString('id-ID', {
+                weekday: 'short',
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            }));
+        }
+
+        function buildReasonWindowText(row) {
+            if (!row || !row.reasonWindow || !row.reasonWindow.window_start || !row.reasonWindow.window_end) {
+                return 'Schedule window unavailable.';
+            }
+
+            return 'Window: ' + formatDateTime(row.reasonWindow.window_start) + ' until ' + formatDateTime(row.reasonWindow.window_end) + '.';
+        }
+
+        function buildReasonPanel(rows) {
+            var eligibleRows = (rows || []).filter(function (row) {
+                return row && row.reasonEligible;
+            });
+
+            if (!eligibleRows.length) {
+                return '<div style="font-size:14px;color:rgba(0,0,0,0.45);">No late or early checkout records currently eligible for a reason in this month.</div>';
+            }
+
+            return eligibleRows.map(function (row) {
+                var statusText = row.attendance_reason
+                    ? 'Reason saved.'
+                    : ((!row.isOutOfTown && row.attachmentPath) ? 'Attachment saved.' : 'Reason not submitted yet.');
+                var statusColor = row.attendance_reason || (!row.isOutOfTown && row.attachmentPath) ? '#389e0d' : '#faad14';
+
+                return '' +
+                    '<div style="border:1px solid #f0f0f0; border-radius:2px; background:#fff; padding:16px; margin-bottom:12px;">' +
+                        '<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">' +
+                            '<div>' +
+                                '<div style="font-size:14px; font-weight:500; color:rgba(0,0,0,0.85);">' + escapeHtml(row.type) + ' · ' + formatDateTime(row.created_at) + '</div>' +
+                                '<div style="font-size:13px; color:rgba(0,0,0,0.45); margin-top:4px;">' + escapeHtml(row.office_name || '-') + ' · ' + escapeHtml(row.attendanceCategoryLabel || 'Kantor') + '</div>' +
+                            '</div>' +
+                            '<div>' + renderFlags(row) + '</div>' +
+                        '</div>' +
+                        '<div style="font-size:12px; color:rgba(0,0,0,0.45); margin-top:10px;">' + buildReasonWindowText(row) + '</div>' +
+                        '<div style="margin-top:12px;">' +
+                            '<label style="display:block;font-size:12px;font-weight:500;color:rgba(0,0,0,0.65);margin-bottom:6px;">Reason</label>' +
+                            '<textarea class="attendance-reason-textarea" data-id="' + escapeAttribute(row.id) + '" style="width:100%;min-height:96px;padding:8px 11px;border:1px solid #d9d9d9;border-radius:2px;font-size:13px;resize:vertical;" placeholder="Explain why you were late or checked out early.">' + escapeHtml(row.attendance_reason || '') + '</textarea>' +
+                        '</div>' +
+                        (row.isOutOfTown
+                            ? '<div style="margin-top:8px;font-size:12px;color:rgba(0,0,0,0.45);">Dinas Luar Kota proof photo cannot be replaced here.</div>'
+                            : '<div style="margin-top:12px;">' +
+                                '<label style="display:block;font-size:12px;font-weight:500;color:rgba(0,0,0,0.65);margin-bottom:6px;">Attachment (optional)</label>' +
+                                '<input type="file" class="attendance-reason-file" data-id="' + escapeAttribute(row.id) + '" accept=".pdf,.jpg,.jpeg,.png,image/jpeg,image/png,application/pdf" style="display:block;width:100%;font-size:13px;">' +
+                              '</div>') +
+                        '<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:12px;">' +
+                            '<div style="font-size:12px; color:' + statusColor + ';">' + escapeHtml(statusText) + '</div>' +
+                            '<button type="button" class="btn btn-primary attendance-reason-save-btn" data-id="' + escapeAttribute(row.id) + '" style="background-color:#1890ff; border-color:#1890ff; height:32px; padding:4px 15px; border-radius:2px; font-size:13px;">Save reason</button>' +
+                        '</div>' +
+                    '</div>';
+            }).join('');
+        }
+
+        function bindReasonPanelButtons() {
+            Array.prototype.forEach.call(document.querySelectorAll('.attendance-reason-save-btn'), function (button) {
+                button.addEventListener('click', function () {
+                    var attendanceId = parseInt(button.getAttribute('data-id'), 10);
+                    var textarea = document.querySelector('.attendance-reason-textarea[data-id="' + attendanceId + '"]');
+                    var fileInput = document.querySelector('.attendance-reason-file[data-id="' + attendanceId + '"]');
+                    var reason = textarea ? textarea.value.trim() : '';
+                    var file = fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+
+                    button.disabled = true;
+                    button.textContent = 'Saving...';
+                    setResponse('', false);
+
+                    submitAttendanceReason(attendanceId, reason, file)
+                        .then(function () {
+                            setResponse('Reason saved.', false);
+                            loadLogs();
+                        })
+                        .catch(function (error) {
+                            setResponse(error && error.message ? error.message : 'Failed to save reason.', true);
+                        })
+                        .finally(function () {
+                            button.disabled = false;
+                            button.textContent = 'Save reason';
+                        });
+                });
+            });
+        }
+
+        function renderReasonPanel(rows) {
+            reasonPanelWrap.innerHTML = buildReasonPanel(rows || []);
+            bindReasonPanelButtons();
         }
 
         function escapeHtml(value) {
@@ -1187,25 +1310,7 @@
             return (row.attendance_reason || (!row.isOutOfTown && row.attachmentPath)) ? 'Edit' : 'Add';
         }
 
-        function bindReasonButtons() {
-            Array.prototype.forEach.call(document.querySelectorAll('.attendance-reason-btn'), function (button) {
-                button.addEventListener('click', function () {
-                    var attendanceId = parseInt(button.getAttribute('data-id'), 10);
-                    var row = currentLogs.find(function (item) {
-                        return Number(item.id) === attendanceId;
-                    });
-
-                    if (!row) {
-                        return;
-                    }
-
-                    openReasonModal(row, {
-                        title: (reasonActionLabel(row) === 'Edit' ? 'Edit' : 'Add') + ' reason / attachment',
-                        confirmButtonText: 'Save details'
-                    });
-                });
-            });
-        }
+        function bindReasonButtons() {}
 
         function buildLogsTable(rows) {
             var typeColors = { IN: '#52c41a', OUT: '#fa8c16' };
@@ -1234,10 +1339,6 @@
                 var notes = Array.isArray(row.notes) && row.notes.length ? escapeHtml(row.notes.join(', ')) : '-';
                 var dist = row.distance_m !== null ? Math.round(row.distance_m) + ' m' : '-';
                 var office = escapeHtml(row.office_name || '-');
-                var actionLabel = reasonActionLabel(row);
-                var actionHtml = row.reasonEligible
-                    ? '<button type="button" class="btn btn-outline-secondary attendance-reason-btn" data-id="' + escapeAttribute(row.id) + '" style="height:28px;padding:0 10px;border-radius:2px;font-size:12px;">' + actionLabel + '</button>'
-                    : '<span style="color:rgba(0,0,0,0.45);">-</span>';
                 var reasonText = row.attendance_reason ? escapeHtml(row.attendance_reason) : renderReasonStatus(row);
 
                 html += '<tr style="border-bottom:1px solid #f0f0f0;">' +
@@ -1252,7 +1353,7 @@
                     '<td style="padding:8px;color:rgba(0,0,0,0.65);">' + renderFlags(row) + '</td>' +
                     '<td style="padding:8px;color:rgba(0,0,0,0.65);">' + reasonText + '</td>' +
                     '<td style="padding:8px;color:rgba(0,0,0,0.65);">' + renderAttachment(row) + '</td>' +
-                    '<td style="padding:8px;color:rgba(0,0,0,0.65);">' + actionHtml + '</td>' +
+                    '<td style="padding:8px;color:rgba(0,0,0,0.45);">Use the reason panel above</td>' +
                     '</tr>';
             });
 
@@ -1263,6 +1364,7 @@
         setActiveTab(searchParams.get('tab') === 'out-of-town' ? 'out-of-town' : 'regular');
         loadStatus();
         loadTodayStatus();
+        loadLogs();
         resetOutOfTownPhoto(true);
     })();
 </script>
