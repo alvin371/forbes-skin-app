@@ -1,4 +1,11 @@
 <div class="container-fluid py-3">
+    <?php
+    $avatar_url = project_user_avatar_url(
+        $data['img'] ?? '',
+        $data['updated_at'] ?? ($data['created_at'] ?? ''),
+        base_url('assets/img/acneno-icon.jpg')
+    );
+    ?>
     <div class="form-message"></div>
     <form action="<?= base_url() ?>/user/update" method="POST" id="form-edit" enctype="multipart/form-data">
         <input type="hidden" name="id" value="<?= $data['id'] ?>">
@@ -99,7 +106,7 @@
                         <label for="file" class="form-label">Foto Profil</label>
                         <?php if ($data['img']) { ?>
                             <div class="mb-2">
-                                <a href="<?= base_url() ?>/assets/img/user/<?= $data['img'] . '?token=' . DATE("Ymdhis", strtotime($data['updated_at'])) ?>" target="_blank" class="text-primary">
+                                <a href="<?= $avatar_url ?>" target="_blank" class="text-primary">
                                     <i class="bi bi-image me-1"></i> Lihat Foto Saat Ini
                                 </a>
                             </div>

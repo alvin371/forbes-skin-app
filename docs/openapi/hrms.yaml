@@ -591,6 +591,12 @@ paths:
     post:
       tags: [Upload]
       summary: Upload attendance, leave, or profile attachment
+      description: |
+        Single upload endpoint for HRMS mobile clients.
+
+        The response `url` is immediately usable by the current app and points to
+        `/api/hrms/files/{type}/{path}`. Clients do not need a separate GET call to
+        `/api/hrms/upload` after upload.
       requestBody:
         required: true
         content:
@@ -601,7 +607,7 @@ paths:
               properties:
                 type:
                   type: string
-                  enum: [attendance, leave, profile]
+                  enum: [attendance, leave, overtime, profile]
                 file:
                   type: string
                   format: binary
@@ -618,6 +624,29 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '422':
           $ref: '#/components/responses/ValidationFailed'
+
+  /api/hrms/files/{type}/{path}:
+    get:
+      tags: [Upload]
+      summary: Serve uploaded HRMS file by type and relative path
+      security: []
+      parameters:
+        - in: path
+          name: type
+          required: true
+          schema:
+            type: string
+            enum: [leave, overtime, attendance, profile]
+        - in: path
+          name: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File content
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/hrms/leave:
     get:
@@ -2403,13 +2432,16 @@ components:
       properties:
         type:
           type: string
-          enum: [attendance, leave, profile]
+          enum: [attendance, leave, overtime, profile]
         path:
           type: string
+          description: Public path returned by the API, typically `/api/hrms/files/{type}/...`.
         storedPath:
           type: string
+          description: Internal stored path under `writable/uploads/...`.
         url:
           type: string
+          description: Directly usable file URL for the current mobile app.
         filename:
           type: string
         value:

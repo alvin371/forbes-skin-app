@@ -1,4 +1,11 @@
 <div class="container-fluid py-3">
+    <?php
+    $avatar_url = project_user_avatar_url(
+        $data['img'] ?? '',
+        $data['updated_at'] ?? ($data['created_at'] ?? ''),
+        base_url('assets/img/acneno-icon.jpg')
+    );
+    ?>
     <!-- User Basic Information Card -->
     <div class="card mb-4">
         <div class="card-header">
@@ -21,12 +28,12 @@
                 <div class="col-md-3 mb-4">
                     <?php if ($data['img']) { ?>
                         <div class="text-center">
-                            <img src="<?= base_url() ?>/assets/img/user/<?= $data['img'] . '?token=' . DATE("Ymdhis", strtotime($data['updated_at'])) ?>"
+                            <img src="<?= $avatar_url ?>"
                                 class="img-fluid rounded" style="max-height: 200px; object-fit: cover;">
                         </div>
                     <?php } else { ?>
                         <div class="text-center">
-                            <img src="<?= base_url() ?>/assets/img/acneno-icon.jpg"
+                            <img src="<?= $avatar_url ?>"
                                 class="img-fluid rounded" style="max-height: 200px; object-fit: cover;">
                         </div>
                     <?php } ?>

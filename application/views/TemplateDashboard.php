@@ -1320,12 +1320,11 @@ if (!$_SESSION['is_login']) {
           <div class="dropdown">
             <button class="btn p-0" type="button" id="profileDropdown" data-bs-toggle="dropdown" aria-expanded="false" style="border: none; background: none;">
               <?php
-              $img = $_SESSION['user']['img'];
-              if ($img == "") {
-                $img = base_url() . '/assets/img/acneno-icon.jpg';
-              } else {
-                $img = base_url() . '/assets/img/user/' . $img . '?token=' . DATE("Ymdhis", strtotime($_SESSION['user']['updated_at']));
-              }
+              $img = project_user_avatar_url(
+                $_SESSION['user']['img'] ?? '',
+                $_SESSION['user']['updated_at'] ?? ($_SESSION['user']['created_at'] ?? ''),
+                base_url('assets/img/acneno-icon.jpg')
+              );
               ?>
               <img src="<?= $img ?>" class="avatar" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; cursor: pointer;">
             </button>

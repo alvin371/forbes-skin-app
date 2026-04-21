@@ -1052,16 +1052,8 @@ class Api_hrms extends CI_Controller
             return null;
         }
 
-        $type = trim((string) $this->input->post('type', TRUE));
-        if ($type === '') {
-            $type = trim((string) $this->input->get('type', TRUE));
-        }
-
-        $allowedTypes = array('attendance', 'leave', 'profile');
-        if ($type === '') {
-            return $this->respond(400, array('message' => 'type is required.'));
-        }
-        if (!in_array($type, $allowedTypes, true)) {
+        $type = $this->request_upload_type();
+        if ($type === null) {
             return $this->respond(422, array('message' => 'type is invalid.'));
         }
 
@@ -1069,13 +1061,9 @@ class Api_hrms extends CI_Controller
             return $this->respond(400, array('message' => 'file is required.'));
         }
 
-        $scope = $type === 'leave' ? 'leave' : ($type === 'attendance' ? 'attendance' : 'user_avatar');
-        $options = array();
-        if ($scope === 'leave' || $scope === 'attendance') {
-            $options['subdir'] = 'api-upload';
-        } elseif ($scope === 'user_avatar') {
-            $options['file_name'] = (string) ((int) $user['id']);
-        }
+        $config = $this->upload_type_config($type, $user);
+        $scope = $config['scope'];
+        $options = $config['options'];
 
         $upload = $this->uploadservice->upload($scope, 'file', $options);
         if (!empty($upload['error'])) {
@@ -1096,8 +1084,8 @@ class Api_hrms extends CI_Controller
 
     public function uploaded_file($scope = null)
     {
-        $allowedScopes = array('leaves', 'overtime', 'attendance');
-        if (!in_array($scope, $allowedScopes, true)) {
+        $scope = $this->normalize_uploaded_file_scope($scope);
+        if ($scope === null) {
             show_404();
             return;
         }
@@ -2430,78 +2418,84 @@ class Api_hrms extends CI_Controller
 
     private function profile_picture_url($user)
     {
-        $image = trim((string) ($user['img'] ?? ''));
-        if ($image === '') {
-            return null;
-        }
-
-        if (preg_match('/^https?:\\/\\//i', $image)) {
-            return $image;
-        }
-
-        $image = str_replace('\\', '/', $image);
         $version = trim((string) ($user['updated_at'] ?? $user['created_at'] ?? ''));
-        $token = $version !== '' ? '?token=' . DATE('Ymdhis', strtotime($version)) : '';
-
-        if (strpos($image, '/') !== false) {
-            return base_url() . '/' . ltrim($image, '/') . $token;
-        }
-
-        return base_url() . '/assets/img/user/' . $image . $token;
+        $url = project_user_avatar_url($user['img'] ?? '', $version);
+        return $url !== '' ? $url : null;
     }
 
     private function normalize_profile_image_input($value, $userId)
     {
-        $value = trim((string) $value);
-        if ($value === '') {
-            return '';
-        }
-
-        if (preg_match('/^https?:\\/\\//i', $value)) {
-            $parsedPath = parse_url($value, PHP_URL_PATH);
-            if (is_string($parsedPath) && $parsedPath !== '') {
-                $value = ltrim($parsedPath, '/');
-            }
-        } else {
-            $value = ltrim(str_replace('\\', '/', $value), '/');
-        }
-
-        $value = preg_replace('#/+#', '/', $value);
-        if ($value === '') {
-            return '';
-        }
-
-        if ($value === basename($value)) {
-            if (preg_match('/^' . preg_quote((string) $userId, '/') . '\.(jpg|jpeg|png)$/i', $value)) {
-                return $value;
-            }
-
-            return '';
-        }
-
-        $markers = array(
-            'assets/img/user/',
-        );
-        foreach ($markers as $marker) {
-            $position = strpos($value, $marker);
-            if ($position === false) {
-                continue;
-            }
-
-            $suffix = ltrim(substr($value, $position + strlen($marker)), '/');
-            if ($suffix === '' || strpos($suffix, '/') !== false || strpos($suffix, '..') !== false) {
-                return '';
-            }
-
-            if (!preg_match('/^' . preg_quote((string) $userId, '/') . '\.(jpg|jpeg|png)$/i', $suffix)) {
-                return '';
-            }
-
-            return $suffix;
-        }
-
-        return '';
+        return project_user_avatar_basename($value, (int) $userId);
     }
+
+    private function request_upload_type()
+    {
+        $type = trim((string) $this->input->post('type', TRUE));
+        if ($type === '') {
+            $type = trim((string) $this->input->get('type', TRUE));
+        }
+
+        if ($type === '') {
+            return null;
+        }
+
+        return array_key_exists($type, $this->upload_type_map()) ? $type : null;
+    }
+
+    private function normalize_uploaded_file_scope($scope)
+    {
+        $scope = trim((string) $scope);
+        if ($scope === '') {
+            return null;
+        }
+
+        $map = array(
+            'leave' => 'leaves',
+            'leaves' => 'leaves',
+            'overtime' => 'overtime',
+            'attendance' => 'attendance',
+            'profile' => 'profile',
+        );
+
+        return $map[$scope] ?? null;
+    }
+
+    private function upload_type_map()
+    {
+        return array(
+            'leave' => array(
+                'scope' => 'leave',
+            ),
+            'overtime' => array(
+                'scope' => 'overtime',
+            ),
+            'attendance' => array(
+                'scope' => 'attendance',
+            ),
+            'profile' => array(
+                'scope' => 'user_avatar',
+            ),
+        );
+    }
+
+    private function upload_type_config($type, array $user)
+    {
+        $map = $this->upload_type_map();
+        $config = $map[$type];
+        $options = array();
+
+        if (in_array($type, array('leave', 'attendance', 'overtime'), true)) {
+            $options['subdir'] = 'api-upload';
+        } elseif ($type === 'profile') {
+            $options['file_name'] = (string) ((int) $user['id']);
+        }
+
+        return array(
+            'scope' => $config['scope'],
+            'options' => $options,
+        );
+    }
+
 
     private function verify_user_password($user, $password)
     {

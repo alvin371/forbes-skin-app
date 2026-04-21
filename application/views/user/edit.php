@@ -1,4 +1,11 @@
 <div class="form-message"></div>
+<?php
+$avatar_url = project_user_avatar_url(
+	$data['img'] ?? '',
+	$data['updated_at'] ?? ($data['created_at'] ?? ''),
+	base_url('assets/img/acneno-icon.jpg')
+);
+?>
 <form action="<?= base_url() ?>/user/update" method="POST" id="form-modal" enctype="multipart/form-data">
 	<input type="hidden" name="id" value="<?= $data['id'] ?>">
 
@@ -64,7 +71,7 @@
 		<div class="col-md-12">
 			<label for="">Gambar</label><br>
 			<?php if ($data['img']) { ?>
-				<a href="<?= base_url() ?>/assets/img/user/<?= $data['img'] . '?token=' . DATE("Ymdhis", strtotime($data['updated_at'])) ?>" target="_blank"><i>Buka Gambar</i></a>
+				<a href="<?= $avatar_url ?>" target="_blank"><i>Buka Gambar</i></a>
 			<?php } ?>
 			<input type="file" class="form-control" name="file" accept="image/png, image/jpeg, image/jpg">
 		</div>
