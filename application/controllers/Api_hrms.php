@@ -102,10 +102,14 @@ class Api_hrms extends CI_Controller
 
         $tokens = $this->apiauth->issue_tokens($user, $this->input->user_agent(), $this->input->ip_address());
         $latestUser = $this->latest_user_record((int) $user['id']) ?: $user;
+        $userResponse = $this->user_response($latestUser);
         return $this->respond(200, array(
             'accessToken' => $tokens['accessToken'],
             'refreshToken' => $tokens['refreshToken'],
-            'user' => $this->user_response($latestUser),
+            'user' => $userResponse,
+            // Keep a top-level copy for older/mobile clients that read `schedule`
+            // from the login response instead of `user.schedule`.
+            'schedule' => $userResponse['schedule'] ?? null,
         ));
     }
 
@@ -2289,13 +2293,25 @@ class Api_hrms extends CI_Controller
             'keterangan' => $user['desc'] ?? null,
             'position_id' => isset($position['position_id']) ? (int) $position['position_id'] : null,
             'position_name' => $position['position_name'] ?? null,
-            'schedule' => array(
-                'start_time' => $schedule['start'],
-                'end_time' => $schedule['end'],
-                'source' => $schedule['source'],
-                'special_schedule' => $schedule['source'] === 'user',
-            ),
+            'schedule' => $this->schedule_response($schedule),
             'leave_quota' => $leaveQuota,
+        );
+    }
+
+    private function schedule_response($schedule)
+    {
+        $start = $schedule['start'] ?? '08:00';
+        $end = $schedule['end'] ?? '17:00';
+        $isSpecial = ($schedule['source'] ?? 'default') === 'user';
+
+        return array(
+            'start_time' => $start,
+            'end_time' => $end,
+            'late_threshold' => date('H:i', strtotime('2000-01-01 ' . $start . ':00') + 15 * 60),
+            'early_threshold' => date('H:i', strtotime('2000-01-01 ' . $end . ':00') - 15 * 60),
+            'source' => $schedule['source'] ?? 'default',
+            'is_special' => $isSpecial,
+            'special_schedule' => $isSpecial,
         );
     }
 
