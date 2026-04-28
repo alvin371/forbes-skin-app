@@ -1065,6 +1065,112 @@ class Template
         return $response;
     }
 
+    /**
+     * Fetch per-post stats for many endorse rows in parallel via curl_multi.
+     * Each $tasks entry: ['platform' => 'Tiktok'|'Instagram', 'url' => string].
+     * Returns array indexed identically; each element matches the get_social_media() shape.
+     */
+    function get_social_media_batch(array $tasks, int $maxConcurrent = 10): array
+    {
+        $results = array_fill_keys(array_keys($tasks), null);
+        $tiktok_indices = [];
+
+        foreach ($tasks as $idx => $task) {
+            $platform = $task['platform'] ?? '';
+            $url = $task['url'] ?? '';
+
+            if ($platform === 'Instagram') {
+                $results[$idx] = ['status' => false, 'msg' => 'Individual Instagram post scraping belum tersedia', 'data' => []];
+                continue;
+            }
+            if ($platform !== 'Tiktok') {
+                $results[$idx] = ['status' => false, 'msg' => 'Platform belum tersedia', 'data' => []];
+                continue;
+            }
+            if (empty($url)) {
+                $results[$idx] = ['status' => false, 'msg' => 'URL tidak ditemukan', 'data' => []];
+                continue;
+            }
+            $videoId = $this->extract_tiktok_content_id($url);
+            if (empty($videoId)) {
+                $results[$idx] = ['status' => false, 'msg' => "Video ID tidak ditemukan dari URL: $url", 'data' => []];
+                continue;
+            }
+            $tiktok_indices[$idx] = $videoId;
+        }
+
+        if (empty($tiktok_indices)) {
+            return $results;
+        }
+
+        $host = env('RAPIDAPI_HOST', 'tiktok-api23.p.rapidapi.com');
+        $headers = $this->getRapidApiHeaders();
+
+        // Process in chunks of $maxConcurrent to avoid swamping the network/API.
+        foreach (array_chunk($tiktok_indices, $maxConcurrent, true) as $chunk) {
+            $multi = curl_multi_init();
+            $handles = [];
+
+            foreach ($chunk as $idx => $videoId) {
+                $ch = curl_init("https://$host/api/post/detail?videoId=$videoId");
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_ENCODING       => '',
+                    CURLOPT_MAXREDIRS      => 10,
+                    CURLOPT_TIMEOUT        => 30,
+                    CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
+                    CURLOPT_CUSTOMREQUEST  => 'GET',
+                    CURLOPT_HTTPHEADER     => $headers,
+                ]);
+                $handles[$idx] = $ch;
+                curl_multi_add_handle($multi, $ch);
+            }
+
+            $running = null;
+            do {
+                curl_multi_exec($multi, $running);
+                if ($running) curl_multi_select($multi, 1.0);
+            } while ($running > 0);
+
+            foreach ($handles as $idx => $ch) {
+                $body = curl_multi_getcontent($ch);
+                $err  = curl_error($ch);
+                $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_multi_remove_handle($multi, $ch);
+                curl_close($ch);
+
+                if ($err || $code >= 500) {
+                    $results[$idx] = ['status' => false, 'msg' => $err ?: "HTTP $code", 'data' => []];
+                    continue;
+                }
+
+                $resp = json_decode($body, true);
+                $itemStruct = $resp['itemInfo']['itemStruct'] ?? null;
+                if ($itemStruct && !empty($itemStruct['stats']) && !empty($itemStruct['stats']['playCount'])) {
+                    $stats = $itemStruct['stats'];
+                    $data = [
+                        'like'    => intval($stats['diggCount'] ?? 0),
+                        'share'   => intval($stats['shareCount'] ?? 0),
+                        'comment' => intval($stats['commentCount'] ?? 0),
+                        'collect' => intval($stats['collectCount'] ?? 0),
+                        'view'    => intval($stats['playCount'] ?? 0),
+                    ];
+                    if (!empty($itemStruct['createTime'])) {
+                        $data['created_at'] = date('Y-m-d', $itemStruct['createTime']);
+                    }
+                    $results[$idx] = ['status' => true, 'msg' => '', 'data' => $data];
+                } else {
+                    $url = $tasks[$idx]['url'] ?? '';
+                    $results[$idx] = ['status' => false, 'msg' => "Stats data tidak ditemukan untuk $url", 'data' => []];
+                }
+            }
+
+            curl_multi_close($multi);
+        }
+
+        return $results;
+    }
+
     public function extract_tiktok_content_id($url)
     {
         if (empty($url)) {

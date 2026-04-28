@@ -7380,31 +7380,77 @@ gradient_5.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 
 	public function refresh_campaign_endorses()
 	{
-		$id_campaign = $this->db->escape_str($this->input->get('id_campaign'));
-		if (!$id_campaign) {
+		$id_campaign = intval($this->input->get('id_campaign'));
+		if ($id_campaign <= 0) {
 			header('Content-Type: application/json; charset=utf-8');
 			echo json_encode(['status' => false, 'msg' => 'Campaign ID required']);
 			return;
 		}
 
-		// Mark campaign as pending refresh
-		$this->db->update('endorse_campaign',
-			['refresh_requested_at' => date('Y-m-d H:i:s')],
-			['id' => $id_campaign]
-		);
+		$user_id = intval($_SESSION['user']['id'] ?? 0);
 
-		// Count active endorses to give user feedback
-		$count = $this->mymodel->selectWithQuery("
-			SELECT COUNT(id) AS c FROM endorse
-			WHERE id_campaign = '$id_campaign' AND link_upload != '' AND status = 'Aktif'
+		$rows = $this->mymodel->selectWithQuery("
+			SELECT id, id_campaign, platform, link_upload
+			FROM endorse
+			WHERE id_campaign = '$id_campaign'
+			  AND status = 'Aktif' AND status_campaign = 'Aktif'
+			  AND link_upload != ''
 		");
-		$n = isset($count[0]['c']) ? intval($count[0]['c']) : 0;
 
 		header('Content-Type: application/json; charset=utf-8');
+
+		if (empty($rows)) {
+			echo json_encode([
+				'status'   => true,
+				'msg'      => 'Tidak ada konten aktif untuk direfresh.',
+				'enqueued' => 0,
+				'skipped_duplicates' => 0,
+			]);
+			return;
+		}
+
+		$candidate_ids = array_map(function ($r) { return intval($r['id']); }, $rows);
+		$idList = implode(',', $candidate_ids);
+
+		$existing = $this->mymodel->selectWithQuery("
+			SELECT id_endorse FROM endorse_refresh_queue
+			WHERE id_endorse IN ($idList) AND status IN ('pending','processing')
+		");
+		$already = [];
+		foreach ($existing as $e) {
+			$already[intval($e['id_endorse'])] = true;
+		}
+
+		$now = date('Y-m-d H:i:s');
+		$batch = [];
+		$skipped = 0;
+		foreach ($rows as $r) {
+			$id_e = intval($r['id']);
+			if (isset($already[$id_e])) { $skipped++; continue; }
+			$batch[] = [
+				'id_endorse'   => $id_e,
+				'id_campaign'  => intval($r['id_campaign']),
+				'platform'     => strval($r['platform']),
+				'link_upload'  => strval($r['link_upload']),
+				'status'       => 'pending',
+				'priority'     => 10,
+				'attempts'     => 0,
+				'max_attempts' => 3,
+				'enqueued_by'  => $user_id,
+				'created_at'   => $now,
+			];
+		}
+
+		if (!empty($batch)) {
+			$this->db->insert_batch('endorse_refresh_queue', $batch);
+		}
+
 		echo json_encode([
-			'status' => true,
-			'msg'    => "Refresh diminta untuk $n endorse aktif. Data akan diperbarui pada sinkronisasi berikutnya.",
-			'count'  => $n
+			'status'             => true,
+			'msg'                => count($batch) . " konten ditambahkan ke antrian, $skipped sudah ada.",
+			'enqueued'           => count($batch),
+			'skipped_duplicates' => $skipped,
+			'count'              => count($rows),
 		]);
 	}
 
