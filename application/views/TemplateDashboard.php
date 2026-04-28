@@ -1288,6 +1288,14 @@ if (!$_SESSION['is_login']) {
         </div>
 
         <div class="d-flex align-items-center justify-content-end gap-4">
+          <!-- Endorse Refresh Queue -->
+          <div class="notification-container" style="position: relative; margin-right: 10px;">
+            <a href="<?= base_url('endorse/queue') ?>" class="p-0 d-inline-block" title="Antrian Refresh Konten" style="position: relative; text-decoration: none;">
+              <i class="bi bi-list-check" style="font-size: 20px; color: #5a7dbaff;"></i>
+              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="queueBadge" style="display: none; font-size: 10px; padding: 3px 5px;">0</span>
+            </a>
+          </div>
+
           <!-- Notification Bell -->
           <div class="notification-container" style="position: relative; margin-right: 10px;">
             <button class="p-0" onclick="toggleNotifications()" style="position: relative; background-color: transparent; border: none;">
@@ -1779,6 +1787,25 @@ if (!$_SESSION['is_login']) {
           console.error('Error loading notification count:', error);
         }
       });
+
+      function refreshQueueBadge() {
+        $.ajax({
+          url: '<?= base_url("endorse/queue-count") ?>',
+          method: 'GET',
+          dataType: 'json',
+          success: function(data) {
+            const $badge = $('#queueBadge');
+            const n = parseInt(data.count || 0, 10);
+            if (n > 0) {
+              $badge.text(n > 99 ? '99+' : n).show();
+            } else {
+              $badge.hide();
+            }
+          }
+        });
+      }
+      refreshQueueBadge();
+      setInterval(refreshQueueBadge, 15000);
     });
 
     setInterval(function() {

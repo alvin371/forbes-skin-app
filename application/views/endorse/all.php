@@ -498,6 +498,16 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                     <input type="hidden" id="chart_until_date" value="<?= $_GET['until_date'] ?? $until_date ?>">
                 </div>
                 <div class="col-md-2">
+                    <label class="form-label mb-1 text-primary fw-600">Top Performer</label>
+                    <select class="form-control form-control-sm" id="list_top_performer_period">
+                        <option value="">Semua Konten</option>
+                        <option value="today" <?= ($_GET['list_top_performer_period'] ?? '') === 'today' ? 'selected' : '' ?>>Today</option>
+                        <option value="last_7_days" <?= ($_GET['list_top_performer_period'] ?? '') === 'last_7_days' ? 'selected' : '' ?>>Last 7 Days</option>
+                        <option value="last_30_days" <?= ($_GET['list_top_performer_period'] ?? '') === 'last_30_days' ? 'selected' : '' ?>>Last 30 Days</option>
+                        <option value="custom" <?= ($_GET['list_top_performer_period'] ?? '') === 'custom' ? 'selected' : '' ?>>Custom</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
                     <label class="form-label mb-1 text-primary fw-600">KOL/Influencer</label>
                     <select class="form-control form-control-sm" id="chart_influencer">
                         <option value=""></option>
@@ -613,11 +623,38 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                     return moment(dateStr, 'YYYY-MM-DD').format('DD/MM/YYYY');
                 }
 
+                function setMainChartRange(startDate, endDate) {
+                    const picker = $('#chart_tanggal').data('daterangepicker');
+                    $('#chart_start_date').val(startDate);
+                    $('#chart_until_date').val(endDate);
+                    if (picker) {
+                        picker.setStartDate(moment(startDate, 'YYYY-MM-DD'));
+                        picker.setEndDate(moment(endDate, 'YYYY-MM-DD'));
+                    }
+                    $('#chart_tanggal').val(
+                        moment(startDate, 'YYYY-MM-DD').format('DD/MM/YYYY') + ' - ' +
+                        moment(endDate, 'YYYY-MM-DD').format('DD/MM/YYYY')
+                    );
+                }
+
                 function getChartMainRange() {
                     return {
                         start: $('#chart_start_date').val() || moment().subtract(30, 'days').format('YYYY-MM-DD'),
                         end: $('#chart_until_date').val() || moment().format('YYYY-MM-DD')
                     };
+                }
+
+                function applyTopPerformerPresetPeriod() {
+                    const period = $('#list_top_performer_period').val();
+                    const today = moment().format('YYYY-MM-DD');
+
+                    if (period === 'today') {
+                        setMainChartRange(today, today);
+                    } else if (period === 'last_7_days') {
+                        setMainChartRange(moment().subtract(6, 'days').format('YYYY-MM-DD'), today);
+                    } else if (period === 'last_30_days') {
+                        setMainChartRange(moment().subtract(29, 'days').format('YYYY-MM-DD'), today);
+                    }
                 }
 
                 function renderChartNoGrowthPeriodText() {
@@ -728,7 +765,7 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                             firstDay: 1
                         }
                     });
-                    $('#chart_tanggal').val(startDateMoment.format('DD/MM/YYYY') + ' - ' + endDateMoment.format('DD/MM/YYYY'));
+                    setMainChartRange(useStart, useEnd);
 
                     $('#chart_views_zero').val(getUrlParam('list_views_zero') || $('#chart_views_zero').val() || '');
                     $('#chart_no_growth').val(getUrlParam('list_no_growth') || $('#chart_no_growth').val() || '');
@@ -748,6 +785,13 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                     const initialViewsZeroDate = $('#list_views_zero_date').val() || chartRange.end;
                     const initialNoGrowthStart = $('#chart_no_growth_start_date').val() || chartRange.start;
                     const initialNoGrowthEnd = $('#chart_no_growth_until_date').val() || chartRange.end;
+
+                    $('#list_top_performer_period').on('change', function() {
+                        const selectedPeriod = $(this).val();
+                        if (selectedPeriod && selectedPeriod !== 'custom') {
+                            applyTopPerformerPresetPeriod();
+                        }
+                    });
 
                     $('#list_views_zero_tanggal').daterangepicker({
                         autoUpdateInput: false,
@@ -845,6 +889,7 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                         const nextUrl = buildUrlWithParams({
                             chart_start_date: chartStartDate,
                             chart_until_date: chartUntilDate,
+                            list_top_performer_period: '',
                             chart_influencer: '',
                             chart_username: '',
                             chart_views_zero: '',
@@ -865,6 +910,9 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                     }
                     if ($('#chart_no_growth').val() === '1' && (!$('#chart_no_growth_start_date').val() || !$('#chart_no_growth_until_date').val())) {
                         applyChartNoGrowthRange(chartRange.start, chartRange.end);
+                    }
+                    if ($('#list_top_performer_period').val() && $('#list_top_performer_period').val() !== 'custom') {
+                        applyTopPerformerPresetPeriod();
                     }
                     renderViewsZeroDateText();
                     renderChartNoGrowthPeriodText();
@@ -928,11 +976,18 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                         var startDateFormatted = startDateParts[2] + '-' + startDateParts[1] + '-' + startDateParts[0];
                         var endDateFormatted   = endDateParts[2]   + '-' + endDateParts[1]   + '-' + endDateParts[0];
 
-                        $('#chart_start_date').val(startDateFormatted);
-                        $('#chart_until_date').val(endDateFormatted);
+                        setMainChartRange(startDateFormatted, endDateFormatted);
 
                         localStorage.setItem('chart_start_date', startDateFormatted);
                         localStorage.setItem('chart_until_date', endDateFormatted);
+
+                        var topPerformerPeriod = $('#list_top_performer_period').val() || '';
+                        if (topPerformerPeriod && topPerformerPeriod !== 'custom') {
+                            applyTopPerformerPresetPeriod();
+                            const performerRange = getChartMainRange();
+                            startDateFormatted = performerRange.start;
+                            endDateFormatted = performerRange.end;
+                        }
 
                         if ($('#chart_no_growth').val() === '1' && (!$('#chart_no_growth_start_date').val() || !$('#chart_no_growth_until_date').val())) {
                             applyChartNoGrowthRange(startDateFormatted, endDateFormatted);
@@ -959,6 +1014,7 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                         const nextUrl = buildUrlWithParams({
                             chart_start_date: startDateFormatted,
                             chart_until_date: endDateFormatted,
+                            list_top_performer_period: topPerformerPeriod,
                             chart_influencer: $('#chart_influencer').val() || '',
                             chart_username: getSelectedInfluencerLabel(),
                             chart_views_zero: '',
@@ -1105,6 +1161,24 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
     if (!empty($_GET['chart_username'])) {
         $active_content_filters[] = 'Influencer: ' . htmlspecialchars($_GET['chart_username']);
     }
+    $top_performer_period = $_GET['list_top_performer_period'] ?? '';
+    if ($top_performer_period === 'today') {
+        $active_content_filters[] = 'Top Performer: Today';
+    } else if ($top_performer_period === 'last_7_days') {
+        $active_content_filters[] = 'Top Performer: Last 7 Days';
+    } else if ($top_performer_period === 'last_30_days') {
+        $active_content_filters[] = 'Top Performer: Last 30 Days';
+    } else if ($top_performer_period === 'custom') {
+        $custom_start = $_GET['chart_start_date'] ?? ($_GET['start_date'] ?? '');
+        $custom_until = $_GET['chart_until_date'] ?? ($_GET['until_date'] ?? '');
+        if ($custom_start) {
+            $custom_start = date('d/m/Y', strtotime($custom_start));
+        }
+        if ($custom_until) {
+            $custom_until = date('d/m/Y', strtotime($custom_until));
+        }
+        $active_content_filters[] = 'Top Performer: Custom ' . ($custom_start ?: '-') . ' - ' . ($custom_until ?: '-');
+    }
     if (($_GET['list_views_zero'] ?? '') === '1') {
         $views_zero_date_text = $_GET['list_views_zero_date'] ?? '';
         if ($views_zero_date_text) {
@@ -1131,12 +1205,15 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
         <td>
             <div class="d-flex justify-content-between align-items-center w-100">
                 <div>
-                    <span><?= $notif ?></span>
+                    <div id="endorse-notif"><?= $notif ?></div>
                     <?php if (!empty($active_content_filters)) { ?>
                         <div class="small text-muted mt-1">Filter aktif: <?= implode(' | ', $active_content_filters) ?></div>
                     <?php } ?>
                 </div>
                 <div class="d-flex align-items-center gap-2">
+                    <a href="#!" onclick="openBulkTransferModal()" class="btn btn-transfer mt-0">
+                        <i class="bi bi-box-arrow-right fs-16"></i> Bulk Transfer
+                    </a>
                     <a href="#!" onclick="sync_all('<?= $detail['id'] ?>')" class="btn btn-sync mt-0">
                         <i class="bi bi-bootstrap-reboot fs-16"></i> Refresh Semua
                     </a>
@@ -1448,8 +1525,157 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
             text-align: center;
         }
 
+        .bulk-transfer-grid {
+            grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+        }
+
+        .transfer-toolbar {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) repeat(2, 140px);
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .transfer-select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 13px;
+            background: #fff;
+        }
+
+        .transfer-summary-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .transfer-summary-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .transfer-summary-btn {
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #334155;
+            border-radius: 999px;
+            font-size: 12px;
+            padding: 6px 10px;
+        }
+
+        .transfer-source-list {
+            max-height: 360px;
+            overflow: auto;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            background: #fff;
+        }
+
+        .transfer-source-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 12px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .transfer-source-item:last-child {
+            border-bottom: none;
+        }
+
+        .transfer-source-item.is-selected {
+            background: #eff6ff;
+        }
+
+        .transfer-source-checkbox {
+            margin-top: 2px;
+        }
+
+        .transfer-source-body {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .transfer-source-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        .transfer-source-meta,
+        .transfer-source-desc {
+            font-size: 11px;
+            color: #64748b;
+            word-break: break-word;
+        }
+
+        .transfer-source-desc {
+            margin-top: 4px;
+        }
+
+        .transfer-selected-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 220px;
+            overflow: auto;
+        }
+
+        .transfer-selected-tag {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 8px 10px;
+            border-radius: 10px;
+            background: #fff;
+            border: 1px solid #dbeafe;
+        }
+
+        .transfer-selected-remove {
+            border: none;
+            background: transparent;
+            color: #94a3b8;
+            line-height: 1;
+        }
+
+        .transfer-selected-remove:hover {
+            color: #ef4444;
+        }
+
+        .transfer-footer-note {
+            margin-top: 10px;
+            font-size: 11px;
+            color: #64748b;
+        }
+
+        .transfer-load-more {
+            width: 100%;
+            border: none;
+            background: #f8fafc;
+            color: #334155;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 10px 12px;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .transfer-load-more:hover {
+            background: #f1f5f9;
+        }
+
         @media (max-width: 768px) {
             .transfer-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .transfer-toolbar {
                 grid-template-columns: 1fr;
             }
         }
@@ -1572,6 +1798,94 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
         </div>
     </div>
 
+    <div class="modal fade transfer-modal" tabindex="-1" role="dialog" aria-hidden="true" id="bulk-transfer-modal">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <div class="transfer-title">Bulk Transfer Campaign</div>
+                        <div class="transfer-subtitle">Cari, filter, lalu pilih beberapa konten untuk dipindahkan ke campaign lain.</div>
+                    </div>
+                    <a class="close a-link" data-bs-dismiss="modal"><i class="bi bi-x-circle fs-24"></i></a>
+                </div>
+                <div class="modal-body">
+                    <div class="transfer-grid bulk-transfer-grid">
+                        <div class="transfer-card">
+                            <div class="transfer-card-header">
+                                <div class="transfer-card-title">Konten di Campaign Saat Ini</div>
+                                <span class="transfer-pill"><?= $campaign_type_label ?></span>
+                            </div>
+                            <div class="transfer-card-meta"><?= $detail['title'] ?> · ID #<?= $detail['id'] ?></div>
+                            <div class="transfer-toolbar mt-3">
+                                <input type="text" class="transfer-input" id="bulk-transfer-search" placeholder="Cari creator, platform, task, link, atau keterangan">
+                                <select class="transfer-select" id="bulk-transfer-status">
+                                    <option value="">Semua Status</option>
+                                    <option value="Review">Review</option>
+                                    <option value="Hold">Hold</option>
+                                    <option value="Acc">Acc</option>
+                                    <option value="Draft Content">Draft Content</option>
+                                    <option value="Posted Content">Posted Content</option>
+                                    <option value="Reject">Reject</option>
+                                    <option value="Problem">Problem</option>
+                                </select>
+                                <select class="transfer-select" id="bulk-transfer-platform">
+                                    <option value="">Semua Platform</option>
+                                    <option value="Tiktok">Tiktok</option>
+                                    <option value="Instagram">Instagram</option>
+                                    <option value="Youtube">Youtube</option>
+                                    <option value="Shopee">Shopee</option>
+                                    <option value="Tokopedia">Tokopedia</option>
+                                </select>
+                            </div>
+                            <div class="transfer-summary-row">
+                                <div class="transfer-card-meta" id="bulk-transfer-count">0 konten dipilih</div>
+                                <div class="transfer-summary-actions">
+                                    <button type="button" class="transfer-summary-btn" id="bulk-transfer-select-visible">Pilih semua hasil</button>
+                                    <button type="button" class="transfer-summary-btn" id="bulk-transfer-clear">Hapus pilihan</button>
+                                </div>
+                            </div>
+                            <div class="transfer-source-list" id="bulk-transfer-source-list">
+                                <div class="transfer-loading">Memuat konten...</div>
+                            </div>
+                        </div>
+                        <div class="transfer-card">
+                            <div class="transfer-card-header">
+                                <div class="transfer-card-title">Target Campaign</div>
+                                <span class="transfer-pill" id="bulk-transfer-target-type">-</span>
+                            </div>
+                            <div class="transfer-selected" id="bulk-transfer-selected-items">
+                                <span class="transfer-placeholder">Belum ada konten dipilih.</span>
+                            </div>
+                            <div class="transfer-footer-note">Pilihan tetap tersimpan walau kamu mengganti search atau filter.</div>
+                            <div class="transfer-card-header mt-3">
+                                <div class="transfer-card-title">Pilih Campaign Tujuan</div>
+                            </div>
+                            <div class="transfer-combobox" id="bulk-transfer-combobox">
+                                <input type="text" class="transfer-input" id="bulk-transfer-campaign-search" placeholder="Cari campaign berdasarkan judul, brand, atau ID">
+                                <button class="transfer-dropdown-btn" type="button" id="bulk-transfer-toggle"><i class="bi bi-chevron-down"></i></button>
+                                <div class="transfer-dropdown" id="bulk-transfer-dropdown">
+                                    <div class="transfer-tabs">
+                                        <button type="button" class="transfer-tab" data-bulk-transfer-filter="0">External</button>
+                                        <button type="button" class="transfer-tab" data-bulk-transfer-filter="1">Internal</button>
+                                    </div>
+                                    <div class="transfer-list" id="bulk-transfer-list"></div>
+                                </div>
+                            </div>
+                            <div class="transfer-selected" id="bulk-transfer-selected">
+                                <span class="transfer-placeholder">Belum ada campaign dipilih.</span>
+                            </div>
+                            <div class="transfer-message" id="bulk-transfer-message"></div>
+                        </div>
+                    </div>
+                    <div class="transfer-actions">
+                        <button class="btn btn-light" type="button" data-bs-dismiss="modal">Batal</button>
+                        <button class="btn btn-transfer" type="button" id="bulk-transfer-submit" disabled>Transfer 0 Konten</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
 
 <input type="hidden" id="id_selected" name="id_selected" form="form-action">
 
@@ -1581,6 +1895,14 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
     var list_id_v2 = '';
     var transferState = {
         idEndorse: null,
+        targetCampaign: null,
+        currentType: '<?= (!empty($detail['is_internal']) && $detail['is_internal'] == 1) ? '1' : '0' ?>'
+    };
+    var bulkTransferState = {
+        selectedItems: {},
+        visibleItems: [],
+        page: 1,
+        hasMore: false,
         targetCampaign: null,
         currentType: '<?= (!empty($detail['is_internal']) && $detail['is_internal'] == 1) ? '1' : '0' ?>'
     };
@@ -1653,7 +1975,31 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
     }
 
     function sync_all(id) {
-        showModal('Refresh Data', `<?= base_url() ?>/endorse/sync_all?id=${id}`);
+        if (!confirm('Refresh semua konten aktif di campaign ini? Proses berjalan di latar belakang lewat antrian.')) return;
+        $.ajax({
+            url: '<?= base_url() ?>endorse/bulk-refresh',
+            method: 'POST',
+            data: { id_campaign: id },
+            dataType: 'json',
+            success: function(resp) {
+                const queueUrl = '<?= base_url() ?>endorse/queue?id_campaign=' + id;
+                if (resp && resp.status) {
+                    const msg = resp.msg || ('Antrian dibuat: ' + resp.enqueued + ' baru, ' + resp.skipped_duplicates + ' sudah ada.');
+                    if (typeof toastr !== 'undefined') {
+                        toastr.success(msg + ' <a href="' + queueUrl + '" class="text-white text-underline"><b>Lihat antrian →</b></a>', '', { timeOut: 7000, escapeHtml: false });
+                    } else {
+                        if (confirm(msg + '\n\nBuka halaman antrian sekarang?')) window.location.href = queueUrl;
+                    }
+                } else {
+                    const errMsg = (resp && resp.msg) ? resp.msg : 'Gagal membuat antrian refresh.';
+                    if (typeof toastr !== 'undefined') toastr.error(errMsg);
+                    else alert(errMsg);
+                }
+            },
+            error: function() {
+                alert('Gagal menghubungi server.');
+            }
+        });
     }
 
     function sync(id) {
@@ -1662,6 +2008,69 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
 
     function clone(id) {
         showModal('Kloning Data', `<?= base_url() ?>/endorse/clone?id=${id}`);
+    }
+
+    function buildTransferCampaignHtml(items) {
+        var html = '';
+        items.forEach(function(row) {
+            var typeLabel = row.is_internal == 1 ? 'INTERNAL' : 'EXTERNAL';
+            var dates = '';
+            if (row.start_at || row.until_at) {
+                dates = (row.start_at || '-') + ' - ' + (row.until_at || '-');
+            }
+            html += '<button type="button" class="transfer-item" data-id="' + row.id + '" data-title="' + escapeHtml(row.title) + '" data-type="' + typeLabel + '">' +
+                '<div>' +
+                '<div class="transfer-item-title">' + escapeHtml(row.title || 'Campaign') + '</div>' +
+                '<div class="transfer-item-meta">ID #' + row.id + (row.brand ? ' · ' + escapeHtml(row.brand) : '') + (dates ? ' · ' + escapeHtml(dates) : '') + '</div>' +
+                '</div>' +
+                '<span class="transfer-pill">' + typeLabel + '</span>' +
+                '</button>';
+        });
+
+        return html;
+    }
+
+    function renderTransferCampaignSelection(state, selectedSelector, targetTypeSelector, submitSelector, submitLabel) {
+        if (!state.targetCampaign) {
+            $(selectedSelector).html('<span class="transfer-placeholder">Belum ada campaign dipilih.</span>');
+            $(targetTypeSelector).text('-');
+            if (submitSelector) {
+                $(submitSelector).prop('disabled', true).text(submitLabel);
+            }
+            return;
+        }
+
+        $(selectedSelector).html('<div><strong>' + escapeHtml(state.targetCampaign.title) + '</strong></div><div class="transfer-item-meta">ID #' + state.targetCampaign.id + '</div>');
+        $(targetTypeSelector).text(state.targetCampaign.type || '-');
+        if (submitSelector) {
+            $(submitSelector).prop('disabled', false).text(submitLabel);
+        }
+    }
+
+    function fetchTransferCampaigns(options) {
+        var keyword = $(options.searchSelector).val().trim();
+        $(options.listSelector).html('<div class="transfer-loading">Memuat campaign...</div>');
+        $.ajax({
+            url: transferConfig.baseUrl + '/endorse/transfer-campaigns',
+            dataType: 'json',
+            data: {
+                keyword: keyword,
+                is_internal: options.state.currentType,
+                exclude: transferConfig.currentCampaignId,
+                limit: 20
+            },
+            success: function(res) {
+                var items = res && res.data ? res.data : [];
+                if (!items.length) {
+                    $(options.listSelector).html('<div class="transfer-empty">Campaign tidak ditemukan.</div>');
+                    return;
+                }
+                $(options.listSelector).html(buildTransferCampaignHtml(items));
+            },
+            error: function() {
+                $(options.listSelector).html('<div class="transfer-empty">Gagal memuat campaign.</div>');
+            }
+        });
     }
 
     function openTransferModal(idEndorse, creatorName, statusEndorse, platform) {
@@ -1680,7 +2089,11 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
         setTransferFilter(transferState.currentType);
         toggleTransferDropdown(true);
         $("#transfer-modal").modal('show');
-        fetchTransferCampaigns();
+        fetchTransferCampaigns({
+            state: transferState,
+            searchSelector: '#transfer-search',
+            listSelector: '#transfer-list'
+        });
     }
 
     function setTransferFilter(type) {
@@ -1691,6 +2104,25 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
 
     function toggleTransferDropdown(forceOpen) {
         var $combo = $("#transfer-combobox");
+        if (forceOpen === true) {
+            $combo.addClass('is-open');
+            return;
+        }
+        if (forceOpen === false) {
+            $combo.removeClass('is-open');
+            return;
+        }
+        $combo.toggleClass('is-open');
+    }
+
+    function setBulkTransferFilter(type) {
+        bulkTransferState.currentType = String(type);
+        $('[data-bulk-transfer-filter]').removeClass('active');
+        $('[data-bulk-transfer-filter="' + bulkTransferState.currentType + '"]').addClass('active');
+    }
+
+    function toggleBulkTransferDropdown(forceOpen) {
+        var $combo = $("#bulk-transfer-combobox");
         if (forceOpen === true) {
             $combo.addClass('is-open');
             return;
@@ -1714,63 +2146,193 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
         });
     }
 
-    function fetchTransferCampaigns() {
-        var keyword = $("#transfer-search").val().trim();
-        $("#transfer-list").html('<div class="transfer-loading">Memuat campaign...</div>');
+    function renderBulkTransferSelectedItems() {
+        var ids = Object.keys(bulkTransferState.selectedItems);
+        $("#bulk-transfer-count").text(ids.length + ' konten dipilih');
+
+        if (!ids.length) {
+            $("#bulk-transfer-selected-items").html('<span class="transfer-placeholder">Belum ada konten dipilih.</span>');
+            updateBulkTransferSubmitState();
+            return;
+        }
+
+        var html = '<div class="transfer-selected-list">';
+        ids.forEach(function(id) {
+            var item = bulkTransferState.selectedItems[id];
+            html += '<div class="transfer-selected-tag">' +
+                '<div>' +
+                '<div><strong>' + escapeHtml(item.nama_creator || '-') + '</strong></div>' +
+                '<div class="transfer-item-meta">ID #' + id + ' · ' + escapeHtml(item.platform || '-') + ' · ' + escapeHtml(item.status_endorse || '-')</div>' +
+                '</div>' +
+                '<button type="button" class="transfer-selected-remove" data-remove-bulk-id="' + id + '"><i class="bi bi-x-lg"></i></button>' +
+                '</div>';
+        });
+        html += '</div>';
+        $("#bulk-transfer-selected-items").html(html);
+        updateBulkTransferSubmitState();
+    }
+
+    function getBulkTransferCount() {
+        return Object.keys(bulkTransferState.selectedItems).length;
+    }
+
+    function updateBulkTransferSubmitState() {
+        var count = getBulkTransferCount();
+        var enabled = count > 0 && bulkTransferState.targetCampaign;
+        $("#bulk-transfer-submit").prop('disabled', !enabled).text('Transfer ' + count + ' Konten');
+    }
+
+    function getBulkTransferSourceParams() {
+        return {
+            id_campaign: transferConfig.currentCampaignId,
+            keyword: $("#bulk-transfer-search").val().trim(),
+            status_endorse: $("#bulk-transfer-status").val(),
+            platform: $("#bulk-transfer-platform").val(),
+            page: bulkTransferState.page,
+            limit: 20
+        };
+    }
+
+    function buildBulkSourceDescription(row) {
+        var parts = [];
+        if (row.task) {
+            parts.push(row.task);
+        }
+        if (row.link_upload) {
+            parts.push(row.link_upload);
+        } else if (row.desc) {
+            parts.push(row.desc);
+        }
+        return parts.join(' · ');
+    }
+
+    function renderBulkTransferSourceItems(items, appendMode) {
+        bulkTransferState.visibleItems = appendMode ? bulkTransferState.visibleItems.concat(items) : items.slice();
+        var html = '';
+
+        if (!bulkTransferState.visibleItems.length) {
+            html = '<div class="transfer-empty">Konten tidak ditemukan.</div>';
+        } else {
+            bulkTransferState.visibleItems.forEach(function(row) {
+                var checked = !!bulkTransferState.selectedItems[row.id];
+                var desc = buildBulkSourceDescription(row);
+                html += '<label class="transfer-source-item ' + (checked ? 'is-selected' : '') + '">' +
+                    '<input type="checkbox" class="transfer-source-checkbox" data-bulk-id="' + row.id + '"' + (checked ? ' checked' : '') + '>' +
+                    '<div class="transfer-source-body">' +
+                    '<div class="transfer-source-title">' + escapeHtml(row.nama_creator || '-') + '</div>' +
+                    '<div class="transfer-source-meta">ID #' + row.id + ' · ' + escapeHtml(row.platform || '-') + ' · ' + escapeHtml(row.status_endorse || '-') + (row.posting_at ? ' · Posting ' + escapeHtml(row.posting_at) : '') + '</div>' +
+                    (desc ? '<div class="transfer-source-desc">' + escapeHtml(desc) + '</div>' : '') +
+                    '</div>' +
+                    '</label>';
+            });
+        }
+
+        if (bulkTransferState.hasMore && bulkTransferState.visibleItems.length) {
+            html += '<button type="button" class="transfer-load-more" id="bulk-transfer-load-more">Muat lebih banyak</button>';
+        }
+
+        $("#bulk-transfer-source-list").html(html);
+    }
+
+    function fetchBulkTransferContents(appendMode) {
+        if (!appendMode) {
+            bulkTransferState.page = 1;
+            bulkTransferState.hasMore = false;
+            $("#bulk-transfer-source-list").html('<div class="transfer-loading">Memuat konten...</div>');
+        } else {
+            $("#bulk-transfer-load-more").prop('disabled', true).text('Memuat...');
+        }
+
         $.ajax({
-            url: transferConfig.baseUrl + '/endorse/transfer-campaigns',
+            url: transferConfig.baseUrl + '/endorse/transfer-contents',
             dataType: 'json',
-            data: {
-                keyword: keyword,
-                is_internal: transferState.currentType,
-                exclude: transferConfig.currentCampaignId,
-                limit: 20
-            },
+            data: getBulkTransferSourceParams(),
             success: function(res) {
                 var items = res && res.data ? res.data : [];
-                if (!items.length) {
-                    $("#transfer-list").html('<div class="transfer-empty">Campaign tidak ditemukan.</div>');
-                    return;
-                }
-                var html = '';
-                items.forEach(function(row) {
-                    var typeLabel = row.is_internal == 1 ? 'INTERNAL' : 'EXTERNAL';
-                    var dates = '';
-                    if (row.start_at || row.until_at) {
-                        dates = (row.start_at || '-') + ' - ' + (row.until_at || '-');
-                    }
-                    html += '<button type="button" class="transfer-item" data-id="' + row.id + '" data-title="' + escapeHtml(row.title) + '" data-type="' + typeLabel + '">' +
-                        '<div>' +
-                        '<div class="transfer-item-title">' + escapeHtml(row.title || 'Campaign') + '</div>' +
-                        '<div class="transfer-item-meta">ID #' + row.id + (row.brand ? ' · ' + escapeHtml(row.brand) : '') + (dates ? ' · ' + escapeHtml(dates) : '') + '</div>' +
-                        '</div>' +
-                        '<span class="transfer-pill">' + typeLabel + '</span>' +
-                        '</button>';
-                });
-                $("#transfer-list").html(html);
+                var meta = res && res.meta ? res.meta : {};
+                bulkTransferState.hasMore = !!meta.has_more;
+                renderBulkTransferSourceItems(items, appendMode);
             },
             error: function() {
-                $("#transfer-list").html('<div class="transfer-empty">Gagal memuat campaign.</div>');
+                $("#bulk-transfer-source-list").html('<div class="transfer-empty">Gagal memuat konten.</div>');
             }
         });
+    }
+
+    function fetchBulkTransferCampaigns() {
+        fetchTransferCampaigns({
+            state: bulkTransferState,
+            searchSelector: '#bulk-transfer-campaign-search',
+            listSelector: '#bulk-transfer-list'
+        });
+    }
+
+    function openBulkTransferModal() {
+        bulkTransferState.selectedItems = {};
+        bulkTransferState.visibleItems = [];
+        bulkTransferState.page = 1;
+        bulkTransferState.hasMore = false;
+        bulkTransferState.targetCampaign = null;
+        bulkTransferState.currentType = transferConfig.currentType;
+
+        $("#bulk-transfer-search").val('');
+        $("#bulk-transfer-status").val('');
+        $("#bulk-transfer-platform").val('');
+        $("#bulk-transfer-campaign-search").val('');
+        $("#bulk-transfer-message").hide().text('');
+        renderBulkTransferSelectedItems();
+        renderTransferCampaignSelection(bulkTransferState, '#bulk-transfer-selected', '#bulk-transfer-target-type', null, '');
+        setBulkTransferFilter(bulkTransferState.currentType);
+        toggleBulkTransferDropdown(true);
+        $("#bulk-transfer-modal").modal('show');
+        fetchBulkTransferContents(false);
+        fetchBulkTransferCampaigns();
     }
 
     $(document).on('click', '.transfer-item', function() {
         var id = $(this).data('id');
         var title = $(this).data('title');
         var type = $(this).data('type');
-        transferState.targetCampaign = id;
-        $("#transfer-selected").html('<div><strong>' + escapeHtml(title) + '</strong></div><div class="transfer-item-meta">ID #' + id + '</div>');
-        $("#transfer-target-type").text(type || '-');
-        $("#transfer-submit").prop('disabled', false);
+        if ($(this).closest('#bulk-transfer-list').length) {
+            bulkTransferState.targetCampaign = {
+                id: id,
+                title: title,
+                type: type
+            };
+            renderTransferCampaignSelection(bulkTransferState, '#bulk-transfer-selected', '#bulk-transfer-target-type', null, '');
+            $("#bulk-transfer-message").hide().text('');
+            updateBulkTransferSubmitState();
+            toggleBulkTransferDropdown(false);
+            return;
+        }
+
+        transferState.targetCampaign = {
+            id: id,
+            title: title,
+            type: type
+        };
+        renderTransferCampaignSelection(transferState, '#transfer-selected', '#transfer-target-type', '#transfer-submit', 'Transfer Sekarang');
         $("#transfer-message").hide().text('');
         toggleTransferDropdown(false);
     });
 
     $(document).on('click', '.transfer-tab', function() {
+        if ($(this).is('[data-bulk-transfer-filter]')) {
+            return;
+        }
         var type = $(this).data('transfer-filter');
         setTransferFilter(type);
-        fetchTransferCampaigns();
+        fetchTransferCampaigns({
+            state: transferState,
+            searchSelector: '#transfer-search',
+            listSelector: '#transfer-list'
+        });
+    });
+
+    $(document).on('click', '[data-bulk-transfer-filter]', function() {
+        var type = $(this).data('bulk-transfer-filter');
+        setBulkTransferFilter(type);
+        fetchBulkTransferCampaigns();
     });
 
     $("#transfer-toggle").on('click', function() {
@@ -1785,18 +2347,98 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
     $("#transfer-search").on('input', function() {
         clearTimeout(transferSearchTimer);
         transferSearchTimer = setTimeout(function() {
-            fetchTransferCampaigns();
+            fetchTransferCampaigns({
+                state: transferState,
+                searchSelector: '#transfer-search',
+                listSelector: '#transfer-list'
+            });
         }, 250);
+    });
+
+    $("#bulk-transfer-toggle").on('click', function() {
+        toggleBulkTransferDropdown();
+    });
+
+    $("#bulk-transfer-campaign-search").on('focus', function() {
+        toggleBulkTransferDropdown(true);
+    });
+
+    var bulkTransferCampaignSearchTimer = null;
+    $("#bulk-transfer-campaign-search").on('input', function() {
+        clearTimeout(bulkTransferCampaignSearchTimer);
+        bulkTransferCampaignSearchTimer = setTimeout(function() {
+            fetchBulkTransferCampaigns();
+        }, 250);
+    });
+
+    var bulkTransferSourceSearchTimer = null;
+    $("#bulk-transfer-search").on('input', function() {
+        clearTimeout(bulkTransferSourceSearchTimer);
+        bulkTransferSourceSearchTimer = setTimeout(function() {
+            fetchBulkTransferContents(false);
+        }, 250);
+    });
+
+    $("#bulk-transfer-status, #bulk-transfer-platform").on('change', function() {
+        fetchBulkTransferContents(false);
+    });
+
+    $("#bulk-transfer-select-visible").on('click', function() {
+        bulkTransferState.visibleItems.forEach(function(item) {
+            bulkTransferState.selectedItems[item.id] = item;
+        });
+        renderBulkTransferSelectedItems();
+        renderBulkTransferSourceItems(bulkTransferState.visibleItems, false);
+    });
+
+    $("#bulk-transfer-clear").on('click', function() {
+        bulkTransferState.selectedItems = {};
+        renderBulkTransferSelectedItems();
+        renderBulkTransferSourceItems(bulkTransferState.visibleItems, false);
+    });
+
+    $(document).on('change', '[data-bulk-id]', function() {
+        var id = $(this).data('bulk-id');
+        var item = bulkTransferState.visibleItems.find(function(row) {
+            return String(row.id) === String(id);
+        });
+        if (!item) {
+            return;
+        }
+
+        if ($(this).is(':checked')) {
+            bulkTransferState.selectedItems[id] = item;
+        } else {
+            delete bulkTransferState.selectedItems[id];
+        }
+
+        renderBulkTransferSelectedItems();
+        $(this).closest('.transfer-source-item').toggleClass('is-selected', $(this).is(':checked'));
+    });
+
+    $(document).on('click', '[data-remove-bulk-id]', function() {
+        var id = $(this).data('remove-bulk-id');
+        delete bulkTransferState.selectedItems[id];
+        renderBulkTransferSelectedItems();
+        renderBulkTransferSourceItems(bulkTransferState.visibleItems, false);
+    });
+
+    $(document).on('click', '#bulk-transfer-load-more', function() {
+        bulkTransferState.page += 1;
+        fetchBulkTransferContents(true);
     });
 
     $(document).on('click', function(e) {
         if ($(e.target).closest('#transfer-combobox').length === 0) {
             toggleTransferDropdown(false);
         }
+        if ($(e.target).closest('#bulk-transfer-combobox').length === 0) {
+            toggleBulkTransferDropdown(false);
+        }
     });
 
     $("#transfer-submit").on('click', function() {
-        if (!transferState.idEndorse || !transferState.targetCampaign) {
+        if (!transferState.idEndorse || !transferState.targetCampaign || !transferState.targetCampaign.id) {
             return;
         }
         var $btn = $(this);
@@ -1809,12 +2451,12 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
             dataType: 'json',
             data: {
                 id_endorse: transferState.idEndorse,
-                target_campaign: transferState.targetCampaign
+                target_campaign: transferState.targetCampaign.id
             },
             success: function(res) {
                 if (res && res.status) {
                     var params = new URLSearchParams(window.location.search);
-                    params.set('id_campaign', transferState.targetCampaign);
+                    params.set('id_campaign', transferState.targetCampaign.id);
                     params.delete('ids');
                     var redirectUrl = transferConfig.endorseBaseUrl + '?' + params.toString();
                     window.location.href = redirectUrl;
@@ -1830,6 +2472,77 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
             }
         });
     });
+
+    $("#bulk-transfer-submit").on('click', function() {
+        var ids = Object.keys(bulkTransferState.selectedItems);
+        if (!ids.length || !bulkTransferState.targetCampaign || !bulkTransferState.targetCampaign.id) {
+            return;
+        }
+
+        var $btn = $(this);
+        $btn.prop('disabled', true).text('Memproses...');
+        $("#bulk-transfer-message").hide().text('');
+
+        $.ajax({
+            type: 'POST',
+            url: transferConfig.baseUrl + '/endorse/transfer-bulk-process',
+            dataType: 'json',
+            data: {
+                source_campaign: transferConfig.currentCampaignId,
+                target_campaign: bulkTransferState.targetCampaign.id,
+                id_endorse: ids
+            },
+            traditional: true,
+            success: function(res) {
+                if (res && res.status) {
+                    sessionStorage.setItem('endorseTransferSuccess', JSON.stringify({
+                        message: res.message || (ids.length + ' konten berhasil ditransfer.'),
+                        count: ids.length
+                    }));
+
+                    var params = new URLSearchParams(window.location.search);
+                    params.set('id_campaign', transferConfig.currentCampaignId);
+                    params.delete('ids');
+                    window.location.href = transferConfig.endorseBaseUrl + '?' + params.toString();
+                } else {
+                    var msg = res && res.message ? res.message : 'Transfer bulk gagal.';
+                    $("#bulk-transfer-message").text(msg).show();
+                    updateBulkTransferSubmitState();
+                }
+            },
+            error: function() {
+                $("#bulk-transfer-message").text('Transfer bulk gagal. Silakan coba lagi.').show();
+                updateBulkTransferSubmitState();
+            }
+        });
+    });
+
+    function showTransferSuccessBanner() {
+        var raw = sessionStorage.getItem('endorseTransferSuccess');
+        if (!raw) {
+            return;
+        }
+
+        sessionStorage.removeItem('endorseTransferSuccess');
+
+        var payload = null;
+        try {
+            payload = JSON.parse(raw);
+        } catch (error) {
+            payload = null;
+        }
+
+        if (!payload || !payload.message) {
+            return;
+        }
+
+        $("#endorse-notif").html(
+            '<div class="alert alert-success py-2 px-3 mb-2" role="alert">' +
+            escapeHtml(payload.message) +
+            '</div>' +
+            $("#endorse-notif").html()
+        );
+    }
 
     function get_id() {
         list_id_v2 = '';
@@ -1863,6 +2576,10 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
             }
         });
     }
+
+    $(document).ready(function() {
+        showTransferSuccessBanner();
+    });
 </script>
 
 <script>
