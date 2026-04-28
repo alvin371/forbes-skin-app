@@ -6,8 +6,25 @@ function separator_only($angka) {
 }
 
 $view = isset($_GET['view']) ? $_GET['view'] : 'card';
+$top_performer_period = isset($top_performer_period) && is_array($top_performer_period) ? $top_performer_period : array(
+    'key' => '',
+    'label' => '',
+    'start_date' => '',
+    'until_date' => '',
+);
+$top_performer_enabled = !empty($top_performer_period['key']);
 
 $content_filter_details = [];
+if ($top_performer_enabled) {
+    if ($top_performer_period['key'] === 'custom') {
+        $content_filter_details[] = 'Top Performer ' .
+            ($top_performer_period['start_date'] ? date('d/m/Y', strtotime($top_performer_period['start_date'])) : '-') .
+            ' - ' .
+            ($top_performer_period['until_date'] ? date('d/m/Y', strtotime($top_performer_period['until_date'])) : '-');
+    } else {
+        $content_filter_details[] = 'Top Performer ' . $top_performer_period['label'];
+    }
+}
 if (($_GET['list_views_zero'] ?? '') === '1') {
     $views_zero_date_text = $_GET['list_views_zero_date'] ?? '';
     if ($views_zero_date_text) {
@@ -126,6 +143,15 @@ if ($view == 'table') {
                             <i class="bi bi-arrow-down-up"></i>
                         <?php endif; ?>
                     </th>
+                    <?php if ($top_performer_enabled): ?>
+                        <th class="sortable">Growth Views
+                            <?php if ($sort_column == 'views_growth_period'): ?>
+                                <i class="bi bi-arrow-<?= $sort_order == 'ASC' ? 'up' : 'down' ?>"></i>
+                            <?php else: ?>
+                                <i class="bi bi-arrow-down-up"></i>
+                            <?php endif; ?>
+                        </th>
+                    <?php endif; ?>
                     <th>Link Upload</i></th>
                     <th>Kode Ads</th>
                     <th>Keterangan</th>
@@ -401,6 +427,9 @@ if ($view == 'table') {
                     <td><?= separator_only($v['views']) ?></td>
                     <td><?= separator_only($v['cpm']) ?></td>
                     <td class="text-start"><?= separator_only($v['engagement']) ?></td>
+                    <?php if ($top_performer_enabled): ?>
+                        <td class="text-end"><?= separator_only($v['views_growth_period'] ?? 0) ?></td>
+                    <?php endif; ?>
                     <td>
                         <div class="firstDivImg">
                             <?= $v['img'] ?>
@@ -707,6 +736,12 @@ if ($view == 'table') {
                 </div>
                 <?php if ($content_filter_detail_text): ?>
                     <p class="mb-1 mt-1 text-muted" style="font-size:12px;"><?= htmlspecialchars($content_filter_detail_text) ?></p>
+                <?php endif; ?>
+                <?php if ($top_performer_enabled): ?>
+                    <p class="mb-1 text-black fw-600">
+                        Growth Views<?= $top_performer_period['label'] ? ' (' . htmlspecialchars($top_performer_period['label']) . ')' : '' ?> :
+                        <?= separator_only($v['views_growth_period'] ?? 0) ?>
+                    </p>
                 <?php endif; ?>
             </div>
             <!-- Stats Section -->

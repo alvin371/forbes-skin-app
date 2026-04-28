@@ -1012,15 +1012,7 @@ class Template
         $response["data"] = array();
         if ($type == "Tiktok") {
             if ($url) {
-                // Extract videoId from URL
-                $video_id = null;
-                if (preg_match('/\/video\/(\d+)/', $url, $matches)) {
-                    $video_id = $matches[1];
-                } elseif (preg_match('/\/photo\/(\d+)/', $url, $matches)) {
-                    $video_id = $matches[1];
-                } elseif (preg_match('/(\d{10,25})/', $url, $matches)) {
-                    $video_id = $matches[1];
-                }
+                $video_id = $this->extract_tiktok_content_id($url);
 
                 if (empty($video_id)) {
                     $response["status"] = false;
@@ -1071,6 +1063,27 @@ class Template
             $response["data"] = array();
         }
         return $response;
+    }
+
+    public function extract_tiktok_content_id($url)
+    {
+        if (empty($url)) {
+            return null;
+        }
+
+        if (preg_match('/\/video\/(\d+)/', $url, $matches)) {
+            return $matches[1];
+        }
+
+        if (preg_match('/\/photo\/(\d+)/', $url, $matches)) {
+            return $matches[1];
+        }
+
+        if (preg_match('/(\d{10,25})/', $url, $matches)) {
+            return $matches[1];
+        }
+
+        return null;
     }
 
     function title()
@@ -1183,12 +1196,13 @@ class Template
 
     function alert_danger($text)
     {
-        $text = str_replace(array("\r", "\n"), '', $text);
+        $text = str_replace(array("\r", "\n"), ' ', $text);
+        $encoded_text = json_encode($text, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $text = '<script>
                         $( document ).ready(function() {
                         $.toast({
                             heading: "Informasi",
-                            text: "' . $text . '",
+                            text: ' . $encoded_text . ',
                             showHideTransition: "slide",
                             icon: "error",
                             position: "top-right",
@@ -1202,12 +1216,13 @@ class Template
 
     function alert_success($text)
     {
-        $text = str_replace(array("\r", "\n"), '', $text);
+        $text = str_replace(array("\r", "\n"), ' ', $text);
+        $encoded_text = json_encode($text, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $text = '<script success type="text/javascript">
                     $( document ).ready(function() {
                     $.toast({
                         heading: "Informasi",
-                        text: "' . $text . '",
+                        text: ' . $encoded_text . ',
                         showHideTransition: "slide",
                         icon: "success",
                         position: "top-right",
