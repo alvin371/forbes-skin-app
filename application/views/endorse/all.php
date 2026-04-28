@@ -1211,7 +1211,7 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                     <?php } ?>
                 </div>
                 <div class="d-flex align-items-center gap-2">
-                    <a href="#!" onclick="openBulkTransferModal()" class="btn btn-transfer mt-0">
+                    <a href="#!" id="bulk-transfer-trigger" class="btn btn-transfer mt-0">
                         <i class="bi bi-box-arrow-right fs-16"></i> Bulk Transfer
                     </a>
                     <a href="#!" onclick="sync_all('<?= $detail['id'] ?>')" class="btn btn-sync mt-0">
@@ -2288,6 +2288,12 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
         fetchBulkTransferContents(false);
         fetchBulkTransferCampaigns();
     }
+    window.openBulkTransferModal = openBulkTransferModal;
+
+    $("#bulk-transfer-trigger").on('click', function(e) {
+        e.preventDefault();
+        openBulkTransferModal();
+    });
 
     $(document).on('click', '.transfer-item', function() {
         var id = $(this).data('id');

@@ -169,7 +169,8 @@
         btn.disabled = true;
         $.get('<?= base_url() ?>ajax/refresh-campaign-endorses', { id_campaign: id }, function(res) {
             if (res.status) {
-                showCampaignToast(res.msg, 'info');
+                var msg = res.msg + ' <a href="<?= base_url() ?>endorse/queue?id_campaign=' + id + '"><b>Lihat antrian →</b></a>';
+                showCampaignToast(msg, 'info');
             }
             btn.innerHTML = '<i class="bi bi-arrow-clockwise fs-16"></i> Refresh';
             btn.disabled = false;
@@ -181,20 +182,31 @@
 
     function refreshAllCampaigns() {
         var buttons = document.querySelectorAll('[id^="refresh-btn-"]');
-        var count = 0;
+        if (!buttons.length) return;
+        if (!confirm('Antrikan refresh untuk ' + buttons.length + ' campaign? Proses asinkron, pantau di icon antrian.')) return;
+        var totalEnqueued = 0, totalSkipped = 0, done = 0;
         buttons.forEach(function(btn) {
             var id = btn.id.replace('refresh-btn-', '');
-            $.get('<?= base_url() ?>ajax/refresh-campaign-endorses', { id_campaign: id });
-            count++;
+            $.get('<?= base_url() ?>ajax/refresh-campaign-endorses', { id_campaign: id }, function(res) {
+                if (res && res.status) {
+                    totalEnqueued += parseInt(res.enqueued || 0);
+                    totalSkipped  += parseInt(res.skipped_duplicates || 0);
+                }
+                done++;
+                if (done === buttons.length) {
+                    var msg = 'Antrian dibuat: ' + totalEnqueued + ' baru, ' + totalSkipped + ' sudah ada. ' +
+                        '<a href="<?= base_url() ?>endorse/queue"><b>Lihat antrian →</b></a>';
+                    showCampaignToast(msg, 'success');
+                }
+            }, 'json');
         });
-        showCampaignToast('Refresh diminta untuk ' + count + ' campaign. Data akan diperbarui pada sinkronisasi berikutnya.', 'info');
     }
 
     function showCampaignToast(msg, type) {
         if (typeof Swal !== 'undefined') {
-            Swal.fire({ icon: type || 'info', text: msg, toast: true, position: 'top-end', showConfirmButton: false, timer: 4000 });
+            Swal.fire({ icon: type || 'info', html: msg, toast: true, position: 'top-end', showConfirmButton: false, timer: 6000 });
         } else {
-            alert(msg);
+            alert(msg.replace(/<[^>]+>/g, ''));
         }
     }
 </script>
