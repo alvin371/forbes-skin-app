@@ -1201,44 +1201,42 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
     }
     ?>
 
-    <tr>
-        <td>
-            <div class="d-flex justify-content-between align-items-center w-100">
-                <div>
-                    <div id="endorse-notif"><?= $notif ?></div>
-                    <?php if (!empty($active_content_filters)) { ?>
-                        <div class="small text-muted mt-1">Filter aktif: <?= implode(' | ', $active_content_filters) ?></div>
-                    <?php } ?>
-                </div>
-                <div class="d-flex align-items-center gap-2">
-                    <a href="#!" id="bulk-transfer-trigger" class="btn btn-transfer mt-0">
-                        <i class="bi bi-box-arrow-right fs-16"></i> Bulk Transfer
-                    </a>
-                    <a href="#!" onclick="sync_all('<?= $detail['id'] ?>')" class="btn btn-sync mt-0">
-                        <i class="bi bi-bootstrap-reboot fs-16"></i> Refresh Semua
-                    </a>
-                    <div class="dropdown">
-                        <button class="btn btn-primary dropdown-toggle" type="button" id="dropdownView" data-bs-toggle="dropdown" aria-expanded="false">
-                            Pilih Tampilan
-                        </button>
-                        <ul class="dropdown-menu" aria-labelledby="dropdownView">
-                            <?php
-                            $current_params = $_GET;
+    <div class="col-lg-12 mb-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 w-100">
+            <div>
+                <div id="endorse-notif"><?= $notif ?></div>
+                <?php if (!empty($active_content_filters)) { ?>
+                    <div class="small text-muted mt-1">Filter aktif: <?= implode(' | ', $active_content_filters) ?></div>
+                <?php } ?>
+            </div>
+            <div class="d-flex align-items-center flex-wrap gap-2">
+                <button type="button" id="bulk-transfer-trigger" class="btn btn-transfer mt-0" onclick="openBulkTransferModal();">
+                    <i class="bi bi-box-arrow-right fs-16"></i> Bulk Transfer
+                </button>
+                <a href="#!" onclick="sync_all('<?= $detail['id'] ?>')" class="btn btn-sync mt-0">
+                    <i class="bi bi-bootstrap-reboot fs-16"></i> Refresh Semua
+                </a>
+                <div class="dropdown">
+                    <button class="btn btn-primary dropdown-toggle" type="button" id="dropdownView" data-bs-toggle="dropdown" aria-expanded="false">
+                        Pilih Tampilan
+                    </button>
+                    <ul class="dropdown-menu" aria-labelledby="dropdownView">
+                        <?php
+                        $current_params = $_GET;
 
-                            $current_params['view'] = 'card';
-                            $card_url = 'endorse?' . http_build_query($current_params);
+                        $current_params['view'] = 'card';
+                        $card_url = 'endorse?' . http_build_query($current_params);
 
-                            $current_params['view'] = 'table';
-                            $table_url = 'endorse?' . http_build_query($current_params);
-                            ?>
-                            <li><a class="dropdown-item" href="<?= $card_url ?>">Tampilan Kartu</a></li>
-                            <li><a class="dropdown-item" href="<?= $table_url ?>">Tampilan List</a></li>
-                        </ul>
-                    </div>
+                        $current_params['view'] = 'table';
+                        $table_url = 'endorse?' . http_build_query($current_params);
+                        ?>
+                        <li><a class="dropdown-item" href="<?= $card_url ?>">Tampilan Kartu</a></li>
+                        <li><a class="dropdown-item" href="<?= $table_url ?>">Tampilan List</a></li>
+                    </ul>
                 </div>
             </div>
-        </td>
-    </tr>
+        </div>
+    </div>
 
 
 
@@ -1896,7 +1894,7 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
     var transferState = {
         idEndorse: null,
         targetCampaign: null,
-        currentType: '<?= (!empty($detail['is_internal']) && $detail['is_internal'] == 1) ? '1' : '0' ?>'
+        currentType: <?= json_encode((!empty($detail['is_internal']) && $detail['is_internal'] == 1) ? '1' : '0') ?>
     };
     var bulkTransferState = {
         selectedItems: {},
@@ -1904,14 +1902,13 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
         page: 1,
         hasMore: false,
         targetCampaign: null,
-        currentType: '<?= (!empty($detail['is_internal']) && $detail['is_internal'] == 1) ? '1' : '0' ?>'
+        currentType: <?= json_encode((!empty($detail['is_internal']) && $detail['is_internal'] == 1) ? '1' : '0') ?>
     };
     var transferConfig = {
-        baseUrl: '<?= base_url() ?>',
-        endorseBaseUrl: '<?= base_url() ?>/endorse',
-        currentCampaignId: '<?= $detail['id'] ?>',
-        currentCampaignTitle: '<?= htmlspecialchars($detail['title'], ENT_QUOTES) ?>',
-        currentType: '<?= (!empty($detail['is_internal']) && $detail['is_internal'] == 1) ? '1' : '0' ?>'
+        baseUrl: <?= json_encode(base_url()) ?>,
+        endorseBaseUrl: <?= json_encode(base_url() . '/endorse') ?>,
+        currentCampaignId: <?= json_encode((string) $detail['id']) ?>,
+        currentType: <?= json_encode((!empty($detail['is_internal']) && $detail['is_internal'] == 1) ? '1' : '0') ?>
     };
 
     function showModal(title, url, isLarge = false) {
@@ -1928,13 +1925,13 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
         $("#load-form").load(url);
     }
 
-    function create(id) {
+    window.create = function(id) {
         showModal('Tambah Konten', `<?= base_url() ?>/endorse/create?id=${id}`, true);
-    }
+    };
 
-    function edit(id) {
+    window.edit = function(id) {
         showModal('Edit Konten', `<?= base_url() ?>/endorse/edit?id=${id}`, true);
-    }
+    };
 
     function hapus_data(id) {
         showModal('Hapus Data', `<?= base_url() ?>/endorse/action?code=hapus_data&id=${id}`);
@@ -1948,19 +1945,19 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
         showModal('Ubah Status Payment', `<?= base_url() ?>/endorse/action?code=ubah_status_payment&id=${id}`);
     }
 
-    function set_payment(id) {
+    window.set_payment = function(id) {
         showModal('Ajukan Payment', `<?= base_url() ?>/endorse/ajukan_payment?id=${id}`);
-    }
+    };
 
-    function generate_mou(id) {
+    window.generate_mou = function(id) {
         showModal('', `<?= base_url() ?>/endorse/generate_mou?id=${id}`, true); 
         $("#title-form").html('');
-    }
+    };
 
 
-    function set_batalkan_payment(id) {
+    window.set_batalkan_payment = function(id) {
         showModal('Batalkan Payment', `<?= base_url() ?>/endorse/batal_ajukan_payment?id=${id}`);
-    }
+    };
 
     function ubah_status_data(id) {
         showModal('Ubah Status Data', `<?= base_url() ?>/endorse/action?code=ubah_status_data&id=${id}`);
@@ -1970,11 +1967,11 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
         showModal('Refresh Data', `<?= base_url() ?>/endorse/action?code=refresh_data&id_campaign=<?= $detail['id'] ?>`);
     }
 
-    function remove(id) {
+    window.remove = function(id) {
         showModal('Hapus Data', `<?= base_url() ?>/endorse/remove?id=${id}`);
-    }
+    };
 
-    function sync_all(id) {
+    window.sync_all = function(id) {
         if (!confirm('Refresh semua konten aktif di campaign ini? Proses berjalan di latar belakang lewat antrian.')) return;
         $.ajax({
             url: '<?= base_url() ?>endorse/bulk-refresh',
@@ -2000,15 +1997,15 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                 alert('Gagal menghubungi server.');
             }
         });
-    }
+    };
 
-    function sync(id) {
+    window.sync = function(id) {
         showModal('Refresh Data', `<?= base_url() ?>/endorse/sync?id=${id}`);
-    }
+    };
 
-    function clone(id) {
+    window.clone = function(id) {
         showModal('Kloning Data', `<?= base_url() ?>/endorse/clone?id=${id}`);
-    }
+    };
 
     function buildTransferCampaignHtml(items) {
         var html = '';
@@ -2073,7 +2070,7 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
         });
     }
 
-    function openTransferModal(idEndorse, creatorName, statusEndorse, platform) {
+    window.openTransferModal = function(idEndorse, creatorName, statusEndorse, platform) {
         transferState.idEndorse = idEndorse;
         transferState.targetCampaign = null;
         transferState.currentType = transferConfig.currentType;
@@ -2094,7 +2091,7 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
             searchSelector: '#transfer-search',
             listSelector: '#transfer-list'
         });
-    }
+    };
 
     function setTransferFilter(type) {
         transferState.currentType = String(type);
@@ -2550,7 +2547,7 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
         );
     }
 
-    function get_id() {
+    window.get_id = function() {
         list_id_v2 = '';
         var selectedValues = [];
         $('input[name="list_id"]').each(function() {
@@ -2565,11 +2562,11 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
             list_id_v2 = list_id_v2.slice(0, -1);
         }
         $('#id_selected').val(selectedValues.join(','));
-    }
+    };
 
-    function tampilkan_data() {
+    window.tampilkan_data = function() {
         window.location.href = `<?= base_url() ?>/endorse?id_campaign=<?= $detail['id'] ?>&ids=${list_id_v2}`;
-    }
+    };
 
     function show_chart(id) {
         $('#chart-' + id).html('<i class="fa fa-circle-o-notch fa-spin"></i> Memuat data ...');
@@ -2586,6 +2583,642 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
     $(document).ready(function() {
         showTransferSuccessBanner();
     });
+</script>
+
+<script>
+    (function() {
+        var baseUrl = <?= json_encode(base_url()) ?>;
+        var endorseBaseUrl = <?= json_encode(base_url() . '/endorse') ?>;
+        var currentCampaignId = <?= json_encode((string) $detail['id']) ?>;
+        var currentType = <?= json_encode((!empty($detail['is_internal']) && $detail['is_internal'] == 1) ? '1' : '0') ?>;
+
+        var transferState = {
+            idEndorse: null,
+            targetCampaign: null,
+            currentType: currentType
+        };
+
+        var bulkTransferState = {
+            selectedItems: {},
+            visibleItems: [],
+            page: 1,
+            hasMore: false,
+            targetCampaign: null,
+            currentType: currentType
+        };
+
+        function showModalFallback(title, url, isLarge) {
+            if (!$('#modal-form').length || !$('#load-form').length) {
+                window.location.href = url;
+                return;
+            }
+
+            $("#load-form").html('Loading...');
+            $("#modal-form").modal('show');
+            $("#title-form").html(title || '');
+
+            if (isLarge) {
+                $("#modal-form .modal-dialog").addClass("modal-lg");
+            } else {
+                $("#modal-form .modal-dialog").removeClass("modal-lg");
+            }
+
+            $("#load-form").load(url);
+        }
+
+        function escapeHtmlFallback(text) {
+            return String(text || '').replace(/[&<>"']/g, function(match) {
+                return ({
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#39;'
+                })[match];
+            });
+        }
+
+        window.create = function(id) {
+            showModalFallback('Tambah Konten', baseUrl + '/endorse/create?id=' + id, true);
+        };
+
+        window.edit = function(id) {
+            showModalFallback('Edit Konten', baseUrl + '/endorse/edit?id=' + id, true);
+        };
+
+        window.remove = function(id) {
+            showModalFallback('Hapus Data', baseUrl + '/endorse/remove?id=' + id, false);
+        };
+
+        window.sync = function(id) {
+            showModalFallback('Refresh Data', baseUrl + '/endorse/sync?id=' + id, false);
+        };
+
+        window.clone = function(id) {
+            showModalFallback('Kloning Data', baseUrl + '/endorse/clone?id=' + id, false);
+        };
+
+        window.set_payment = function(id) {
+            showModalFallback('Ajukan Payment', baseUrl + '/endorse/ajukan_payment?id=' + id, false);
+        };
+
+        window.set_batalkan_payment = function(id) {
+            showModalFallback('Batalkan Payment', baseUrl + '/endorse/batal_ajukan_payment?id=' + id, false);
+        };
+
+        window.generate_mou = function(id) {
+            showModalFallback('', baseUrl + '/endorse/generate_mou?id=' + id, true);
+            $("#title-form").html('');
+        };
+
+        window.sync_all = function(id) {
+            if (!confirm('Refresh semua konten aktif di campaign ini? Proses berjalan di latar belakang lewat antrian.')) {
+                return;
+            }
+
+            $.ajax({
+                url: baseUrl + 'endorse/bulk-refresh',
+                method: 'POST',
+                dataType: 'json',
+                data: { id_campaign: id },
+                success: function(resp) {
+                    var queueUrl = baseUrl + 'endorse/queue?id_campaign=' + id;
+                    if (resp && resp.status) {
+                        var msg = resp.msg || ('Antrian dibuat: ' + resp.enqueued + ' baru, ' + resp.skipped_duplicates + ' sudah ada.');
+                        if (typeof toastr !== 'undefined') {
+                            toastr.success(msg + ' <a href="' + queueUrl + '" class="text-white text-underline"><b>Lihat antrian →</b></a>', '', {
+                                timeOut: 7000,
+                                escapeHtml: false
+                            });
+                        } else if (confirm(msg + '\n\nBuka halaman antrian sekarang?')) {
+                            window.location.href = queueUrl;
+                        }
+                    } else {
+                        var errMsg = (resp && resp.msg) ? resp.msg : 'Gagal membuat antrian refresh.';
+                        if (typeof toastr !== 'undefined') {
+                            toastr.error(errMsg);
+                        } else {
+                            alert(errMsg);
+                        }
+                    }
+                },
+                error: function() {
+                    alert('Gagal menghubungi server.');
+                }
+            });
+        };
+
+        window.get_id = function() {
+            var selectedValues = [];
+            var listIdV2 = '';
+
+            $('input[name="list_id"]').each(function() {
+                if ($(this).is(":checked")) {
+                    selectedValues.push($(this).val());
+                    listIdV2 += $(this).val() + ',';
+                } else {
+                    selectedValues.push('0');
+                }
+            });
+
+            if (listIdV2.length > 0) {
+                listIdV2 = listIdV2.slice(0, -1);
+            }
+
+            window.list_id_v2 = listIdV2;
+            $('#id_selected').val(selectedValues.join(','));
+        };
+
+        window.tampilkan_data = function() {
+            window.location.href = endorseBaseUrl + '?id_campaign=' + currentCampaignId + '&ids=' + (window.list_id_v2 || '');
+        };
+
+        function renderTransferCampaignSelection(state, selectedSelector, targetTypeSelector, submitSelector, submitLabel) {
+            if (!state.targetCampaign) {
+                $(selectedSelector).html('<span class="transfer-placeholder">Belum ada campaign dipilih.</span>');
+                $(targetTypeSelector).text('-');
+                if (submitSelector) {
+                    $(submitSelector).prop('disabled', true).text(submitLabel);
+                }
+                return;
+            }
+
+            $(selectedSelector).html('<div><strong>' + escapeHtmlFallback(state.targetCampaign.title) + '</strong></div><div class="transfer-item-meta">ID #' + state.targetCampaign.id + '</div>');
+            $(targetTypeSelector).text(state.targetCampaign.type || '-');
+            if (submitSelector) {
+                $(submitSelector).prop('disabled', false).text(submitLabel);
+            }
+        }
+
+        function renderTransferCampaignHtml(items) {
+            var html = '';
+
+            items.forEach(function(row) {
+                var typeLabel = row.is_internal == 1 ? 'INTERNAL' : 'EXTERNAL';
+                var dates = '';
+
+                if (row.start_at || row.until_at) {
+                    dates = (row.start_at || '-') + ' - ' + (row.until_at || '-');
+                }
+
+                html += '<button type="button" class="transfer-item" data-id="' + row.id + '" data-title="' + escapeHtmlFallback(row.title) + '" data-type="' + typeLabel + '">' +
+                    '<div>' +
+                    '<div class="transfer-item-title">' + escapeHtmlFallback(row.title || 'Campaign') + '</div>' +
+                    '<div class="transfer-item-meta">ID #' + row.id + (row.brand ? ' · ' + escapeHtmlFallback(row.brand) : '') + (dates ? ' · ' + escapeHtmlFallback(dates) : '') + '</div>' +
+                    '</div>' +
+                    '<span class="transfer-pill">' + typeLabel + '</span>' +
+                    '</button>';
+            });
+
+            return html;
+        }
+
+        function fetchTransferCampaigns(options) {
+            var keyword = $(options.searchSelector).val().trim();
+            $(options.listSelector).html('<div class="transfer-loading">Memuat campaign...</div>');
+
+            $.ajax({
+                url: baseUrl + '/endorse/transfer-campaigns',
+                dataType: 'json',
+                data: {
+                    keyword: keyword,
+                    is_internal: options.state.currentType,
+                    exclude: currentCampaignId,
+                    limit: 20
+                },
+                success: function(res) {
+                    var items = res && res.data ? res.data : [];
+                    if (!items.length) {
+                        $(options.listSelector).html('<div class="transfer-empty">Campaign tidak ditemukan.</div>');
+                        return;
+                    }
+
+                    $(options.listSelector).html(renderTransferCampaignHtml(items));
+                },
+                error: function() {
+                    $(options.listSelector).html('<div class="transfer-empty">Gagal memuat campaign.</div>');
+                }
+            });
+        }
+
+        function setTransferFilter(type) {
+            transferState.currentType = String(type);
+            $(".transfer-tab").removeClass('active');
+            $('.transfer-tab[data-transfer-filter="' + transferState.currentType + '"]').addClass('active');
+        }
+
+        function setBulkTransferFilter(type) {
+            bulkTransferState.currentType = String(type);
+            $('[data-bulk-transfer-filter]').removeClass('active');
+            $('[data-bulk-transfer-filter="' + bulkTransferState.currentType + '"]').addClass('active');
+        }
+
+        function toggleTransferDropdown(forceOpen) {
+            var $combo = $("#transfer-combobox");
+            if (forceOpen === true) {
+                $combo.addClass('is-open');
+                return;
+            }
+            if (forceOpen === false) {
+                $combo.removeClass('is-open');
+                return;
+            }
+            $combo.toggleClass('is-open');
+        }
+
+        function toggleBulkTransferDropdown(forceOpen) {
+            var $combo = $("#bulk-transfer-combobox");
+            if (forceOpen === true) {
+                $combo.addClass('is-open');
+                return;
+            }
+            if (forceOpen === false) {
+                $combo.removeClass('is-open');
+                return;
+            }
+            $combo.toggleClass('is-open');
+        }
+
+        function buildBulkSourceDescription(row) {
+            var parts = [];
+            if (row.task) {
+                parts.push(row.task);
+            }
+            if (row.link_upload) {
+                parts.push(row.link_upload);
+            } else if (row.desc) {
+                parts.push(row.desc);
+            }
+            return parts.join(' · ');
+        }
+
+        function updateBulkTransferSubmitState() {
+            var count = Object.keys(bulkTransferState.selectedItems).length;
+            var enabled = count > 0 && bulkTransferState.targetCampaign;
+            $("#bulk-transfer-submit").prop('disabled', !enabled).text('Transfer ' + count + ' Konten');
+        }
+
+        function renderBulkTransferSelectedItems() {
+            var ids = Object.keys(bulkTransferState.selectedItems);
+            $("#bulk-transfer-count").text(ids.length + ' konten dipilih');
+
+            if (!ids.length) {
+                $("#bulk-transfer-selected-items").html('<span class="transfer-placeholder">Belum ada konten dipilih.</span>');
+                updateBulkTransferSubmitState();
+                return;
+            }
+
+            var html = '<div class="transfer-selected-list">';
+            ids.forEach(function(id) {
+                var item = bulkTransferState.selectedItems[id];
+                html += '<div class="transfer-selected-tag">' +
+                    '<div>' +
+                    '<div><strong>' + escapeHtmlFallback(item.nama_creator || '-') + '</strong></div>' +
+                    '<div class="transfer-item-meta">ID #' + id + ' · ' + escapeHtmlFallback(item.platform || '-') + ' · ' + escapeHtmlFallback(item.status_endorse || '-') + '</div>' +
+                    '</div>' +
+                    '<button type="button" class="transfer-selected-remove" data-remove-bulk-id="' + id + '"><i class="bi bi-x-lg"></i></button>' +
+                    '</div>';
+            });
+            html += '</div>';
+
+            $("#bulk-transfer-selected-items").html(html);
+            updateBulkTransferSubmitState();
+        }
+
+        function renderBulkTransferSourceItems(items, appendMode) {
+            bulkTransferState.visibleItems = appendMode ? bulkTransferState.visibleItems.concat(items) : items.slice();
+            var html = '';
+
+            if (!bulkTransferState.visibleItems.length) {
+                html = '<div class="transfer-empty">Konten tidak ditemukan.</div>';
+            } else {
+                bulkTransferState.visibleItems.forEach(function(row) {
+                    var checked = !!bulkTransferState.selectedItems[row.id];
+                    var desc = buildBulkSourceDescription(row);
+                    html += '<label class="transfer-source-item ' + (checked ? 'is-selected' : '') + '">' +
+                        '<input type="checkbox" class="transfer-source-checkbox" data-bulk-id="' + row.id + '"' + (checked ? ' checked' : '') + '>' +
+                        '<div class="transfer-source-body">' +
+                        '<div class="transfer-source-title">' + escapeHtmlFallback(row.nama_creator || '-') + '</div>' +
+                        '<div class="transfer-source-meta">ID #' + row.id + ' · ' + escapeHtmlFallback(row.platform || '-') + ' · ' + escapeHtmlFallback(row.status_endorse || '-') + (row.posting_at ? ' · Posting ' + escapeHtmlFallback(row.posting_at) : '') + '</div>' +
+                        (desc ? '<div class="transfer-source-desc">' + escapeHtmlFallback(desc) + '</div>' : '') +
+                        '</div>' +
+                        '</label>';
+                });
+            }
+
+            if (bulkTransferState.hasMore && bulkTransferState.visibleItems.length) {
+                html += '<button type="button" class="transfer-load-more" id="bulk-transfer-load-more">Muat lebih banyak</button>';
+            }
+
+            $("#bulk-transfer-source-list").html(html);
+        }
+
+        function fetchBulkTransferContents(appendMode) {
+            if (!appendMode) {
+                bulkTransferState.page = 1;
+                bulkTransferState.hasMore = false;
+                $("#bulk-transfer-source-list").html('<div class="transfer-loading">Memuat konten...</div>');
+            } else {
+                $("#bulk-transfer-load-more").prop('disabled', true).text('Memuat...');
+            }
+
+            $.ajax({
+                url: baseUrl + '/endorse/transfer-contents',
+                dataType: 'json',
+                data: {
+                    id_campaign: currentCampaignId,
+                    keyword: $("#bulk-transfer-search").val().trim(),
+                    status_endorse: $("#bulk-transfer-status").val(),
+                    platform: $("#bulk-transfer-platform").val(),
+                    page: bulkTransferState.page,
+                    limit: 20
+                },
+                success: function(res) {
+                    var items = res && res.data ? res.data : [];
+                    var meta = res && res.meta ? res.meta : {};
+                    bulkTransferState.hasMore = !!meta.has_more;
+                    renderBulkTransferSourceItems(items, appendMode);
+                },
+                error: function() {
+                    $("#bulk-transfer-source-list").html('<div class="transfer-empty">Gagal memuat konten.</div>');
+                }
+            });
+        }
+
+        function fetchBulkTransferCampaigns() {
+            fetchTransferCampaigns({
+                state: bulkTransferState,
+                searchSelector: '#bulk-transfer-campaign-search',
+                listSelector: '#bulk-transfer-list'
+            });
+        }
+
+        window.openTransferModal = function(idEndorse, creatorName, statusEndorse, platform) {
+            transferState.idEndorse = idEndorse;
+            transferState.targetCampaign = null;
+            transferState.currentType = currentType;
+            $("#transfer-selected").html('<span class="transfer-placeholder">Belum ada campaign dipilih.</span>');
+            $("#transfer-message").hide().text('');
+            $("#transfer-submit").prop('disabled', true).text('Transfer Sekarang');
+            $("#transfer-target-type").text('-');
+            $("#transfer-search").val('');
+            $("#transfer-item-meta").text([creatorName || '-', statusEndorse || '-', platform || '-'].join(' · '));
+            setTransferFilter(transferState.currentType);
+            toggleTransferDropdown(true);
+            $("#transfer-modal").modal('show');
+
+            fetchTransferCampaigns({
+                state: transferState,
+                searchSelector: '#transfer-search',
+                listSelector: '#transfer-list'
+            });
+        };
+
+        window.openBulkTransferModal = function() {
+            bulkTransferState.selectedItems = {};
+            bulkTransferState.visibleItems = [];
+            bulkTransferState.page = 1;
+            bulkTransferState.hasMore = false;
+            bulkTransferState.targetCampaign = null;
+            bulkTransferState.currentType = currentType;
+            $("#bulk-transfer-search").val('');
+            $("#bulk-transfer-status").val('');
+            $("#bulk-transfer-platform").val('');
+            $("#bulk-transfer-campaign-search").val('');
+            $("#bulk-transfer-message").hide().text('');
+            renderBulkTransferSelectedItems();
+            renderTransferCampaignSelection(bulkTransferState, '#bulk-transfer-selected', '#bulk-transfer-target-type', null, '');
+            setBulkTransferFilter(bulkTransferState.currentType);
+            toggleBulkTransferDropdown(true);
+            $("#bulk-transfer-modal").modal('show');
+            fetchBulkTransferContents(false);
+            fetchBulkTransferCampaigns();
+        };
+
+        $(document)
+            .off('click.endorseFallback', '.transfer-item')
+            .on('click.endorseFallback', '.transfer-item', function() {
+                var id = $(this).data('id');
+                var title = $(this).data('title');
+                var type = $(this).data('type');
+
+                if ($(this).closest('#bulk-transfer-list').length) {
+                    bulkTransferState.targetCampaign = { id: id, title: title, type: type };
+                    renderTransferCampaignSelection(bulkTransferState, '#bulk-transfer-selected', '#bulk-transfer-target-type', null, '');
+                    $("#bulk-transfer-message").hide().text('');
+                    updateBulkTransferSubmitState();
+                    toggleBulkTransferDropdown(false);
+                    return;
+                }
+
+                transferState.targetCampaign = { id: id, title: title, type: type };
+                renderTransferCampaignSelection(transferState, '#transfer-selected', '#transfer-target-type', '#transfer-submit', 'Transfer Sekarang');
+                $("#transfer-message").hide().text('');
+                toggleTransferDropdown(false);
+            })
+            .off('click.endorseFallback', '.transfer-tab')
+            .on('click.endorseFallback', '.transfer-tab', function() {
+                if ($(this).is('[data-bulk-transfer-filter]')) {
+                    return;
+                }
+                setTransferFilter($(this).data('transfer-filter'));
+                fetchTransferCampaigns({
+                    state: transferState,
+                    searchSelector: '#transfer-search',
+                    listSelector: '#transfer-list'
+                });
+            })
+            .off('click.endorseFallback', '[data-bulk-transfer-filter]')
+            .on('click.endorseFallback', '[data-bulk-transfer-filter]', function() {
+                setBulkTransferFilter($(this).data('bulk-transfer-filter'));
+                fetchBulkTransferCampaigns();
+            })
+            .off('change.endorseFallback', '[data-bulk-id]')
+            .on('change.endorseFallback', '[data-bulk-id]', function() {
+                var id = $(this).data('bulk-id');
+                var item = bulkTransferState.visibleItems.find(function(row) {
+                    return String(row.id) === String(id);
+                });
+
+                if (!item) {
+                    return;
+                }
+
+                if ($(this).is(':checked')) {
+                    bulkTransferState.selectedItems[id] = item;
+                } else {
+                    delete bulkTransferState.selectedItems[id];
+                }
+
+                renderBulkTransferSelectedItems();
+                $(this).closest('.transfer-source-item').toggleClass('is-selected', $(this).is(':checked'));
+            })
+            .off('click.endorseFallback', '[data-remove-bulk-id]')
+            .on('click.endorseFallback', '[data-remove-bulk-id]', function() {
+                var id = $(this).data('remove-bulk-id');
+                delete bulkTransferState.selectedItems[id];
+                renderBulkTransferSelectedItems();
+                renderBulkTransferSourceItems(bulkTransferState.visibleItems, false);
+            })
+            .off('click.endorseFallback', '#bulk-transfer-load-more')
+            .on('click.endorseFallback', '#bulk-transfer-load-more', function() {
+                bulkTransferState.page += 1;
+                fetchBulkTransferContents(true);
+            })
+            .off('click.endorseFallbackOutside')
+            .on('click.endorseFallbackOutside', function(e) {
+                if ($(e.target).closest('#transfer-combobox').length === 0) {
+                    toggleTransferDropdown(false);
+                }
+                if ($(e.target).closest('#bulk-transfer-combobox').length === 0) {
+                    toggleBulkTransferDropdown(false);
+                }
+            });
+
+        $("#transfer-toggle").off('click.endorseFallback').on('click.endorseFallback', function() {
+            toggleTransferDropdown();
+        });
+        $("#bulk-transfer-toggle").off('click.endorseFallback').on('click.endorseFallback', function() {
+            toggleBulkTransferDropdown();
+        });
+        $("#transfer-search").off('focus.endorseFallback').on('focus.endorseFallback', function() {
+            toggleTransferDropdown(true);
+        });
+        $("#bulk-transfer-campaign-search").off('focus.endorseFallback').on('focus.endorseFallback', function() {
+            toggleBulkTransferDropdown(true);
+        });
+
+        var transferSearchTimer = null;
+        $("#transfer-search").off('input.endorseFallback').on('input.endorseFallback', function() {
+            clearTimeout(transferSearchTimer);
+            transferSearchTimer = setTimeout(function() {
+                fetchTransferCampaigns({
+                    state: transferState,
+                    searchSelector: '#transfer-search',
+                    listSelector: '#transfer-list'
+                });
+            }, 250);
+        });
+
+        var bulkTransferCampaignTimer = null;
+        $("#bulk-transfer-campaign-search").off('input.endorseFallback').on('input.endorseFallback', function() {
+            clearTimeout(bulkTransferCampaignTimer);
+            bulkTransferCampaignTimer = setTimeout(fetchBulkTransferCampaigns, 250);
+        });
+
+        var bulkTransferSourceTimer = null;
+        $("#bulk-transfer-search").off('input.endorseFallback').on('input.endorseFallback', function() {
+            clearTimeout(bulkTransferSourceTimer);
+            bulkTransferSourceTimer = setTimeout(function() {
+                fetchBulkTransferContents(false);
+            }, 250);
+        });
+
+        $("#bulk-transfer-status, #bulk-transfer-platform").off('change.endorseFallback').on('change.endorseFallback', function() {
+            fetchBulkTransferContents(false);
+        });
+
+        $("#bulk-transfer-trigger").off('click.endorseFallback').on('click.endorseFallback', function(e) {
+            e.preventDefault();
+            window.openBulkTransferModal();
+        });
+
+        $("#bulk-transfer-select-visible").off('click.endorseFallback').on('click.endorseFallback', function() {
+            bulkTransferState.visibleItems.forEach(function(item) {
+                bulkTransferState.selectedItems[item.id] = item;
+            });
+            renderBulkTransferSelectedItems();
+            renderBulkTransferSourceItems(bulkTransferState.visibleItems, false);
+        });
+
+        $("#bulk-transfer-clear").off('click.endorseFallback').on('click.endorseFallback', function() {
+            bulkTransferState.selectedItems = {};
+            renderBulkTransferSelectedItems();
+            renderBulkTransferSourceItems(bulkTransferState.visibleItems, false);
+        });
+
+        $("#transfer-submit").off('click.endorseFallback').on('click.endorseFallback', function() {
+            if (!transferState.idEndorse || !transferState.targetCampaign || !transferState.targetCampaign.id) {
+                return;
+            }
+
+            var $btn = $(this);
+            $btn.prop('disabled', true).text('Memproses...');
+            $("#transfer-message").hide().text('');
+
+            $.ajax({
+                type: 'POST',
+                url: baseUrl + '/endorse/transfer-process',
+                dataType: 'json',
+                data: {
+                    id_endorse: transferState.idEndorse,
+                    target_campaign: transferState.targetCampaign.id
+                },
+                success: function(res) {
+                    if (res && res.status) {
+                        var params = new URLSearchParams(window.location.search);
+                        params.set('id_campaign', transferState.targetCampaign.id);
+                        params.delete('ids');
+                        window.location.href = endorseBaseUrl + '?' + params.toString();
+                    } else {
+                        $("#transfer-message").text((res && res.message) ? res.message : 'Transfer gagal.').show();
+                        $btn.prop('disabled', false).text('Transfer Sekarang');
+                    }
+                },
+                error: function() {
+                    $("#transfer-message").text('Transfer gagal. Silakan coba lagi.').show();
+                    $btn.prop('disabled', false).text('Transfer Sekarang');
+                }
+            });
+        });
+
+        $("#bulk-transfer-submit").off('click.endorseFallback').on('click.endorseFallback', function() {
+            var ids = Object.keys(bulkTransferState.selectedItems);
+            if (!ids.length || !bulkTransferState.targetCampaign || !bulkTransferState.targetCampaign.id) {
+                return;
+            }
+
+            var $btn = $(this);
+            $btn.prop('disabled', true).text('Memproses...');
+            $("#bulk-transfer-message").hide().text('');
+
+            $.ajax({
+                type: 'POST',
+                url: baseUrl + '/endorse/transfer-bulk-process',
+                dataType: 'json',
+                traditional: true,
+                data: {
+                    source_campaign: currentCampaignId,
+                    target_campaign: bulkTransferState.targetCampaign.id,
+                    id_endorse: ids
+                },
+                success: function(res) {
+                    if (res && res.status) {
+                        sessionStorage.setItem('endorseTransferSuccess', JSON.stringify({
+                            message: res.message || (ids.length + ' konten berhasil ditransfer.'),
+                            count: ids.length
+                        }));
+
+                        var params = new URLSearchParams(window.location.search);
+                        params.set('id_campaign', currentCampaignId);
+                        params.delete('ids');
+                        window.location.href = endorseBaseUrl + '?' + params.toString();
+                    } else {
+                        $("#bulk-transfer-message").text((res && res.message) ? res.message : 'Transfer bulk gagal.').show();
+                        updateBulkTransferSubmitState();
+                    }
+                },
+                error: function() {
+                    $("#bulk-transfer-message").text('Transfer bulk gagal. Silakan coba lagi.').show();
+                    updateBulkTransferSubmitState();
+                }
+            });
+        });
+
+        if (typeof window.list_id_v2 === 'undefined') {
+            window.list_id_v2 = '';
+        }
+    })();
 </script>
 
 <script>
