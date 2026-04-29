@@ -293,17 +293,16 @@ class Ajax extends CI_Controller
 		}
 
 		$filters_date_on_endorse = "";
-		$start_datetime = $start_date . " 00:00:00";
-		$until_datetime = date("Y-m-d", strtotime($until_date . " +1 day")) . " 00:00:00";
+		$until_next_date = date("Y-m-d", strtotime($until_date . " +1 day"));
 		$cat = $_GET['cat'];
 		if ($cat == "Tanggal Dibuat") {
-			$filters_date_on_endorse .= " AND endorse.created_at >= '$start_datetime' AND endorse.created_at < '$until_datetime' ";
+			$filters_date_on_endorse .= " AND endorse.created_at_date >= '$start_date' AND endorse.created_at_date <= '$until_date' ";
 		} else if ($cat == "Rencana Upload") {
-			$filters_date_on_endorse .= " AND endorse.rencana_at >= '$start_datetime' AND endorse.rencana_at < '$until_datetime' ";
+			$filters_date_on_endorse .= " AND endorse.rencana_at_date >= '$start_date' AND endorse.rencana_at_date <= '$until_date' ";
 		} else if ($cat == "Tanggal Posting") {
-			$filters_date_on_endorse .= " AND endorse.posting_at >= '$start_datetime' AND endorse.posting_at < '$until_datetime' ";
+			$filters_date_on_endorse .= " AND endorse.posting_at_date >= '$start_date' AND endorse.posting_at_date <= '$until_date' ";
 		} else if ($cat == "Tanggal TF") {
-			$filters_date_on_endorse .= " AND endorse.tgl_tf >= '$start_date' AND endorse.tgl_tf < '$until_datetime' ";
+			$filters_date_on_endorse .= " AND endorse.tgl_tf_date >= '$start_date' AND endorse.tgl_tf_date <= '$until_date' ";
 		}
 
 		// ===== Query data endorse untuk summary & source filter logs =====
@@ -1076,16 +1075,16 @@ class Ajax extends CI_Controller
 			: "";
 		$range_join = $baseline_join;
 		$id_filter_sql = !empty($ids_sql_filter) ? " AND el.id_endorse IN ($ids_sql_filter) " : "";
-		$range_index_hint = $prefer_date_index ? " FORCE INDEX (idx_endorse_logs_date_endorse) " : " FORCE INDEX (idx_endorse_logs_endorse_date) ";
+		$range_index_hint = $prefer_date_index ? " FORCE INDEX (idx_endorse_logs_log_date_endorse) " : " FORCE INDEX (idx_endorse_logs_endorse_log_date) ";
 
 		$baseline_latest_sql = "
 			SELECT
 				el.id_endorse,
-				MAX(el.date) AS log_date
+				MAX(el.log_date) AS log_date
 			FROM endorse_logs el
-			FORCE INDEX (idx_endorse_logs_endorse_date)
+			FORCE INDEX (idx_endorse_logs_endorse_log_date)
 			$baseline_join
-			WHERE el.date < " . $this->db->escape($start_date) . "
+			WHERE el.log_date < " . $this->db->escape($start_date) . "
 			$id_filter_sql
 			GROUP BY el.id_endorse
 		";
@@ -1093,23 +1092,23 @@ class Ajax extends CI_Controller
 		$with_for_baseline = $with_parts;
 		$with_for_baseline[] = "baseline_latest AS ($baseline_latest_sql)";
 		$with_for_baseline[] = "
-			baseline_logs AS (
-				SELECT
-					el.id_endorse,
-					el.date AS log_date,
-					COALESCE(el.likes_after, 0) AS likes_after,
-					COALESCE(el.comment_after, 0) AS comment_after,
-					COALESCE(el.share_save_after, 0) AS share_save_after,
-					COALESCE(el.views_after, 0) AS views_after,
-					COALESCE(el.total_cost, 0) AS total_cost,
-					COALESCE(el.updated_at, el.created_at, CONCAT(el.date, ' 00:00:00')) AS last_updated
-				FROM endorse_logs el
-				FORCE INDEX (idx_endorse_logs_endorse_date)
-				INNER JOIN baseline_latest baseline
-					ON baseline.id_endorse = el.id_endorse
-				   AND baseline.log_date = el.date
-			)
-		";
+				baseline_logs AS (
+					SELECT
+						el.id_endorse,
+						el.log_date AS log_date,
+						COALESCE(el.likes_after, 0) AS likes_after,
+						COALESCE(el.comment_after, 0) AS comment_after,
+						COALESCE(el.share_save_after, 0) AS share_save_after,
+						COALESCE(el.views_after, 0) AS views_after,
+						COALESCE(el.total_cost, 0) AS total_cost,
+						COALESCE(el.updated_at, el.created_at, CONCAT(el.date, ' 00:00:00')) AS last_updated
+					FROM endorse_logs el
+					FORCE INDEX (idx_endorse_logs_endorse_log_date)
+					INNER JOIN baseline_latest baseline
+						ON baseline.id_endorse = el.id_endorse
+					   AND baseline.log_date = el.log_date
+				)
+			";
 
 		$baseline_sql = "
 			WITH " . implode(",\n", $with_for_baseline) . "
@@ -1137,7 +1136,7 @@ class Ajax extends CI_Controller
 		$range_logs_sql = "
 			SELECT
 				el.id_endorse,
-				el.date AS log_date,
+				el.log_date AS log_date,
 				GREATEST(COALESCE(el.likes, 0), 0) AS likes_delta,
 				GREATEST(COALESCE(el.comment, 0), 0) AS comment_delta,
 				GREATEST(COALESCE(el.share_save, 0), 0) AS share_save_delta,
@@ -1147,8 +1146,8 @@ class Ajax extends CI_Controller
 			FROM endorse_logs el
 			$range_index_hint
 			$range_join
-			WHERE el.date >= " . $this->db->escape($start_date) . "
-			  AND el.date < " . $this->db->escape($until_datetime) . "
+			WHERE el.log_date >= " . $this->db->escape($start_date) . "
+			  AND el.log_date <= " . $this->db->escape($until_date) . "
 			$id_filter_sql
 		";
 
@@ -1158,11 +1157,11 @@ class Ajax extends CI_Controller
 			first_seen_logs AS (
 				SELECT
 					id_endorse,
-					MIN(el.date) AS first_log_date
+					MIN(el.log_date) AS first_log_date
 				FROM endorse_logs el
-				FORCE INDEX (idx_endorse_logs_endorse_date)
+				FORCE INDEX (idx_endorse_logs_endorse_log_date)
 				$baseline_join
-				WHERE 1=1
+				WHERE el.log_date IS NOT NULL
 				$id_filter_sql
 				GROUP BY id_endorse
 			)
