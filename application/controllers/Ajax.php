@@ -98,6 +98,14 @@ class Ajax extends CI_Controller
 		} else {
 			$checkbox = $_SESSION['checkbox_dashboard_campaign'];
 		}
+		if (!is_array($checkbox)) {
+			$checkbox = array();
+		}
+		for ($i = 0; $i <= 7; $i++) {
+			if (!array_key_exists($i, $checkbox)) {
+				$checkbox[$i] = 'true';
+			}
+		}
 		// Release session lock so concurrent requests (e.g. checkbox) don't serialize
 		session_write_close();
 		$skip = 0;
@@ -140,7 +148,8 @@ class Ajax extends CI_Controller
 
 		$cache_driver = null;
 		$cache_key = null;
-		if ($is_dashboard == 'true') {
+		$enable_dashboard_chart_cache = false;
+		if ($is_dashboard == 'true' && $enable_dashboard_chart_cache) {
 			$cache_driver = $this->loadChartCampaignCacheDriver();
 			if ($cache_driver) {
 				$cache_request = $_GET;
@@ -293,7 +302,6 @@ class Ajax extends CI_Controller
 		}
 
 		$filters_date_on_endorse = "";
-		$until_next_date = date("Y-m-d", strtotime($until_date . " +1 day"));
 		$cat = $_GET['cat'];
 		if ($cat == "Tanggal Dibuat") {
 			$filters_date_on_endorse .= " AND endorse.created_at_date >= '$start_date' AND endorse.created_at_date <= '$until_date' ";
@@ -371,15 +379,15 @@ class Ajax extends CI_Controller
 			$need_join_campaign === false
 		);
 
-		$log_aggregates = !empty($filtered_endorse_rows)
-			? $this->getChartCampaignLogAggregates(
-				$filtered_endorse_subquery,
-				$start_date,
-				$until_datetime,
-				$ids_sql_filter,
-				!$logs_can_skip_filtered_join,
-				($is_dashboard == 'true' && empty($ids_sql_filter))
-			)
+			$log_aggregates = !empty($filtered_endorse_rows)
+				? $this->getChartCampaignLogAggregates(
+					$filtered_endorse_subquery,
+					$start_date,
+					$until_date,
+					$ids_sql_filter,
+					!$logs_can_skip_filtered_join,
+					($is_dashboard == 'true' && empty($ids_sql_filter))
+				)
 			: array(
 				'baseline' => array(
 					'likes' => 0,
@@ -994,7 +1002,7 @@ class Ajax extends CI_Controller
 			})();
 			</script>';
 
-		if ($cache_driver && $cache_key) {
+		if ($cache_driver && $cache_key && $enable_dashboard_chart_cache) {
 			$cache_driver->save($cache_key, $html, 60);
 		}
 
@@ -1063,7 +1071,7 @@ class Ajax extends CI_Controller
 		log_message('info', 'Slow get_chart_campaign ' . round($elapsed, 3) . 's ' . json_encode($signature));
 	}
 
-	private function getChartCampaignLogAggregates($filtered_endorse_subquery, $start_date, $until_datetime, $ids_sql_filter, $use_filtered_endorse_join, $prefer_date_index)
+	private function getChartCampaignLogAggregates($filtered_endorse_subquery, $start_date, $until_date, $ids_sql_filter, $use_filtered_endorse_join, $prefer_date_index)
 	{
 		$with_parts = array();
 		if ($use_filtered_endorse_join) {
