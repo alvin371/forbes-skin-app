@@ -636,18 +636,27 @@ if ($_GET['type'] == "Yearly") {
                             </div>
                         </div>
                     </div>
-                    <div id="summary-chart"><i class="fa fa-circle-o-notch fa-spin"></i> Memuat data ...</div>
-                    <div id="summary-table"><i class="fa fa-circle-o-notch fa-spin"></i> Memuat data ...</div>
-                    <script>
-                        get_chart();
+	                    <div id="summary-chart"><i class="fa fa-circle-o-notch fa-spin"></i> Memuat data ...</div>
+	                    <div id="summary-table"><i class="fa fa-circle-o-notch fa-spin"></i> Memuat data ...</div>
+	                    <script>
+	                        function buildCampaignChartUrl() {
+	                            var params = new URLSearchParams(window.location.search || '');
+	                            params.set('is_dashboard', 'true');
+	                            params.set('type', '<?= $type ?>');
+	                            params.set('start_date', '<?= $_GET['start_date'] ?? $start_date ?>');
+	                            params.set('until_date', '<?= $_GET['until_date'] ?? $until_date ?>');
+	                            return '<?= base_url() ?>ajax/get-chart-campaign?' + params.toString();
+	                        }
 
-                        function get_chart() {
-                            $.ajax({
-                                dataType: "json",
-                                url: '<?= base_url() ?>ajax/get-chart-campaign<?= $param ?>&is_dashboard=true',
-                                success: function(html) {
-                                    $("#summary-chart").html(html.html);
-                                    $("#summary-table").html(html.table);
+	                        get_chart();
+
+	                        function get_chart() {
+	                            $.ajax({
+	                                dataType: "json",
+	                                url: buildCampaignChartUrl(),
+	                                success: function(html) {
+	                                    $("#summary-chart").html(html.html);
+	                                    $("#summary-table").html(html.table);
 
                                     $("#summary-kol-7").html('<i class="fa fa-circle-o-notch fa-spin"></i>');
                                     $("#summary-kol-7").html(html.summary.share);
