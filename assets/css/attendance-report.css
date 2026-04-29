@@ -1,0 +1,411 @@
+#attendance-app {
+  --ar-bg: #f4f4f5;
+  --ar-surface: #ffffff;
+  --ar-surface-soft: #fafafa;
+  --ar-border: #e4e4e7;
+  --ar-border-strong: #d4d4d8;
+  --ar-text: #09090b;
+  --ar-text-muted: #71717a;
+  --ar-text-faint: #a1a1aa;
+  --ar-accent: oklch(0.68 0.14 175);
+  --ar-accent-light: oklch(0.94 0.05 175);
+  --ar-accent-dark: oklch(0.50 0.14 175);
+  --ar-green:  oklch(0.72 0.17 145);
+  --ar-green-bg: oklch(0.96 0.04 145);
+  --ar-amber:  oklch(0.78 0.16 70);
+  --ar-amber-bg: oklch(0.97 0.04 70);
+  --ar-red:    oklch(0.62 0.20 25);
+  --ar-red-bg: oklch(0.96 0.04 25);
+  --ar-blue:   oklch(0.62 0.18 245);
+  --ar-blue-bg: oklch(0.95 0.04 245);
+  --ar-purple: oklch(0.62 0.18 295);
+  --ar-purple-bg: oklch(0.95 0.04 295);
+  --ar-orange: oklch(0.72 0.17 45);
+  --ar-orange-bg: oklch(0.96 0.04 45);
+
+  font-family: 'Geist', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  color: var(--ar-text);
+  background: var(--ar-bg);
+  border-radius: 12px;
+  border: 1px solid var(--ar-border);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+#attendance-app *, #attendance-app *::before, #attendance-app *::after { box-sizing: border-box; }
+#attendance-app button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+#attendance-app input, #attendance-app select { font-family: inherit; }
+#attendance-app a { color: var(--ar-accent-dark); text-decoration: none; }
+#attendance-app .ar-mono { font-family: 'Geist Mono', ui-monospace, monospace; }
+
+/* ── Toolbar ─────────────────────────────────────────────────────── */
+#attendance-app .ar-toolbar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 16px;
+  background: var(--ar-surface);
+  border-bottom: 1px solid var(--ar-border);
+}
+#attendance-app .ar-control {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--ar-bg);
+  border: 1px solid var(--ar-border);
+  border-radius: 8px;
+  padding: 0 10px;
+  height: 34px;
+}
+#attendance-app .ar-control select,
+#attendance-app .ar-control input {
+  border: none; background: transparent; outline: none;
+  font-size: 13px; color: var(--ar-text); cursor: pointer;
+}
+#attendance-app .ar-control__label { font-size: 12px; color: var(--ar-text-muted); white-space: nowrap; }
+#attendance-app .ar-month-nav {
+  display: flex; align-items: center; gap: 2px;
+  background: var(--ar-bg);
+  border: 1px solid var(--ar-border);
+  border-radius: 8px; padding: 3px 4px;
+}
+#attendance-app .ar-month-nav__btn {
+  width: 26px; height: 26px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ar-text-muted);
+  transition: background .12s, color .12s;
+}
+#attendance-app .ar-month-nav__btn:hover { background: var(--ar-surface); color: var(--ar-text); }
+#attendance-app .ar-month-nav__label {
+  min-width: 130px; text-align: center;
+  font-weight: 600; font-size: 13px; padding: 0 8px;
+}
+#attendance-app .ar-toolbar__spacer { flex: 1; }
+#attendance-app .ar-legend { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+#attendance-app .ar-legend__item { display: flex; align-items: center; gap: 4px; }
+#attendance-app .ar-legend__dot { width: 7px; height: 7px; border-radius: 50%; }
+#attendance-app .ar-legend__label { font-size: 11px; color: var(--ar-text-muted); }
+
+/* ── Buttons ─────────────────────────────────────────────────────── */
+#attendance-app .ar-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 34px; padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--ar-border);
+  background: var(--ar-surface);
+  font-size: 13px; font-weight: 500; color: var(--ar-text);
+  transition: background .12s, border-color .12s;
+}
+#attendance-app .ar-btn:hover { background: var(--ar-bg); }
+#attendance-app .ar-btn--primary {
+  background: var(--ar-accent); color: #fff; border-color: var(--ar-accent);
+}
+#attendance-app .ar-btn--primary:hover { background: var(--ar-accent-dark); border-color: var(--ar-accent-dark); }
+#attendance-app .ar-btn--ghost { border-color: transparent; }
+#attendance-app .ar-btn--ghost:hover { background: var(--ar-bg); }
+#attendance-app .ar-btn--icon { width: 34px; padding: 0; justify-content: center; }
+#attendance-app .ar-btn:disabled { opacity: .5; cursor: not-allowed; }
+#attendance-app .ar-btn-sm {
+  height: 26px; padding: 0 10px; border-radius: 6px; font-size: 12px;
+  border: 1px solid var(--ar-border); background: var(--ar-surface);
+}
+#attendance-app .ar-btn-sm--primary { background: var(--ar-accent); border-color: var(--ar-accent); color: #fff; }
+
+/* ── Export menu ─────────────────────────────────────────────────── */
+#attendance-app .ar-export { position: relative; }
+#attendance-app .ar-export__menu {
+  position: absolute; top: calc(100% + 6px); right: 0;
+  background: var(--ar-surface);
+  border: 1px solid var(--ar-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+  min-width: 180px; padding: 4px;
+  z-index: 30;
+}
+#attendance-app .ar-export__item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 12px; border-radius: 7px; font-size: 13px; color: var(--ar-text);
+  text-align: left;
+}
+#attendance-app .ar-export__item:hover { background: var(--ar-bg); }
+#attendance-app .ar-export__icon {
+  width: 22px; height: 22px; border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700;
+}
+#attendance-app .ar-export__icon--xl { background: rgba(22,163,74,.13); color: #16a34a; }
+#attendance-app .ar-export__icon--pdf { background: rgba(220,38,38,.13); color: #dc2626; }
+
+/* ── Grid ────────────────────────────────────────────────────────── */
+#attendance-app .ar-grid-wrap { flex: 1; overflow: auto; padding: 16px; min-height: 300px; }
+#attendance-app .ar-grid {
+  background: var(--ar-surface);
+  border-radius: 10px;
+  border: 1px solid var(--ar-border);
+  overflow: hidden;
+  min-width: 100%;
+}
+#attendance-app .ar-grid__header,
+#attendance-app .ar-grid__row {
+  display: flex; align-items: stretch;
+}
+#attendance-app .ar-grid__header {
+  background: var(--ar-surface-soft);
+  border-bottom: 1px solid var(--ar-border);
+  position: sticky; top: 0; z-index: 5;
+}
+#attendance-app .ar-grid__row {
+  border-bottom: 1px solid var(--ar-border);
+  transition: background .1s;
+}
+#attendance-app .ar-grid__row:last-child { border-bottom: none; }
+#attendance-app .ar-grid__row:hover { background: var(--ar-surface-soft); }
+#attendance-app .ar-grid__user-col {
+  width: 220px; flex-shrink: 0;
+  padding: 10px 16px;
+  border-right: 1px solid var(--ar-border);
+  position: sticky; left: 0;
+  background: inherit; z-index: 4;
+  display: flex; align-items: center; gap: 10px;
+}
+#attendance-app .ar-grid__header .ar-grid__user-col {
+  font-size: 12px; font-weight: 600; color: var(--ar-text-muted);
+  background: var(--ar-surface-soft); z-index: 6;
+}
+#attendance-app .ar-avatar {
+  width: 28px; height: 28px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; color: #fff;
+  flex-shrink: 0;
+}
+#attendance-app .ar-user-name { font-size: 12px; font-weight: 500; color: var(--ar-text); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#attendance-app .ar-user-meta { font-size: 11px; color: var(--ar-text-muted); }
+#attendance-app .ar-eye-btn {
+  margin-left: auto; width: 22px; height: 22px; border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ar-text-faint); flex-shrink: 0;
+}
+#attendance-app .ar-eye-btn:hover { color: var(--ar-text); background: var(--ar-bg); }
+
+#attendance-app .ar-grid__day-col {
+  width: 32px; flex-shrink: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-right: 1px solid var(--ar-border);
+  padding: 6px 0 4px;
+}
+#attendance-app .ar-grid__day-col--weekend { background: #efefef; }
+#attendance-app .ar-grid__day-col .ar-dow { font-size: 10px; font-weight: 500; color: var(--ar-text-muted); }
+#attendance-app .ar-grid__day-col--weekend .ar-dow { color: var(--ar-text-faint); }
+#attendance-app .ar-grid__day-col .ar-dom { font-size: 12px; font-weight: 600; margin-top: 1px; }
+#attendance-app .ar-grid__day-col--weekend .ar-dom { color: var(--ar-text-faint); }
+
+#attendance-app .ar-grid__cell {
+  width: 32px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-right: 1px solid var(--ar-border);
+  cursor: pointer;
+  padding: 10px 0;
+}
+#attendance-app .ar-grid__cell--weekend { background: rgba(0,0,0,0.02); cursor: default; }
+#attendance-app .ar-grid__cell:not(.ar-grid__cell--weekend):hover { background: var(--ar-accent-light); }
+
+#attendance-app .ar-grid__sum {
+  width: 220px; flex-shrink: 0;
+  padding: 8px 12px;
+  border-left: 1px solid var(--ar-border);
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+#attendance-app .ar-grid__header .ar-grid__sum {
+  padding: 10px 16px; font-size: 12px; font-weight: 600; color: var(--ar-text-muted);
+}
+#attendance-app .ar-sum-pill {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px;
+}
+#attendance-app .ar-sum-pill__num { font-family: 'Geist Mono', monospace; font-weight: 600; }
+#attendance-app .ar-sum-pill__lbl { color: var(--ar-text-muted); }
+
+#attendance-app .ar-status-dot {
+  display: block; width: 10px; height: 10px; border-radius: 50%;
+}
+#attendance-app .ar-status-dot--small { width: 8px; height: 8px; }
+#attendance-app .ar-status-dot--empty { background: #e4e4e7; }
+
+/* ── Schedule editor (inline cell) ───────────────────────────────── */
+#attendance-app .ar-schedule { display: flex; flex-direction: column; gap: 4px; }
+#attendance-app .ar-schedule__row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+#attendance-app .ar-schedule__times { font-size: 12px; color: var(--ar-text); }
+#attendance-app .ar-badge {
+  display: inline-flex; align-items: center;
+  padding: 1px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 500;
+}
+#attendance-app .ar-badge--special { background: var(--ar-red-bg); color: var(--ar-red); }
+#attendance-app .ar-schedule__edit {
+  margin-left: 4px; color: var(--ar-accent-dark); padding: 0 4px;
+  font-size: 12px;
+}
+#attendance-app .ar-schedule__form { display: none; }
+#attendance-app .ar-schedule__form.is-open { display: flex; flex-direction: column; gap: 4px; }
+#attendance-app .ar-schedule__form input[type=time] {
+  height: 28px; padding: 2px 6px;
+  border: 1px solid var(--ar-border-strong); border-radius: 6px;
+  font-size: 12px; width: 100px;
+}
+#attendance-app .ar-schedule__thresh { font-size: 11px; color: var(--ar-text-faint); }
+#attendance-app .ar-schedule__error { font-size: 11px; color: var(--ar-red); }
+
+/* ── Pagination ──────────────────────────────────────────────────── */
+#attendance-app .ar-pagination {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px;
+  background: var(--ar-surface);
+  border-top: 1px solid var(--ar-border);
+}
+#attendance-app .ar-pagination__count { font-size: 12px; color: var(--ar-text-muted); flex: 1; }
+#attendance-app .ar-pagination__count strong { color: var(--ar-text); font-weight: 600; }
+#attendance-app .ar-page-btn {
+  width: 32px; height: 32px; border-radius: 7px;
+  font-size: 13px; font-weight: 400;
+  border: 1px solid var(--ar-border);
+  background: var(--ar-surface);
+  color: var(--ar-text);
+  transition: all .12s;
+}
+#attendance-app .ar-page-btn:hover:not(:disabled) { background: var(--ar-bg); }
+#attendance-app .ar-page-btn--active {
+  border: 1.5px solid var(--ar-accent);
+  background: var(--ar-accent-light);
+  color: var(--ar-accent-dark);
+  font-weight: 600;
+}
+#attendance-app .ar-page-btn:disabled { color: var(--ar-text-faint); cursor: not-allowed; }
+#attendance-app .ar-page-ellipsis { width: 32px; text-align: center; color: var(--ar-text-muted); font-size: 13px; }
+
+/* ── Empty / Loading ─────────────────────────────────────────────── */
+#attendance-app .ar-empty {
+  padding: 48px 16px; text-align: center; color: var(--ar-text-muted);
+}
+#attendance-app .ar-loader {
+  position: absolute; inset: 0; background: rgba(255,255,255,0.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 20;
+}
+#attendance-app .ar-spinner {
+  width: 24px; height: 24px; border-radius: 50%;
+  border: 2.5px solid var(--ar-border-strong); border-top-color: var(--ar-accent);
+  animation: ar-spin .7s linear infinite;
+}
+@keyframes ar-spin { to { transform: rotate(360deg); } }
+
+/* ── Modal (cell detail) ─────────────────────────────────────────── */
+.ar-modal {
+  position: fixed; inset: 0; z-index: 1080;
+  background: rgba(0,0,0,0.3);
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(2px);
+  font-family: 'Geist', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+}
+.ar-modal__dialog {
+  background: #fff; border-radius: 12px; border: 1px solid #e4e4e7;
+  width: 360px; max-width: calc(100vw - 32px);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+  overflow: hidden;
+}
+.ar-modal__header {
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid #e4e4e7;
+  display: flex; align-items: center; gap: 12px;
+}
+.ar-modal__title-name { font-weight: 600; font-size: 14px; color: #09090b; }
+.ar-modal__title-sub { font-size: 12px; color: #71717a; }
+.ar-modal__close {
+  margin-left: auto; width: 28px; height: 28px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  color: #71717a; cursor: pointer; border: none; background: none;
+}
+.ar-modal__close:hover { background: #f4f4f5; color: #09090b; }
+.ar-modal__body { padding: 16px 20px; }
+.ar-modal__status-row {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 16px;
+}
+.ar-modal__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ar-info-box {
+  background: #f4f4f5; border-radius: 8px; padding: 10px 12px;
+}
+.ar-info-box__label { font-size: 11px; color: #71717a; margin-bottom: 4px; }
+.ar-info-box__value { font-size: 13px; font-weight: 600; color: #09090b; font-family: 'Geist Mono', monospace; }
+.ar-modal__notes {
+  margin-top: 12px; padding: 10px 12px; background: #f4f4f5; border-radius: 8px;
+  font-size: 12px; color: #52525b;
+}
+.ar-status-badge {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 500;
+  font-family: 'Geist Mono', monospace;
+}
+
+/* ── Side Panel ──────────────────────────────────────────────────── */
+.ar-panel {
+  position: fixed; inset: 0; z-index: 1070;
+  background: rgba(0,0,0,0.25);
+  display: flex; justify-content: flex-end;
+  backdrop-filter: blur(1px);
+  font-family: 'Geist', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+}
+.ar-panel__sheet {
+  width: 440px; max-width: 100vw; height: 100%;
+  background: #fff;
+  border-left: 1px solid #e4e4e7;
+  box-shadow: -20px 0 60px rgba(0,0,0,0.1);
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+  animation: ar-slide-in .2s ease-out;
+}
+@keyframes ar-slide-in { from { transform: translateX(100%); } to { transform: none; } }
+.ar-panel__header {
+  padding: 20px 24px 16px; border-bottom: 1px solid #e4e4e7;
+  display: flex; gap: 14px; align-items: flex-start;
+}
+.ar-panel__avatar {
+  width: 44px; height: 44px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 700; color: #fff; flex-shrink: 0;
+}
+.ar-panel__name { font-weight: 700; font-size: 16px; color: #09090b; }
+.ar-panel__meta { font-size: 12px; color: #71717a; margin-top: 2px; }
+.ar-panel__close {
+  margin-left: auto; width: 32px; height: 32px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  color: #71717a; border: 1px solid #e4e4e7; background: none; cursor: pointer;
+}
+.ar-panel__close:hover { background: #f4f4f5; color: #09090b; }
+.ar-panel__section-title {
+  padding: 14px 24px 8px;
+  font-size: 12px; font-weight: 600; color: #71717a;
+  text-transform: uppercase; letter-spacing: .05em;
+}
+.ar-panel__stats {
+  display: grid; grid-template-columns: repeat(3,1fr); gap: 10px;
+  padding: 0 24px 16px;
+}
+.ar-stat-card {
+  background: #f4f4f5; border-radius: 10px; padding: 12px 14px;
+  border: 1px solid #e4e4e7;
+}
+.ar-stat-card__num { font-size: 22px; font-weight: 700; font-family: 'Geist Mono', monospace; }
+.ar-stat-card__lbl { font-size: 11px; color: #71717a; margin-top: 2px; }
+.ar-panel__list { padding: 0 24px 24px; display: flex; flex-direction: column; gap: 2px; }
+.ar-day-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 12px; border-radius: 8px;
+  background: #f4f4f5;
+}
+.ar-day-row--weekend { background: transparent; opacity: .5; }
+.ar-day-row__date { width: 64px; flex-shrink: 0; }
+.ar-day-row__date .dow { font-size: 11px; color: #71717a; }
+.ar-day-row__date .dom { font-size: 12px; font-weight: 600; font-family: 'Geist Mono', monospace; }
+.ar-day-row__times { flex: 1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ar-day-row__times span { font-size: 11px; font-family: 'Geist Mono', monospace; color: #71717a; }
+.ar-day-row__times .note { color: #a1a1aa; font-family: 'Geist', sans-serif; }
+.ar-day-row__times .ot { color: oklch(0.62 0.18 295); }

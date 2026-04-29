@@ -753,7 +753,7 @@ class Api_hrms extends CI_Controller
         }
         if (empty($context['reason_window']['eligible'])) {
             return $this->respond(409, array(
-                'message' => 'Reason can only be submitted within the 1-hour schedule window for late check-in or early checkout.',
+                'message' => 'Reason can only be submitted on the same day for late check-in or early checkout.',
             ));
         }
 
@@ -3325,18 +3325,23 @@ class Api_hrms extends CI_Controller
         }
 
         $flags = is_array($flags) ? $flags : array();
+        $now = time();
         if ($window['type'] === 'IN') {
-            $windowStart = $startTime;
-            $windowEnd = $startTime + 3600;
-            $window['window_start'] = date('Y-m-d H:i:s', $windowStart);
-            $window['window_end'] = date('Y-m-d H:i:s', $windowEnd);
-            $window['eligible'] = !empty($flags['late']) && $logTime >= $windowStart && $logTime <= $windowEnd;
+            $windowStart = $startTime + (($this->lateGraceMinutes + 1) * 60);
+            $windowEnd = strtotime($date . ' 23:59:59');
+            if (!empty($flags['late']) && $windowEnd !== false) {
+                $window['window_start'] = date('Y-m-d H:i:s', $windowStart);
+                $window['window_end'] = date('Y-m-d H:i:s', $windowEnd);
+                $window['eligible'] = $now >= $windowStart && $now <= $windowEnd;
+            }
         } elseif ($window['type'] === 'OUT') {
-            $windowStart = $endTime - 3600;
-            $windowEnd = $endTime;
-            $window['window_start'] = date('Y-m-d H:i:s', $windowStart);
-            $window['window_end'] = date('Y-m-d H:i:s', $windowEnd);
-            $window['eligible'] = !empty($flags['early_checkout']) && $logTime >= $windowStart && $logTime <= $windowEnd;
+            $windowStart = $endTime - (($this->earlyGraceMinutes + 1) * 60);
+            $windowEnd = strtotime($date . ' 23:59:59');
+            if (!empty($flags['early_checkout']) && $windowEnd !== false) {
+                $window['window_start'] = date('Y-m-d H:i:s', $windowStart);
+                $window['window_end'] = date('Y-m-d H:i:s', $windowEnd);
+                $window['eligible'] = $now >= $windowStart && $now <= $windowEnd;
+            }
         }
 
         return $window;

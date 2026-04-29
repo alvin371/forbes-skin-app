@@ -42,25 +42,87 @@ class AttendanceReport extends BaseController
         $targetUser = $this->get_user($targetUserId);
         $report = $this->build_monthly_report($targetUserId, $month, $office, $targetUser);
         $summaries = array();
+        $matrix = array();
         if ($canManageReports && $selectedUserId === 0) {
             foreach ($this->get_attendance_users() as $member) {
                 $memberReport = $this->build_monthly_report((int) $member['id'], $month, $office, $member);
+                $memberId = (int) $member['id'];
                 if (!empty($memberReport['summary'])) {
-                    $summaries[(int) $member['id']] = $memberReport['summary'];
+                    $summaries[$memberId] = $memberReport['summary'];
+                }
+                if (!empty($memberReport['daily'])) {
+                    $matrix[$memberId] = $memberReport['daily'];
                 }
             }
         }
 
-        $data['title'] = 'Attendance Report - ' . $this->template->title();
+        $data['title'] = 'Laporan Kehadiran - ' . $this->template->title();
         $data['month'] = $month;
         $data['is_admin_hr'] = $canManageReports;
         $data['report'] = $report;
         $data['summaries'] = $summaries;
+        $data['matrix'] = $matrix;
         $data['users'] = $canManageReports ? $this->get_attendance_users() : array();
         $data['target_user'] = $targetUser;
         $data['selected_user_id'] = $selectedUserId;
         $data['content'] = $this->load->view('attendance/report', $data, true);
         $this->load->view('TemplateDashboard', $data);
+    }
+
+    public function data_json()
+    {
+        $month = $this->input->get('month', TRUE);
+        $month = $month ?: date('Y-m');
+        $userId = isset($_SESSION['user']['id']) ? (int) $_SESSION['user']['id'] : 0;
+        $selectedUserId = (int) $this->input->get('user_id', TRUE);
+
+        $canManageReports = $this->can_manage_reports($userId);
+        $targetUserId = $userId;
+
+        if ($selectedUserId > 0) {
+            if (!$canManageReports && $selectedUserId !== $userId) {
+                return $this->output
+                    ->set_status_header(403)
+                    ->set_content_type('application/json')
+                    ->set_output(json_encode(array('status' => 'error', 'message' => 'Access denied.')));
+            }
+            $targetUserId = $selectedUserId;
+        }
+
+        $office = $this->Office_model->get_active_office();
+        $targetUser = $this->get_user($targetUserId);
+        $report = $this->build_monthly_report($targetUserId, $month, $office, $targetUser);
+
+        $summaries = array();
+        $matrix = array();
+        $users = array();
+        if ($canManageReports && $selectedUserId === 0) {
+            $users = $this->get_attendance_users();
+            foreach ($users as $member) {
+                $memberReport = $this->build_monthly_report((int) $member['id'], $month, $office, $member);
+                $memberId = (int) $member['id'];
+                if (!empty($memberReport['summary'])) {
+                    $summaries[$memberId] = $memberReport['summary'];
+                }
+                if (!empty($memberReport['daily'])) {
+                    $matrix[$memberId] = $memberReport['daily'];
+                }
+            }
+        }
+
+        return $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode(array(
+                'status' => 'ok',
+                'month' => $month,
+                'isAdminHr' => $canManageReports,
+                'selectedUserId' => $selectedUserId,
+                'users' => $users,
+                'targetUser' => $targetUser,
+                'singleReport' => $report,
+                'summaries' => $summaries,
+                'matrix' => $matrix,
+            ), JSON_UNESCAPED_SLASHES));
     }
 
     public function export_pdf()
@@ -496,21 +558,21 @@ class AttendanceReport extends BaseController
         $firstInCategory = $this->attendance_category_value($dayLogs['first_in_category'] ?? null);
         $lastOutCategory = $this->attendance_category_value($dayLogs['last_out_category'] ?? null);
         if ($firstIn && $this->is_out_of_town_attendance($firstInCategory)) {
-            $notes[] = 'Check-in recorded as Dinas Luar Kota.';
+            $notes[] = 'Masuk tercatat sebagai Dinas Luar Kota.';
         }
         if ($lastOut && $this->is_out_of_town_attendance($lastOutCategory)) {
-            $notes[] = 'Check-out recorded as Dinas Luar Kota.';
+            $notes[] = 'Keluar tercatat sebagai Dinas Luar Kota.';
         }
         if ($isLate && $firstIn) {
             $lateMinutes = $this->minutes_after_start($firstIn, $startTime);
             if ($lateMinutes !== null) {
-                $notes[] = 'Late check-in by ' . $lateMinutes . ' minutes.';
+                $notes[] = 'Terlambat masuk ' . $lateMinutes . ' menit.';
             }
         }
         if ($isEarlyCheckout && $lastOut) {
             $earlyMinutes = $this->minutes_before_end($lastOut, $endTime);
             if ($earlyMinutes !== null) {
-                $notes[] = 'Early checkout by ' . $earlyMinutes . ' minutes.';
+                $notes[] = 'Pulang cepat ' . $earlyMinutes . ' menit.';
             }
         }
 
