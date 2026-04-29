@@ -1217,11 +1217,31 @@ class Endorse extends BaseController
                 (e.likes + e.comment + e.share_save) AS engagement,
                 COALESCE(g.views_growth_period, 0) AS views_growth_period,
                 i.contact,
-                i.tipe_kontak
+                i.tipe_kontak,
+                ql.status AS latest_queue_status,
+                ql.error_message AS latest_queue_error_message,
+                CASE
+                    WHEN ql.status = 'failed'
+                     AND (
+                        ql.error_message LIKE '%Stats data tidak ditemukan%'
+                        OR ql.error_message LIKE '%url tidak ditemukan%'
+                     )
+                    THEN 1
+                    ELSE 0
+                END AS has_url_sync_issue
             FROM
                 (SELECT DISTINCT * FROM endorse WHERE id_campaign = '$id_campaign' $qry) AS e
             LEFT JOIN ($growth_subquery) AS g ON g.id_endorse = e.id
             LEFT JOIN influencer AS i ON e.nama_creator = i.username
+            LEFT JOIN (
+                SELECT q1.id_endorse, q1.status, q1.error_message
+                FROM endorse_refresh_queue q1
+                INNER JOIN (
+                    SELECT id_endorse, MAX(id) AS max_id
+                    FROM endorse_refresh_queue
+                    GROUP BY id_endorse
+                ) q2 ON q2.max_id = q1.id
+            ) AS ql ON ql.id_endorse = e.id
             ORDER BY $sort_column $sort_order, e.id DESC
             LIMIT $offset, $limit
         ");

@@ -1114,10 +1114,16 @@ function get_chart() {
                 updateMetric("kol-2", html.summary.endorse);
             }
         },
-        error: function(xhr, status, error) {
-            console.error('Error loading campaign chart:', error);
-            $("#summary-chart").html('<div class="alert alert-warning">Failed to load chart data</div>');
-            $("#summary-table").html('<div class="alert alert-warning">Failed to load table data</div>');
+        error: function(xhr) {
+            var statusText = xhr && xhr.status ? ('HTTP ' + xhr.status) : 'Request failed';
+            var responseText = xhr && xhr.responseText ? xhr.responseText : '';
+            responseText = responseText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            if (responseText.length > 220) {
+                responseText = responseText.substring(0, 220) + '...';
+            }
+            var message = responseText ? (statusText + ' - ' + responseText) : statusText;
+            $("#summary-chart").html('<div class="alert alert-danger mb-0">Gagal memuat chart campaign. ' + $('<div>').text(message).html() + '</div>');
+            $("#summary-table").html('');
         }
     });
 }

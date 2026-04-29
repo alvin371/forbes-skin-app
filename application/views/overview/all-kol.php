@@ -666,6 +666,17 @@ if ($_GET['type'] == "Yearly") {
                                     $("#summary-kol-2").html('<i class="fa fa-circle-o-notch fa-spin"></i>');
                                     $("#summary-kol-2").html(html.summary.endorse);
 
+                                },
+                                error: function(xhr) {
+                                    var statusText = xhr && xhr.status ? ('HTTP ' + xhr.status) : 'Request failed';
+                                    var responseText = xhr && xhr.responseText ? xhr.responseText : '';
+                                    responseText = responseText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                                    if (responseText.length > 220) {
+                                        responseText = responseText.substring(0, 220) + '...';
+                                    }
+                                    var message = responseText ? (statusText + ' - ' + responseText) : statusText;
+                                    $("#summary-chart").html('<div class="alert alert-danger mb-0">Gagal memuat chart campaign. ' + $('<div>').text(message).html() + '</div>');
+                                    $("#summary-table").html('');
                                 }
                             });
                         }
