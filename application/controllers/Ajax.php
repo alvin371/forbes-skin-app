@@ -344,8 +344,10 @@ class Ajax extends CI_Controller
 			$total_cost_from_endorse += (float)$row['total_cost'];
 		}
 
-		// ===== Agregasi per hari dari logs =====
-		// Schema is known to have both updated_at and created_at — skip INFORMATION_SCHEMA queries
+		// ===== Agregasi log sebagai snapshot berjalan per konten =====
+		// endorse_logs tidak menyimpan full snapshot 101 konten per hari.
+		// Beberapa hari hanya berisi konten yang di-refresh pada hari itu, jadi
+		// menjumlahkan row "hari ini saja" akan membuat total turun ke nol/negatif.
 		$last_updated_inner_expr = "MAX(COALESCE(el.updated_at, el.created_at, CONCAT(el.date, ' 00:00:00')))";
 		$logs_selected_ids_filter = '';
 		if (!empty($ids_sql_filter)) {
@@ -356,7 +358,7 @@ class Ajax extends CI_Controller
 			$logs_index_hint = " FORCE INDEX (idx_endorse_logs_date_endorse) ";
 		}
 
-		$logs_daily_subquery = "
+		$logs_history_subquery = "
 			SELECT
 				el.id_endorse,
 				el.date AS log_date,
@@ -369,60 +371,112 @@ class Ajax extends CI_Controller
 			FROM endorse_logs el
 			$logs_index_hint
 			INNER JOIN ($filtered_endorse_subquery) filtered_endorse ON filtered_endorse.id = el.id_endorse
-			WHERE el.date >= '$start_date'
-			AND el.date < '$until_datetime'
+			WHERE el.date < '$until_datetime'
 			$logs_selected_ids_filter
 			GROUP BY el.id_endorse, el.date
 		";
 
-		$sql_list = "
-			SELECT 
-				SUM(log_agg.likes_after)      AS likes, 
-				SUM(log_agg.comment_after)    AS comment,
-				SUM(log_agg.share_save_after) AS share_save, 
-				SUM(log_agg.views_after)      AS views,
-				SUM(log_agg.total_cost)       AS cost,
-				COUNT(log_agg.id_endorse)     AS endorse, 
-				MAX(log_agg.last_updated)     AS last_updated,
-				$qry_opt                      AS opt
-			FROM ($logs_daily_subquery) log_agg
-			$group
-			ORDER BY log_agg.log_date ASC
-		";
-		$list = !empty($filtered_endorse_rows) ? $this->mymodel->selectWithQuery($sql_list) : array();
-		if (empty($list)) $list = array();
+		$logs_history_rows = !empty($filtered_endorse_rows)
+			? $this->mymodel->selectWithQuery("
+				SELECT *
+				FROM ($logs_history_subquery) history
+				ORDER BY history.log_date ASC, history.id_endorse ASC
+			")
+			: array();
+		if (empty($logs_history_rows)) {
+			$logs_history_rows = array();
+		}
+
+		$apply_snapshot_row = function ($row, &$snapshot_by_endorse, &$running_totals) {
+			$id_endorse = (string)$row['id_endorse'];
+			$previous = isset($snapshot_by_endorse[$id_endorse]) ? $snapshot_by_endorse[$id_endorse] : array(
+				'likes_after' => 0,
+				'comment_after' => 0,
+				'share_save_after' => 0,
+				'views_after' => 0,
+				'total_cost' => 0,
+			);
+
+			$next = array(
+				'likes_after' => (float)$row['likes_after'],
+				'comment_after' => (float)$row['comment_after'],
+				'share_save_after' => (float)$row['share_save_after'],
+				'views_after' => (float)$row['views_after'],
+				'total_cost' => (float)$row['total_cost'],
+			);
+
+			// Failed/partial syncs may insert a lower absolute counter than the
+			// last valid snapshot. Treat those as void and keep the previous value.
+			foreach (array('likes_after', 'comment_after', 'share_save_after', 'views_after') as $metric_key) {
+				if ($next[$metric_key] < $previous[$metric_key]) {
+					$next[$metric_key] = $previous[$metric_key];
+				}
+			}
+
+			$running_totals['likes'] += ($next['likes_after'] - $previous['likes_after']);
+			$running_totals['comment'] += ($next['comment_after'] - $previous['comment_after']);
+			$running_totals['share_save'] += ($next['share_save_after'] - $previous['share_save_after']);
+			$running_totals['views'] += ($next['views_after'] - $previous['views_after']);
+			$running_totals['cost'] += ($next['total_cost'] - $previous['total_cost']);
+
+			if (!isset($snapshot_by_endorse[$id_endorse])) {
+				$running_totals['endorse']++;
+			}
+
+			$snapshot_by_endorse[$id_endorse] = $next;
+		};
+
+		$snapshot_by_endorse = array();
+		$running_totals = array(
+			'likes' => 0.0,
+			'comment' => 0.0,
+			'share_save' => 0.0,
+			'views' => 0.0,
+			'cost' => 0.0,
+			'endorse' => 0,
+		);
+
+		$history_index = 0;
+		$history_count = count($logs_history_rows);
+		while ($history_index < $history_count && $logs_history_rows[$history_index]['log_date'] < $start_date) {
+			$apply_snapshot_row($logs_history_rows[$history_index], $snapshot_by_endorse, $running_totals);
+			$history_index++;
+		}
+
+		$baseline_views = (float)$running_totals['views'];
+		$baseline_likes = (float)$running_totals['likes'];
+		$baseline_comment = (float)$running_totals['comment'];
+		$baseline_share_save = (float)$running_totals['share_save'];
+		$baseline_eng = (float)$running_totals['likes'] + (float)$running_totals['comment'] + (float)$running_totals['share_save'];
+		$baseline_cost = (float)$running_totals['cost'];
+		$baseline_end = (int)$running_totals['endorse'];
 
 		// ===== Siapkan range label =====
 		$range = ($this->createRange($start_date, $until_date));
 		$arr   = array();
 
-		$list_by_date = array();
-		foreach ($list as $row) {
-			$list_by_date[$row['opt']] = $row;
-		}
-
 		foreach ($range as $k2 => $v2) {
-			$val_1 = 0; // views kumulatif
-			$val_2 = 0; // cpm
-			$val_3 = 0; // engagement kumulatif
-			$val_4 = 0; // cost kumulatif
-			$val_5 = 0; // endorse kumulatif
-			$val_likes = 0; // likes individual
-			$val_comment = 0; // comment individual
-			$val_share_save = 0; // share_save individual
 			$last_updated = '';
+			while ($history_index < $history_count && $logs_history_rows[$history_index]['log_date'] === $v2) {
+				$apply_snapshot_row($logs_history_rows[$history_index], $snapshot_by_endorse, $running_totals);
+				$row_last_updated = $logs_history_rows[$history_index]['last_updated'] ?? '';
+				if (!empty($row_last_updated) && $row_last_updated > $last_updated) {
+					$last_updated = $row_last_updated;
+				}
+				$history_index++;
+			}
 
-			if (isset($list_by_date[$v2])) {
-				$v = $list_by_date[$v2];
-				$val_1 = intval($v['views']);
-				$val_likes = intval($v['likes']);
-				$val_comment = intval($v['comment']);
-				$val_share_save = intval($v['share_save']);
-				$val_3 = $val_likes + $val_comment + $val_share_save;
-				$val_4 = floatval($v['cost']);
-				$val_5 = intval($v['endorse']);
-				$last_updated = $v['last_updated'] ?? '';
-				if ($val_4 > 0 && $val_1 > 0) $val_2 = ($val_4 / $val_1) * 1000;
+			$val_1 = (float)$running_totals['views']; // views kumulatif
+			$val_2 = 0; // cpm
+			$val_likes = (float)$running_totals['likes'];
+			$val_comment = (float)$running_totals['comment'];
+			$val_share_save = (float)$running_totals['share_save'];
+			$val_3 = $val_likes + $val_comment + $val_share_save; // engagement kumulatif
+			$val_4 = (float)$running_totals['cost']; // cost kumulatif
+			$val_5 = (int)$running_totals['endorse']; // endorse kumulatif
+
+			if ($val_4 > 0 && $val_1 > 0) {
+				$val_2 = ($val_4 / $val_1) * 1000;
 			}
 
 			$arr[$k2] = array(
@@ -448,60 +502,6 @@ class Ajax extends CI_Controller
 		$opt = $a = $b = $c = $d = $e = "";
 
 		$val_arr_1 = $val_arr_2 = $val_arr_3 = $val_arr_4 = $val_arr_5 = array();
-
-		// ===== Baseline D-1 untuk mode SELISIH =====
-		$baseline_views = 0;
-		$baseline_eng   = 0;
-		$baseline_cost  = 0;
-		$baseline_end   = 0;
-		$baseline_likes = 0;
-		$baseline_comment = 0;
-		$baseline_share_save = 0;
-
-			if ($checkbox[0] == 'true') {
-				$logs_baseline_subquery = "
-					SELECT
-						el.id_endorse,
-						el.date AS log_date,
-						MAX(el.likes_after) AS likes_after,
-						MAX(el.comment_after) AS comment_after,
-						MAX(el.share_save_after) AS share_save_after,
-						MAX(el.views_after) AS views_after,
-						MAX(el.total_cost) AS total_cost,
-						$last_updated_inner_expr AS last_updated
-					FROM endorse_logs el
-					$logs_index_hint
-					INNER JOIN ($filtered_endorse_subquery) filtered_endorse ON filtered_endorse.id = el.id_endorse
-					WHERE el.date < '$start_date'
-					$logs_selected_ids_filter
-					GROUP BY el.id_endorse, el.date
-				";
-	            $sql_base = "
-	                SELECT
-	                    SUM(log_agg.views_after) AS views,
-	                    SUM(log_agg.likes_after) AS likes,
-	                    SUM(log_agg.comment_after) AS comment,
-	                    SUM(log_agg.share_save_after) AS share_save,
-	                    SUM(log_agg.likes_after + log_agg.comment_after + log_agg.share_save_after) AS engagement,
-	                    SUM(log_agg.total_cost) AS cost,
-	                    COUNT(log_agg.id_endorse) AS endorse,
-	                    log_agg.log_date AS opt
-	                FROM ($logs_baseline_subquery) log_agg
-	                GROUP BY log_agg.log_date
-	                ORDER BY log_agg.log_date DESC
-	                LIMIT 1
-	            ";
-			$base = !empty($filtered_endorse_rows) ? $this->mymodel->selectWithQuery($sql_base) : array();
-			if (!empty($base)) {
-				$baseline_views = (int)$base[0]['views'];
-				$baseline_likes = (int)$base[0]['likes'];
-				$baseline_comment = (int)$base[0]['comment'];
-				$baseline_share_save = (int)$base[0]['share_save'];
-				$baseline_eng   = (int)$base[0]['engagement'];
-				$baseline_cost  = (float)$base[0]['cost'];
-				$baseline_end   = (int)$base[0]['endorse'];
-			}
-		}
 
 		// Inisialisasi prev_* dari baseline (delta) atau 0 (kumulatif)
 		$prev_views      = ($checkbox[0] == 'true') ? $baseline_views : 0;
@@ -7388,70 +7388,11 @@ gradient_5.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 		}
 
 		$user_id = intval($_SESSION['user']['id'] ?? 0);
-
-		$rows = $this->mymodel->selectWithQuery("
-			SELECT id, id_campaign, platform, link_upload
-			FROM endorse
-			WHERE id_campaign = '$id_campaign'
-			  AND status = 'Aktif' AND status_campaign = 'Aktif'
-			  AND link_upload != ''
-		");
+		$this->load->library('EndorseRefreshQueueService');
+		$result = $this->endorserefreshqueueservice->enqueueCampaign($id_campaign, $user_id);
 
 		header('Content-Type: application/json; charset=utf-8');
-
-		if (empty($rows)) {
-			echo json_encode([
-				'status'   => true,
-				'msg'      => 'Tidak ada konten aktif untuk direfresh.',
-				'enqueued' => 0,
-				'skipped_duplicates' => 0,
-			]);
-			return;
-		}
-
-		$candidate_ids = array_map(function ($r) { return intval($r['id']); }, $rows);
-		$idList = implode(',', $candidate_ids);
-
-		$existing = $this->mymodel->selectWithQuery("
-			SELECT id_endorse FROM endorse_refresh_queue
-			WHERE id_endorse IN ($idList) AND status IN ('pending','processing')
-		");
-		$already = [];
-		foreach ($existing as $e) {
-			$already[intval($e['id_endorse'])] = true;
-		}
-
-		$now = date('Y-m-d H:i:s');
-		$batch = [];
-		$skipped = 0;
-		foreach ($rows as $r) {
-			$id_e = intval($r['id']);
-			if (isset($already[$id_e])) { $skipped++; continue; }
-			$batch[] = [
-				'id_endorse'   => $id_e,
-				'id_campaign'  => intval($r['id_campaign']),
-				'platform'     => strval($r['platform']),
-				'link_upload'  => strval($r['link_upload']),
-				'status'       => 'pending',
-				'priority'     => 10,
-				'attempts'     => 0,
-				'max_attempts' => 3,
-				'enqueued_by'  => $user_id,
-				'created_at'   => $now,
-			];
-		}
-
-		if (!empty($batch)) {
-			$this->db->insert_batch('endorse_refresh_queue', $batch);
-		}
-
-		echo json_encode([
-			'status'             => true,
-			'msg'                => count($batch) . " konten ditambahkan ke antrian, $skipped sudah ada.",
-			'enqueued'           => count($batch),
-			'skipped_duplicates' => $skipped,
-			'count'              => count($rows),
-		]);
+		echo json_encode($result);
 	}
 
 }

@@ -7715,6 +7715,17 @@ class Api_v2 extends CI_Controller
 
         // Step 1 — recover stale rows from crashed workers
         $this->db->query("
+            UPDATE endorse_refresh_queue_attempts a
+            INNER JOIN endorse_refresh_queue q ON q.id = a.queue_id
+            SET a.status = 'retrying',
+                a.error_class = 'transient',
+                a.error_message = 'Worker stalled; item returned to pending queue',
+                a.finished_at = '$now'
+            WHERE a.status = 'processing'
+              AND q.status = 'processing'
+              AND q.started_at < (NOW() - INTERVAL $STALE_MINUTES MINUTE)
+        ");
+        $this->db->query("
             UPDATE endorse_refresh_queue
             SET status = 'pending', worker_id = NULL, started_at = NULL, claimed_at = NULL
             WHERE status = 'processing'
@@ -7745,10 +7756,23 @@ class Api_v2 extends CI_Controller
             SELECT * FROM endorse_refresh_queue
             WHERE worker_id = '$worker_id' AND status = 'processing'
         ");
+        $attemptRows = [];
+        foreach ($items as $item) {
+            $attemptRows[] = [
+                'queue_id' => intval($item['id']),
+                'attempt_no' => intval($item['attempts']) + 1,
+                'worker_id' => $worker_id,
+                'status' => 'processing',
+                'started_at' => $now,
+                'created_at' => $now,
+            ];
+        }
+        if (!empty($attemptRows)) {
+            $this->db->insert_batch('endorse_refresh_queue_attempts', $attemptRows);
+        }
 
         // Step 3 — pre-fetch endorse rows + previous stats in batch
         $endorse_ids = array_map(function ($r) { return intval($r['id_endorse']); }, $items);
-        $queue_ids   = array_map(function ($r) { return intval($r['id']); }, $items);
 
         $endorse_id_list = implode(',', $endorse_ids);
         $endorseRows = $this->mymodel->selectWithQuery("
@@ -7781,7 +7805,7 @@ class Api_v2 extends CI_Controller
             $response    = $responses[$i] ?? ['status' => false, 'msg' => 'No response', 'data' => []];
 
             if (!$endorse) {
-                $this->mark_queue_failed($queue_id, $attempts, 'Endorse row no longer exists');
+                $this->mark_queue_failed($queue_id, $attempts, 'Endorse row no longer exists', Endorse_sync::ERR_PERMANENT, $worker_id);
                 $failed++;
                 continue;
             }
@@ -7793,13 +7817,15 @@ class Api_v2 extends CI_Controller
             );
 
             if ($result['status']) {
+                $completedAt = date('Y-m-d H:i:s');
                 $this->db->update('endorse_refresh_queue', [
                     'status'        => 'completed',
                     'attempts'      => $attempts,
                     'error_message' => null,
                     'worker_id'     => null,
-                    'completed_at'  => date('Y-m-d H:i:s'),
+                    'completed_at'  => $completedAt,
                 ], ['id' => $queue_id]);
+                $this->finalize_queue_attempt($queue_id, $attempts, $worker_id, 'completed', null, null, $completedAt);
                 $touched_campaigns[intval($endorse['id_campaign'])] = true;
                 $completed++;
                 continue;
@@ -7809,16 +7835,17 @@ class Api_v2 extends CI_Controller
             $msg = $result['msg'] ?: 'Gagal';
 
             if ($errorClass === Endorse_sync::ERR_PERMANENT || $errorClass === Endorse_sync::ERR_EMPTY) {
-                $this->mark_queue_failed($queue_id, $attempts, $msg);
+                $this->mark_queue_failed($queue_id, $attempts, $msg, $errorClass, $worker_id);
                 $failed++;
                 continue;
             }
 
             // Transient
             if ($attempts >= $maxAttempts) {
-                $this->mark_queue_failed($queue_id, $attempts, "$msg (after $attempts attempts)");
+                $this->mark_queue_failed($queue_id, $attempts, "$msg (after $attempts attempts)", $errorClass, $worker_id);
                 $failed++;
             } else {
+                $finishedAt = date('Y-m-d H:i:s');
                 $this->db->update('endorse_refresh_queue', [
                     'status'        => 'pending',
                     'attempts'      => $attempts,
@@ -7827,6 +7854,7 @@ class Api_v2 extends CI_Controller
                     'started_at'    => null,
                     'claimed_at'    => null,
                 ], ['id' => $queue_id]);
+                $this->finalize_queue_attempt($queue_id, $attempts, $worker_id, 'retrying', $errorClass, $msg, $finishedAt);
                 $retrying++;
             }
         }
@@ -7848,14 +7876,34 @@ class Api_v2 extends CI_Controller
         die;
     }
 
-    private function mark_queue_failed(int $queue_id, int $attempts, string $msg): void
+    private function mark_queue_failed(int $queue_id, int $attempts, string $msg, ?string $errorClass = null, ?string $worker_id = null): void
     {
+        $completedAt = date('Y-m-d H:i:s');
         $this->db->update('endorse_refresh_queue', [
             'status'        => 'failed',
             'attempts'      => $attempts,
             'error_message' => $msg,
             'worker_id'     => null,
-            'completed_at'  => date('Y-m-d H:i:s'),
+            'completed_at'  => $completedAt,
         ], ['id' => $queue_id]);
+        $this->finalize_queue_attempt($queue_id, $attempts, $worker_id, 'failed', $errorClass, $msg, $completedAt);
+    }
+
+    private function finalize_queue_attempt(int $queue_id, int $attemptNo, ?string $worker_id, string $status, ?string $errorClass, ?string $msg, string $finishedAt): void
+    {
+        $where = [
+            'queue_id' => $queue_id,
+            'attempt_no' => $attemptNo,
+        ];
+        if (!empty($worker_id)) {
+            $where['worker_id'] = $worker_id;
+        }
+
+        $this->db->update('endorse_refresh_queue_attempts', [
+            'status' => $status,
+            'error_class' => $errorClass,
+            'error_message' => $msg,
+            'finished_at' => $finishedAt,
+        ], $where);
     }
 }
