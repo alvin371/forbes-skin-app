@@ -426,6 +426,15 @@ paths:
     post:
       tags: [Attendance]
       summary: Add or update late/early attendance reason and optional attachment
+      description: |
+        Allows the authenticated user to submit a reason for their own attendance log when it is a late check-in or early checkout.
+
+        Eligibility rules:
+        - late check-in: the check-in time is more than 15 minutes after the resolved schedule start, so the first eligible late time is `schedule start +16 minutes`
+        - early checkout: the check-out time is more than 15 minutes before the resolved schedule end, so the first eligible early time is `schedule end -16 minutes`
+        - the reason can be submitted only on the same calendar day as the attendance log
+
+        `attachment` / `attachment_path` is optional.
       parameters:
         - $ref: '#/components/parameters/IdParam'
       requestBody:
@@ -2145,7 +2154,7 @@ components:
           $ref: '#/components/schemas/AttendanceMinutes'
         reasonEligible:
           type: boolean
-          description: True when the log is late/early and still inside the 1-hour schedule-based reason window.
+          description: True when the log is late/early and the same-day reason submission window is still open.
         reasonWindow:
           $ref: '#/components/schemas/AttendanceReasonWindow'
         schedule:
@@ -2158,10 +2167,14 @@ components:
       properties:
         reason:
           type: string
+          nullable: true
+          description: Reason text for a late check-in or early checkout.
         attachment_path:
           type: string
+          description: Optional previously uploaded attendance attachment path.
         attachment:
           type: string
+          description: Optional attachment path or multipart file field name, depending on request content type.
 
     AttendanceReasonResponse:
       type: object
@@ -2183,7 +2196,7 @@ components:
           $ref: '#/components/schemas/AttendanceFlags'
         reasonEligible:
           type: boolean
-          description: True when the log is still inside the 1-hour schedule-based reason window.
+          description: True when the late/early log can still receive a reason on the same attendance date.
         reasonWindow:
           $ref: '#/components/schemas/AttendanceReasonWindow'
         hasReasonOrAttachment:
@@ -2236,7 +2249,7 @@ components:
           type: boolean
         reasonEligible:
           type: boolean
-          description: True when the log is late/early and still inside the 1-hour window derived from the resolved schedule.
+          description: True when the log is late/early and the same-day reason submission window is still open.
         reasonWindow:
           $ref: '#/components/schemas/AttendanceReasonWindow'
         attendanceCategory:
@@ -2261,18 +2274,18 @@ components:
       properties:
         eligible:
           type: boolean
-          description: Backend-calculated schedule-based reason eligibility.
+          description: Backend-calculated same-day reason eligibility for late check-in or early checkout.
         type:
           type: string
           enum: [IN, OUT]
         window_start:
           type: string
           nullable: true
-          description: Inclusive start of the 1-hour reason window for the attendance log date.
+          description: Inclusive start of the same-day reason window for the attendance log.
         window_end:
           type: string
           nullable: true
-          description: Inclusive end of the 1-hour reason window for the attendance log date.
+          description: Inclusive end of the same-day reason window for the attendance log date.
         schedule_start_time:
           type: string
           description: Resolved schedule start time used for the calculation.

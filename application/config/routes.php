@@ -266,6 +266,7 @@ $route['api/attendance/status'] = 'AttendanceController/status';
 $route['api/attendance/logs'] = 'AttendanceController/logs';
 $route['attendance'] = 'AttendancePageController/index';
 $route['attendance/report'] = 'AttendanceReport/index';
+$route['attendance/report/data'] = 'AttendanceReport/data_json';
 $route['attendance/report/pdf'] = 'AttendanceReport/export_pdf';
 $route['attendance/report/set-schedule']['POST'] = 'AttendanceReport/set_user_schedule';
 
