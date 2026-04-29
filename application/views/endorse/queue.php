@@ -120,10 +120,20 @@ $campaigns = isset($campaigns) ? $campaigns : [];
         return $('<div>').text(s == null ? '' : String(s)).html();
     }
 
+    function renderLoadError(message) {
+        $('#sum-pending, #sum-processing, #sum-completed, #sum-failed').text('0');
+        $('#checkAll').prop('checked', false);
+        $('#queueTable tbody').html(
+            '<tr><td colspan="10" class="text-center text-danger py-4">' + escHtml(message) + '</td></tr>'
+        );
+        updateRetryButton();
+        schedulePoll(false);
+    }
+
     function loadData() {
         const params = {
             id_campaign: $('#filter-campaign').val(),
-            status:      getStatusFilter(),
+            status:      getStatusFilter().join(','),
             since_hours: $('#filter-since').val(),
             length:      100,
             start:       0
@@ -133,13 +143,13 @@ $campaigns = isset($campaigns) ? $campaigns : [];
             url: baseUrl + 'endorse/queue-data',
             method: 'GET',
             data: params,
-            traditional: true,
             dataType: 'json',
             success: function(resp) {
                 $('#sum-pending').text(resp.summary.pending || 0);
                 $('#sum-processing').text(resp.summary.processing || 0);
                 $('#sum-completed').text(resp.summary.completed || 0);
                 $('#sum-failed').text(resp.summary.failed || 0);
+                $('#checkAll').prop('checked', false);
 
                 const rows = resp.data || [];
                 const $tbody = $('#queueTable tbody').empty();
@@ -172,6 +182,12 @@ $campaigns = isset($campaigns) ? $campaigns : [];
 
                 const stillRunning = (resp.summary.pending + resp.summary.processing) > 0;
                 schedulePoll(stillRunning);
+            },
+            error: function(xhr) {
+                const msg = xhr.responseJSON && xhr.responseJSON.msg
+                    ? xhr.responseJSON.msg
+                    : 'Gagal memuat data antrian. Silakan refresh halaman.';
+                renderLoadError(msg);
             }
         });
     }
@@ -206,12 +222,17 @@ $campaigns = isset($campaigns) ? $campaigns : [];
         $.ajax({
             url: baseUrl + 'endorse/force-retry',
             method: 'POST',
-            data: { ids: ids },
-            traditional: true,
+            data: { ids: ids.join(',') },
             dataType: 'json',
             success: function(resp) {
                 alert(resp.msg);
                 loadData();
+            },
+            error: function(xhr) {
+                const msg = xhr.responseJSON && xhr.responseJSON.msg
+                    ? xhr.responseJSON.msg
+                    : 'Gagal memproses retry antrian.';
+                alert(msg);
             },
             complete: function() {
                 $btn.prop('disabled', false).text('Retry Gagal Terpilih');
