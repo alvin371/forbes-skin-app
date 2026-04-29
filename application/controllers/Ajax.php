@@ -353,12 +353,13 @@ class Ajax extends CI_Controller
 		if (!empty($ids_sql_filter)) {
 			$logs_selected_ids_filter = " AND filtered_endorse.id IN ($ids_sql_filter) ";
 		}
-		$logs_index_hint = '';
+		$logs_range_index_hint = '';
+		$logs_baseline_index_hint = " FORCE INDEX (idx_endorse_logs_endorse_date) ";
 		if ($is_dashboard == 'true' && empty($ids_sql_filter)) {
-			$logs_index_hint = " FORCE INDEX (idx_endorse_logs_date_endorse) ";
+			$logs_range_index_hint = " FORCE INDEX (idx_endorse_logs_date_endorse) ";
 		}
 
-		$logs_history_subquery = "
+		$range_logs_subquery = "
 			SELECT
 				el.id_endorse,
 				el.date AS log_date,
@@ -369,17 +370,52 @@ class Ajax extends CI_Controller
 				MAX(el.total_cost) AS total_cost,
 				$last_updated_inner_expr AS last_updated
 			FROM endorse_logs el
-			$logs_index_hint
+			$logs_range_index_hint
 			INNER JOIN ($filtered_endorse_subquery) filtered_endorse ON filtered_endorse.id = el.id_endorse
-			WHERE el.date < '$until_datetime'
+			WHERE el.date >= '$start_date'
+			  AND el.date < '$until_datetime'
 			$logs_selected_ids_filter
+			GROUP BY el.id_endorse, el.date
+		";
+
+		$baseline_latest_subquery = "
+			SELECT
+				el.id_endorse,
+				MAX(el.date) AS log_date
+			FROM endorse_logs el
+			$logs_baseline_index_hint
+			INNER JOIN ($filtered_endorse_subquery) filtered_endorse ON filtered_endorse.id = el.id_endorse
+			WHERE el.date < '$start_date'
+			$logs_selected_ids_filter
+			GROUP BY el.id_endorse
+		";
+
+		$baseline_logs_subquery = "
+			SELECT
+				el.id_endorse,
+				el.date AS log_date,
+				MAX(el.likes_after) AS likes_after,
+				MAX(el.comment_after) AS comment_after,
+				MAX(el.share_save_after) AS share_save_after,
+				MAX(el.views_after) AS views_after,
+				MAX(el.total_cost) AS total_cost,
+				$last_updated_inner_expr AS last_updated
+			FROM endorse_logs el
+			$logs_baseline_index_hint
+			INNER JOIN ($baseline_latest_subquery) baseline
+				ON baseline.id_endorse = el.id_endorse
+			   AND baseline.log_date = el.date
 			GROUP BY el.id_endorse, el.date
 		";
 
 		$logs_history_rows = !empty($filtered_endorse_rows)
 			? $this->mymodel->selectWithQuery("
 				SELECT *
-				FROM ($logs_history_subquery) history
+				FROM (
+					$baseline_logs_subquery
+					UNION ALL
+					$range_logs_subquery
+				) history
 				ORDER BY history.log_date ASC, history.id_endorse ASC
 			")
 			: array();

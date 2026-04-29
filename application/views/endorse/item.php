@@ -520,6 +520,37 @@ if ($view == 'table') {
     <?php
 } else {
     // CARD VIEW (default)
+    ?>
+    <style>
+        .endorse-issue-card {
+            border: 1px solid #f0b4b7;
+            background: linear-gradient(135deg, #fff7f7 0%, #fff1f2 100%);
+            box-shadow: 0 12px 30px rgba(127, 29, 29, 0.08);
+        }
+        .endorse-issue-card hr {
+            border-top-color: rgba(190, 24, 93, 0.16);
+        }
+        .endorse-issue-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 10px;
+            padding: 7px 12px;
+            border-radius: 999px;
+            background: #9f1239;
+            color: #fff7ed;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .endorse-issue-note {
+            margin-top: 8px;
+            margin-bottom: 0;
+            color: #881337;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+    </style>
+    <?php
     foreach ($data as $v) {
         if ($v['platform'] == "Tiktok") {
             $v['img'] = base_url() . '/assets/img/icon/icon-tiktok.png';
@@ -673,8 +704,9 @@ if ($view == 'table') {
         } else {
             $display_k = $k;
         }
+        $has_url_sync_issue = !empty($v['has_url_sync_issue']);
     ?>
-    <div class="card mb-3" style="padding-bottom:0px">
+    <div class="card mb-3<?= $has_url_sync_issue ? ' endorse-issue-card' : '' ?>" style="padding-bottom:0px">
         <div class="row">
             <!-- Featured Media Section -->
             <?php if (!empty($v['media_attachment'])): ?>
@@ -741,6 +773,15 @@ if ($view == 'table') {
                     <p class="mb-1 text-black fw-600">
                         Growth Views<?= $top_performer_period['label'] ? ' (' . htmlspecialchars($top_performer_period['label']) . ')' : '' ?> :
                         <?= separator_only($v['views_growth_period'] ?? 0) ?>
+                    </p>
+                <?php endif; ?>
+                <?php if ($has_url_sync_issue): ?>
+                    <div class="endorse-issue-tag">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        URL TikTok bermasalah
+                    </div>
+                    <p class="endorse-issue-note">
+                        Stats TikTok tidak ditemukan. Cek ulang URL konten karena kemungkinan link upload tidak valid atau tidak bisa dibaca sistem.
                     </p>
                 <?php endif; ?>
             </div>

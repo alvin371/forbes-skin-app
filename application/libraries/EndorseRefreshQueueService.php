@@ -56,14 +56,20 @@ class EndorseRefreshQueueService
         }, $rows);
 
         $already = $this->loadActiveEndorseIds($candidate_ids);
+        $knownUrlIssues = $this->loadKnownUrlIssueEndorseIds($candidate_ids);
         $now = date('Y-m-d H:i:s');
         $batch = [];
         $skipped = 0;
+        $excludedKnownUrl = 0;
 
         foreach ($rows as $row) {
             $id_endorse = intval($row['id']);
             if (isset($already[$id_endorse])) {
                 $skipped++;
+                continue;
+            }
+            if (isset($knownUrlIssues[$id_endorse])) {
+                $excludedKnownUrl++;
                 continue;
             }
 
@@ -85,11 +91,20 @@ class EndorseRefreshQueueService
             $this->db->insert_batch('endorse_refresh_queue', $batch);
         }
 
+        $msg = count($batch) . ' konten ditambahkan ke antrian.';
+        if ($skipped > 0) {
+            $msg .= " $skipped sudah ada di antrian.";
+        }
+        if ($excludedKnownUrl > 0) {
+            $msg .= " $excludedKnownUrl dilewati karena URL TikTok bermasalah.";
+        }
+
         return [
             'status' => true,
-            'msg' => count($batch) . ' konten ditambahkan ke antrian. ' . ($skipped > 0 ? "$skipped sudah ada di antrian." : ''),
+            'msg' => $msg,
             'enqueued' => count($batch),
             'skipped_duplicates' => $skipped,
+            'excluded_known_url' => $excludedKnownUrl,
             'count' => count($rows),
             'id_campaign' => $id_campaign,
         ];
@@ -236,5 +251,37 @@ class EndorseRefreshQueueService
         }
 
         return $active;
+    }
+
+    protected function loadKnownUrlIssueEndorseIds(array $endorseIds): array
+    {
+        $endorseIds = array_values(array_unique(array_filter(array_map('intval', $endorseIds))));
+        if (empty($endorseIds)) {
+            return [];
+        }
+
+        $idList = implode(',', $endorseIds);
+        $rows = $this->CI->mymodel->selectWithQuery("
+            SELECT latest.id_endorse
+            FROM endorse_refresh_queue latest
+            INNER JOIN (
+                SELECT id_endorse, MAX(id) AS max_id
+                FROM endorse_refresh_queue
+                WHERE id_endorse IN ($idList)
+                GROUP BY id_endorse
+            ) picked ON picked.max_id = latest.id
+            WHERE latest.status = 'failed'
+              AND (
+                latest.error_message LIKE '%Stats data tidak ditemukan%'
+                OR latest.error_message LIKE '%url tidak ditemukan%'
+              )
+        ");
+
+        $blocked = [];
+        foreach ($rows as $row) {
+            $blocked[intval($row['id_endorse'])] = true;
+        }
+
+        return $blocked;
     }
 }
