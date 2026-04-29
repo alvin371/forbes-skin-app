@@ -30,6 +30,7 @@ class Endorse extends BaseController
             'force_retry' => 'edit',
             'queue' => 'view',
             'queue_data' => 'view',
+            'queue_history' => 'view',
             'queue_count' => 'view',
         ]);
         
@@ -1769,78 +1770,17 @@ class Endorse extends BaseController
         $ids_param   = trim((string) $this->input->get_post('ids'));
         $format      = strtolower((string) $this->input->get_post('format'));
         $is_alert    = ($format === 'alert');
+        $ids = $ids_param !== '' ? explode(',', $ids_param) : [];
 
-        if ($id_campaign <= 0) {
-            return $this->respond_bulk_refresh($is_alert, false, 'Campaign tidak valid.', 0, 0, []);
-        }
-
-        $extra = '';
-        if ($ids_param !== '') {
-            $ids = array_filter(array_map('intval', explode(',', $ids_param)));
-            if (!empty($ids)) {
-                $extra = ' AND id IN (' . implode(',', $ids) . ')';
-            }
-        }
-
-        $rows = $this->mymodel->selectWithQuery("
-            SELECT id, id_campaign, platform, link_upload
-            FROM endorse
-            WHERE id_campaign = '$id_campaign'
-              AND status = 'Aktif' AND status_campaign = 'Aktif'
-              AND link_upload != ''
-              $extra
-        ");
-
-        if (empty($rows)) {
-            return $this->respond_bulk_refresh($is_alert, false, 'Tidak ada konten aktif yang bisa direfresh.', 0, 0, []);
-        }
-
-        $candidate_ids = array_map(function ($r) { return intval($r['id']); }, $rows);
-        $candidate_id_list = implode(',', $candidate_ids);
-
-        $existing = $this->mymodel->selectWithQuery("
-            SELECT id_endorse FROM endorse_refresh_queue
-            WHERE id_endorse IN ($candidate_id_list)
-              AND status IN ('pending','processing')
-        ");
-        $already = [];
-        foreach ($existing as $e) {
-            $already[intval($e['id_endorse'])] = true;
-        }
-
-        $now = date('Y-m-d H:i:s');
-        $batch = [];
-        $skipped = 0;
-        foreach ($rows as $r) {
-            $id_e = intval($r['id']);
-            if (isset($already[$id_e])) {
-                $skipped++;
-                continue;
-            }
-            $batch[] = [
-                'id_endorse'   => $id_e,
-                'id_campaign'  => intval($r['id_campaign']),
-                'platform'     => strval($r['platform']),
-                'link_upload'  => strval($r['link_upload']),
-                'status'       => 'pending',
-                'priority'     => 10,
-                'attempts'     => 0,
-                'max_attempts' => 3,
-                'enqueued_by'  => $user_id,
-                'created_at'   => $now,
-            ];
-        }
-
-        if (!empty($batch)) {
-            $this->db->insert_batch('endorse_refresh_queue', $batch);
-        }
+        $this->load->library('EndorseRefreshQueueService');
+        $result = $this->endorserefreshqueueservice->enqueueCampaign($id_campaign, $user_id, $ids);
 
         return $this->respond_bulk_refresh(
             $is_alert,
-            true,
-            count($batch) . ' konten ditambahkan ke antrian. ' . ($skipped > 0 ? "$skipped sudah ada di antrian." : ''),
-            count($batch),
-            $skipped,
+            !empty($result['status']),
+            $result['msg'] ?? 'Gagal membuat antrian.',
+            intval($result['enqueued'] ?? 0),
+            intval($result['skipped_duplicates'] ?? 0),
             ['id_campaign' => $id_campaign]
         );
     }
@@ -1884,12 +1824,20 @@ class Endorse extends BaseController
         $id_campaign  = intval($this->input->get_post('id_campaign'));
         $statusParam  = $this->input->get_post('status');
         $since_hours  = intval($this->input->get_post('since_hours'));
-        $since_hours  = ($since_hours > 0 && $since_hours <= 720) ? $since_hours : 24;
+        $since_hours  = ($since_hours >= 0 && $since_hours <= 720) ? $since_hours : 168;
         $start        = max(0, intval($this->input->get_post('start')));
         $length       = intval($this->input->get_post('length'));
         $length       = ($length > 0 && $length <= 200) ? $length : 25;
+        $activityExpr = "CASE
+            WHEN q.status = 'pending' THEN q.created_at
+            WHEN q.status = 'processing' THEN COALESCE(q.started_at, q.created_at)
+            ELSE COALESCE(q.completed_at, q.created_at)
+        END";
 
-        $where = ["q.created_at >= (NOW() - INTERVAL $since_hours HOUR)"];
+        $where = ["1 = 1"];
+        if ($since_hours > 0) {
+            $where[] = "$activityExpr >= (NOW() - INTERVAL $since_hours HOUR)";
+        }
         if ($id_campaign > 0) {
             $where[] = "q.id_campaign = '$id_campaign'";
         }
@@ -1917,7 +1865,9 @@ class Endorse extends BaseController
         $rows = $this->mymodel->selectWithQuery("
             SELECT q.id, q.id_endorse, q.id_campaign, q.platform, q.link_upload,
                    q.status, q.priority, q.attempts, q.max_attempts, q.error_message,
-                   q.created_at, q.started_at, q.completed_at,
+                   q.created_at, q.started_at, q.completed_at, q.retry_source_id,
+                   q.created_at AS queued_at,
+                   $activityExpr AS activity_at,
                    ec.title AS campaign_title,
                    i.full_name AS influencer_name
             FROM endorse_refresh_queue q
@@ -1925,7 +1875,7 @@ class Endorse extends BaseController
             LEFT JOIN endorse_campaign ec ON ec.id = q.id_campaign
             LEFT JOIN influencer i        ON i.id = e.influencer
             $whereSql
-            ORDER BY (q.status = 'failed') DESC, q.created_at DESC
+            ORDER BY (q.status = 'failed') DESC, activity_at DESC, q.id DESC
             LIMIT $start, $length
         ");
 
@@ -1937,6 +1887,9 @@ class Endorse extends BaseController
             $summary[$s['status']] = intval($s['c']);
         }
 
+        $this->load->library('EndorseRefreshQueueService');
+        $health = $this->endorserefreshqueueservice->computeHealth($id_campaign, 10);
+
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode([
@@ -1944,7 +1897,29 @@ class Endorse extends BaseController
                 'recordsFiltered' => $total,
                 'data'            => $rows,
                 'summary'         => $summary,
+                'health'          => $health,
             ]));
+    }
+
+    public function queue_history()
+    {
+        $queueId = intval($this->input->get('id'));
+        if ($queueId <= 0) {
+            return $this->output
+                ->set_content_type('application/json')
+                ->set_output(json_encode(['status' => false, 'msg' => 'Queue ID tidak valid.', 'data' => []]));
+        }
+
+        $rows = $this->mymodel->selectWithQuery("
+            SELECT attempt_no, worker_id, status, error_class, error_message, started_at, finished_at, created_at
+            FROM endorse_refresh_queue_attempts
+            WHERE queue_id = '$queueId'
+            ORDER BY attempt_no DESC, id DESC
+        ");
+
+        return $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode(['status' => true, 'data' => $rows]));
     }
 
     /**
@@ -1952,16 +1927,16 @@ class Endorse extends BaseController
      */
     public function queue_count()
     {
-        $rows = $this->mymodel->selectWithQuery("
-            SELECT COUNT(*) c FROM endorse_refresh_queue
-            WHERE status IN ('pending','processing')
-              AND created_at >= (NOW() - INTERVAL 24 HOUR)
-        ");
-        $count = !empty($rows) ? intval($rows[0]['c']) : 0;
+        $this->load->library('EndorseRefreshQueueService');
+        $health = $this->endorserefreshqueueservice->computeHealth(0, 10);
 
         $this->output
             ->set_content_type('application/json')
-            ->set_output(json_encode(['count' => $count]));
+            ->set_output(json_encode([
+                'count' => intval($health['active_total'] ?? 0),
+                'stalled' => !empty($health['is_stalled']),
+                'oldest_pending_at' => $health['oldest_pending_at'] ?? null,
+            ]));
     }
 
     /**
@@ -1969,35 +1944,19 @@ class Endorse extends BaseController
      */
     public function force_retry()
     {
+        $user = $_SESSION['user'];
         $idsParam = $this->input->post('ids');
         if (!is_array($idsParam)) {
             $idsParam = explode(',', strval($idsParam));
         }
         $ids = array_filter(array_map('intval', $idsParam));
 
-        if (empty($ids)) {
-            $this->output
-                ->set_content_type('application/json')
-                ->set_output(json_encode(['status' => false, 'msg' => 'Tidak ada baris dipilih.', 'updated' => 0]));
-            return;
-        }
-
-        $idList = implode(',', $ids);
-        $this->db->query("
-            UPDATE endorse_refresh_queue
-            SET status = 'pending', attempts = 0, error_message = NULL,
-                started_at = NULL, completed_at = NULL
-            WHERE id IN ($idList) AND status = 'failed'
-        ");
-        $updated = $this->db->affected_rows();
+        $this->load->library('EndorseRefreshQueueService');
+        $result = $this->endorserefreshqueueservice->cloneFailedRows($ids, intval($user['id']));
 
         $this->output
             ->set_content_type('application/json')
-            ->set_output(json_encode([
-                'status'  => true,
-                'msg'     => "$updated baris dijadwalkan ulang.",
-                'updated' => $updated,
-            ]));
+            ->set_output(json_encode($result));
     }
 
 
@@ -2911,22 +2870,34 @@ class Endorse extends BaseController
 
         $data['title'] = 'Campaign Logs - ' . $this->template->title();
 
-        $date = $_GET['date'];
+        $date = trim((string) $this->input->get('date', true));
+        $id_campaign = (int) $this->input->get('id_campaign', true);
+
+        if ($date === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            $fallback_where = '';
+            if ($id_campaign > 0) {
+                $fallback_where = "WHERE id_campaign = '$id_campaign'";
+            }
+
+            $fallback = $this->mymodel->selectWithQuery("SELECT DATE(MAX(date)) AS latest_date FROM endorse_logs $fallback_where");
+            $date = !empty($fallback[0]['latest_date']) ? $fallback[0]['latest_date'] : DATE('Y-m-d');
+        }
 
         $qry = " DATE(endorse_logs.date) = '$date' ";
         $qry_endorse = "";
-
-        $id_campaign = $_GET['id_campaign'];
+        $data['date'] = $date;
 
         if ($id_campaign) {
             $qry .= " AND endorse_logs.id_campaign = '$id_campaign' ";
             $qry_endorse .= " AND endorse.id_campaign = '$id_campaign' ";
         }
 
-        $ids_campaign = $_GET['ids_campaign'];
+        $ids_campaign = $this->input->get('ids_campaign');
         $text = '';
-        foreach ($ids_campaign as $k => $v) {
-            $text .= "'" . $v . "',";
+        if (is_array($ids_campaign)) {
+            foreach ($ids_campaign as $k => $v) {
+                $text .= "'" . $v . "',";
+            }
         }
         $text = substr($text, 0, -1);
 

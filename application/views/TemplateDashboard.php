@@ -1290,8 +1290,8 @@ if (!$_SESSION['is_login']) {
         <div class="d-flex align-items-center justify-content-end gap-4">
           <!-- Endorse Refresh Queue -->
           <div class="notification-container" style="position: relative; margin-right: 10px;">
-            <a href="<?= base_url('endorse/queue') ?>" class="p-0 d-inline-block" title="Antrian Refresh Konten" style="position: relative; text-decoration: none;">
-              <i class="bi bi-list-check" style="font-size: 20px; color: #5a7dbaff;"></i>
+            <a href="<?= base_url('endorse/queue') ?>" class="p-0 d-inline-block" id="queueIconLink" title="Antrian Refresh Konten" style="position: relative; text-decoration: none;">
+              <i class="bi bi-list-check" id="queueIcon" style="font-size: 20px; color: #5a7dbaff;"></i>
               <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="queueBadge" style="display: none; font-size: 10px; padding: 3px 5px;">0</span>
             </a>
           </div>
@@ -1795,12 +1795,22 @@ if (!$_SESSION['is_login']) {
           dataType: 'json',
           success: function(data) {
             const $badge = $('#queueBadge');
+            const $icon = $('#queueIcon');
+            const $link = $('#queueIconLink');
             const n = parseInt(data.count || 0, 10);
+            const stalled = !!data.stalled;
             if (n > 0) {
               $badge.text(n > 99 ? '99+' : n).show();
+              $badge.toggleClass('bg-danger', !stalled);
+              $badge.toggleClass('bg-warning text-dark', stalled);
             } else {
               $badge.hide();
+              $badge.removeClass('bg-warning text-dark').addClass('bg-danger');
             }
+            $icon.css('color', stalled ? '#d97706' : '#5a7dbaff');
+            $link.attr('title', stalled && data.oldest_pending_at
+              ? 'Antrian Refresh Konten macet sejak ' + data.oldest_pending_at
+              : 'Antrian Refresh Konten');
           }
         });
       }

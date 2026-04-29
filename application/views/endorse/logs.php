@@ -2,7 +2,7 @@
 $chart_title = "";
 $site = $_GET['site'];
 $customer = $_GET['customer'];
-$date = $_GET['date'];
+$date = isset($date) ? $date : ($_GET['date'] ?? '');
 
 // if ($_GET['start_date'] == "") {
 //     $start_date = DATE("Y-m-01");
