@@ -89,6 +89,7 @@ class Ajax extends CI_Controller
 
 	public function get_chart_campaign()
 	{
+		$request_started_at = microtime(true);
 		$is_dashboard = $_GET['is_dashboard'];
 
 		// ===== Validasi minimal 1 filter metrik dipilih (checkbox[1..5]) =====
@@ -135,6 +136,27 @@ class Ajax extends CI_Controller
 		if ($chart_no_growth === '1' && (!$chart_no_growth_start_date || !$chart_no_growth_until_date)) {
 			$chart_no_growth_start_date = $start_date;
 			$chart_no_growth_until_date = $until_date;
+		}
+
+		$cache_driver = null;
+		$cache_key = null;
+		if ($is_dashboard == 'true') {
+			$cache_driver = $this->loadChartCampaignCacheDriver();
+			if ($cache_driver) {
+				$cache_request = $_GET;
+				$cache_request['type'] = $type ?: 'Daily';
+				$cache_request['start_date'] = $start_date;
+				$cache_request['until_date'] = $until_date;
+				$cache_request['is_dashboard'] = $is_dashboard;
+				$cache_key = $this->buildChartCampaignCacheKey($cache_request, $checkbox);
+				$cached_response = $cache_driver->get($cache_key);
+				if (is_array($cached_response) && isset($cached_response['html'])) {
+					header('Content-Type: application/json; charset=utf-8');
+					echo json_encode($cached_response, true);
+					$this->logChartCampaignTiming($request_started_at, $cache_request, true);
+					return;
+				}
+			}
 		}
 
 		$qry_opt = " log_agg.log_date ";
@@ -344,162 +366,71 @@ class Ajax extends CI_Controller
 			$total_cost_from_endorse += (float)$row['total_cost'];
 		}
 
-		// ===== Agregasi log sebagai snapshot berjalan per konten =====
-		// endorse_logs tidak menyimpan full snapshot 101 konten per hari.
-		// Beberapa hari hanya berisi konten yang di-refresh pada hari itu, jadi
-		// menjumlahkan row "hari ini saja" akan membuat total turun ke nol/negatif.
-		$last_updated_inner_expr = "MAX(COALESCE(el.updated_at, el.created_at, CONCAT(el.date, ' 00:00:00')))";
-		$logs_selected_ids_filter = '';
-		if (!empty($ids_sql_filter)) {
-			$logs_selected_ids_filter = " AND filtered_endorse.id IN ($ids_sql_filter) ";
-		}
-		$logs_range_index_hint = '';
-		$logs_baseline_index_hint = " FORCE INDEX (idx_endorse_logs_endorse_date) ";
-		if ($is_dashboard == 'true' && empty($ids_sql_filter)) {
-			$logs_range_index_hint = " FORCE INDEX (idx_endorse_logs_date_endorse) ";
-		}
-
-		$range_logs_subquery = "
-			SELECT
-				el.id_endorse,
-				el.date AS log_date,
-				MAX(el.likes_after) AS likes_after,
-				MAX(el.comment_after) AS comment_after,
-				MAX(el.share_save_after) AS share_save_after,
-				MAX(el.views_after) AS views_after,
-				MAX(el.total_cost) AS total_cost,
-				$last_updated_inner_expr AS last_updated
-			FROM endorse_logs el
-			$logs_range_index_hint
-			INNER JOIN ($filtered_endorse_subquery) filtered_endorse ON filtered_endorse.id = el.id_endorse
-			WHERE el.date >= '$start_date'
-			  AND el.date < '$until_datetime'
-			$logs_selected_ids_filter
-			GROUP BY el.id_endorse, el.date
-		";
-
-		$baseline_latest_subquery = "
-			SELECT
-				el.id_endorse,
-				MAX(el.date) AS log_date
-			FROM endorse_logs el
-			$logs_baseline_index_hint
-			INNER JOIN ($filtered_endorse_subquery) filtered_endorse ON filtered_endorse.id = el.id_endorse
-			WHERE el.date < '$start_date'
-			$logs_selected_ids_filter
-			GROUP BY el.id_endorse
-		";
-
-		$baseline_logs_subquery = "
-			SELECT
-				el.id_endorse,
-				el.date AS log_date,
-				MAX(el.likes_after) AS likes_after,
-				MAX(el.comment_after) AS comment_after,
-				MAX(el.share_save_after) AS share_save_after,
-				MAX(el.views_after) AS views_after,
-				MAX(el.total_cost) AS total_cost,
-				$last_updated_inner_expr AS last_updated
-			FROM endorse_logs el
-			$logs_baseline_index_hint
-			INNER JOIN ($baseline_latest_subquery) baseline
-				ON baseline.id_endorse = el.id_endorse
-			   AND baseline.log_date = el.date
-			GROUP BY el.id_endorse, el.date
-		";
-
-		$logs_history_rows = !empty($filtered_endorse_rows)
-			? $this->mymodel->selectWithQuery("
-				SELECT *
-				FROM (
-					$baseline_logs_subquery
-					UNION ALL
-					$range_logs_subquery
-				) history
-				ORDER BY history.log_date ASC, history.id_endorse ASC
-			")
-			: array();
-		if (empty($logs_history_rows)) {
-			$logs_history_rows = array();
-		}
-
-		$apply_snapshot_row = function ($row, &$snapshot_by_endorse, &$running_totals) {
-			$id_endorse = (string)$row['id_endorse'];
-			$previous = isset($snapshot_by_endorse[$id_endorse]) ? $snapshot_by_endorse[$id_endorse] : array(
-				'likes_after' => 0,
-				'comment_after' => 0,
-				'share_save_after' => 0,
-				'views_after' => 0,
-				'total_cost' => 0,
-			);
-
-			$next = array(
-				'likes_after' => (float)$row['likes_after'],
-				'comment_after' => (float)$row['comment_after'],
-				'share_save_after' => (float)$row['share_save_after'],
-				'views_after' => (float)$row['views_after'],
-				'total_cost' => (float)$row['total_cost'],
-			);
-
-			// Failed/partial syncs may insert a lower absolute counter than the
-			// last valid snapshot. Treat those as void and keep the previous value.
-			foreach (array('likes_after', 'comment_after', 'share_save_after', 'views_after') as $metric_key) {
-				if ($next[$metric_key] < $previous[$metric_key]) {
-					$next[$metric_key] = $previous[$metric_key];
-				}
-			}
-
-			$running_totals['likes'] += ($next['likes_after'] - $previous['likes_after']);
-			$running_totals['comment'] += ($next['comment_after'] - $previous['comment_after']);
-			$running_totals['share_save'] += ($next['share_save_after'] - $previous['share_save_after']);
-			$running_totals['views'] += ($next['views_after'] - $previous['views_after']);
-			$running_totals['cost'] += ($next['total_cost'] - $previous['total_cost']);
-
-			if (!isset($snapshot_by_endorse[$id_endorse])) {
-				$running_totals['endorse']++;
-			}
-
-			$snapshot_by_endorse[$id_endorse] = $next;
-		};
-
-		$snapshot_by_endorse = array();
-		$running_totals = array(
-			'likes' => 0.0,
-			'comment' => 0.0,
-			'share_save' => 0.0,
-			'views' => 0.0,
-			'cost' => 0.0,
-			'endorse' => 0,
+		$logs_can_skip_filtered_join = (
+			trim($filters_common) === '' &&
+			trim($filters_date_on_endorse) === '' &&
+			$need_join_campaign === false
 		);
 
-		$history_index = 0;
-		$history_count = count($logs_history_rows);
-		while ($history_index < $history_count && $logs_history_rows[$history_index]['log_date'] < $start_date) {
-			$apply_snapshot_row($logs_history_rows[$history_index], $snapshot_by_endorse, $running_totals);
-			$history_index++;
-		}
+		$log_aggregates = !empty($filtered_endorse_rows)
+			? $this->getChartCampaignLogAggregates(
+				$filtered_endorse_subquery,
+				$start_date,
+				$until_datetime,
+				$ids_sql_filter,
+				!$logs_can_skip_filtered_join,
+				($is_dashboard == 'true' && empty($ids_sql_filter))
+			)
+			: array(
+				'baseline' => array(
+					'likes' => 0,
+					'comment' => 0,
+					'share_save' => 0,
+					'views' => 0,
+					'cost' => 0,
+					'endorse' => 0,
+				),
+				'daily' => array(),
+			);
 
-		$baseline_views = (float)$running_totals['views'];
-		$baseline_likes = (float)$running_totals['likes'];
-		$baseline_comment = (float)$running_totals['comment'];
-		$baseline_share_save = (float)$running_totals['share_save'];
-		$baseline_eng = (float)$running_totals['likes'] + (float)$running_totals['comment'] + (float)$running_totals['share_save'];
-		$baseline_cost = (float)$running_totals['cost'];
-		$baseline_end = (int)$running_totals['endorse'];
+		$baseline_views = (float)($log_aggregates['baseline']['views'] ?? 0);
+		$baseline_likes = (float)($log_aggregates['baseline']['likes'] ?? 0);
+		$baseline_comment = (float)($log_aggregates['baseline']['comment'] ?? 0);
+		$baseline_share_save = (float)($log_aggregates['baseline']['share_save'] ?? 0);
+		$baseline_eng = $baseline_likes + $baseline_comment + $baseline_share_save;
+		$baseline_cost = (float)($log_aggregates['baseline']['cost'] ?? 0);
+		$baseline_end = (int)($log_aggregates['baseline']['endorse'] ?? 0);
+		$daily_log_rows = $log_aggregates['daily'] ?? array();
+		$daily_log_map = array();
+		foreach ($daily_log_rows as $daily_row) {
+			if (!empty($daily_row['log_date'])) {
+				$daily_log_map[$daily_row['log_date']] = $daily_row;
+			}
+		}
 
 		// ===== Siapkan range label =====
 		$range = ($this->createRange($start_date, $until_date));
 		$arr   = array();
+		$running_totals = array(
+			'likes' => $baseline_likes,
+			'comment' => $baseline_comment,
+			'share_save' => $baseline_share_save,
+			'views' => $baseline_views,
+			'cost' => $baseline_cost,
+			'endorse' => $baseline_end,
+		);
 
 		foreach ($range as $k2 => $v2) {
 			$last_updated = '';
-			while ($history_index < $history_count && $logs_history_rows[$history_index]['log_date'] === $v2) {
-				$apply_snapshot_row($logs_history_rows[$history_index], $snapshot_by_endorse, $running_totals);
-				$row_last_updated = $logs_history_rows[$history_index]['last_updated'] ?? '';
-				if (!empty($row_last_updated) && $row_last_updated > $last_updated) {
-					$last_updated = $row_last_updated;
-				}
-				$history_index++;
+			if (isset($daily_log_map[$v2])) {
+				$daily_row = $daily_log_map[$v2];
+				$running_totals['likes'] += (float)($daily_row['likes_delta'] ?? 0);
+				$running_totals['comment'] += (float)($daily_row['comment_delta'] ?? 0);
+				$running_totals['share_save'] += (float)($daily_row['share_save_delta'] ?? 0);
+				$running_totals['views'] += (float)($daily_row['views_delta'] ?? 0);
+				$running_totals['cost'] += (float)($daily_row['cost_delta'] ?? 0);
+				$running_totals['endorse'] += (int)($daily_row['endorse_delta'] ?? 0);
+				$last_updated = $daily_row['last_updated'] ?? '';
 			}
 
 			$val_1 = (float)$running_totals['views']; // views kumulatif
@@ -1064,8 +995,209 @@ class Ajax extends CI_Controller
 			})();
 			</script>';
 
+		if ($cache_driver && $cache_key) {
+			$cache_driver->save($cache_key, $html, 60);
+		}
+
 		header('Content-Type: application/json; charset=utf-8');
 		echo json_encode($html, true);
+		$this->logChartCampaignTiming($request_started_at, $_GET, false);
+	}
+
+	private function loadChartCampaignCacheDriver()
+	{
+		try {
+			if (!isset($this->cache)) {
+				$this->load->driver('cache', array('adapter' => 'memcached', 'backup' => 'file'));
+			}
+			return $this->cache;
+		} catch (Exception $e) {
+			log_message('error', 'Chart campaign cache init failed: ' . $e->getMessage());
+		}
+
+		return null;
+	}
+
+	private function buildChartCampaignCacheKey($request_params, $checkbox)
+	{
+		$this->sortChartCampaignValue($request_params);
+		$this->sortChartCampaignValue($checkbox);
+		return 'chart_campaign_dashboard_' . md5(json_encode(array(
+			'request' => $request_params,
+			'checkbox' => $checkbox,
+		)));
+	}
+
+	private function sortChartCampaignValue(&$value)
+	{
+		if (!is_array($value)) {
+			return;
+		}
+
+		foreach ($value as &$nested_value) {
+			$this->sortChartCampaignValue($nested_value);
+		}
+		unset($nested_value);
+		ksort($value);
+	}
+
+	private function logChartCampaignTiming($request_started_at, $request_params, $from_cache)
+	{
+		$elapsed = microtime(true) - $request_started_at;
+		if ($elapsed < 2) {
+			return;
+		}
+
+		$signature = array(
+			't' => $request_params['t'] ?? '',
+			'type' => $request_params['type'] ?? 'Daily',
+			'start_date' => $request_params['start_date'] ?? '',
+			'until_date' => $request_params['until_date'] ?? '',
+			'brand' => $request_params['brand'] ?? '',
+			'platform' => $request_params['platform'] ?? '',
+			'cat' => $request_params['cat'] ?? '',
+			'ids_campaign' => isset($request_params['ids_campaign']) ? count((array)$request_params['ids_campaign']) : 0,
+			'ids' => empty($request_params['ids']) ? 0 : count(array_filter(explode(',', $request_params['ids']))),
+			'cached' => $from_cache ? 1 : 0,
+		);
+
+		log_message('info', 'Slow get_chart_campaign ' . round($elapsed, 3) . 's ' . json_encode($signature));
+	}
+
+	private function getChartCampaignLogAggregates($filtered_endorse_subquery, $start_date, $until_datetime, $ids_sql_filter, $use_filtered_endorse_join, $prefer_date_index)
+	{
+		$with_parts = array();
+		if ($use_filtered_endorse_join) {
+			$with_parts[] = "filtered_endorse AS ($filtered_endorse_subquery)";
+		}
+
+		$baseline_join = $use_filtered_endorse_join
+			? " INNER JOIN filtered_endorse filtered_endorse ON filtered_endorse.id = el.id_endorse "
+			: "";
+		$range_join = $baseline_join;
+		$id_filter_sql = !empty($ids_sql_filter) ? " AND el.id_endorse IN ($ids_sql_filter) " : "";
+		$range_index_hint = $prefer_date_index ? " FORCE INDEX (idx_endorse_logs_date_endorse) " : " FORCE INDEX (idx_endorse_logs_endorse_date) ";
+
+		$baseline_latest_sql = "
+			SELECT
+				el.id_endorse,
+				MAX(el.date) AS log_date
+			FROM endorse_logs el
+			FORCE INDEX (idx_endorse_logs_endorse_date)
+			$baseline_join
+			WHERE el.date < " . $this->db->escape($start_date) . "
+			$id_filter_sql
+			GROUP BY el.id_endorse
+		";
+
+		$with_for_baseline = $with_parts;
+		$with_for_baseline[] = "baseline_latest AS ($baseline_latest_sql)";
+		$with_for_baseline[] = "
+			baseline_logs AS (
+				SELECT
+					el.id_endorse,
+					el.date AS log_date,
+					COALESCE(el.likes_after, 0) AS likes_after,
+					COALESCE(el.comment_after, 0) AS comment_after,
+					COALESCE(el.share_save_after, 0) AS share_save_after,
+					COALESCE(el.views_after, 0) AS views_after,
+					COALESCE(el.total_cost, 0) AS total_cost,
+					COALESCE(el.updated_at, el.created_at, CONCAT(el.date, ' 00:00:00')) AS last_updated
+				FROM endorse_logs el
+				FORCE INDEX (idx_endorse_logs_endorse_date)
+				INNER JOIN baseline_latest baseline
+					ON baseline.id_endorse = el.id_endorse
+				   AND baseline.log_date = el.date
+			)
+		";
+
+		$baseline_sql = "
+			WITH " . implode(",\n", $with_for_baseline) . "
+			SELECT
+				COALESCE(SUM(likes_after), 0) AS likes,
+				COALESCE(SUM(comment_after), 0) AS comment,
+				COALESCE(SUM(share_save_after), 0) AS share_save,
+				COALESCE(SUM(views_after), 0) AS views,
+				COALESCE(SUM(total_cost), 0) AS cost,
+				COUNT(*) AS endorse
+			FROM baseline_logs
+		";
+		$baseline_row = $this->db->query($baseline_sql)->row_array();
+		if (empty($baseline_row)) {
+			$baseline_row = array(
+				'likes' => 0,
+				'comment' => 0,
+				'share_save' => 0,
+				'views' => 0,
+				'cost' => 0,
+				'endorse' => 0,
+			);
+		}
+
+		$range_logs_sql = "
+			SELECT
+				el.id_endorse,
+				el.date AS log_date,
+				GREATEST(COALESCE(el.likes, 0), 0) AS likes_delta,
+				GREATEST(COALESCE(el.comment, 0), 0) AS comment_delta,
+				GREATEST(COALESCE(el.share_save, 0), 0) AS share_save_delta,
+				GREATEST(COALESCE(el.views, 0), 0) AS views_delta,
+				COALESCE(el.total_cost, 0) AS total_cost,
+				COALESCE(el.updated_at, el.created_at, CONCAT(el.date, ' 00:00:00')) AS last_updated
+			FROM endorse_logs el
+			$range_index_hint
+			$range_join
+			WHERE el.date >= " . $this->db->escape($start_date) . "
+			  AND el.date < " . $this->db->escape($until_datetime) . "
+			$id_filter_sql
+		";
+
+		$with_for_daily = $with_parts;
+		$with_for_daily[] = "range_logs AS ($range_logs_sql)";
+		$with_for_daily[] = "
+			first_seen_logs AS (
+				SELECT
+					id_endorse,
+					MIN(el.date) AS first_log_date
+				FROM endorse_logs el
+				FORCE INDEX (idx_endorse_logs_endorse_date)
+				$baseline_join
+				WHERE 1=1
+				$id_filter_sql
+				GROUP BY id_endorse
+			)
+		";
+
+		$daily_sql = "
+			WITH " . implode(",\n", $with_for_daily) . "
+			SELECT
+				range_logs.log_date,
+				SUM(range_logs.likes_delta) AS likes_delta,
+				SUM(range_logs.comment_delta) AS comment_delta,
+				SUM(range_logs.share_save_delta) AS share_save_delta,
+				SUM(range_logs.views_delta) AS views_delta,
+				SUM(CASE
+					WHEN first_seen_logs.first_log_date = range_logs.log_date
+					THEN range_logs.total_cost
+					ELSE 0
+				END) AS cost_delta,
+				SUM(CASE
+					WHEN first_seen_logs.first_log_date = range_logs.log_date
+					THEN 1
+					ELSE 0
+				END) AS endorse_delta,
+				MAX(range_logs.last_updated) AS last_updated
+			FROM range_logs
+			INNER JOIN first_seen_logs
+				ON first_seen_logs.id_endorse = range_logs.id_endorse
+			GROUP BY range_logs.log_date
+			ORDER BY range_logs.log_date ASC
+		";
+
+		return array(
+			'baseline' => $baseline_row,
+			'daily' => $this->db->query($daily_sql)->result_array(),
+		);
 	}
 
 

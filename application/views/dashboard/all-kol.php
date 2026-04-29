@@ -1088,10 +1088,19 @@ const kolDashboardManager = {
 };
 
 // Campaign chart functions (optimized for progressive loading)
+function buildCampaignChartUrl() {
+    var params = new URLSearchParams(window.location.search || '');
+    params.set('is_dashboard', 'true');
+    params.set('type', '<?= $type ?>');
+    params.set('start_date', '<?= $_GET['start_date'] ?? $start_date ?>');
+    params.set('until_date', '<?= $_GET['until_date'] ?? $until_date ?>');
+    return '<?= base_url() ?>ajax/get-chart-campaign?' + params.toString();
+}
+
 function get_chart() {
     $.ajax({
         dataType: "json",
-        url: '<?= base_url() ?>ajax/get-chart-campaign<?= $param ?>&is_dashboard=true',
+        url: buildCampaignChartUrl(),
         success: function(html) {
             $("#summary-chart").html(html.html);
             $("#summary-table").html(html.table);
