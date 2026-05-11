@@ -116,7 +116,7 @@ if ($view == 'table') {
                         <?php endif; ?>
                     </th>
                     <th class="sortable">Tanggal Posting
-                        <?php if ($sort_column == 'posted_at'): ?>
+                        <?php if ($sort_column == 'posting_at'): ?>
                             <i class="bi bi-arrow-<?= $sort_order == 'ASC' ? 'up' : 'down' ?>"></i>
                         <?php else: ?>
                             <i class="bi bi-arrow-down-up"></i>
@@ -136,8 +136,8 @@ if ($view == 'table') {
                             <i class="bi bi-arrow-down-up"></i>
                         <?php endif; ?>
                     </th>
-                    <th class="sortable">Engagement 
-                        <?php if ($sort_column == 'likes'): ?>
+                    <th class="sortable">Engagement
+                        <?php if ($sort_column == 'engagement'): ?>
                             <i class="bi bi-arrow-<?= $sort_order == 'ASC' ? 'up' : 'down' ?>"></i>
                         <?php else: ?>
                             <i class="bi bi-arrow-down-up"></i>

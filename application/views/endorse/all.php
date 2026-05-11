@@ -3222,10 +3222,20 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
 </script>
 
 <script>
+    function getDefaultContentSortColumn() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const topPerformerPeriod = urlParams.get('list_top_performer_period') || '';
+        return topPerformerPeriod ? 'views_growth_period' : 'id';
+    }
+
+    function getDefaultContentSortOrder() {
+        return 'DESC';
+    }
+
     function loadMoreData() {
         const urlParams = new URLSearchParams(window.location.search);
-        const sortColumn = urlParams.get('sort_column') || 'id';
-        const sortOrder = urlParams.get('sort_order') || 'DESC';
+        const sortColumn = urlParams.get('sort_column') || getDefaultContentSortColumn();
+        const sortOrder = urlParams.get('sort_order') || getDefaultContentSortOrder();
         
         $.ajax({
             type: 'GET',
@@ -3247,8 +3257,8 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
             const scrollPosition = $(window).scrollTop();
             
             const urlParams = new URLSearchParams(window.location.search);
-            const currentSortColumn = urlParams.get('sort_column') || 'id';
-            const currentSortOrder = urlParams.get('sort_order') || 'desc';
+            const currentSortColumn = urlParams.get('sort_column') || getDefaultContentSortColumn();
+            const currentSortOrder = (urlParams.get('sort_order') || getDefaultContentSortOrder()).toLowerCase();
             
             const columnName = $(this).text().trim().toLowerCase();
             const columnMap = {
@@ -3259,7 +3269,8 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                 'tanggal posting': 'posting_at',
                 'views': 'views',
                 'cpm': 'cpm',
-                'engagement': 'engagement'
+                'engagement': 'engagement',
+                'growth views': 'views_growth_period'
             };
             
             const clickedColumn = columnMap[columnName] || 'id';
@@ -3312,7 +3323,8 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
             'posting_at': 'Tanggal Posting', 
             'views': 'Views',
             'cpm': 'CPM',
-            'likes': 'Engagement'
+            'engagement': 'Engagement',
+            'views_growth_period': 'Growth Views'
         };
         
         const columnName = columnMap[sortColumn];

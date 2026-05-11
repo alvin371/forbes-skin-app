@@ -1195,8 +1195,8 @@ class Endorse extends BaseController
         $sort_column = $_GET['sort_column'] ?? ($top_performer_enabled && !$has_explicit_sort ? 'views_growth_period' : 'id');
         $sort_order = $_GET['sort_order'] ?? 'DESC';
 
-        $allowed_columns = ['id', 'nama_creator', 'pic', 'total_cost', 'status_endorse', 
-                        'views', 'cpm', 'engagement', 'views_growth_period'];
+        $allowed_columns = ['id', 'nama_creator', 'pic', 'total_cost', 'status_endorse',
+                        'posting_at', 'views', 'cpm', 'engagement', 'views_growth_period'];
         if (!in_array($sort_column, $allowed_columns)) {
             $sort_column = 'id';
         }
