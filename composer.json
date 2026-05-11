@@ -23,7 +23,7 @@
      "config": {
         "sort-packages": true,
         "platform": {
-        "php": "8.2.30"
+        "php": "8.4.0"
         },
         "audit": {
         "block-insecure": false

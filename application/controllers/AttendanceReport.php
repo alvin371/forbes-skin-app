@@ -27,44 +27,17 @@ class AttendanceReport extends BaseController
         $month = $month ?: date('Y-m');
         $userId = isset($_SESSION['user']['id']) ? (int) $_SESSION['user']['id'] : 0;
         $selectedUserId = (int) $this->input->get('user_id', TRUE);
-
-        $canManageReports = $this->can_manage_reports($userId);
-        $targetUserId = $userId;
-
-        if ($selectedUserId > 0) {
-            if (!$canManageReports && $selectedUserId !== $userId) {
-                $this->permission->show_403_if_no_permission($userId, 'attendance_report', 'edit');
-            }
-            $targetUserId = $selectedUserId;
-        }
-
-        $office = $this->Office_model->get_active_office();
-        $targetUser = $this->get_user($targetUserId);
-        $report = $this->build_monthly_report($targetUserId, $month, $office, $targetUser);
-        $summaries = array();
-        $matrix = array();
-        if ($canManageReports && $selectedUserId === 0) {
-            foreach ($this->get_attendance_users() as $member) {
-                $memberReport = $this->build_monthly_report((int) $member['id'], $month, $office, $member);
-                $memberId = (int) $member['id'];
-                if (!empty($memberReport['summary'])) {
-                    $summaries[$memberId] = $memberReport['summary'];
-                }
-                if (!empty($memberReport['daily'])) {
-                    $matrix[$memberId] = $memberReport['daily'];
-                }
-            }
-        }
+        $dataset = $this->build_report_dataset($month, $userId, $selectedUserId, false);
 
         $data['title'] = 'Laporan Kehadiran - ' . $this->template->title();
-        $data['month'] = $month;
-        $data['is_admin_hr'] = $canManageReports;
-        $data['report'] = $report;
-        $data['summaries'] = $summaries;
-        $data['matrix'] = $matrix;
-        $data['users'] = $canManageReports ? $this->get_attendance_users() : array();
-        $data['target_user'] = $targetUser;
-        $data['selected_user_id'] = $selectedUserId;
+        $data['month'] = $dataset['month'];
+        $data['is_admin_hr'] = $dataset['is_admin_hr'];
+        $data['report'] = $dataset['report'];
+        $data['summaries'] = $dataset['summaries'];
+        $data['matrix'] = $dataset['matrix'];
+        $data['users'] = $dataset['users'];
+        $data['target_user'] = $dataset['target_user'];
+        $data['selected_user_id'] = $dataset['selected_user_id'];
         $data['content'] = $this->load->view('attendance/report', $data, true);
         $this->load->view('TemplateDashboard', $data);
     }
@@ -75,53 +48,26 @@ class AttendanceReport extends BaseController
         $month = $month ?: date('Y-m');
         $userId = isset($_SESSION['user']['id']) ? (int) $_SESSION['user']['id'] : 0;
         $selectedUserId = (int) $this->input->get('user_id', TRUE);
-
-        $canManageReports = $this->can_manage_reports($userId);
-        $targetUserId = $userId;
-
-        if ($selectedUserId > 0) {
-            if (!$canManageReports && $selectedUserId !== $userId) {
-                return $this->output
-                    ->set_status_header(403)
-                    ->set_content_type('application/json')
-                    ->set_output(json_encode(array('status' => 'error', 'message' => 'Access denied.')));
-            }
-            $targetUserId = $selectedUserId;
-        }
-
-        $office = $this->Office_model->get_active_office();
-        $targetUser = $this->get_user($targetUserId);
-        $report = $this->build_monthly_report($targetUserId, $month, $office, $targetUser);
-
-        $summaries = array();
-        $matrix = array();
-        $users = array();
-        if ($canManageReports && $selectedUserId === 0) {
-            $users = $this->get_attendance_users();
-            foreach ($users as $member) {
-                $memberReport = $this->build_monthly_report((int) $member['id'], $month, $office, $member);
-                $memberId = (int) $member['id'];
-                if (!empty($memberReport['summary'])) {
-                    $summaries[$memberId] = $memberReport['summary'];
-                }
-                if (!empty($memberReport['daily'])) {
-                    $matrix[$memberId] = $memberReport['daily'];
-                }
-            }
+        $dataset = $this->build_report_dataset($month, $userId, $selectedUserId, true);
+        if (!empty($dataset['error'])) {
+            return $this->output
+                ->set_status_header(403)
+                ->set_content_type('application/json')
+                ->set_output(json_encode(array('status' => 'error', 'message' => $dataset['error'])));
         }
 
         return $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode(array(
                 'status' => 'ok',
-                'month' => $month,
-                'isAdminHr' => $canManageReports,
-                'selectedUserId' => $selectedUserId,
-                'users' => $users,
-                'targetUser' => $targetUser,
-                'singleReport' => $report,
-                'summaries' => $summaries,
-                'matrix' => $matrix,
+                'month' => $dataset['month'],
+                'isAdminHr' => $dataset['is_admin_hr'],
+                'selectedUserId' => $dataset['selected_user_id'],
+                'users' => $dataset['users'],
+                'targetUser' => $dataset['target_user'],
+                'singleReport' => $dataset['report'],
+                'summaries' => $dataset['summaries'],
+                'matrix' => $dataset['matrix'],
             ), JSON_UNESCAPED_SLASHES));
     }
 
@@ -131,24 +77,16 @@ class AttendanceReport extends BaseController
         $month = $month ?: date('Y-m');
         $userId = isset($_SESSION['user']['id']) ? (int) $_SESSION['user']['id'] : 0;
         $selectedUserId = (int) $this->input->get('user_id', TRUE);
+        $dataset = $this->build_report_dataset($month, $userId, $selectedUserId, false);
+        $exportUsers = $this->resolve_export_users($dataset);
 
-        $canManageReports = $this->can_manage_reports($userId);
-        $targetUserId = $userId;
-
-        if ($selectedUserId > 0) {
-            if (!$canManageReports && $selectedUserId !== $userId) {
-                $this->permission->show_403_if_no_permission($userId, 'attendance_report', 'edit');
-            }
-            $targetUserId = $selectedUserId;
-        }
-
-        $office = $this->Office_model->get_active_office();
-        $user = $this->get_user($targetUserId);
-        $report = $this->build_monthly_report($targetUserId, $month, $office, $user);
-
-        $data['month'] = $month;
-        $data['report'] = $report;
-        $data['user'] = $user;
+        $data['month'] = $dataset['month'];
+        $data['users'] = $exportUsers;
+        $data['report_rows'] = $this->build_pdf_export_rows($exportUsers, $dataset['matrix'], $dataset['summaries']);
+        $data['day_headers'] = $this->build_pdf_day_headers($dataset['month']);
+        $data['scope_label'] = (!$dataset['is_admin_hr'] || $dataset['selected_user_id'] > 0)
+            ? (($dataset['target_user']['full_name'] ?? '') ?: 'Pengguna')
+            : 'Semua Pengguna';
 
         $html = $this->load->view('attendance/report_pdf', $data, true);
         $this->output
@@ -223,6 +161,176 @@ class AttendanceReport extends BaseController
     private function get_user($userId)
     {
         return $this->db->get_where('user', array('id' => (int) $userId))->row_array();
+    }
+
+    private function build_report_dataset($month, $currentUserId, $selectedUserId, $returnError)
+    {
+        $canManageReports = $this->can_manage_reports($currentUserId);
+        $targetUserId = $currentUserId;
+
+        if ($selectedUserId > 0) {
+            if (!$canManageReports && $selectedUserId !== $currentUserId) {
+                if ($returnError) {
+                    return array('error' => 'Access denied.');
+                }
+                $this->permission->show_403_if_no_permission($currentUserId, 'attendance_report', 'edit');
+            }
+            $targetUserId = $selectedUserId;
+        }
+
+        $office = $this->Office_model->get_active_office();
+        $targetUser = $this->get_user($targetUserId);
+        $report = $this->build_monthly_report($targetUserId, $month, $office, $targetUser);
+
+        $summaries = array();
+        $matrix = array();
+        $users = array();
+
+        if ($canManageReports && $selectedUserId === 0) {
+            $users = $this->get_attendance_users();
+            foreach ($users as $member) {
+                $memberReport = $this->build_monthly_report((int) $member['id'], $month, $office, $member);
+                $memberId = (int) $member['id'];
+                if (!empty($memberReport['summary'])) {
+                    $summaries[$memberId] = $memberReport['summary'];
+                }
+                if (!empty($memberReport['daily'])) {
+                    $matrix[$memberId] = $memberReport['daily'];
+                }
+            }
+        }
+
+        if (!empty($report['summary'])) {
+            $summaries[$targetUserId] = $report['summary'];
+        }
+        if (!empty($report['daily'])) {
+            $matrix[$targetUserId] = $report['daily'];
+        }
+
+        return array(
+            'month' => $month,
+            'is_admin_hr' => $canManageReports,
+            'selected_user_id' => $selectedUserId,
+            'target_user' => $targetUser,
+            'report' => $report,
+            'summaries' => $summaries,
+            'matrix' => $matrix,
+            'users' => $canManageReports ? $users : array(),
+        );
+    }
+
+    private function resolve_export_users($dataset)
+    {
+        if ((int) ($dataset['selected_user_id'] ?? 0) > 0) {
+            return !empty($dataset['target_user']) ? array($dataset['target_user']) : array();
+        }
+
+        if (!empty($dataset['is_admin_hr'])) {
+            return $dataset['users'] ?? array();
+        }
+
+        return !empty($dataset['target_user']) ? array($dataset['target_user']) : array();
+    }
+
+    private function build_pdf_day_headers($month)
+    {
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            return array();
+        }
+
+        $startTs = strtotime($month . '-01');
+        if ($startTs === false) {
+            return array();
+        }
+
+        $dayNames = array('Mg', 'Sn', 'Sl', 'Rb', 'Km', 'Jm', 'Sb');
+        $daysInMonth = (int) date('t', $startTs);
+        $headers = array();
+
+        for ($day = 1; $day <= $daysInMonth; $day++) {
+            $weekday = (int) date('w', strtotime($month . '-' . str_pad((string) $day, 2, '0', STR_PAD_LEFT)));
+            $headers[] = $day . ' ' . $dayNames[$weekday];
+        }
+
+        return $headers;
+    }
+
+    private function build_pdf_export_rows($users, $matrix, $summaries)
+    {
+        $rows = array();
+        foreach ($users as $user) {
+            $userId = (int) ($user['id'] ?? 0);
+            $daily = $matrix[$userId] ?? array();
+            $summary = $summaries[$userId] ?? null;
+            $indexed = array();
+
+            foreach ($daily as $row) {
+                $indexed[(int) substr((string) ($row['date'] ?? ''), 8, 2)] = $row;
+            }
+
+            ksort($indexed);
+
+            $cells = array();
+            foreach ($indexed as $row) {
+                $cells[] = $this->format_pdf_day_cell($row);
+            }
+
+            $rows[] = array(
+                'name' => $user['full_name'] ?? '',
+                'role_name' => $user['role_name'] ?? '',
+                'schedule' => $summary ? (($summary['start_time'] ?? '-') . ' - ' . ($summary['end_time'] ?? '-')) : '',
+                'days' => $cells,
+                'present_days' => (int) ($summary['present_days'] ?? 0),
+                'late_count' => (int) ($summary['late_count'] ?? 0),
+                'absent_count' => (int) ($summary['absent_count'] ?? 0),
+                'leave_days' => (int) ($summary['leave_days'] ?? 0),
+                'early_checkout_count' => (int) ($summary['early_checkout_count'] ?? 0),
+            );
+        }
+
+        return $rows;
+    }
+
+    private function format_pdf_day_cell($row)
+    {
+        $status = $row['status'] ?? 'Absent';
+        if ($status === 'Weekend') {
+            return 'WE';
+        }
+        if ($status === 'Holiday') {
+            return 'Lb';
+        }
+        if ($status === 'Leave') {
+            return 'C';
+        }
+        if ($status === 'Absent') {
+            return 'TH';
+        }
+
+        $prefix = 'H';
+        if (!empty($row['late'])) {
+            $prefix = 'TL';
+        } elseif (!empty($row['early_checkout'])) {
+            $prefix = 'PC';
+        }
+
+        $firstIn = $this->time_only($row['first_in'] ?? null);
+        $lastOut = $this->time_only($row['last_out'] ?? null);
+        if ($firstIn !== '') {
+            return $prefix . ' ' . $firstIn . '→' . ($lastOut !== '' ? $lastOut : '?');
+        }
+
+        return $prefix;
+    }
+
+    private function time_only($timestamp)
+    {
+        $value = trim((string) $timestamp);
+        if ($value === '') {
+            return '';
+        }
+
+        return strlen($value) >= 16 ? substr($value, 11, 5) : $value;
     }
 
     private function can_manage_reports($userId)
