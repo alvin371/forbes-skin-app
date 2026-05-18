@@ -32,6 +32,8 @@ class Endorse extends BaseController
             'queue_data' => 'view',
             'queue_history' => 'view',
             'queue_count' => 'view',
+            'get_tiktok_photo_images' => 'view',
+            'get_tiktok_video_play' => 'view',
         ]);
         
     }
@@ -1775,6 +1777,23 @@ class Endorse extends BaseController
         } else {
             echo $this->template->alert_danger($result['msg']);
         }
+    }
+
+    public function get_tiktok_photo_images()
+    {
+        $content_id = trim((string) $this->input->get_post('content_id'));
+        $url = trim((string) $this->input->get_post('url'));
+
+        $result = $this->template->get_tiktok_photo_images($content_id, $url);
+        return $this->_json($result);
+    }
+
+    public function get_tiktok_video_play()
+    {
+        $url = trim((string) $this->input->get_post('url'));
+
+        $result = $this->template->get_tiktok_video_play($url);
+        return $this->_json($result);
     }
 
     /**

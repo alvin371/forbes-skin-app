@@ -4,11 +4,11 @@
 
 > **IMPORTANT: Hybrid Architecture (Feb 2026)**
 >
-> TikTok has been moved back to **RapidAPI** (`tiktok-api23` by Lundehund) for synchronous, immediate responses. ScrapingBot is now **only used for Instagram** (and Thread). See [TikTok_RapidAPI_Documentation.md](performance-appraisal/TikTok_RapidAPI_Documentation.md) for TikTok API details.
+> TikTok uses RapidAPI for synchronous responses, but the live contract is defined in `TIKTOK_INTEGRATION_SPEC.md`. Treat provider-specific notes below as historical unless they match that spec.
 >
 > | Platform | Provider | Mode | Where |
 > |----------|----------|------|-------|
-> | TikTok | RapidAPI (`tiktok-api23`) | Synchronous | `Template::syncTiktokProfile()`, `cronjob_tiktok_sync` |
+> | TikTok | RapidAPI | Synchronous | `Template::syncTiktokProfile()`, `cronjob_tiktok_sync` |
 > | Instagram | ScrapingBot | Async queue | `Template::enqueue_scrape()`, `cronjob_scraping_*` |
 >
 > Controllers bifurcate by `$type`: TikTok calls `syncTiktokProfile()` directly, Instagram calls `enqueue_scrape()`.
@@ -169,7 +169,7 @@ Add to your `.env` file:
 
 ```ini
 # RapidAPI Configuration (TikTok Profile/Post Scraping - synchronous)
-RAPIDAPI_HOST=tiktok-api23.p.rapidapi.com
+RAPIDAPI_HOST=tiktok-video-no-watermark10.p.rapidapi.com
 RAPIDAPI_KEY=your_rapidapi_key
 
 # ScrapingBot Configuration (Instagram Profile Scraping - async queue)
@@ -1420,7 +1420,7 @@ ScrapingBot charges per API call. With the recommended cron intervals:
 
 ### 11. TikTok `get_social_media()` now uses RapidAPI `/api/post/detail`
 
-> **Updated Feb 2026:** The HTML scraping approach (parsing `__UNIVERSAL_DATA_FOR_REHYDRATION__` JSON) has been replaced with RapidAPI's `/api/post/detail?videoId=` endpoint. This is more reliable and doesn't break when TikTok changes their page structure.
+> **Updated May 2026:** Follow `TIKTOK_INTEGRATION_SPEC.md` as the source of truth. The live runtime now uses direct TikTok HTML scrape first, then RapidAPI `getVideoInfo` fallback on `tiktok-video-no-watermark10`.
 
 The `videoId` is extracted from URLs using regex patterns (priority order):
 1. `/video/(\d+)` — standard video URL
