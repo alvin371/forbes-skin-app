@@ -1088,14 +1088,26 @@ class Api_hrms extends CI_Controller
 
     public function uploaded_file($scope = null)
     {
-        $scope = $this->normalize_uploaded_file_scope($scope);
-        if ($scope === null) {
+        $requestedScope = trim((string) $scope);
+        $storageScope = $this->normalize_uploaded_file_scope($requestedScope);
+        if ($storageScope === null) {
             show_404();
             return;
         }
 
         $segments = array_values($this->uri->segment_array());
-        $scopeIndex = array_search($scope, $segments, true);
+        $scopeIndex = false;
+        foreach (array_unique(array($requestedScope, $storageScope)) as $scopeCandidate) {
+            if ($scopeCandidate === '') {
+                continue;
+            }
+
+            $scopeIndex = array_search($scopeCandidate, $segments, true);
+            if ($scopeIndex !== false) {
+                break;
+            }
+        }
+
         if ($scopeIndex === false) {
             show_404();
             return;
@@ -1115,7 +1127,7 @@ class Api_hrms extends CI_Controller
             }
         }
 
-        $relativePath = 'writable/uploads/' . $scope . '/' . implode('/', $parts);
+        $relativePath = 'writable/uploads/' . $storageScope . '/' . implode('/', $parts);
         $fullPath = project_storage_path($relativePath);
 
         if (!is_file($fullPath) || !is_readable($fullPath)) {

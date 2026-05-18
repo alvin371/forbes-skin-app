@@ -44,10 +44,15 @@ import { parseMonth } from './calendar.js';
   // Skeleton: toolbar / grid-wrap (with loader overlay) / pagination
   const toolbarEl   = h('div');
   const gridEl      = h('div');
+  const scrollHintEl = h('div', { class: 'ar-scroll-hint' },
+    h('span', { class: 'ar-scroll-hint__icon' }, '↔'),
+    h('span', null, 'Geser horizontal untuk lihat semua tanggal')
+  );
   const gridWrap    = h('div', { class: 'ar-grid-wrap', style: { position: 'relative' } }, gridEl);
   const paginationEl = h('div');
 
   root.appendChild(toolbarEl);
+  root.appendChild(scrollHintEl);
   root.appendChild(gridWrap);
   root.appendChild(paginationEl);
 
@@ -180,7 +185,7 @@ import { parseMonth } from './calendar.js';
 
   function handleExportPdf() {
     const state = store.get();
-    const userId = state.selUser !== 'all' ? Number(state.selUser) : state.selectedUserId;
+    const userId = state.selUser !== 'all' ? Number(state.selUser) : 0;
     exportPdf({
       endpoint: state.endpoints.exportPdf,
       month: state.month,
