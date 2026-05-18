@@ -1,5 +1,7 @@
 # TikTok RapidAPI Documentation
 
+> Historical reference only. The current runtime contract is `TIKTOK_INTEGRATION_SPEC.md`, which now targets `tiktok-video-no-watermark10`.
+
 API Provider: **tiktok-api23** by Lundehund on RapidAPI
 Base URL: `https://tiktok-api23.p.rapidapi.com`
 Source file: `application/libraries/Template.php`

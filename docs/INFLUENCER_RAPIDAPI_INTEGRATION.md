@@ -1,5 +1,7 @@
 # Influencer & Endorse Campaign — RapidAPI Integration
 
+> Source of truth: `TIKTOK_INTEGRATION_SPEC.md`. If this document conflicts with that spec, follow the spec.
+
 Complete technical documentation of how TikTok profile and post data flows from the RapidAPI TikTok Scraper into every metric displayed in the `/influencer`, `/influencer-dummy`, and `/endorse-campaign` routes.
 
 ---
@@ -26,7 +28,7 @@ Complete technical documentation of how TikTok profile and post data flows from 
 Defined in `.env` (see `.env.example` lines 76-79):
 
 ```env
-RAPIDAPI_HOST=tiktok-scraper-api4.p.rapidapi.com
+RAPIDAPI_HOST=tiktok-video-no-watermark10.p.rapidapi.com
 RAPIDAPI_KEY=your_rapidapi_key
 ```
 
@@ -35,7 +37,7 @@ RAPIDAPI_KEY=your_rapidapi_key
 The `env()` helper (`application/helpers/env_helper.php`) reads the `.env` file once (using a static cache), parses `KEY=VALUE` pairs, strips quotes, and returns the value:
 
 ```php
-$rapidapi_host = env('RAPIDAPI_HOST', 'tiktok-scraper-api4.p.rapidapi.com');
+$rapidapi_host = env('RAPIDAPI_HOST', 'tiktok-video-no-watermark10.p.rapidapi.com');
 $rapidapi_key  = env('RAPIDAPI_KEY', '');
 ```
 
@@ -45,7 +47,7 @@ Every RapidAPI call in the Template library uses these two values to build the U
 
 ## 2. RapidAPI Endpoints
 
-Four RapidAPI endpoints are used, all on the same host (`tiktok-scraper-api4.p.rapidapi.com`):
+Historically this integration used four RapidAPI endpoints on an older host. The live runtime now follows `TIKTOK_INTEGRATION_SPEC.md` on `tiktok-video-no-watermark10.p.rapidapi.com`:
 
 | # | Endpoint | Method | Purpose | Called From |
 |---|----------|--------|---------|-------------|

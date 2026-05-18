@@ -30,7 +30,18 @@ class Endorse_sync
      */
     public function classify_response(array $response, string $platform, string $url): array
     {
-        if (!empty($response['status']) && !empty($response['data']) && intval($response['data']['view'] ?? 0) > 0) {
+        if (!empty($response['status']) && !empty($response['data'])) {
+            $hasMetrics = intval($response['data']['view'] ?? 0) > 0
+                || intval($response['data']['like'] ?? 0) > 0
+                || intval($response['data']['share'] ?? 0) > 0
+                || intval($response['data']['comment'] ?? 0) > 0
+                || intval($response['data']['collect'] ?? 0) > 0;
+            if ($hasMetrics || !empty($response['data']['content_id'])) {
+                return ['class' => self::ERR_OK, 'msg' => ''];
+            }
+        }
+
+        if (!empty($response['status']) && !empty($response['data']['content_id'])) {
             return ['class' => self::ERR_OK, 'msg' => ''];
         }
 
@@ -142,6 +153,19 @@ class Endorse_sync
         if ($is_fyp !== null) {
             $endorseUpdate['is_fyp'] = $is_fyp;
         }
+        if ($platform === 'Tiktok' && $db->field_exists('tiktok_content_id', 'endorse')) {
+            $existingCover = strval($endorse['tiktok_cover'] ?? '');
+            $normalizedCover = strval($response['data']['cover'] ?? '');
+            if ($is_fyp !== null && $existingCover !== '' && !$this->looks_like_url($existingCover)) {
+                $normalizedCover = $existingCover;
+            }
+
+            $endorseUpdate['tiktok_content_id'] = strval($response['data']['content_id'] ?? '');
+            $endorseUpdate['tiktok_media_type'] = strval($response['data']['media_type'] ?? '');
+            $endorseUpdate['tiktok_cover'] = $normalizedCover;
+            $endorseUpdate['tiktok_content_link'] = strval($response['data']['video_link'] ?? '');
+            $endorseUpdate['tiktok_fetched_at'] = date('Y-m-d H:i:s');
+        }
 
         $db->update('endorse', $endorseUpdate, ['id' => $id_endorse]);
 
@@ -211,6 +235,11 @@ class Endorse_sync
             'error_class' => self::ERR_OK,
             'msg'         => 'OK',
         ];
+    }
+
+    protected function looks_like_url(string $value): bool
+    {
+        return stripos($value, 'http://') === 0 || stripos($value, 'https://') === 0;
     }
 
     /**

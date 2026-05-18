@@ -40,6 +40,9 @@ $campaigns = isset($campaigns) ? $campaigns : [];
             <small class="text-muted">Status proses sinkronisasi data sosial media untuk endorse content.</small>
         </div>
         <div>
+            <button class="btn btn-outline-secondary btn-sm me-2" id="btnClearQueue">
+                <i class="fa fa-trash"></i> Clear Semua Data
+            </button>
             <button class="btn btn-outline-danger btn-sm" id="btnRetryFailed" disabled>
                 <i class="fa fa-redo"></i> Retry Gagal Terpilih
             </button>
@@ -356,6 +359,32 @@ $campaigns = isset($campaigns) ? $campaigns : [];
             },
             complete: function() {
                 $btn.prop('disabled', false).text('Retry Gagal Terpilih');
+            }
+        });
+    });
+
+    $('#btnClearQueue').on('click', function() {
+        if (!confirm('Hapus semua data queue dan riwayat percobaan? Data baru akan dibuat lagi saat ada proses refresh yang masuk.')) {
+            return;
+        }
+
+        const $btn = $(this).prop('disabled', true).text('Menghapus...');
+        $.ajax({
+            url: baseUrl + 'endorse/clear-queue',
+            method: 'POST',
+            dataType: 'json',
+            success: function(resp) {
+                alert(resp.msg || 'Data antrian berhasil dihapus.');
+                loadData();
+            },
+            error: function(xhr) {
+                const msg = xhr.responseJSON && xhr.responseJSON.msg
+                    ? xhr.responseJSON.msg
+                    : 'Gagal menghapus data antrian.';
+                alert(msg);
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html('<i class="fa fa-trash"></i> Clear Semua Data');
             }
         });
     });

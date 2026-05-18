@@ -304,6 +304,7 @@ $route['endorse/queue'] = 'Endorse/queue';
 $route['endorse/queue-data'] = 'Endorse/queue_data';
 $route['endorse/queue-history'] = 'Endorse/queue_history';
 $route['endorse/queue-count'] = 'Endorse/queue_count';
+$route['endorse/clear-queue'] = 'Endorse/clear_queue';
 $route['endorse/force-retry'] = 'Endorse/force_retry';
 $route['cronjob/update-customer'] = 'Api/cronjob_update_customer';
 

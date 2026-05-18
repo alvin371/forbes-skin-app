@@ -32,6 +32,9 @@ class Endorse extends BaseController
             'queue_data' => 'view',
             'queue_history' => 'view',
             'queue_count' => 'view',
+            'clear_queue' => 'edit',
+            'get_tiktok_photo_images' => 'view',
+            'get_tiktok_video_play' => 'view',
         ]);
         
     }
@@ -1777,6 +1780,23 @@ class Endorse extends BaseController
         }
     }
 
+    public function get_tiktok_photo_images()
+    {
+        $content_id = trim((string) $this->input->get_post('content_id'));
+        $url = trim((string) $this->input->get_post('url'));
+
+        $result = $this->template->get_tiktok_photo_images($content_id, $url);
+        return $this->_json($result);
+    }
+
+    public function get_tiktok_video_play()
+    {
+        $url = trim((string) $this->input->get_post('url'));
+
+        $result = $this->template->get_tiktok_video_play($url);
+        return $this->_json($result);
+    }
+
     /**
      * Bulk-enqueue endorse rows of a campaign into endorse_refresh_queue for async refresh.
      * Returns JSON by default; returns CI alert HTML if `format=alert` is set (legacy modal flow).
@@ -1957,6 +1977,16 @@ class Endorse extends BaseController
                 'stalled' => !empty($health['is_stalled']),
                 'oldest_pending_at' => $health['oldest_pending_at'] ?? null,
             ]));
+    }
+
+    public function clear_queue()
+    {
+        $this->load->library('EndorseRefreshQueueService');
+        $result = $this->endorserefreshqueueservice->clearAll();
+
+        return $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
     }
 
     /**

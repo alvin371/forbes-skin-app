@@ -170,6 +170,35 @@ class EndorseRefreshQueueService
         ];
     }
 
+    public function clearAll(): array
+    {
+        $attemptRows = $this->CI->mymodel->selectWithQuery("SELECT COUNT(*) AS c FROM endorse_refresh_queue_attempts");
+        $queueRows = $this->CI->mymodel->selectWithQuery("SELECT COUNT(*) AS c FROM endorse_refresh_queue");
+        $attemptCount = !empty($attemptRows) ? intval($attemptRows[0]['c']) : 0;
+        $queueCount = !empty($queueRows) ? intval($queueRows[0]['c']) : 0;
+
+        $this->db->trans_start();
+        $this->db->query("DELETE FROM endorse_refresh_queue_attempts");
+        $this->db->query("DELETE FROM endorse_refresh_queue");
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            return [
+                'status' => false,
+                'msg' => 'Gagal menghapus data antrian.',
+                'deleted_queue' => 0,
+                'deleted_attempts' => 0,
+            ];
+        }
+
+        return [
+            'status' => true,
+            'msg' => $queueCount . ' data antrian dan ' . $attemptCount . ' riwayat percobaan dihapus.',
+            'deleted_queue' => $queueCount,
+            'deleted_attempts' => $attemptCount,
+        ];
+    }
+
     public function computeHealth(int $id_campaign = 0, int $staleMinutes = 10): array
     {
         $where = '';
