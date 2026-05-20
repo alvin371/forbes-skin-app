@@ -3,6 +3,10 @@ defined('BASEPATH') or exit('No direct script access allowed');
 
 class EndorseRefreshQueueService
 {
+    const DEFAULT_PRIORITY = 10;
+    const DEFAULT_MAX_ATTEMPTS = 3;
+    const INSERT_CHUNK_SIZE = 250;
+
     protected $CI;
     protected $db;
 
@@ -51,62 +55,54 @@ class EndorseRefreshQueueService
             ];
         }
 
-        $candidate_ids = array_map(function ($r) {
-            return intval($r['id']);
-        }, $rows);
-
-        $already = $this->loadActiveEndorseIds($candidate_ids);
-        $knownUrlIssues = $this->loadKnownUrlIssueEndorseIds($candidate_ids);
-        $now = date('Y-m-d H:i:s');
-        $batch = [];
-        $skipped = 0;
-        $excludedKnownUrl = 0;
-
-        foreach ($rows as $row) {
-            $id_endorse = intval($row['id']);
-            if (isset($already[$id_endorse])) {
-                $skipped++;
-                continue;
-            }
-            if (isset($knownUrlIssues[$id_endorse])) {
-                $excludedKnownUrl++;
-                continue;
-            }
-
-            $batch[] = [
-                'id_endorse' => $id_endorse,
-                'id_campaign' => intval($row['id_campaign']),
-                'platform' => strval($row['platform']),
-                'link_upload' => strval($row['link_upload']),
-                'status' => 'pending',
-                'priority' => 10,
-                'attempts' => 0,
-                'max_attempts' => 3,
-                'enqueued_by' => $user_id,
-                'created_at' => $now,
-            ];
-        }
-
-        if (!empty($batch)) {
-            $this->db->insert_batch('endorse_refresh_queue', $batch);
-        }
-
-        $msg = count($batch) . ' konten ditambahkan ke antrian.';
-        if ($skipped > 0) {
-            $msg .= " $skipped sudah ada di antrian.";
-        }
-        if ($excludedKnownUrl > 0) {
-            $msg .= " $excludedKnownUrl dilewati karena URL TikTok bermasalah.";
-        }
+        $stats = $this->enqueueRows($rows, $user_id);
+        $msg = $this->buildEnqueueMessage($stats['enqueued'], $stats['skipped_duplicates'], $stats['excluded_known_url']);
 
         return [
             'status' => true,
             'msg' => $msg,
-            'enqueued' => count($batch),
-            'skipped_duplicates' => $skipped,
-            'excluded_known_url' => $excludedKnownUrl,
+            'enqueued' => $stats['enqueued'],
+            'skipped_duplicates' => $stats['skipped_duplicates'],
+            'excluded_known_url' => $stats['excluded_known_url'],
             'count' => count($rows),
             'id_campaign' => $id_campaign,
+        ];
+    }
+
+    public function enqueueAllActive(int $user_id): array
+    {
+        $rows = $this->CI->mymodel->selectWithQuery("
+            SELECT e.id, e.id_campaign, e.platform, e.link_upload
+            FROM endorse e
+            INNER JOIN endorse_campaign c ON c.id = e.id_campaign
+            WHERE e.status = 'Aktif'
+              AND e.status_campaign = 'Aktif'
+              AND e.link_upload != ''
+            ORDER BY e.id_campaign ASC, e.id ASC
+        ");
+
+        if (empty($rows)) {
+            return [
+                'status' => true,
+                'msg' => 'Tidak ada konten aktif yang bisa direfresh.',
+                'campaign_count' => 0,
+                'candidate_count' => 0,
+                'enqueued' => 0,
+                'skipped_duplicates' => 0,
+                'excluded_known_url' => 0,
+            ];
+        }
+
+        $stats = $this->enqueueRows($rows, $user_id);
+
+        return [
+            'status' => true,
+            'msg' => $this->buildEnqueueMessage($stats['enqueued'], $stats['skipped_duplicates'], $stats['excluded_known_url']),
+            'campaign_count' => $stats['campaign_count'],
+            'candidate_count' => count($rows),
+            'enqueued' => $stats['enqueued'],
+            'skipped_duplicates' => $stats['skipped_duplicates'],
+            'excluded_known_url' => $stats['excluded_known_url'],
         ];
     }
 
@@ -149,9 +145,9 @@ class EndorseRefreshQueueService
                 'platform' => strval($row['platform']),
                 'link_upload' => strval($row['link_upload']),
                 'status' => 'pending',
-                'priority' => intval($row['priority']) > 0 ? intval($row['priority']) : 10,
+                'priority' => intval($row['priority']) > 0 ? intval($row['priority']) : self::DEFAULT_PRIORITY,
                 'attempts' => 0,
-                'max_attempts' => intval($row['max_attempts']) > 0 ? intval($row['max_attempts']) : 3,
+                'max_attempts' => intval($row['max_attempts']) > 0 ? intval($row['max_attempts']) : self::DEFAULT_MAX_ATTEMPTS,
                 'enqueued_by' => $user_id,
                 'retry_source_id' => intval($row['id']),
                 'created_at' => $now,
@@ -280,6 +276,81 @@ class EndorseRefreshQueueService
         }
 
         return $active;
+    }
+
+    protected function enqueueRows(array $rows, int $user_id): array
+    {
+        $candidateIds = array_map(function ($row) {
+            return intval($row['id']);
+        }, $rows);
+
+        $already = $this->loadActiveEndorseIds($candidateIds);
+        $knownUrlIssues = $this->loadKnownUrlIssueEndorseIds($candidateIds);
+        $campaigns = [];
+        $now = date('Y-m-d H:i:s');
+        $batch = [];
+        $enqueued = 0;
+        $skipped = 0;
+        $excludedKnownUrl = 0;
+
+        foreach ($rows as $row) {
+            $campaigns[intval($row['id_campaign'])] = true;
+            $id_endorse = intval($row['id']);
+
+            if (isset($already[$id_endorse])) {
+                $skipped++;
+                continue;
+            }
+
+            if (isset($knownUrlIssues[$id_endorse])) {
+                $excludedKnownUrl++;
+                continue;
+            }
+
+            $batch[] = [
+                'id_endorse' => $id_endorse,
+                'id_campaign' => intval($row['id_campaign']),
+                'platform' => strval($row['platform']),
+                'link_upload' => strval($row['link_upload']),
+                'status' => 'pending',
+                'priority' => self::DEFAULT_PRIORITY,
+                'attempts' => 0,
+                'max_attempts' => self::DEFAULT_MAX_ATTEMPTS,
+                'enqueued_by' => $user_id,
+                'created_at' => $now,
+            ];
+
+            if (count($batch) >= self::INSERT_CHUNK_SIZE) {
+                $this->db->insert_batch('endorse_refresh_queue', $batch);
+                $enqueued += count($batch);
+                $batch = [];
+            }
+        }
+
+        if (!empty($batch)) {
+            $this->db->insert_batch('endorse_refresh_queue', $batch);
+            $enqueued += count($batch);
+        }
+
+        return [
+            'campaign_count' => count($campaigns),
+            'enqueued' => $enqueued,
+            'skipped_duplicates' => $skipped,
+            'excluded_known_url' => $excludedKnownUrl,
+        ];
+    }
+
+    protected function buildEnqueueMessage(int $enqueued, int $skipped, int $excludedKnownUrl): string
+    {
+        $msg = $enqueued . ' konten ditambahkan ke antrian.';
+        if ($skipped > 0) {
+            $msg .= " $skipped sudah ada di antrian.";
+        }
+        if ($excludedKnownUrl > 0) {
+            $msg .= " $excludedKnownUrl dilewati karena URL TikTok bermasalah.";
+        }
+
+        return $msg;
     }
 
     protected function loadKnownUrlIssueEndorseIds(array $endorseIds): array
