@@ -1,6 +1,13 @@
 # Endorse Refresh Trace
 
+Canonical guide:
+
+- [docs/ENDORSE_REFRESH_GUIDE.md](/Users/alvin/Documents/WorkingSpace/acneno-hrms/htdocs/forbes-skin-app/docs/ENDORSE_REFRESH_GUIDE.md:1)
+
 This document traces the refresh buttons related to endorse campaign and endorse content pages, and shows where the new TikTok integration is involved.
+
+Use this file as a code-path appendix.
+Use the guide above for cloning requirements, route contracts, schema, and operations.
 
 ## Summary
 

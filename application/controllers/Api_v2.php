@@ -7683,6 +7683,18 @@ class Api_v2 extends CI_Controller
         die;
     }
 
+    function cronjob_endorse_refresh_enqueue_all()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        $this->worker_auth_guard();
+
+        $this->load->library('EndorseRefreshQueueService');
+        $result = $this->endorserefreshqueueservice->enqueueAllActive(0);
+
+        echo json_encode($result);
+        die;
+    }
+
     /**
      * Worker for endorse_refresh_queue. Designed for parallel staggered cron entries.
      *
@@ -7701,7 +7713,12 @@ class Api_v2 extends CI_Controller
         header('Content-Type: application/json; charset=utf-8');
         @set_time_limit(55);
 
-        $BATCH_SIZE    = 30;
+        $BATCH_SIZE    = intval(env('ENDORSE_REFRESH_BATCH_SIZE', 10));
+        if ($BATCH_SIZE <= 0) {
+            $BATCH_SIZE = 10;
+        } elseif ($BATCH_SIZE > 100) {
+            $BATCH_SIZE = 100;
+        }
         $PARALLEL_HTTP = 10;
         $STALE_MINUTES = 5;
 

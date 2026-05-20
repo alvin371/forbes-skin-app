@@ -290,6 +290,7 @@ $route['performance/submissions/(:num)']['get'] = 'Api_performance/submission/$1
 $route['api/cronjob/endorse-campaign'] = 'Api_v2/cronjob_endorse_campaign';
 $route['api/cronjob/endorse'] = 'Api_v2/cronjob_endorse';
 $route['api/cronjob/endorse-sync-campaign'] = 'Api_v2/cronjob_endorse_by_campaign';
+$route['api/cronjob/endorse-refresh-enqueue-all'] = 'Api_v2/cronjob_endorse_refresh_enqueue_all';
 $route['ajax/refresh-campaign-endorses'] = 'Ajax/refresh_campaign_endorses';
 $route['api/cronjob/influencer'] = 'Api_v2/cronjob_influencer';
 $route['api/cronjob/influencer-dummy'] = 'Api_v2/cronjob_influencer_dummy';

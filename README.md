@@ -1,5 +1,11 @@
 # HRMS API Integration Plan (acneno-hrms -> forbes-skin-app)
 
+## Endorse Refresh Docs
+
+- [Endorse Refresh Guide](docs/ENDORSE_REFRESH_GUIDE.md)
+- [Endorse Refresh Trace](docs/ENDORSE_REFRESH_TRACE.md)
+- [Endorse Refresh Queue Runbook](docs/ENDORSE_REFRESH_QUEUE_RUNBOOK.md)
+
 ## Goal
 Implement backend APIs in `forbes-skin-app` to satisfy the mobile app in `acneno-hrms`.
 
