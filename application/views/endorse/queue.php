@@ -23,7 +23,37 @@ $campaigns = isset($campaigns) ? $campaigns : [];
     .queue-link:hover { text-decoration: underline; }
     .queue-filters { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin-bottom: 12px; }
     .queue-filters .form-group { margin-bottom: 0; }
+    .queue-table-wrap { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+    .queue-table-wrap::-webkit-scrollbar { height: 10px; }
+    .queue-table-wrap::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+    #queueTable { width: 100%; min-width: 1660px; margin-bottom: 0; }
+    #queueTable th,
     #queueTable td { vertical-align: top; }
+    #queueTable th { white-space: nowrap; }
+    #queueTable td:nth-child(1),
+    #queueTable th:nth-child(1) { width: 44px; min-width: 44px; }
+    #queueTable td:nth-child(2),
+    #queueTable th:nth-child(2) { min-width: 220px; }
+    #queueTable td:nth-child(3),
+    #queueTable th:nth-child(3) { min-width: 180px; }
+    #queueTable td:nth-child(4),
+    #queueTable th:nth-child(4) { min-width: 110px; white-space: nowrap; }
+    #queueTable td:nth-child(5),
+    #queueTable th:nth-child(5) { min-width: 320px; }
+    #queueTable td:nth-child(6),
+    #queueTable th:nth-child(6) { min-width: 120px; white-space: nowrap; }
+    #queueTable td:nth-child(7),
+    #queueTable th:nth-child(7) { min-width: 110px; white-space: nowrap; }
+    #queueTable td:nth-child(8),
+    #queueTable th:nth-child(8),
+    #queueTable td:nth-child(9),
+    #queueTable th:nth-child(9),
+    #queueTable td:nth-child(10),
+    #queueTable th:nth-child(10) { min-width: 150px; white-space: nowrap; }
+    #queueTable td:nth-child(11),
+    #queueTable th:nth-child(11) { min-width: 280px; }
+    #queueTable td:nth-child(12),
+    #queueTable th:nth-child(12) { min-width: 96px; white-space: nowrap; }
     .queue-health { display: none; margin-bottom: 16px; }
     .queue-health.stalled { display: block; border: 1px solid #f59e0b; background: #fffbeb; color: #92400e; }
     .queue-meta { font-size: 12px; color: #6b7280; }
@@ -31,15 +61,19 @@ $campaigns = isset($campaigns) ? $campaigns : [];
     .queue-history-list { max-height: 360px; overflow-y: auto; }
     .queue-history-item { border-bottom: 1px solid #e5e7eb; padding: 10px 0; }
     .queue-history-item:last-child { border-bottom: none; }
+    @media (max-width: 991.98px) {
+        .queue-page-header { align-items: flex-start !important; }
+        .queue-page-actions { width: 100%; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    }
 </style>
 
 <div class="container-fluid pt-3">
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex justify-content-between align-items-center flex-wrap mb-3 queue-page-header">
         <div>
             <h4 class="mb-0">Antrian Refresh Konten</h4>
             <small class="text-muted">Status proses sinkronisasi data sosial media untuk endorse content.</small>
         </div>
-        <div>
+        <div class="queue-page-actions">
             <button class="btn btn-outline-secondary btn-sm me-2" id="btnClearQueue">
                 <i class="fa fa-trash"></i> Clear Semua Data
             </button>
@@ -92,25 +126,27 @@ $campaigns = isset($campaigns) ? $campaigns : [];
     </div>
 
     <div class="card p-3">
-        <table id="queueTable" class="table table-hover" style="width:100%">
-            <thead>
-                <tr>
-                    <th style="width:30px"><input type="checkbox" id="checkAll"></th>
-                    <th>Campaign</th>
-                    <th>Influencer</th>
-                    <th>Platform</th>
-                    <th>Konten</th>
-                    <th>Status</th>
-                    <th>Percobaan</th>
-                    <th>Diantrikan</th>
-                    <th>Mulai</th>
-                    <th>Selesai</th>
-                    <th>Pesan</th>
-                    <th>Aksi</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        </table>
+        <div class="queue-table-wrap">
+            <table id="queueTable" class="table table-hover">
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" id="checkAll"></th>
+                        <th>Campaign</th>
+                        <th>Influencer</th>
+                        <th>Platform</th>
+                        <th>Konten</th>
+                        <th>Status</th>
+                        <th>Percobaan</th>
+                        <th>Diantrikan</th>
+                        <th>Mulai</th>
+                        <th>Selesai</th>
+                        <th>Pesan</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
     </div>
 </div>
 
