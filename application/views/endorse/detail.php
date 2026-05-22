@@ -410,6 +410,12 @@ if (in_array($v['status_endorse'], array('Posted Content'))) {
         <script>
             get_chart();
 
+            function renderChartError(message) {
+                var safeMessage = $('<div>').text(message || 'Terjadi kesalahan saat memuat chart.').html();
+                $("#summary-chart").html('<div class="alert alert-danger mb-0">Gagal memuat chart endorse. ' + safeMessage + '</div>');
+                $("#summary-table").html('');
+            }
+
             function get_chart() {
                 $.ajax({
                     dataType: "json",
@@ -417,6 +423,10 @@ if (in_array($v['status_endorse'], array('Posted Content'))) {
                     success: function(html) {
                         $("#summary-chart").html(html.html);
                         $("#summary-table").html(html.table);
+                    },
+                    error: function(xhr) {
+                        var message = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : (xhr.responseText || 'Internal server error');
+                        renderChartError(message);
                     }
                 });
             }
@@ -517,8 +527,12 @@ if (in_array($v['status_endorse'], array('Posted Content'))) {
             dataType: "json",
             url: '<?= base_url() ?>/ajax/get-chart-endorse?id=' + id + '&type=<?= $type ?>&start_date=<?= $start_date ?>&until_date=<?= $until_date ?>&start_year=<?= $start_year ?>&until_year=<?= $until_year ?>&start_month=<?= $start_month ?>&until_month=<?= $until_month ?>&start_week=<?= $start_week ?>&until_week=<?= $until_week ?>',
             success: function(html) {
-                $("#chart-'" + id).html(html.html);
+                $("#chart-" + id).html(html.html);
                 $("#table-").html(html.table);
+            },
+            error: function(xhr) {
+                var message = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : (xhr.responseText || 'Internal server error');
+                $("#chart-" + id).html('<div class="alert alert-danger mb-0">Gagal memuat chart endorse. ' + $('<div>').text(message).html() + '</div>');
             }
         });
     }
