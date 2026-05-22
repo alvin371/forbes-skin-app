@@ -3,6 +3,7 @@
 Related docs:
 
 - [docs/ENDORSE_REFRESH_GUIDE.md](/Users/alvin/Documents/WorkingSpace/acneno-hrms/htdocs/forbes-skin-app/docs/ENDORSE_REFRESH_GUIDE.md:1)
+- [docs/ENDORSE_REFRESH_GLOBAL_CRON_CLONING.md](/Users/alvin/Documents/WorkingSpace/acneno-hrms/htdocs/forbes-skin-app/docs/ENDORSE_REFRESH_GLOBAL_CRON_CLONING.md:1)
 - [docs/ENDORSE_REFRESH_TRACE.md](/Users/alvin/Documents/WorkingSpace/acneno-hrms/htdocs/forbes-skin-app/docs/ENDORSE_REFRESH_TRACE.md:1)
 
 The `/endorse-campaign` and `/endorse?id_campaign=...` bulk refresh actions only enqueue work.

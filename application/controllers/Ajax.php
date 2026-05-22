@@ -1400,22 +1400,22 @@ class Ajax extends CI_Controller
 			$group = "  GROUP BY DATE(date) ";
 		}
 
+		$id = intval($id);
+		$where = "WHERE id_endorse = '$id' AND DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' $qry";
+		$metric_select = $checkbox[0] != 'true'
+			? "MAX(likes_after) AS likes, MAX(comment_after) AS comment, MAX(share_save_after) AS share_save, MAX(views_after) AS views"
+			: "SUM(likes) AS likes, SUM(comment) AS comment, SUM(share_save) AS share_save, SUM(views) AS views";
 
-		if ($checkbox[0] != 'true') {
-			$list = $this->mymodel->selectWithQuery("SELECT likes_after as likes, comment_after as comment,share_save_after as share_save, views_after as views,
-			SUM(total_cost) as cpm,
-			$qry_opt as opt 
+		$list = $this->mymodel->selectWithQuery("
+			SELECT
+				$metric_select,
+				SUM(total_cost) AS cpm,
+				$qry_opt AS opt
 			FROM endorse_logs
-			WHERE id_endorse = '$id' $qry $group
-			");
-		} else {
-			$list = $this->mymodel->selectWithQuery("SELECT likes, comment,share_save, views,
-			SUM(total_cost) as cpm,
-			$qry_opt as opt 
-			FROM endorse_logs
-			WHERE id_endorse = '$id' $qry $group
-			");
-		}
+			$where
+			$group
+			ORDER BY opt ASC
+		");
 
 
 

@@ -1050,12 +1050,115 @@ class Template
     function get_social_media_batch(array $tasks, int $maxConcurrent = 10): array
     {
         $results = [];
+
+        if ($maxConcurrent <= 0) {
+            $maxConcurrent = 10;
+        }
+
+        $chunks = array_chunk($tasks, $maxConcurrent, true);
+        foreach ($chunks as $chunk) {
+            $pageScrapes = $this->fetchTiktokDetailPagesBatch($chunk);
+            foreach ($chunk as $idx => $task) {
+                $platform = $task['platform'] ?? '';
+                $url = $task['url'] ?? '';
+                if ($platform === 'Tiktok' && !empty($pageScrapes[$idx]) && $this->isValidTiktokScrapeItem($pageScrapes[$idx])) {
+                    $response = [
+                        "status" => true,
+                        "msg" => "",
+                        "data" => [
+                            "like" => 0,
+                            "share" => 0,
+                            "comment" => 0,
+                            "collect" => 0,
+                            "view" => 0,
+                            "created_at" => "",
+                            "content_id" => $this->extract_tiktok_content_id($url),
+                            "media_type" => $this->detect_tiktok_media_type_from_url($url),
+                            "video_link" => "",
+                            "cover" => "",
+                            "images" => [],
+                        ],
+                    ];
+                    $results[$idx] = $this->mapDirectTiktokItemToResponse($response, $pageScrapes[$idx], true);
+                    continue;
+                }
+
+                $results[$idx] = $this->get_social_media($platform, $url, true, null);
+            }
+        }
+
+        return $results;
+    }
+
+    protected function fetchTiktokDetailPagesBatch(array $tasks): array
+    {
+        $multiHandle = curl_multi_init();
+        $handles = [];
+        $results = [];
+
         foreach ($tasks as $idx => $task) {
             $platform = $task['platform'] ?? '';
-            $url = $task['url'] ?? '';
-            $results[$idx] = $this->get_social_media($platform, $url, true, null);
+            $url = trim((string) ($task['url'] ?? ''));
+            if ($platform !== 'Tiktok' || $url === '') {
+                $results[$idx] = [];
+                continue;
+            }
+
+            $curl = curl_init();
+            curl_setopt_array($curl, [
+                CURLOPT_URL => $url,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_ENCODING => '',
+                CURLOPT_MAXREDIRS => 10,
+                CURLOPT_TIMEOUT => 30,
+                CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:100.0) Gecko/20100101 Firefox/100.0',
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+                CURLOPT_CUSTOMREQUEST => 'GET',
+                CURLOPT_HTTPHEADER => [
+                    'Cookie: tt_chain_token=+O8Mw9RH4nKrX/ACdOBhXw==; tt_csrf_token=27TtpaB8-Wftkj0rFR_w6LdtcAp4tdDCFfBY; ttwid=1%7CdJI7LAdiTNKwSISqHad9wDTJ6G_70WU_PGro2isx-ac%7C1705385087%7C518efef116162148489d7f25fa3c7b06633a23c824590f04ea0226d5c2b6f092'
+                ],
+            ]);
+            curl_multi_add_handle($multiHandle, $curl);
+            $handles[$idx] = $curl;
         }
+
+        do {
+            $status = curl_multi_exec($multiHandle, $active);
+            if ($active) {
+                curl_multi_select($multiHandle, 1.0);
+            }
+        } while ($active && $status === CURLM_OK);
+
+        foreach ($handles as $idx => $curl) {
+            $html = curl_multi_getcontent($curl);
+            $results[$idx] = $this->extractTiktokItemStructFromHtml($html);
+            curl_multi_remove_handle($multiHandle, $curl);
+            curl_close($curl);
+        }
+
+        curl_multi_close($multiHandle);
+
         return $results;
+    }
+
+    protected function extractTiktokItemStructFromHtml($html)
+    {
+        if (!is_string($html) || $html === '') {
+            return [];
+        }
+
+        $pattern = '/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application\/json">(.*?)<\/script>/s';
+        if (!preg_match($pattern, $html, $matches) || empty($matches[1])) {
+            return [];
+        }
+
+        $json = json_decode($matches[1], true);
+        if (!is_array($json)) {
+            return [];
+        }
+
+        return $json['__DEFAULT_SCOPE__']['webapp.video-detail']['itemInfo']['itemStruct'] ?? [];
     }
 
     public function extract_tiktok_content_id($url)
@@ -1120,21 +1223,7 @@ class Template
         $html = curl_exec($curl);
         curl_close($curl);
 
-        if (!is_string($html) || $html === '') {
-            return [];
-        }
-
-        $pattern = '/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application\/json">(.*?)<\/script>/s';
-        if (!preg_match($pattern, $html, $matches) || empty($matches[1])) {
-            return [];
-        }
-
-        $json = json_decode($matches[1], true);
-        if (!is_array($json)) {
-            return [];
-        }
-
-        return $json['__DEFAULT_SCOPE__']['webapp.video-detail']['itemInfo']['itemStruct'] ?? [];
+        return $this->extractTiktokItemStructFromHtml($html);
     }
 
     protected function isValidTiktokScrapeItem($item)

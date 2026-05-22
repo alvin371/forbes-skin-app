@@ -62,6 +62,13 @@ foreach ($data as $v) {
                 <?php } ?>
             </div>
             <div class="col-lg-4 text-lg-end text-start">
+                <?php
+                $refresh = isset($card_refresh_meta[$v['id']]) ? $card_refresh_meta[$v['id']] : [];
+                $pending_count = intval($refresh['pending_count'] ?? 0);
+                $processing_count = intval($refresh['processing_count'] ?? 0);
+                $active_refresh_count = $pending_count + $processing_count;
+                $last_child_sync_at = $refresh['last_child_sync_at'] ?? null;
+                ?>
                 <a href="#!" onclick="remove('<?= $v['id'] ?>')" class="btn btn-delete  mt-0 mb-2"><i class="bi bi-trash fs-16"></i> Delete Data</a>
                 <a href="#!" onclick="edit('<?= $v['id'] ?>')" class="btn btn-edit  mt-0 ms-1 mb-2"><i class="bi bi-pencil-square fs-16"></i> Edit Data</a>
                 <a href="#!" onclick="refreshCampaign('<?= $v['id'] ?>')"
@@ -70,8 +77,17 @@ foreach ($data as $v) {
                    <i class="bi bi-arrow-clockwise fs-16"></i> Refresh
                 </a>
                 <small class="text-muted d-block mt-0" id="sync-time-<?= $v['id'] ?>">
-                    Update: <?= $v['updated_at'] ? date('d/m/Y H:i', strtotime($v['updated_at'])) : 'Belum' ?>
+                    <?php if ($active_refresh_count > 0) { ?>
+                        Refresh queue: <?= $pending_count ?> pending, <?= $processing_count ?> processing
+                    <?php } else { ?>
+                        Update konten: <?= $last_child_sync_at ? date('d/m/Y H:i', strtotime($last_child_sync_at)) : 'Belum' ?>
+                    <?php } ?>
                 </small>
+                <?php if ($active_refresh_count > 0) { ?>
+                    <small class="d-block mt-1">
+                        <a href="<?= base_url() ?>endorse/queue?id_campaign=<?= $v['id'] ?>" class="text-decoration-none">Lihat antrian refresh</a>
+                    </small>
+                <?php } ?>
             </div>
             <div class="col-lg-12">
                 <hr>

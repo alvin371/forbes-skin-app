@@ -4,6 +4,10 @@ This is the canonical implementation guide for the endorse refresh system.
 
 It documents the current behavior exactly as implemented in this repo so the same pattern can be cloned into another CodeIgniter project with minimal guesswork.
 
+For the server-side global cron variant added on top of this queue flow, see:
+
+- [docs/ENDORSE_REFRESH_GLOBAL_CRON_CLONING.md](/Users/alvin/Documents/WorkingSpace/acneno-hrms/htdocs/forbes-skin-app/docs/ENDORSE_REFRESH_GLOBAL_CRON_CLONING.md:1)
+
 ## Summary
 
 The refresh feature has two execution modes:

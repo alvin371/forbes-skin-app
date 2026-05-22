@@ -231,6 +231,7 @@ class Endorse_campaign extends BaseController
 
         // Batch fetch card stats in a single query to avoid N+1 (3 queries per card)
         $card_stats = [];
+        $card_refresh_meta = [];
         if (!empty($query)) {
             $campaign_ids = array_map('intval', array_column($query, 'id'));
             $ids_str = implode(',', $campaign_ids);
@@ -247,10 +248,46 @@ class Endorse_campaign extends BaseController
             foreach ($stats_raw as $row) {
                 $card_stats[$row['id_campaign']] = $row;
             }
+
+            $sync_raw = $this->mymodel->selectWithQuery("
+                SELECT
+                    id_campaign,
+                    MAX(sync_at) AS last_child_sync_at
+                FROM endorse
+                WHERE id_campaign IN ($ids_str)
+                GROUP BY id_campaign
+            ");
+            foreach ($sync_raw as $row) {
+                $campaign_id = intval($row['id_campaign']);
+                if (!isset($card_refresh_meta[$campaign_id])) {
+                    $card_refresh_meta[$campaign_id] = [];
+                }
+                $card_refresh_meta[$campaign_id]['last_child_sync_at'] = $row['last_child_sync_at'];
+            }
+
+            $queue_raw = $this->mymodel->selectWithQuery("
+                SELECT
+                    id_campaign,
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+                    SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) AS processing_count
+                FROM endorse_refresh_queue
+                WHERE id_campaign IN ($ids_str)
+                  AND status IN ('pending', 'processing')
+                GROUP BY id_campaign
+            ");
+            foreach ($queue_raw as $row) {
+                $campaign_id = intval($row['id_campaign']);
+                if (!isset($card_refresh_meta[$campaign_id])) {
+                    $card_refresh_meta[$campaign_id] = [];
+                }
+                $card_refresh_meta[$campaign_id]['pending_count'] = intval($row['pending_count'] ?? 0);
+                $card_refresh_meta[$campaign_id]['processing_count'] = intval($row['processing_count'] ?? 0);
+            }
         }
 
         $data['data'] = $query;
         $data['card_stats'] = $card_stats;
+        $data['card_refresh_meta'] = $card_refresh_meta;
 
         $data['start'] = $offset;
         $this->load->view("endorse_campaign/item", $data);

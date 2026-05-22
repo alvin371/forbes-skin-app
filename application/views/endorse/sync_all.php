@@ -1,6 +1,7 @@
 <div class="form-message"></div>
 <form action="<?= base_url() ?>/endorse/sync-all-process" method="POST" id="form-modal">
 	<input type="hidden" name="id" value="<?= $data['id'] ?>">
+	<input type="hidden" name="id_campaign" value="<?= $data['id'] ?>">
 	<p>Apakah kamu yakin ingin melakukan refresh data?</p>
 	<div class="col-md-12 mt-3">
 		<button type="submit" class="btn btn-primary btn-send">Refresh Data</button>
