@@ -3,3 +3,14 @@
 /application/credentials/client_secret.json
 # Added by code-review-graph
 .code-review-graph/
+
+# Local OS/editor artifacts
+.DS_Store
+.vscode/
+
+# Local agent/tool output
+.impeccable/
+.claude/settings.local.json
+
+# Runtime cache
+/application/cache/sessions/*
