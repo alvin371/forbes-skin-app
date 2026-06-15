@@ -7696,6 +7696,40 @@ class Api_v2 extends CI_Controller
     }
 
     /**
+     * Reconcile sweep for content-optimization finals. Enqueues a 'final' snapshot for
+     * any auto-fetch endorse that is Completed but has no final snapshot yet — covering
+     * enqueues lost after the row update committed. Safe to run repeatedly (dedup +
+     * frozen guards prevent duplicates).
+     */
+    function cronjob_endorse_final_reconcile()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        $this->worker_auth_guard();
+
+        $this->load->library('EndorseRefreshQueueService');
+        $result = $this->endorserefreshqueueservice->enqueuePendingFinals(0);
+
+        echo json_encode($result);
+        die;
+    }
+
+    /**
+     * Push ALL content-optimization rows to the configured Google Sheet tab (full-replace).
+     * Mirror of the on-demand button but with no campaign/list filters.
+     */
+    function cronjob_endorse_optimization_sheet()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        $this->worker_auth_guard();
+
+        $this->load->library('EndorseOptimizationSheet');
+        $result = $this->endorseoptimizationsheet->sync([]);
+
+        echo json_encode($result);
+        die;
+    }
+
+    /**
      * Worker for endorse_refresh_queue. Designed for parallel staggered cron entries.
      *
      * Per tick:
@@ -7827,11 +7861,21 @@ class Api_v2 extends CI_Controller
                 continue;
             }
 
-            $result = $this->endorse_sync->apply(
-                $endorse, $response,
-                intval($item['enqueued_by'] ?: 0),
-                $prevStatsMap[$id_endorse] ?? null
-            );
+            // Branch on purpose: 'daily' keeps the existing delta + endorse_logs flow;
+            // 'initial'/'final' write frozen snapshot columns and must NOT roll up.
+            $purpose = strval($item['purpose'] ?? 'daily');
+            if ($purpose === 'daily') {
+                $result = $this->endorse_sync->apply(
+                    $endorse, $response,
+                    intval($item['enqueued_by'] ?: 0),
+                    $prevStatsMap[$id_endorse] ?? null
+                );
+            } else {
+                $result = $this->endorse_sync->apply_snapshot(
+                    $endorse, $response, $purpose,
+                    intval($item['enqueued_by'] ?: 0)
+                );
+            }
 
             if ($result['status']) {
                 $completedAt = date('Y-m-d H:i:s');
@@ -7843,7 +7887,10 @@ class Api_v2 extends CI_Controller
                     'completed_at'  => $completedAt,
                 ], ['id' => $queue_id]);
                 $this->finalize_queue_attempt($queue_id, $attempts, $worker_id, 'completed', null, null, $completedAt);
-                $touched_campaigns[intval($endorse['id_campaign'])] = true;
+                // Snapshot jobs do not affect campaign aggregates — only daily does.
+                if ($purpose === 'daily') {
+                    $touched_campaigns[intval($endorse['id_campaign'])] = true;
+                }
                 $completed++;
                 continue;
             }

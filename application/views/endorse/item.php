@@ -152,6 +152,8 @@ if ($view == 'table') {
                             <?php endif; ?>
                         </th>
                     <?php endif; ?>
+                    <th>Optimasi</th>
+                    <th>Growth</th>
                     <th>Link Upload</i></th>
                     <th>Kode Ads</th>
                     <th>Keterangan</th>
@@ -430,6 +432,20 @@ if ($view == 'table') {
                     <?php if ($top_performer_enabled): ?>
                         <td class="text-end"><?= separator_only($v['views_growth_period'] ?? 0) ?></td>
                     <?php endif; ?>
+                    <td>
+                        <?php $os = $v['optimization_status'] ?? ''; ?>
+                        <?php if ($os !== ''): ?>
+                            <span class="badge bg-light text-dark border"><?= htmlspecialchars($os) ?></span>
+                        <?php else: ?>
+                            -
+                        <?php endif; ?>
+                    </td>
+                    <td class="text-start" style="white-space:nowrap;font-size:12px;">
+                        <?php $gfmt = function ($val) { return ($val === null || $val === '') ? '-' : separator_only($val); }; ?>
+                        V: <?= $gfmt($v['view_growth'] ?? null) ?><br>
+                        L: <?= $gfmt($v['like_growth'] ?? null) ?><br>
+                        C: <?= $gfmt($v['comment_growth'] ?? null) ?>
+                    </td>
                     <td>
                         <div class="firstDivImg">
                             <?= $v['img'] ?>

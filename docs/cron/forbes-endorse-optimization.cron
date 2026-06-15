@@ -1,0 +1,21 @@
+# ========================================
+# Forbes Skin - Endorse Content Optimization
+# ========================================
+# Initial/final metric snapshots ride the EXISTING endorse-refresh worker
+# (api/cronjob/endorse-refresh). Only the reconcile sweep below is new — it
+# re-enqueues a 'final' snapshot for any auto-fetch endorse that is Completed
+# but still missing its final metrics (covers enqueues lost after the row
+# update committed). Safe to run repeatedly: dedup + frozen guards prevent dupes.
+
+# ========================================
+# Every 5 Minutes (*/5 * * * *)
+# ========================================
+
+*/5 * * * * echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-endorse-final-reconcile.log && curl -s -X GET "https://acnenosystem.com/api/cronjob/endorse-final-reconcile" >> /var/log/cron/forbes-endorse-final-reconcile.log 2>&1
+
+# ========================================
+# Every 15 Minutes (*/15 * * * *)
+# ========================================
+# Push all content-optimization rows to the AUTO_Optimasi tab of the team's Google Sheet.
+
+*/15 * * * * echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-endorse-optimization-sheet.log && curl -s -X GET "https://acnenosystem.com/api/cronjob/endorse-optimization-sheet" >> /var/log/cron/forbes-endorse-optimization-sheet.log 2>&1

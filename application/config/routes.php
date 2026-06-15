@@ -299,8 +299,12 @@ $route['api/cronjob/scraping-poll'] = 'Api_v2/cronjob_scraping_poll';
 $route['api/cronjob/scraping-enqueue'] = 'Api_v2/cronjob_scraping_enqueue';
 $route['api/cronjob/tiktok-sync'] = 'Api_v2/cronjob_tiktok_sync';
 $route['api/cronjob/endorse-refresh'] = 'Api_v2/cronjob_endorse_refresh';
+$route['api/cronjob/endorse-final-reconcile'] = 'Api_v2/cronjob_endorse_final_reconcile';
+$route['api/cronjob/endorse-optimization-sheet'] = 'Api_v2/cronjob_endorse_optimization_sheet';
 
 $route['endorse/bulk-refresh'] = 'Endorse/bulk_refresh';
+$route['endorse/export-optimization'] = 'Endorse/export_optimization';
+$route['endorse/sync-optimization-sheet'] = 'Endorse/sync_optimization_sheet';
 $route['endorse/queue'] = 'Endorse/queue';
 $route['endorse/queue-data'] = 'Endorse/queue_data';
 $route['endorse/queue-history'] = 'Endorse/queue_history';

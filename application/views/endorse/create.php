@@ -229,6 +229,92 @@
 			<textarea class="form-control" name="dt[keterangan_payment]" rows="4" style="width: 100%; resize: vertical; min-height: 100px;"><?= $data['keterangan_payment'] ?></textarea>
 		</div> -->
 
+		<!-- ===== Optimasi Konten ===== -->
+		<div class="col-md-12 mt-3">
+			<div class="form-check">
+				<input type="hidden" name="dt[is_optimization]" value="0">
+				<input type="checkbox" class="form-check-input" id="is_optimization" name="dt[is_optimization]" value="1" <?= !empty($data['is_optimization']) ? 'checked' : '' ?>>
+				<label class="form-check-label" for="is_optimization"><strong>Aktifkan Tracking Optimasi Konten</strong></label>
+			</div>
+		</div>
+
+		<div class="col-md-12" id="optimization-section" style="<?= !empty($data['is_optimization']) ? '' : 'display:none;' ?>">
+			<div class="row">
+				<div class="col-md-4">
+					<label for="">Tanggal Request</label>
+					<input type="date" class="form-control" name="dt[request_date]" value="<?= $data['request_date'] ?? '' ?>">
+				</div>
+				<div class="col-md-4">
+					<label for="">Request By</label>
+					<input type="text" class="form-control" name="dt[request_by]" value="<?= htmlspecialchars($data['request_by'] ?? '') ?>">
+				</div>
+				<div class="col-md-4">
+					<label for="">Tools</label>
+					<select class="form-control" name="dt[device]">
+						<?php
+						$tools_arr = array("", "Manual", "Tools SMM.ID");
+						$cur_tools = $data['device'] ?? '';
+						foreach ($tools_arr as $v2) {
+							$label = $v2 === '' ? 'Pilih Tools' : $v2;
+							$text = ($cur_tools === $v2) ? 'selected' : '';
+							echo "<option $text value='" . htmlspecialchars($v2) . "'>" . htmlspecialchars($label) . "</option>";
+						}
+						?>
+					</select>
+				</div>
+				<div class="col-md-4">
+					<label for="">Request Keyword</label>
+					<input type="text" class="form-control" name="dt[request_keyword]" value="<?= htmlspecialchars($data['request_keyword'] ?? '') ?>">
+				</div>
+				<div class="col-md-4">
+					<label for="">Manual Status</label>
+					<select class="form-control" name="dt[manual_status]">
+						<?php
+						$manual_arr = array("", "Input", "On Process", "Done");
+						$cur_manual = $data['manual_status'] ?? '';
+						foreach ($manual_arr as $v2) {
+							$label = $v2 === '' ? 'Pilih Status' : $v2;
+							$text = ($cur_manual === $v2) ? 'selected' : '';
+							echo "<option $text value='" . htmlspecialchars($v2) . "'>" . htmlspecialchars($label) . "</option>";
+						}
+						?>
+					</select>
+				</div>
+				<div class="col-md-4">
+					<label for="">System Status</label>
+					<select class="form-control" name="dt[optimization_status]">
+						<?php
+						$opt_arr = array("Not Started", "In Progress", "Completed");
+						$cur_opt = $data['optimization_status'] ?? 'Not Started';
+						foreach ($opt_arr as $v2) {
+							$text = $cur_opt == $v2 ? 'selected' : '';
+							echo "<option $text value='$v2'>$v2</option>";
+						}
+						?>
+					</select>
+				</div>
+
+				<div class="col-md-12 mt-2" id="auto-metrics-note" style="display:none;">
+					<div class="alert alert-secondary py-2 mb-0">Metrik awal &amp; akhir diambil otomatis dari TikTok (awal saat link disimpan, akhir saat status <strong>Completed</strong>).</div>
+				</div>
+
+				<div class="col-md-12 mt-2" id="manual-metrics" style="display:none;">
+					<div class="alert alert-info py-2 mb-2">Platform ini belum mendukung auto-fetch. Masukkan metrik manual.</div>
+					<div class="row">
+						<?php
+						$opt_metrics = array('comment' => 'Komentar', 'like' => 'Like', 'share' => 'Share', 'save' => 'Save', 'view' => 'View');
+						foreach ($opt_metrics as $mkey => $mlabel) {
+							$iv = htmlspecialchars($data[$mkey . '_initial'] ?? '');
+							$fv = htmlspecialchars($data[$mkey . '_final'] ?? '');
+							echo '<div class="col-md-6"><label>' . $mlabel . ' Awal</label><input type="number" class="form-control opt-metric" name="dt[' . $mkey . '_initial]" value="' . $iv . '"></div>';
+							echo '<div class="col-md-6"><label>' . $mlabel . ' Akhir</label><input type="number" class="form-control opt-metric" name="dt[' . $mkey . '_final]" value="' . $fv . '"></div>';
+						}
+						?>
+					</div>
+				</div>
+			</div>
+		</div>
+
 		<div class="col-md-12 mt-3 d-flex justify-content-end">
 			<button type="submit" class="btn btn-primary btn-send">Simpan Data</button>
 		</div>
@@ -248,6 +334,47 @@
 	});
 
 	$('#product-select').trigger('change');
+
+	// ===== Content optimization: platform auto-detect + metric-mode toggling =====
+	(function() {
+		var AUTO = { 'Tiktok': true, 'Instagram': false, 'Youtube': false, 'Twitter': false, 'Facebook': false };
+
+		function detectPlatform(url) {
+			url = (url || '').toLowerCase();
+			if (/tiktok\.com/.test(url)) return 'Tiktok';
+			if (/instagram\.com/.test(url)) return 'Instagram';
+			if (/youtube\.com|youtu\.be/.test(url)) return 'Youtube';
+			if (/twitter\.com|x\.com/.test(url)) return 'Twitter';
+			if (/facebook\.com|fb\.watch|fb\.com/.test(url)) return 'Facebook';
+			return '';
+		}
+
+		function currentPlatform() {
+			return $('select[name="dt[platform]"]').val() || '';
+		}
+
+		function refreshMetricMode() {
+			var isOpt = $('#is_optimization').is(':checked');
+			var auto = !!AUTO[currentPlatform()];
+			$('#optimization-section').toggle(isOpt);
+			$('#auto-metrics-note').toggle(isOpt && auto);
+			$('#manual-metrics').toggle(isOpt && !auto);
+			// Disabled inputs are not submitted: keep behavioral fields out when off,
+			// and keep manual metric inputs out for auto-fetch platforms.
+			$('#optimization-section').find('input, select').not('.opt-metric').prop('disabled', !isOpt);
+			$('.opt-metric').prop('disabled', !isOpt || auto);
+		}
+
+		$('input[name="dt[link_upload]"]').on('input change', function() {
+			var p = detectPlatform($(this).val());
+			if (p) {
+				$('select[name="dt[platform]"]').val(p).trigger('change');
+			}
+		});
+		$('select[name="dt[platform]"]').on('change', refreshMetricMode);
+		$('#is_optimization').on('change', refreshMetricMode);
+		refreshMetricMode();
+	})();
 
 	document.getElementById('total_cost_formatted').addEventListener('input', function(e) {
         let value = this.value.replace(/[^0-9]/g, '');

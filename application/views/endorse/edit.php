@@ -335,6 +335,119 @@
 			<input type="text" class="form-control" name="dt[desc]" value="<?= $data['desc'] ?>">
 		</div>
 
+		<!-- ===== Optimasi Konten ===== -->
+		<div class="col-md-12 mt-3">
+			<div class="form-check">
+				<input type="hidden" name="dt[is_optimization]" value="0">
+				<input type="checkbox" class="form-check-input" id="is_optimization" name="dt[is_optimization]" value="1" <?= !empty($data['is_optimization']) ? 'checked' : '' ?>>
+				<label class="form-check-label" for="is_optimization"><strong>Aktifkan Tracking Optimasi Konten</strong></label>
+			</div>
+		</div>
+
+		<div class="col-md-12" id="optimization-section" style="<?= !empty($data['is_optimization']) ? '' : 'display:none;' ?>">
+			<div class="row">
+				<div class="col-md-4">
+					<label for="">Tanggal Request</label>
+					<input type="date" class="form-control" name="dt[request_date]" value="<?= $data['request_date'] ?? '' ?>">
+				</div>
+				<div class="col-md-4">
+					<label for="">Request By</label>
+					<input type="text" class="form-control" name="dt[request_by]" value="<?= htmlspecialchars($data['request_by'] ?? '') ?>">
+				</div>
+				<div class="col-md-4">
+					<label for="">Tools</label>
+					<select class="form-control" name="dt[device]">
+						<?php
+						$tools_arr = array("", "Manual", "Tools SMM.ID");
+						$cur_tools = $data['device'] ?? '';
+						if ($cur_tools !== '' && !in_array($cur_tools, $tools_arr, true)) {
+							$tools_arr[] = $cur_tools; // preserve any existing free-text value
+						}
+						foreach ($tools_arr as $v2) {
+							$label = $v2 === '' ? 'Pilih Tools' : $v2;
+							$text = ($cur_tools === $v2) ? 'selected' : '';
+							echo "<option $text value='" . htmlspecialchars($v2) . "'>" . htmlspecialchars($label) . "</option>";
+						}
+						?>
+					</select>
+				</div>
+				<div class="col-md-4">
+					<label for="">Request Keyword</label>
+					<input type="text" class="form-control" name="dt[request_keyword]" value="<?= htmlspecialchars($data['request_keyword'] ?? '') ?>">
+				</div>
+				<div class="col-md-4">
+					<label for="">Manual Status</label>
+					<select class="form-control" name="dt[manual_status]">
+						<?php
+						$manual_arr = array("", "Input", "On Process", "Done");
+						$cur_manual = $data['manual_status'] ?? '';
+						foreach ($manual_arr as $v2) {
+							$label = $v2 === '' ? 'Pilih Status' : $v2;
+							$text = ($cur_manual === $v2) ? 'selected' : '';
+							echo "<option $text value='" . htmlspecialchars($v2) . "'>" . htmlspecialchars($label) . "</option>";
+						}
+						?>
+					</select>
+				</div>
+				<div class="col-md-4">
+					<label for="">System Status</label>
+					<select class="form-control" name="dt[optimization_status]">
+						<?php
+						$opt_arr = array("Not Started", "In Progress", "Completed");
+						$cur_opt = $data['optimization_status'] ?? 'Not Started';
+						foreach ($opt_arr as $v2) {
+							$text = $cur_opt == $v2 ? 'selected' : '';
+							echo "<option $text value='$v2'>$v2</option>";
+						}
+						?>
+					</select>
+				</div>
+
+				<?php $opt_metrics = array('comment' => 'Komentar', 'like' => 'Like', 'share' => 'Share', 'save' => 'Save', 'view' => 'View'); ?>
+
+				<!-- Auto-fetch (TikTok): read-only initial / final / growth -->
+				<div class="col-md-12 mt-2" id="auto-metrics-display" style="display:none;">
+					<div class="alert alert-secondary py-2 mb-2">Metrik diambil otomatis dari TikTok (awal saat link disimpan, akhir saat status <strong>Completed</strong>).</div>
+					<div class="table-responsive">
+						<table class="table table-sm table-bordered mb-0">
+							<thead>
+								<tr><th>Metrik</th><th class="text-end">Awal</th><th class="text-end">Akhir</th><th class="text-end">Growth</th></tr>
+							</thead>
+							<tbody>
+								<?php foreach ($opt_metrics as $mkey => $mlabel) {
+									$iv = $data[$mkey . '_initial'] ?? null;
+									$fv = $data[$mkey . '_final'] ?? null;
+									$gv = $data[$mkey . '_growth'] ?? null;
+									$fmt = function ($v) { return ($v === null || $v === '') ? '-' : number_format((int) $v); };
+								?>
+									<tr>
+										<td><?= $mlabel ?></td>
+										<td class="text-end"><?= $fmt($iv) ?></td>
+										<td class="text-end"><?= $fmt($fv) ?></td>
+										<td class="text-end fw-600"><?= $fmt($gv) ?></td>
+									</tr>
+								<?php } ?>
+							</tbody>
+						</table>
+					</div>
+					<small class="text-muted">Awal diambil: <?= $data['initial_fetched_at'] ?? '-' ?> &middot; Akhir diambil: <?= $data['final_fetched_at'] ?? '-' ?></small>
+				</div>
+
+				<!-- Placeholder platforms: editable manual entry -->
+				<div class="col-md-12 mt-2" id="manual-metrics" style="display:none;">
+					<div class="alert alert-info py-2 mb-2">Platform ini belum mendukung auto-fetch. Masukkan metrik manual.</div>
+					<div class="row">
+						<?php foreach ($opt_metrics as $mkey => $mlabel) {
+							$iv = htmlspecialchars($data[$mkey . '_initial'] ?? '');
+							$fv = htmlspecialchars($data[$mkey . '_final'] ?? '');
+							echo '<div class="col-md-6"><label>' . $mlabel . ' Awal</label><input type="number" class="form-control opt-metric" name="dt[' . $mkey . '_initial]" value="' . $iv . '"></div>';
+							echo '<div class="col-md-6"><label>' . $mlabel . ' Akhir</label><input type="number" class="form-control opt-metric" name="dt[' . $mkey . '_final]" value="' . $fv . '"></div>';
+						} ?>
+					</div>
+				</div>
+			</div>
+		</div>
+
 		<div class="col-md-12 mt-3 d-flex justify-content-end">
 			<button type="submit" class="btn btn-primary btn-send">Simpan Data</button>
 		</div>
@@ -369,6 +482,45 @@
 	});
 
 	$('#product-select').trigger('change');
+
+	// ===== Content optimization: platform auto-detect + metric-mode toggling =====
+	(function() {
+		var AUTO = { 'Tiktok': true, 'Instagram': false, 'Youtube': false, 'Twitter': false, 'Facebook': false };
+
+		function detectPlatform(url) {
+			url = (url || '').toLowerCase();
+			if (/tiktok\.com/.test(url)) return 'Tiktok';
+			if (/instagram\.com/.test(url)) return 'Instagram';
+			if (/youtube\.com|youtu\.be/.test(url)) return 'Youtube';
+			if (/twitter\.com|x\.com/.test(url)) return 'Twitter';
+			if (/facebook\.com|fb\.watch|fb\.com/.test(url)) return 'Facebook';
+			return '';
+		}
+
+		function currentPlatform() {
+			return $('select[name="dt[platform]"]').val() || '';
+		}
+
+		function refreshMetricMode() {
+			var isOpt = $('#is_optimization').is(':checked');
+			var auto = !!AUTO[currentPlatform()];
+			$('#optimization-section').toggle(isOpt);
+			$('#auto-metrics-display').toggle(isOpt && auto);
+			$('#manual-metrics').toggle(isOpt && !auto);
+			$('#optimization-section').find('input, select').not('.opt-metric').prop('disabled', !isOpt);
+			$('.opt-metric').prop('disabled', !isOpt || auto);
+		}
+
+		$('input[name="dt[link_upload]"]').on('input change', function() {
+			var p = detectPlatform($(this).val());
+			if (p) {
+				$('select[name="dt[platform]"]').val(p).trigger('change');
+			}
+		});
+		$('select[name="dt[platform]"]').on('change', refreshMetricMode);
+		$('#is_optimization').on('change', refreshMetricMode);
+		refreshMetricMode();
+	})();
 
 	function getKeyFromName(pname) {
 		return pname.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_-]/g, '');
