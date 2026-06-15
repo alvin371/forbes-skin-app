@@ -417,12 +417,39 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                             <i class="bi bi-file-earmark-excel"></i>
                         </a>
                     </div>
+                    <div class="col-md-2 text-end">
+                        <a href="#!" id="btn-sync-sheet" onclick="syncOptimizationSheet(); return false;" class="btn btn-primary btn-sm w-100" title="Sync ke Google Sheet">
+                            <i class="bi bi-google"></i> Sync ke Sheet
+                        </a>
+                    </div>
                 </div>
                 <script>
                     function exportOptimization() {
                         var params = new URLSearchParams(window.location.search);
                         params.set('id_campaign', '<?= $detail['id'] ?>');
                         window.location.href = '<?= base_url() ?>/endorse/export-optimization?' + params.toString();
+                    }
+
+                    function syncOptimizationSheet() {
+                        var params = new URLSearchParams(window.location.search);
+                        params.set('id_campaign', '<?= $detail['id'] ?>');
+                        var $btn = $('#btn-sync-sheet');
+                        var original = $btn.html();
+                        $btn.addClass('disabled').attr('disabled', true).html('<i class="bi bi-arrow-repeat"></i> Sync...');
+                        $.ajax({
+                            type: 'GET',
+                            dataType: 'json',
+                            url: '<?= base_url() ?>/endorse/sync-optimization-sheet?' + params.toString(),
+                            success: function(res) {
+                                alert(res && res.msg ? res.msg : (res && res.status ? 'Sync berhasil.' : 'Sync gagal.'));
+                            },
+                            error: function(xhr) {
+                                alert('Sync gagal: ' + (xhr.responseText || xhr.statusText));
+                            },
+                            complete: function() {
+                                $btn.removeClass('disabled').attr('disabled', false).html(original);
+                            }
+                        });
                     }
                 </script>
             </form>
