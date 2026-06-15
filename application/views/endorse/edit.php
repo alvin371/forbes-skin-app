@@ -352,7 +352,20 @@
 				</div>
 				<div class="col-md-4">
 					<label for="">Request By</label>
-					<input type="text" class="form-control" name="dt[request_by]" value="<?= htmlspecialchars($data['request_by'] ?? '') ?>">
+					<select class="form-control select2" name="dt[request_by]">
+						<?php
+						$cur_req_by = $data['request_by'] ?? '';
+						$req_by_users = array_map(function ($u) { return $u['full_name']; }, $pic);
+						if ($cur_req_by !== '' && !in_array($cur_req_by, $req_by_users, true)) {
+							array_unshift($req_by_users, $cur_req_by); // preserve existing value not in user list
+						}
+						echo "<option value=''>Pilih Request By</option>";
+						foreach ($req_by_users as $rbu) {
+							$text = ($cur_req_by === $rbu) ? 'selected' : '';
+							echo "<option $text value='" . htmlspecialchars($rbu) . "'>" . htmlspecialchars($rbu) . "</option>";
+						}
+						?>
+						</select>
 				</div>
 				<div class="col-md-4">
 					<label for="">Tools</label>
@@ -407,7 +420,12 @@
 
 				<!-- Auto-fetch (TikTok): read-only initial / final / growth -->
 				<div class="col-md-12 mt-2" id="auto-metrics-display" style="display:none;">
-					<div class="alert alert-secondary py-2 mb-2">Metrik diambil otomatis dari TikTok (awal saat link disimpan, akhir saat status <strong>Completed</strong>).</div>
+					<div class="d-flex justify-content-between align-items-center mb-2">
+						<div class="alert alert-secondary py-2 mb-0 me-2 flex-grow-1">Metrik diambil otomatis dari TikTok (awal saat link disimpan, akhir saat status <strong>Completed</strong>).</div>
+						<button type="button" class="btn btn-primary" id="fetch-metrics-btn" data-id="<?= $data['id'] ?? '' ?>">
+							<i class="bi bi-arrow-repeat"></i> Ambil Metrik Sekarang
+						</button>
+					</div>
 					<div class="table-responsive">
 						<table class="table table-sm table-bordered mb-0">
 							<thead>
@@ -420,17 +438,17 @@
 									$gv = $data[$mkey . '_growth'] ?? null;
 									$fmt = function ($v) { return ($v === null || $v === '') ? '-' : number_format((int) $v); };
 								?>
-									<tr>
+									<tr data-metric="<?= $mkey ?>">
 										<td><?= $mlabel ?></td>
-										<td class="text-end"><?= $fmt($iv) ?></td>
-										<td class="text-end"><?= $fmt($fv) ?></td>
-										<td class="text-end fw-600"><?= $fmt($gv) ?></td>
+										<td class="text-end metric-initial"><?= $fmt($iv) ?></td>
+										<td class="text-end metric-final"><?= $fmt($fv) ?></td>
+										<td class="text-end fw-600 metric-growth"><?= $fmt($gv) ?></td>
 									</tr>
 								<?php } ?>
 							</tbody>
 						</table>
 					</div>
-					<small class="text-muted">Awal diambil: <?= $data['initial_fetched_at'] ?? '-' ?> &middot; Akhir diambil: <?= $data['final_fetched_at'] ?? '-' ?></small>
+					<small class="text-muted">Awal diambil: <span id="initial-fetched-at"><?= $data['initial_fetched_at'] ?? '-' ?></span> &middot; Akhir diambil: <span id="final-fetched-at"><?= $data['final_fetched_at'] ?? '-' ?></span></small>
 				</div>
 
 				<!-- Placeholder platforms: editable manual entry -->
@@ -520,6 +538,46 @@
 		$('select[name="dt[platform]"]').on('change', refreshMetricMode);
 		$('#is_optimization').on('change', refreshMetricMode);
 		refreshMetricMode();
+	})();
+
+	// ===== On-demand metric fetch (RapidAPI, cron-independent) =====
+	(function() {
+		function fmt(v) {
+			if (v === null || v === '' || typeof v === 'undefined') return '-';
+			return Number(v).toLocaleString('en-US');
+		}
+		$('#fetch-metrics-btn').on('click', function() {
+			var $btn = $(this);
+			var id = $btn.data('id');
+			if (!id) return;
+			var orig = $btn.html();
+			$btn.prop('disabled', true).html('<i class="bi bi-arrow-repeat"></i> Mengambil...');
+			$.ajax({
+				url: '<?= base_url() ?>endorse/fetch-optimization-metrics',
+				type: 'POST',
+				dataType: 'json',
+				data: { id: id }
+			}).done(function(res) {
+				if (res && res.status && res.metrics) {
+					var m = res.metrics;
+					$('#auto-metrics-display tr[data-metric]').each(function() {
+						var key = $(this).data('metric');
+						if (m[key]) {
+							$(this).find('.metric-initial').text(fmt(m[key].initial));
+							$(this).find('.metric-final').text(fmt(m[key].final));
+							$(this).find('.metric-growth').text(fmt(m[key].growth));
+						}
+					});
+					$('#initial-fetched-at').text(m.initial_fetched_at || '-');
+					$('#final-fetched-at').text(m.final_fetched_at || '-');
+				}
+				alert((res && res.msg) ? res.msg : 'Selesai.');
+			}).fail(function() {
+				alert('Gagal menghubungi server.');
+			}).always(function() {
+				$btn.prop('disabled', false).html(orig);
+			});
+		});
 	})();
 
 	function getKeyFromName(pname) {

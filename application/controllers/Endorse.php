@@ -37,6 +37,8 @@ class Endorse extends BaseController
             'get_tiktok_video_play' => 'view',
             'export_optimization' => 'view',
             'sync_optimization_sheet' => 'view',
+            'fetch_optimization_metrics' => 'edit',
+            'bulk_activate_optimization' => 'edit',
         ]);
         
     }
@@ -970,6 +972,9 @@ class Endorse extends BaseController
         $data['param_pagination'] = $this->template->get_param_without('page');
         $data['pagination'] = $this->template->pagination($data['page'], $current_page, $data['param_pagination']);
 
+        // Users for the bulk "Aktifkan Tracking Optimasi" Request By dropdown.
+        $data['pic'] = $this->mymodel->selectWithQuery("SELECT full_name FROM user WHERE full_name != '' ORDER BY full_name ASC");
+
         $data['content'] = $this->load->view("endorse/all", $data, true);
         $this->load->view("TemplateDashboard", $data);
     }
@@ -1391,6 +1396,180 @@ class Endorse extends BaseController
         $this->load->library('EndorseOptimizationSheet');
         $result = $this->endorseoptimizationsheet->sync($this->optimization_filters_from_get());
         echo json_encode($result);
+    }
+
+    /**
+     * On-demand metric fetch for one optimization endorse. Fetches synchronously via RapidAPI
+     * (ScrapingBot/cron-independent) and writes the frozen snapshot immediately:
+     *  - initial baseline if not yet captured;
+     *  - final + growth when System Status = Completed and final not yet captured.
+     * Returns the fresh metric values so the edit page can repaint without reload.
+     */
+    public function fetch_optimization_metrics()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+
+        $id = intval($_POST['id'] ?? $_GET['id'] ?? 0);
+        if ($id <= 0) {
+            echo json_encode(['status' => false, 'msg' => 'ID tidak valid.']);
+            return;
+        }
+
+        $this->load->helper('social_platform');
+        $row = $this->mymodel->selectDataOne('endorse', ['id' => $id]);
+        if (empty($row)) {
+            echo json_encode(['status' => false, 'msg' => 'Endorse tidak ditemukan.']);
+            return;
+        }
+
+        $platform = strval($row['platform'] ?? '');
+        $link = trim((string) ($row['link_upload'] ?? ''));
+
+        if (empty($row['is_optimization']) || $row['is_optimization'] != '1') {
+            echo json_encode(['status' => false, 'msg' => 'Tracking optimasi belum aktif untuk data ini.']);
+            return;
+        }
+        if ($link === '') {
+            echo json_encode(['status' => false, 'msg' => 'Link konten kosong.']);
+            return;
+        }
+        if (!is_auto_fetch_platform($platform)) {
+            echo json_encode(['status' => false, 'msg' => 'Platform ini belum mendukung auto-fetch. Isi metrik manual.']);
+            return;
+        }
+
+        // Decide which snapshot to take.
+        $opt_status = strval($row['optimization_status'] ?? '');
+        $has_initial = !empty($row['initial_fetched_at']);
+        $has_final = !empty($row['final_fetched_at']);
+
+        if (!$has_initial) {
+            $purpose = 'initial';
+        } elseif ($opt_status === 'Completed' && !$has_final) {
+            $purpose = 'final';
+        } else {
+            echo json_encode([
+                'status' => true,
+                'msg'    => $opt_status === 'Completed'
+                    ? 'Metrik awal & akhir sudah diambil.'
+                    : 'Baseline awal sudah diambil. Akhir akan terambil saat status Completed.',
+                'metrics' => $this->optimization_metrics_payload($row),
+            ]);
+            return;
+        }
+
+        // RapidAPI-first synchronous fetch.
+        $resp = $this->template->get_social_media('Tiktok', $link, false, null, true);
+        if (empty($resp['status'])) {
+            echo json_encode(['status' => false, 'msg' => 'Gagal mengambil metrik: ' . ($resp['msg'] ?? 'tidak diketahui')]);
+            return;
+        }
+
+        $this->load->library('endorse_sync');
+        $result = $this->endorse_sync->apply_snapshot($row, $resp, $purpose, intval($_SESSION['user']['id'] ?? 0));
+        if (empty($result['status'])) {
+            echo json_encode(['status' => false, 'msg' => 'Gagal menyimpan metrik: ' . ($result['msg'] ?? 'tidak diketahui')]);
+            return;
+        }
+
+        $fresh = $this->mymodel->selectDataOne('endorse', ['id' => $id]);
+        echo json_encode([
+            'status'  => true,
+            'msg'     => $purpose === 'initial' ? 'Metrik awal berhasil diambil.' : 'Metrik akhir berhasil diambil.',
+            'purpose' => $purpose,
+            'metrics' => $this->optimization_metrics_payload($fresh),
+        ]);
+    }
+
+    /** Shape the optimization metric columns for the edit-page repaint. */
+    private function optimization_metrics_payload(array $row): array
+    {
+        $out = ['initial_fetched_at' => $row['initial_fetched_at'] ?? null, 'final_fetched_at' => $row['final_fetched_at'] ?? null];
+        foreach (['comment', 'like', 'share', 'save', 'view'] as $m) {
+            $out[$m] = [
+                'initial' => $row[$m . '_initial'] ?? null,
+                'final'   => $row[$m . '_final'] ?? null,
+                'growth'  => $row[$m . '_growth'] ?? null,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Bulk-activate content-optimization tracking over selected endorse rows.
+     * Applies shared request metadata (defaults: today / current user / In Progress), flips
+     * is_optimization on, and grabs the initial baseline for auto-fetch (TikTok) rows.
+     */
+    public function bulk_activate_optimization()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+
+        $ids = $_POST['list_id'] ?? [];
+        if (!is_array($ids)) {
+            $ids = array_filter(array_map('trim', explode(',', (string) $ids)));
+        }
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+        if (empty($ids)) {
+            echo json_encode(['status' => false, 'msg' => 'Tidak ada data terpilih.']);
+            return;
+        }
+
+        $this->load->helper('social_platform');
+        $user = $_SESSION['user'];
+
+        $dt = $_POST['dt'] ?? [];
+        $request_date = trim((string) ($dt['request_date'] ?? '')) ?: date('Y-m-d');
+        $request_by   = trim((string) ($dt['request_by'] ?? '')) ?: ($user['full_name'] ?? '');
+        $opt_status   = trim((string) ($dt['optimization_status'] ?? '')) ?: 'In Progress';
+        $keyword      = trim((string) ($dt['request_keyword'] ?? ''));
+        $device       = trim((string) ($dt['device'] ?? ''));
+        $manual       = trim((string) ($dt['manual_status'] ?? '')) ?: 'Input';
+
+        $base = [
+            'is_optimization'     => 1,
+            'request_date'        => $request_date,
+            'request_by'          => $request_by,
+            'optimization_status' => $opt_status,
+            'manual_status'       => $manual,
+            'updated_at'          => date('Y-m-d H:i:s'),
+            'updated_by'          => $user['id'],
+        ];
+        if ($keyword !== '') {
+            $base['request_keyword'] = $keyword;
+        }
+        if ($device !== '') {
+            $base['device'] = $device;
+        }
+
+        $this->load->library('endorse_sync');
+        $activated = 0; $fetched = 0; $skipped = 0;
+
+        foreach ($ids as $id) {
+            $row = $this->mymodel->selectDataOne('endorse', ['id' => $id]);
+            if (empty($row)) { $skipped++; continue; }
+
+            $this->db->update('endorse', $base, ['id' => $id]);
+            $activated++;
+
+            $platform = strval($row['platform'] ?? '');
+            $link = trim((string) ($row['link_upload'] ?? ''));
+            if ($link !== '' && is_auto_fetch_platform($platform) && empty($row['initial_fetched_at'])) {
+                $resp = $this->template->get_social_media('Tiktok', $link, false, null, true);
+                if (!empty($resp['status'])) {
+                    $row = array_merge($row, $base);
+                    $r = $this->endorse_sync->apply_snapshot($row, $resp, 'initial', intval($user['id']));
+                    if (!empty($r['status'])) { $fetched++; }
+                }
+            }
+        }
+
+        echo json_encode([
+            'status'    => true,
+            'msg'       => "Tracking optimasi diaktifkan untuk $activated data. Baseline TikTok diambil: $fetched. Dilewati: $skipped.",
+            'activated' => $activated,
+            'fetched'   => $fetched,
+            'skipped'   => $skipped,
+        ]);
     }
 
     public function alert_payment()

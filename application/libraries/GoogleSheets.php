@@ -108,9 +108,9 @@ class GoogleSheets
 
         $quoted = "'" . str_replace("'", "''", $tabName) . "'";
 
-        // Clear everything in the tab first (A:Z covers the 26-column layout).
+        // Clear everything in the tab first (A:AZ covers the extended ~32-column layout).
         $clear = new \Google\Service\Sheets\ClearValuesRequest();
-        $this->service->spreadsheets_values->clear($spreadsheetId, $quoted . '!A:Z', $clear);
+        $this->service->spreadsheets_values->clear($spreadsheetId, $quoted . '!A:AZ', $clear);
 
         $values = array_merge([$header], $rows);
         $body = new \Google\Service\Sheets\ValueRange();
@@ -124,5 +124,119 @@ class GoogleSheets
         );
 
         return count($rows);
+    }
+
+    /** Resolve a tab's numeric sheetId (needed for batchUpdate grid requests). Null if absent. */
+    public function getSheetId(string $spreadsheetId, string $tabName): ?int
+    {
+        $spreadsheet = $this->service->spreadsheets->get($spreadsheetId);
+        foreach ($spreadsheet->getSheets() as $sheet) {
+            if ($sheet->getProperties()->getTitle() === $tabName) {
+                return intval($sheet->getProperties()->getSheetId());
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Read the header-row (row 1) cell formats of a source tab, per column. Returns a list of
+     * \Google\Service\Sheets\CellFormat indexed by column (0-based). Empty if tab/data absent.
+     */
+    public function readHeaderFormats(string $spreadsheetId, string $sourceTab): array
+    {
+        $quoted = "'" . str_replace("'", "''", $sourceTab) . "'";
+        $spreadsheet = $this->service->spreadsheets->get($spreadsheetId, [
+            'ranges'          => [$quoted . '!1:1'],
+            'includeGridData' => true,
+        ]);
+
+        foreach ($spreadsheet->getSheets() as $sheet) {
+            if ($sheet->getProperties()->getTitle() !== $sourceTab) {
+                continue;
+            }
+            $grid = $sheet->getData();
+            if (empty($grid) || empty($grid[0]->getRowData())) {
+                return [];
+            }
+            $rowData = $grid[0]->getRowData();
+            $values = $rowData[0]->getValues();
+            if (empty($values)) {
+                return [];
+            }
+            $formats = [];
+            foreach ($values as $idx => $cell) {
+                $fmt = $cell->getUserEnteredFormat();
+                if ($fmt !== null) {
+                    $formats[$idx] = $fmt;
+                }
+            }
+            return $formats;
+        }
+        return [];
+    }
+
+    /**
+     * Apply formatting to an app-owned tab: paint the header row to mirror $headerFormats
+     * (column-aligned; columns beyond the source reuse the last source format as a default),
+     * enable text wrap, and auto-size every column to full width.
+     *
+     * @param array $headerFormats list of CellFormat indexed by column (from readHeaderFormats).
+     * @param int   $numCols       total column count of the target layout.
+     */
+    public function applyTabFormatting(string $spreadsheetId, string $tabName, array $headerFormats, int $numCols): void
+    {
+        $sheetId = $this->getSheetId($spreadsheetId, $tabName);
+        if ($sheetId === null || $numCols <= 0) {
+            return;
+        }
+
+        $requests = [];
+        $headerMask = 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,wrapStrategy)';
+        $defaultFmt = !empty($headerFormats) ? end($headerFormats) : null;
+
+        for ($col = 0; $col < $numCols; $col++) {
+            $fmt = $headerFormats[$col] ?? $defaultFmt;
+            if ($fmt === null) {
+                continue; // no source formatting available — leave as-is
+            }
+            $requests[] = new \Google\Service\Sheets\Request([
+                'repeatCell' => [
+                    'range' => [
+                        'sheetId'          => $sheetId,
+                        'startRowIndex'    => 0,
+                        'endRowIndex'      => 1,
+                        'startColumnIndex' => $col,
+                        'endColumnIndex'   => $col + 1,
+                    ],
+                    'cell'   => ['userEnteredFormat' => $fmt],
+                    'fields' => $headerMask,
+                ],
+            ]);
+        }
+
+        // Wrap text across the whole used range so long links/keywords stay readable.
+        $requests[] = new \Google\Service\Sheets\Request([
+            'repeatCell' => [
+                'range'  => ['sheetId' => $sheetId, 'startColumnIndex' => 0, 'endColumnIndex' => $numCols],
+                'cell'   => ['userEnteredFormat' => ['wrapStrategy' => 'WRAP']],
+                'fields' => 'userEnteredFormat.wrapStrategy',
+            ],
+        ]);
+
+        // Auto-size every column to its content (full width per request).
+        $requests[] = new \Google\Service\Sheets\Request([
+            'autoResizeDimensions' => [
+                'dimensions' => [
+                    'sheetId'    => $sheetId,
+                    'dimension'  => 'COLUMNS',
+                    'startIndex' => 0,
+                    'endIndex'   => $numCols,
+                ],
+            ],
+        ]);
+
+        $batch = new \Google\Service\Sheets\BatchUpdateSpreadsheetRequest();
+        $batch->setRequests($requests);
+        $this->service->spreadsheets->batchUpdate($spreadsheetId, $batch);
     }
 }

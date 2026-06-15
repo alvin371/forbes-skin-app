@@ -67,29 +67,46 @@ class EndorseOptimizationSheet
                           OR (request_date IS NULL AND DATE(created_at) BETWEEN '$sd' AND '$ud') ) ";
         }
 
-        $rows = $this->CI->mymodel->selectWithQuery("
-            SELECT request_date, created_at, pic, link_upload, platform, request_by, device,
-                   manual_status, optimization_status, request_keyword,
-                   comment_initial, comment_final, comment_growth,
-                   view_initial, view_final, view_growth,
-                   like_initial, like_final, like_growth,
-                   save_initial, save_final, save_growth,
-                   share_initial, share_final, share_growth
-            FROM endorse
+        // `$where` is built above against the endorse table; qualify it for the JOIN aliases.
+        $where_e = str_replace(
+            ['id_campaign', 'is_optimization', 'optimization_status', 'platform', 'request_by',
+             'device', 'tiktok_media_type', 'request_date', 'created_at'],
+            ['e.id_campaign', 'e.is_optimization', 'e.optimization_status', 'e.platform', 'e.request_by',
+             'e.device', 'e.tiktok_media_type', 'e.request_date', 'e.created_at'],
             $where
-            ORDER BY id DESC
+        );
+
+        $rows = $this->CI->mymodel->selectWithQuery("
+            SELECT e.request_date, e.created_at, e.pic, e.link_upload, e.platform, e.request_by, e.device,
+                   e.manual_status, e.optimization_status, e.request_keyword,
+                   e.comment_initial, e.comment_final, e.comment_growth,
+                   e.view_initial, e.view_final, e.view_growth,
+                   e.like_initial, e.like_final, e.like_growth,
+                   e.save_initial, e.save_final, e.save_growth,
+                   e.share_initial, e.share_final, e.share_growth,
+                   e.initial_fetched_at, e.final_fetched_at, e.brand,
+                   u.full_name AS created_by_name,
+                   c.title AS campaign_title
+            FROM endorse e
+            LEFT JOIN user u ON u.id = e.created_by
+            LEFT JOIN endorse_campaign c ON c.id = e.id_campaign
+            $where_e
+            ORDER BY e.id DESC
         ");
 
         // Header order matches the team's "Database" tab, with an added System Status column
-        // and a blank "Jumlah Komentar Optimasi" (the app has no equivalent field yet).
+        // and a blank "Jumlah Komentar Optimasi" (the app has no equivalent field yet). Extra
+        // app-side informative columns are appended after the team layout.
         $header = [
             'Tanggal', 'NO', 'PIC', 'Link Konten', 'Platform', 'REQUEST BY', 'Tools',
             'Manual Status', 'System Status', 'Request Keyword', 'Jumlah Komentar Optimasi',
             'Comment Sebelum Optimasi', 'Comment Sesudah Optimasi', 'Growth Comment',
             'Views Sebelum Optimasi', 'Views Sesudah Optimasi', 'Growth Views',
-            'Like Sebelum Optimasi', 'Like Sesudah Optimasi', 'LikeViews',
-            'Save Sebelum Optimasi', 'Save Sesudah Optimasi', 'Save Views',
-            'Share Sebelum Optimasi', 'Share Sesudah Optimasi', 'Share Views',
+            'Like Sebelum Optimasi', 'Like Sesudah Optimasi', 'Growth Like',
+            'Save Sebelum Optimasi', 'Save Sesudah Optimasi', 'Growth Save',
+            'Share Sebelum Optimasi', 'Share Sesudah Optimasi', 'Growth Share',
+            // Appended informative columns:
+            'Dibuat (Waktu)', 'Dibuat Oleh', 'Awal Diambil', 'Akhir Diambil', 'Brand', 'Campaign',
         ];
 
         $out = [];
@@ -98,6 +115,10 @@ class EndorseOptimizationSheet
             $req_date = !empty($row['request_date'])
                 ? $row['request_date']
                 : (!empty($row['created_at']) ? date('Y-m-d', strtotime($row['created_at'])) : '');
+
+            $created_full = !empty($row['created_at'])
+                ? date('Y-m-d H:i:s', strtotime($row['created_at']))
+                : '';
 
             $out[] = array_map(function ($v) {
                 return (string) ($v ?? '');
@@ -118,6 +139,13 @@ class EndorseOptimizationSheet
                 $row['like_initial'], $row['like_final'], $row['like_growth'],
                 $row['save_initial'], $row['save_final'], $row['save_growth'],
                 $row['share_initial'], $row['share_final'], $row['share_growth'],
+                // Appended informative columns:
+                $created_full,
+                $row['created_by_name'],
+                $row['initial_fetched_at'],
+                $row['final_fetched_at'],
+                $row['brand'],
+                $row['campaign_title'],
             ]);
             $no++;
         }
@@ -139,10 +167,22 @@ class EndorseOptimizationSheet
             return ['status' => false, 'msg' => 'GOOGLE_SHEETS_SPREADSHEET_ID belum diset di .env.', 'written' => 0];
         }
 
+        $sourceTab = env('GOOGLE_SHEETS_DESIGN_TAB', 'Database');
+
         try {
             $built = $this->buildRows($filters);
             $this->CI->load->library('GoogleSheets');
             $written = $this->CI->googlesheets->replaceTab($spreadsheetId, $tab, $built['header'], $built['rows']);
+
+            // Mirror the team's "Database" tab header colors + full-width/wrap styling onto the
+            // app-owned tab. Never let a formatting hiccup fail the value sync.
+            try {
+                $headerFormats = $this->CI->googlesheets->readHeaderFormats($spreadsheetId, $sourceTab);
+                $this->CI->googlesheets->applyTabFormatting($spreadsheetId, $tab, $headerFormats, count($built['header']));
+            } catch (\Throwable $fe) {
+                log_message('error', 'Optimasi sheet formatting skipped: ' . $fe->getMessage());
+            }
+
             return ['status' => true, 'msg' => "$written baris disinkronkan ke tab '$tab'.", 'written' => $written];
         } catch (\Throwable $e) {
             return ['status' => false, 'msg' => 'Gagal sync ke Google Sheet: ' . $e->getMessage(), 'written' => 0];

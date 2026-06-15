@@ -973,7 +973,7 @@ class Template
         ];
     }
 
-    function get_social_media($type, $url, $fetch_media_assets = true, $influencer_id = null)
+    function get_social_media($type, $url, $fetch_media_assets = true, $influencer_id = null, $preferRapidApi = false)
     {
         $response = [
             "status" => true,
@@ -1005,17 +1005,38 @@ class Template
                 $response["data"]["content_id"] = $content_id;
                 $response["data"]["media_type"] = $this->detect_tiktok_media_type_from_url($url);
 
+                // ScrapingBot/direct-HTML scrape is unreliable; RapidAPI is the mandated path.
+                // When preferred (param or TIKTOK_METRICS_PREFER_RAPIDAPI env), try RapidAPI
+                // first and only fall back to the page scrape.
+                $prefer = $preferRapidApi || env('TIKTOK_METRICS_PREFER_RAPIDAPI', '0') == '1';
+
+                $host = env('RAPIDAPI_HOST', 'tiktok-video-no-watermark10.p.rapidapi.com');
+                $detailUrl = "https://{$host}/index/Tiktok/getVideoInfo?url=" . urlencode($url) . "&hd=0";
+
+                if ($prefer) {
+                    $apiResp = $this->curlRequestWithRetry($detailUrl, $this->getRapidApiHeaders(), function ($resp) {
+                        return intval($resp['code'] ?? -1) === 0 && !empty($resp['data']['id']);
+                    });
+                    if (intval($apiResp['code'] ?? -1) === 0 && !empty($apiResp['data']['id'])) {
+                        return $this->mapRapidApiTiktokDetailToResponse($response, $apiResp['data'] ?? [], $fetch_media_assets);
+                    }
+                    // RapidAPI failed — fall back to page scrape below.
+                }
+
                 $itemStruct = $this->scrapeTiktokDetailFromPage($url);
                 if ($this->isValidTiktokScrapeItem($itemStruct)) {
                     $response = $this->mapDirectTiktokItemToResponse($response, $itemStruct, $fetch_media_assets);
                     return $response;
                 }
 
-                $host = env('RAPIDAPI_HOST', 'tiktok-video-no-watermark10.p.rapidapi.com');
-                $detailUrl = "https://{$host}/index/Tiktok/getVideoInfo?url=" . urlencode($url) . "&hd=0";
-                $apiResp = $this->curlRequestWithRetry($detailUrl, $this->getRapidApiHeaders(), function ($resp) {
-                    return intval($resp['code'] ?? -1) === 0 && !empty($resp['data']['id']);
-                });
+                if (!$prefer) {
+                    $apiResp = $this->curlRequestWithRetry($detailUrl, $this->getRapidApiHeaders(), function ($resp) {
+                        return intval($resp['code'] ?? -1) === 0 && !empty($resp['data']['id']);
+                    });
+                } else {
+                    // Prefer mode already attempted RapidAPI; reuse that failed result shape.
+                    $apiResp = $apiResp ?? ['code' => -1, 'data' => []];
+                }
 
                 if (intval($apiResp['code'] ?? -1) !== 0 || empty($apiResp['data']['id'])) {
                     $response["status"] = false;
