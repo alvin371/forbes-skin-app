@@ -7714,6 +7714,22 @@ class Api_v2 extends CI_Controller
     }
 
     /**
+     * Push ALL content-optimization rows to the configured Google Sheet tab (full-replace).
+     * Mirror of the on-demand button but with no campaign/list filters.
+     */
+    function cronjob_endorse_optimization_sheet()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        $this->worker_auth_guard();
+
+        $this->load->library('EndorseOptimizationSheet');
+        $result = $this->endorseoptimizationsheet->sync([]);
+
+        echo json_encode($result);
+        die;
+    }
+
+    /**
      * Worker for endorse_refresh_queue. Designed for parallel staggered cron entries.
      *
      * Per tick:
