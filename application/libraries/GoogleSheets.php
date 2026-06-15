@@ -33,6 +33,9 @@ class GoogleSheets
         //  2) GOOGLE_SHEETS_CREDENTIALS_PATH — path to the SA JSON key file.
         $b64 = env('GOOGLE_SHEETS_CREDENTIALS_B64', '');
         if ($b64 !== '') {
+            // Strip whitespace and any chars outside the base64 alphabet — handles stray
+            // shell artifacts like a trailing '%' (zsh no-newline marker) or wrapped lines.
+            $b64 = preg_replace('#[^A-Za-z0-9+/=]#', '', trim($b64));
             $json = base64_decode($b64, true);
             if ($json === false) {
                 throw new \RuntimeException('GOOGLE_SHEETS_CREDENTIALS_B64 is not valid base64.');

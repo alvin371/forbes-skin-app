@@ -61,6 +61,8 @@ echo "Spreadsheet : $spreadsheetId\n";
 $b64 = gs_env($env, 'GOOGLE_SHEETS_CREDENTIALS_B64', '');
 $authConfig = null;
 if ($b64 !== '') {
+    // Strip whitespace and any chars outside the base64 alphabet (e.g. a trailing '%').
+    $b64 = preg_replace('#[^A-Za-z0-9+/=]#', '', trim($b64));
     $json = base64_decode($b64, true);
     if ($json === false) {
         gs_fail('GOOGLE_SHEETS_CREDENTIALS_B64 is not valid base64.');
