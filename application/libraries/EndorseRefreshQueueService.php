@@ -106,6 +106,110 @@ class EndorseRefreshQueueService
         ];
     }
 
+    /**
+     * Enqueue a single frozen-snapshot job (initial baseline or final) for one endorse.
+     * High priority (default 50) so it jumps the daily backlog. Purpose-scoped dedup.
+     * No-ops for placeholder platforms (metrics entered manually) and for an already
+     * captured initial baseline.
+     */
+    public function enqueueSnapshot(int $id_endorse, string $purpose, int $user_id, int $priority = 50): array
+    {
+        $purpose = ($purpose === 'final') ? 'final' : 'initial';
+
+        if ($id_endorse <= 0) {
+            return ['status' => false, 'msg' => 'Endorse tidak valid.', 'enqueued' => 0];
+        }
+
+        $row = $this->CI->mymodel->selectDataOne('endorse', ['id' => $id_endorse]);
+        if (empty($row)) {
+            return ['status' => false, 'msg' => 'Endorse tidak ditemukan.', 'enqueued' => 0];
+        }
+
+        $platform = strval($row['platform'] ?? '');
+        $link = trim((string) ($row['link_upload'] ?? ''));
+
+        if ($link === '') {
+            return ['status' => false, 'msg' => 'Link konten kosong, snapshot dilewati.', 'enqueued' => 0];
+        }
+
+        $this->CI->load->helper('social_platform');
+        if (!is_auto_fetch_platform($platform)) {
+            // Placeholder platform: metrics are entered manually, nothing to enqueue.
+            return ['status' => false, 'msg' => 'Platform belum mendukung auto-fetch.', 'enqueued' => 0, 'placeholder' => true];
+        }
+
+        // Initial baseline must stay frozen — skip if already captured.
+        if ($purpose === 'initial' && !empty($row['initial_fetched_at'])) {
+            return ['status' => false, 'msg' => 'Baseline awal sudah diambil.', 'enqueued' => 0];
+        }
+
+        // Purpose-scoped dedup.
+        $active = $this->loadActiveEndorseIds([$id_endorse], $purpose);
+        if (isset($active[$id_endorse])) {
+            return ['status' => false, 'msg' => 'Snapshot sudah ada di antrian.', 'enqueued' => 0];
+        }
+
+        $priority = $priority > 0 ? $priority : 50;
+        $this->db->insert('endorse_refresh_queue', [
+            'id_endorse'   => $id_endorse,
+            'id_campaign'  => intval($row['id_campaign'] ?? 0),
+            'platform'     => $platform,
+            'purpose'      => $purpose,
+            'link_upload'  => $link,
+            'status'       => 'pending',
+            'priority'     => $priority,
+            'attempts'     => 0,
+            'max_attempts' => self::DEFAULT_MAX_ATTEMPTS,
+            'enqueued_by'  => $user_id,
+            'created_at'   => date('Y-m-d H:i:s'),
+        ]);
+
+        return ['status' => true, 'msg' => 'Snapshot ditambahkan ke antrian.', 'enqueued' => 1, 'purpose' => $purpose];
+    }
+
+    /**
+     * Reconcile sweep: enqueue a 'final' snapshot for any auto-fetch endorse that is
+     * Completed but has no final snapshot yet (covers enqueues lost after the row
+     * update committed). Safe to run repeatedly — dedup + frozen guards prevent dupes.
+     */
+    public function enqueuePendingFinals(int $user_id, int $limit = 200): array
+    {
+        $limit = $limit > 0 ? $limit : 200;
+        $this->CI->load->helper('social_platform');
+
+        $rows = $this->CI->mymodel->selectWithQuery("
+            SELECT id, platform
+            FROM endorse
+            WHERE optimization_status = 'Completed'
+              AND final_fetched_at IS NULL
+              AND link_upload != ''
+            ORDER BY id ASC
+            LIMIT $limit
+        ");
+
+        $enqueued = 0;
+        $skipped = 0;
+        foreach ($rows as $row) {
+            if (!is_auto_fetch_platform($row['platform'])) {
+                $skipped++;
+                continue;
+            }
+            $res = $this->enqueueSnapshot(intval($row['id']), 'final', $user_id);
+            if (!empty($res['enqueued'])) {
+                $enqueued++;
+            } else {
+                $skipped++;
+            }
+        }
+
+        return [
+            'status'   => true,
+            'msg'      => "$enqueued final snapshot dijadwalkan, $skipped dilewati.",
+            'enqueued' => $enqueued,
+            'skipped'  => $skipped,
+        ];
+    }
+
     public function cloneFailedRows(array $queueIds, int $user_id): array
     {
         $queueIds = array_values(array_unique(array_filter(array_map('intval', $queueIds))));
@@ -255,18 +359,22 @@ class EndorseRefreshQueueService
         ];
     }
 
-    protected function loadActiveEndorseIds(array $endorseIds): array
+    protected function loadActiveEndorseIds(array $endorseIds, string $purpose = 'daily'): array
     {
         $endorseIds = array_values(array_unique(array_filter(array_map('intval', $endorseIds))));
         if (empty($endorseIds)) {
             return [];
         }
 
+        // Dedup is purpose-scoped: a daily, an initial and a final job for the same
+        // endorse are distinct and must NOT swallow each other.
+        $purpose = $this->db->escape($purpose);
         $idList = implode(',', $endorseIds);
         $existing = $this->CI->mymodel->selectWithQuery("
             SELECT id_endorse
             FROM endorse_refresh_queue
             WHERE id_endorse IN ($idList)
+              AND purpose = $purpose
               AND status IN ('pending','processing')
         ");
 
