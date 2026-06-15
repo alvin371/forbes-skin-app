@@ -35,6 +35,7 @@ class Endorse extends BaseController
             'clear_queue' => 'edit',
             'get_tiktok_photo_images' => 'view',
             'get_tiktok_video_play' => 'view',
+            'export_optimization' => 'view',
         ]);
         
     }
@@ -1087,6 +1088,8 @@ class Endorse extends BaseController
             $qry .= " AND DATE(rencana_at) >= '$start_date' AND DATE(rencana_at) <= '$until_date' ";
         } else if ($cat == "Tanggal Posting") {
             $qry .= " AND DATE(posting_at) >= '$start_date' AND DATE(posting_at) <= '$until_date' ";
+        } else if ($cat == "Tanggal Request") {
+            $qry .= " AND DATE(request_date) >= '$start_date' AND DATE(request_date) <= '$until_date' ";
         }
 
         $status = $_GET['status'];
@@ -1172,6 +1175,37 @@ class Endorse extends BaseController
             $qry .= " AND kode_ads != '' ";
         } else if ($ads == "Tidak") {
             $qry .= " AND kode_ads = '' ";
+        }
+
+        // ===== Content-optimization filters =====
+        if (isset($_GET['is_optimization']) && $_GET['is_optimization'] !== '') {
+            $opt_flag = $_GET['is_optimization'] == '1' ? '1' : '0';
+            $qry .= " AND is_optimization = '$opt_flag' ";
+        }
+
+        $optimization_status = $_GET['optimization_status'] ?? '';
+        if ($optimization_status) {
+            $optimization_status_esc = $this->db->escape_str($optimization_status);
+            $qry .= " AND optimization_status = '$optimization_status_esc' ";
+        }
+
+        $request_by = $_GET['request_by'] ?? '';
+        if ($request_by) {
+            $request_by_esc = $this->db->escape_str($request_by);
+            $qry .= " AND request_by LIKE '%$request_by_esc%' ";
+        }
+
+        $device = $_GET['device'] ?? '';
+        if ($device) {
+            $device_esc = $this->db->escape_str($device);
+            $qry .= " AND device LIKE '%$device_esc%' ";
+        }
+
+        // "Photo" filter -> TikTok media type (photo vs video).
+        $media_type = $_GET['media_type'] ?? '';
+        if ($media_type) {
+            $media_type_esc = $this->db->escape_str($media_type);
+            $qry .= " AND tiktok_media_type = '$media_type_esc' ";
         }
 
         $qry .= $this->build_content_metric_filter_clause($id_campaign, 'endorse.id');
@@ -1263,6 +1297,131 @@ class Endorse extends BaseController
         $data['end'] = min($offset + $limit, $total_data);
         
         $this->load->view("endorse/item", $data);
+    }
+
+    /**
+     * Export content-optimization rows to xlsx (mirrors the legacy Google Sheet columns).
+     * Respects the same filters as item(): id_campaign, is_optimization (defaults to 1),
+     * optimization_status, platform, request_by, device, media_type, and a date range.
+     */
+    public function export_optimization()
+    {
+        if (!class_exists('\PhpOffice\PhpSpreadsheet\Spreadsheet')) {
+            require_once FCPATH . 'vendor/autoload.php';
+        }
+
+        $where = " WHERE 1=1 ";
+        if (!empty($_GET['id_campaign'])) {
+            $where .= " AND id_campaign = '" . $this->db->escape_str($_GET['id_campaign']) . "' ";
+        }
+
+        // Default to optimization rows unless explicitly overridden.
+        if (isset($_GET['is_optimization']) && $_GET['is_optimization'] !== '') {
+            $flag = $_GET['is_optimization'] == '1' ? '1' : '0';
+            $where .= " AND is_optimization = '$flag' ";
+        } else {
+            $where .= " AND is_optimization = '1' ";
+        }
+
+        if (!empty($_GET['optimization_status'])) {
+            $where .= " AND optimization_status = '" . $this->db->escape_str($_GET['optimization_status']) . "' ";
+        }
+        if (!empty($_GET['platform'])) {
+            $where .= " AND platform = '" . $this->db->escape_str($_GET['platform']) . "' ";
+        }
+        if (!empty($_GET['request_by'])) {
+            $where .= " AND request_by LIKE '%" . $this->db->escape_str($_GET['request_by']) . "%' ";
+        }
+        if (!empty($_GET['device'])) {
+            $where .= " AND device LIKE '%" . $this->db->escape_str($_GET['device']) . "%' ";
+        }
+        if (!empty($_GET['media_type'])) {
+            $where .= " AND tiktok_media_type = '" . $this->db->escape_str($_GET['media_type']) . "' ";
+        }
+        if (!empty($_GET['start_date']) && !empty($_GET['until_date'])) {
+            $sd = $this->db->escape_str($_GET['start_date']);
+            $ud = $this->db->escape_str($_GET['until_date']);
+            $where .= " AND ( (request_date IS NOT NULL AND request_date BETWEEN '$sd' AND '$ud')
+                          OR (request_date IS NULL AND DATE(created_at) BETWEEN '$sd' AND '$ud') ) ";
+        }
+
+        $rows = $this->mymodel->selectWithQuery("
+            SELECT request_date, created_at, link_upload, platform, request_by, device, request_keyword,
+                   optimization_status, tiktok_media_type,
+                   comment_initial, like_initial, share_initial, save_initial, view_initial,
+                   comment_final, like_final, share_final, save_final, view_final,
+                   comment_growth, like_growth, share_growth, save_growth, view_growth,
+                   initial_fetched_at, final_fetched_at
+            FROM endorse
+            $where
+            ORDER BY id DESC
+        ");
+
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Optimasi Konten');
+
+        $headers = [
+            'Tanggal Request', 'Link Konten', 'Platform', 'Request By', 'Device', 'Keyword', 'Status Optimasi', 'Media',
+            'Komentar Awal', 'Like Awal', 'Share Awal', 'Save Awal', 'View Awal',
+            'Komentar Akhir', 'Like Akhir', 'Share Akhir', 'Save Akhir', 'View Akhir',
+            'Growth Komentar', 'Growth Like', 'Growth Share', 'Growth Save', 'Growth View',
+            'Awal Diambil', 'Akhir Diambil',
+        ];
+        $colIndex = 1;
+        foreach ($headers as $h) {
+            $ref = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIndex) . '1';
+            $sheet->setCellValue($ref, $h);
+            $sheet->getStyle($ref)->getFont()->setBold(true);
+            $colIndex++;
+        }
+
+        $r = 2;
+        foreach ($rows as $row) {
+            $req_date = !empty($row['request_date'])
+                ? $row['request_date']
+                : (!empty($row['created_at']) ? date('Y-m-d', strtotime($row['created_at'])) : '');
+
+            $values = [
+                $req_date,
+                $row['link_upload'],
+                $row['platform'],
+                $row['request_by'],
+                $row['device'],
+                $row['request_keyword'],
+                $row['optimization_status'],
+                $row['tiktok_media_type'],
+                $row['comment_initial'], $row['like_initial'], $row['share_initial'], $row['save_initial'], $row['view_initial'],
+                $row['comment_final'], $row['like_final'], $row['share_final'], $row['save_final'], $row['view_final'],
+                $row['comment_growth'], $row['like_growth'], $row['share_growth'], $row['save_growth'], $row['view_growth'],
+                $row['initial_fetched_at'], $row['final_fetched_at'],
+            ];
+
+            $colIndex = 1;
+            foreach ($values as $val) {
+                $ref = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIndex) . $r;
+                $sheet->setCellValueExplicit(
+                    $ref,
+                    (string) ($val ?? ''),
+                    \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING
+                );
+                $colIndex++;
+            }
+            $r++;
+        }
+
+        foreach ($sheet->getColumnIterator() as $column) {
+            $sheet->getColumnDimension($column->getColumnIndex())->setAutoSize(true);
+        }
+
+        $filename = 'optimasi_konten_' . date('Ymd_His') . '.xlsx';
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment;filename="' . $filename . '"');
+        header('Cache-Control: max-age=0');
+
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        $writer->save('php://output');
+        exit;
     }
 
     public function alert_payment()
@@ -2076,6 +2235,19 @@ class Endorse extends BaseController
             $dt['barang_dikirim_at'] = DATE("Y-m-d H:i:s");
         }
 
+        $this->load->helper('social_platform');
+        $is_optimization = isset($dt['is_optimization'])
+            ? ($dt['is_optimization'] == '1')
+            : (!empty($old_data['is_optimization']) && $old_data['is_optimization'] == '1');
+
+        // Auto-detect platform from the content link (requestor flow).
+        if ($dt['link_upload'] !== '') {
+            $detected_platform = detect_platform_from_url($dt['link_upload']);
+            if ($detected_platform !== '') {
+                $dt['platform'] = $detected_platform;
+            }
+        }
+
         if ($dt['link_upload']) {
             $dt['status_endorse'] = 'Posted Content';
 
@@ -2091,24 +2263,40 @@ class Endorse extends BaseController
                     echo $this->template->alert_danger($msg);
                     die;
                 }
+
+                if ($dt['link_upload'] !== $old_link_upload) {
+                    $duplicate_check = $this->validate_duplicate_tiktok_content($dt['link_upload'], (int) $id);
+                    if (!$duplicate_check['status']) {
+                        echo $this->template->alert_danger($duplicate_check['msg']);
+                        die;
+                    }
+                }
+            } elseif ($is_optimization) {
+                // Non-TikTok optimization link (placeholder platform): metrics entered
+                // manually, no username extraction or duplicate check.
+                $id_data = $dt['influencer'] ?? '';
+                if ($id_data) {
+                    $detail = $this->mymodel->selectWithQuery("SELECT * FROM influencer WHERE id = '$id_data'");
+                    if (!empty($detail)) {
+                        $dt['nama_creator'] = strval($detail[0]['username']);
+                    }
+                }
             } else {
                 $msg = "Link upload tidak valid atau tidak dapat mengambil username.";
                 echo $this->template->alert_danger($msg);
                 die;
-            }
-
-            if ($dt['link_upload'] !== $old_link_upload) {
-                $duplicate_check = $this->validate_duplicate_tiktok_content($dt['link_upload'], (int) $id);
-                if (!$duplicate_check['status']) {
-                    echo $this->template->alert_danger($duplicate_check['msg']);
-                    die;
-                }
             }
         } else {
             $id_data = $dt['influencer'];
             $detail = $this->mymodel->selectWithQuery("SELECT * FROM influencer WHERE id = '$id_data'");
             $detail = $detail[0];
             $dt['nama_creator'] = strval($detail['username']);
+        }
+
+        // Optimization fields: normalize empties + compute growth (placeholder) or strip
+        // metric columns (auto-fetch).
+        if ($is_optimization) {
+            $dt = $this->prepare_optimization_fields($dt, is_auto_fetch_platform($dt['platform'] ?? ($old_data['platform'] ?? '')));
         }
 
         if ($_FILES['file']['name']) {
@@ -2186,6 +2374,29 @@ class Endorse extends BaseController
         }
 
         if ($this->db->update('endorse', $dt, array('id' => $id))) {
+
+            // Content-optimization triggers (auto-fetch platforms only).
+            if ($is_optimization) {
+                $opt_platform = $dt['platform'] ?? ($old_data['platform'] ?? '');
+                if (is_auto_fetch_platform($opt_platform)) {
+                    $this->load->library('EndorseRefreshQueueService');
+
+                    // INITIAL baseline when a content link is first added.
+                    $new_link = trim((string) ($dt['link_upload'] ?? ''));
+                    if ($new_link !== '' && $old_link_upload === '' && empty($old_data['initial_fetched_at'])) {
+                        $this->endorserefreshqueueservice->enqueueSnapshot(intval($id), 'initial', intval($user['id']));
+                    }
+
+                    // FINAL snapshot on transition into Completed (transition-only so a
+                    // re-save while Completed never overwrites the frozen final/growth).
+                    $old_opt = strval($old_data['optimization_status'] ?? '');
+                    $new_opt = strval($dt['optimization_status'] ?? $old_opt);
+                    $eff_link = trim((string) ($dt['link_upload'] ?? $old_link_upload));
+                    if ($new_opt === 'Completed' && $old_opt !== 'Completed' && $eff_link !== '') {
+                        $this->endorserefreshqueueservice->enqueueSnapshot(intval($id), 'final', intval($user['id']));
+                    }
+                }
+            }
 
             $id_parent = $id_campaign;
             $this->update_endorse_parent($id_parent);
@@ -2494,6 +2705,50 @@ class Endorse extends BaseController
     }
 
 
+    /**
+     * Normalize the optimization fields in a $dt payload before insert/update.
+     *  - empty request_date -> NULL (avoid '0000-00-00')
+     *  - auto-fetch platforms: strip metric columns so the form can never overwrite the
+     *    frozen initial/final/growth owned by the snapshot queue
+     *  - placeholder platforms: normalize empty metrics to NULL and compute growth via
+     *    the shared Endorse_sync::compute_growth (single source of the formula)
+     */
+    private function prepare_optimization_fields(array $dt, bool $auto): array
+    {
+        $metrics = ['like', 'comment', 'share', 'save', 'view'];
+
+        if (isset($dt['request_date']) && trim((string) $dt['request_date']) === '') {
+            $dt['request_date'] = null;
+        }
+
+        if ($auto) {
+            foreach ($metrics as $m) {
+                unset($dt[$m . '_initial'], $dt[$m . '_final'], $dt[$m . '_growth']);
+            }
+            return $dt;
+        }
+
+        foreach ($metrics as $m) {
+            foreach (['_initial', '_final'] as $suf) {
+                if (isset($dt[$m . $suf]) && trim((string) $dt[$m . $suf]) === '') {
+                    $dt[$m . $suf] = null;
+                }
+            }
+        }
+
+        $this->load->library('endorse_sync');
+        $growthRow = [];
+        foreach ($metrics as $m) {
+            $growthRow[$m . '_initial'] = $dt[$m . '_initial'] ?? null;
+            $growthRow[$m . '_final']   = $dt[$m . '_final'] ?? null;
+        }
+        foreach ($this->endorse_sync->compute_growth($growthRow) as $k => $v) {
+            $dt[$k] = $v;
+        }
+
+        return $dt;
+    }
+
     public function store()
     {
         $user = $_SESSION['user'];
@@ -2513,6 +2768,18 @@ class Endorse extends BaseController
             $dt['barang_dikirim_at'] = DATE("Y-m-d H:i:s");
         }
 
+        $this->load->helper('social_platform');
+        $is_optimization = isset($dt['is_optimization']) && $dt['is_optimization'] == '1';
+
+        // Auto-detect platform from the content link (requestor flow).
+        if ($dt['link_upload'] !== '') {
+            $detected_platform = detect_platform_from_url($dt['link_upload']);
+            if ($detected_platform !== '') {
+                $dt['platform'] = $detected_platform;
+            }
+        }
+        $id_data = $dt['influencer'] ?? '';
+
         if ($dt['link_upload']) {
             $dt['status_endorse'] = 'Posted Content';
 
@@ -2522,21 +2789,31 @@ class Endorse extends BaseController
                 $influencerData = $this->mymodel->selectDataOne('influencer', ['username' => $usernameFromUrl]);
                 if ($influencerData) {
                     $dt['influencer'] = $influencerData['id'];
+                    $id_data = $influencerData['id'];
                     $dt['nama_creator'] = $influencerData['username'];
                 } else {
                     $msg = "Username '$usernameFromUrl' tidak ditemukan di database influencer.";
                     echo $this->template->alert_danger($msg);
                     die;
                 }
+
+                $duplicate_check = $this->validate_duplicate_tiktok_content($dt['link_upload']);
+                if (!$duplicate_check['status']) {
+                    echo $this->template->alert_danger($duplicate_check['msg']);
+                    die;
+                }
+            } elseif ($is_optimization) {
+                // Non-TikTok optimization link (placeholder platform): metrics entered
+                // manually, no username extraction or duplicate check.
+                if ($id_data) {
+                    $detail = $this->mymodel->selectWithQuery("SELECT * FROM influencer WHERE id = '$id_data'");
+                    if (!empty($detail)) {
+                        $dt['nama_creator'] = strval($detail[0]['username']);
+                    }
+                }
             } else {
                 $msg = "Link upload tidak valid atau tidak dapat mengambil username.";
                 echo $this->template->alert_danger($msg);
-                die;
-            }
-
-            $duplicate_check = $this->validate_duplicate_tiktok_content($dt['link_upload']);
-            if (!$duplicate_check['status']) {
-                echo $this->template->alert_danger($duplicate_check['msg']);
                 die;
             }
         } else {
@@ -2544,6 +2821,12 @@ class Endorse extends BaseController
             $detail = $this->mymodel->selectWithQuery("SELECT * FROM influencer WHERE id = '$id_data'");
             $detail = $detail[0];
             $dt['nama_creator'] = strval($detail['username']);
+        }
+
+        // Optimization fields: normalize empties + compute growth (placeholder) or strip
+        // metric columns (auto-fetch).
+        if ($is_optimization) {
+            $dt = $this->prepare_optimization_fields($dt, is_auto_fetch_platform($dt['platform'] ?? ''));
         }
 
         if ($_FILES['file']['name']) {
@@ -2611,8 +2894,15 @@ class Endorse extends BaseController
         $dt['logs'] = json_encode($json, true);
 
         if ($this->db->insert('endorse', $dt)) {
-            $endorse_id = $this->db->insert_id(); 
-            
+            $endorse_id = $this->db->insert_id();
+
+            // Content-optimization: capture frozen INITIAL baseline asynchronously
+            // (auto-fetch platforms only; placeholders use the manually entered metrics).
+            if ($is_optimization && !empty($dt['link_upload']) && is_auto_fetch_platform($dt['platform'] ?? '')) {
+                $this->load->library('EndorseRefreshQueueService');
+                $this->endorserefreshqueueservice->enqueueSnapshot(intval($endorse_id), 'initial', intval($user['id']));
+            }
+
             $id_parent = $id_campaign;
             $this->update_endorse_parent($id_parent);
             $nama_creator = $dt['nama_creator'];
