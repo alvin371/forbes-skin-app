@@ -12,3 +12,10 @@
 # ========================================
 
 */5 * * * * echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-endorse-final-reconcile.log && curl -s -X GET "https://acnenosystem.com/api/cronjob/endorse-final-reconcile" >> /var/log/cron/forbes-endorse-final-reconcile.log 2>&1
+
+# ========================================
+# Every 15 Minutes (*/15 * * * *)
+# ========================================
+# Push all content-optimization rows to the AUTO_Optimasi tab of the team's Google Sheet.
+
+*/15 * * * * echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-endorse-optimization-sheet.log && curl -s -X GET "https://acnenosystem.com/api/cronjob/endorse-optimization-sheet" >> /var/log/cron/forbes-endorse-optimization-sheet.log 2>&1
