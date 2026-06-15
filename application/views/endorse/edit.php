@@ -355,15 +355,42 @@
 					<input type="text" class="form-control" name="dt[request_by]" value="<?= htmlspecialchars($data['request_by'] ?? '') ?>">
 				</div>
 				<div class="col-md-4">
-					<label for="">Device</label>
-					<input type="text" class="form-control" name="dt[device]" value="<?= htmlspecialchars($data['device'] ?? '') ?>">
+					<label for="">Tools</label>
+					<select class="form-control" name="dt[device]">
+						<?php
+						$tools_arr = array("", "Manual", "Tools SMM.ID");
+						$cur_tools = $data['device'] ?? '';
+						if ($cur_tools !== '' && !in_array($cur_tools, $tools_arr, true)) {
+							$tools_arr[] = $cur_tools; // preserve any existing free-text value
+						}
+						foreach ($tools_arr as $v2) {
+							$label = $v2 === '' ? 'Pilih Tools' : $v2;
+							$text = ($cur_tools === $v2) ? 'selected' : '';
+							echo "<option $text value='" . htmlspecialchars($v2) . "'>" . htmlspecialchars($label) . "</option>";
+						}
+						?>
+					</select>
 				</div>
-				<div class="col-md-6">
+				<div class="col-md-4">
 					<label for="">Request Keyword</label>
 					<input type="text" class="form-control" name="dt[request_keyword]" value="<?= htmlspecialchars($data['request_keyword'] ?? '') ?>">
 				</div>
-				<div class="col-md-6">
-					<label for="">Status Optimasi</label>
+				<div class="col-md-4">
+					<label for="">Manual Status</label>
+					<select class="form-control" name="dt[manual_status]">
+						<?php
+						$manual_arr = array("", "Input", "On Process", "Done");
+						$cur_manual = $data['manual_status'] ?? '';
+						foreach ($manual_arr as $v2) {
+							$label = $v2 === '' ? 'Pilih Status' : $v2;
+							$text = ($cur_manual === $v2) ? 'selected' : '';
+							echo "<option $text value='" . htmlspecialchars($v2) . "'>" . htmlspecialchars($label) . "</option>";
+						}
+						?>
+					</select>
+				</div>
+				<div class="col-md-4">
+					<label for="">System Status</label>
 					<select class="form-control" name="dt[optimization_status]">
 						<?php
 						$opt_arr = array("Not Started", "In Progress", "Completed");
