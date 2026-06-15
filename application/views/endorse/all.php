@@ -310,6 +310,7 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                                     $arr[] = "Tanggal Dibuat";
                                     // $arr[] = "Rencana Upload";
                                     $arr[] = "Tanggal Posting";
+                                    $arr[] = "Tanggal Request";
                                     ?>
                                     <select class="form-control " name="cat">
                                         <?php foreach ($arr as $k => $v) {
@@ -366,6 +367,64 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                     </div>
 
                 </div>
+
+                <!-- ===== Filter Optimasi Konten ===== -->
+                <div class="row mt-2">
+                    <div class="col-md-2">
+                        <select class="form-control" name="is_optimization">
+                            <?php
+                            $opt_flag_arr = array('' => 'Semua Konten', '1' => 'Optimasi', '0' => 'Non-Optimasi');
+                            $cur_flag = isset($_GET['is_optimization']) ? $_GET['is_optimization'] : '';
+                            foreach ($opt_flag_arr as $val => $label) {
+                                $text = ((string) $cur_flag === (string) $val) ? 'selected' : '';
+                                echo "<option $text value='$val'>$label</option>";
+                            }
+                            ?>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <select class="form-control" name="optimization_status">
+                            <?php
+                            $opt_status_arr = array('' => 'Semua Status Optimasi', 'Not Started' => 'Not Started', 'In Progress' => 'In Progress', 'Completed' => 'Completed');
+                            $cur_opt_status = $_GET['optimization_status'] ?? '';
+                            foreach ($opt_status_arr as $val => $label) {
+                                $text = ($cur_opt_status === $val) ? 'selected' : '';
+                                echo "<option $text value='" . htmlspecialchars($val) . "'>$label</option>";
+                            }
+                            ?>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <select class="form-control" name="media_type">
+                            <?php
+                            $media_arr = array('' => 'Semua Media', 'photo' => 'Foto', 'video' => 'Video');
+                            $cur_media = $_GET['media_type'] ?? '';
+                            foreach ($media_arr as $val => $label) {
+                                $text = ($cur_media === $val) ? 'selected' : '';
+                                echo "<option $text value='$val'>$label</option>";
+                            }
+                            ?>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <input type="text" class="form-control" name="request_by" placeholder="Request By" value="<?= htmlspecialchars($_GET['request_by'] ?? '') ?>">
+                    </div>
+                    <div class="col-md-2">
+                        <input type="text" class="form-control" name="device" placeholder="Device" value="<?= htmlspecialchars($_GET['device'] ?? '') ?>">
+                    </div>
+                    <div class="col-md-1 text-end">
+                        <a href="#!" onclick="exportOptimization(); return false;" class="btn btn-success btn-sm w-100" title="Export Optimasi (Excel)">
+                            <i class="bi bi-file-earmark-excel"></i>
+                        </a>
+                    </div>
+                </div>
+                <script>
+                    function exportOptimization() {
+                        var params = new URLSearchParams(window.location.search);
+                        params.set('id_campaign', '<?= $detail['id'] ?>');
+                        window.location.href = '<?= base_url() ?>/endorse/export-optimization?' + params.toString();
+                    }
+                </script>
             </form>
         </div>
     </div>
