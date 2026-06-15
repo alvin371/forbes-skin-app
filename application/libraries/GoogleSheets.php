@@ -24,17 +24,35 @@ class GoogleSheets
         $CI = get_instance();
         $CI->load->helper('env');
 
-        $credPath = env('GOOGLE_SHEETS_CREDENTIALS_PATH', 'application/config/google-sheets-sa.json');
-        if ($credPath !== '' && $credPath[0] !== '/') {
-            $credPath = FCPATH . $credPath;
-        }
-        if (!file_exists($credPath)) {
-            throw new \RuntimeException('Google Sheets credentials not found at: ' . $credPath);
-        }
-
         $this->client = new \Google\Client();
         $this->client->setApplicationName('Forbes Endorse Optimization');
-        $this->client->setAuthConfig($credPath);
+
+        // Credentials resolve in priority order so secrets stay out of git:
+        //  1) GOOGLE_SHEETS_CREDENTIALS_B64 — base64 of the SA JSON, inlined in .env
+        //     (best for the Docker/.env-only deploy: no extra file to mount).
+        //  2) GOOGLE_SHEETS_CREDENTIALS_PATH — path to the SA JSON key file.
+        $b64 = env('GOOGLE_SHEETS_CREDENTIALS_B64', '');
+        if ($b64 !== '') {
+            $json = base64_decode($b64, true);
+            if ($json === false) {
+                throw new \RuntimeException('GOOGLE_SHEETS_CREDENTIALS_B64 is not valid base64.');
+            }
+            $config = json_decode($json, true);
+            if (!is_array($config)) {
+                throw new \RuntimeException('GOOGLE_SHEETS_CREDENTIALS_B64 did not decode to valid JSON.');
+            }
+            $this->client->setAuthConfig($config);
+        } else {
+            $credPath = env('GOOGLE_SHEETS_CREDENTIALS_PATH', 'application/config/google-sheets-sa.json');
+            if ($credPath !== '' && $credPath[0] !== '/') {
+                $credPath = FCPATH . $credPath;
+            }
+            if (!file_exists($credPath)) {
+                throw new \RuntimeException('Google Sheets credentials not found. Set GOOGLE_SHEETS_CREDENTIALS_B64 in .env or place the key at: ' . $credPath);
+            }
+            $this->client->setAuthConfig($credPath);
+        }
+
         $this->client->setScopes([\Google\Service\Sheets::SPREADSHEETS]);
 
         $this->service = new \Google\Service\Sheets($this->client);
