@@ -52,33 +52,50 @@ function gs_fail(string $msg): void
     exit(1);
 }
 
-$credPathRaw = gs_env($env, 'GOOGLE_SHEETS_CREDENTIALS_PATH', 'application/config/google-sheets-sa.json');
-$credPath = ($credPathRaw !== '' && $credPathRaw[0] === '/') ? $credPathRaw : $root . '/' . $credPathRaw;
 $spreadsheetId = gs_env($env, 'GOOGLE_SHEETS_SPREADSHEET_ID');
 
 echo "=== Google Sheets connection test ===\n";
-echo "Credentials : $credPath\n";
-echo "Spreadsheet : $spreadsheetId\n\n";
+echo "Spreadsheet : $spreadsheetId\n";
 
-if (!file_exists($credPath)) {
-    gs_fail("Service-account key file not found at: $credPath\n"
-        . "       Create a service account in GCP, enable the Google Sheets API, download the\n"
-        . "       JSON key, and place it at the path above (GOOGLE_SHEETS_CREDENTIALS_PATH).");
+// Resolve credentials: base64 env var first (Docker/.env-only deploy), then key file.
+$b64 = gs_env($env, 'GOOGLE_SHEETS_CREDENTIALS_B64', '');
+$authConfig = null;
+if ($b64 !== '') {
+    $json = base64_decode($b64, true);
+    if ($json === false) {
+        gs_fail('GOOGLE_SHEETS_CREDENTIALS_B64 is not valid base64.');
+    }
+    $authConfig = json_decode((string) $json, true);
+    if (!is_array($authConfig)) {
+        gs_fail('GOOGLE_SHEETS_CREDENTIALS_B64 did not decode to valid JSON.');
+    }
+    echo "Credentials : GOOGLE_SHEETS_CREDENTIALS_B64 (inline)\n";
+} else {
+    $credPathRaw = gs_env($env, 'GOOGLE_SHEETS_CREDENTIALS_PATH', 'application/config/google-sheets-sa.json');
+    $credPath = ($credPathRaw !== '' && $credPathRaw[0] === '/') ? $credPathRaw : $root . '/' . $credPathRaw;
+    echo "Credentials : $credPath\n";
+    if (!file_exists($credPath)) {
+        gs_fail("No credentials. Set GOOGLE_SHEETS_CREDENTIALS_B64 in .env, or place the SA key at: $credPath");
+    }
+    $authConfig = json_decode((string) file_get_contents($credPath), true);
+    if (!is_array($authConfig)) {
+        gs_fail("Key file is not valid JSON: $credPath");
+    }
 }
+echo "\n";
 
 if ($spreadsheetId === '') {
     gs_fail("GOOGLE_SHEETS_SPREADSHEET_ID is not set in .env");
 }
 
 // Surface the service-account email so the user knows whom to share the sheet with.
-$sa = json_decode((string) file_get_contents($credPath), true);
-$saEmail = $sa['client_email'] ?? '(unknown — invalid key file?)';
+$saEmail = $authConfig['client_email'] ?? '(unknown — invalid key?)';
 echo "Service account email (share the sheet with this as Editor):\n  $saEmail\n\n";
 
 try {
     $client = new \Google\Client();
     $client->setApplicationName('Forbes Endorse Optimization');
-    $client->setAuthConfig($credPath);
+    $client->setAuthConfig($authConfig);
     $client->setScopes([\Google\Service\Sheets::SPREADSHEETS]);
 
     $service = new \Google\Service\Sheets($client);
