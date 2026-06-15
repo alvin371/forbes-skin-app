@@ -36,6 +36,7 @@ class Endorse extends BaseController
             'get_tiktok_photo_images' => 'view',
             'get_tiktok_video_play' => 'view',
             'export_optimization' => 'view',
+            'sync_optimization_sheet' => 'view',
         ]);
         
     }
@@ -1304,72 +1305,51 @@ class Endorse extends BaseController
      * Respects the same filters as item(): id_campaign, is_optimization (defaults to 1),
      * optimization_status, platform, request_by, device, media_type, and a date range.
      */
+    /**
+     * Read the optimization list filters from $_GET into a normalized array.
+     * Shared by the xlsx export and the Google Sheet sync so both honor identical filters.
+     */
+    private function optimization_filters_from_get(): array
+    {
+        return [
+            'id_campaign'         => $_GET['id_campaign'] ?? '',
+            'is_optimization'     => isset($_GET['is_optimization']) ? $_GET['is_optimization'] : '1',
+            'optimization_status' => $_GET['optimization_status'] ?? '',
+            'platform'            => $_GET['platform'] ?? '',
+            'request_by'          => $_GET['request_by'] ?? '',
+            'device'              => $_GET['device'] ?? '',
+            'media_type'          => $_GET['media_type'] ?? '',
+            'start_date'          => $_GET['start_date'] ?? '',
+            'until_date'          => $_GET['until_date'] ?? '',
+        ];
+    }
+
+    /**
+     * Build the optimization dataset (team's sheet layout) — delegates to
+     * EndorseOptimizationSheet so the layout/filters live in one place, shared with the cron.
+     *
+     * @return array ['header' => string[], 'rows' => array<int,array<int,string>>]
+     */
+    public function build_optimization_rows(array $filters): array
+    {
+        $this->load->library('EndorseOptimizationSheet');
+        return $this->endorseoptimizationsheet->buildRows($filters);
+    }
+
     public function export_optimization()
     {
         if (!class_exists('\PhpOffice\PhpSpreadsheet\Spreadsheet')) {
             require_once FCPATH . 'vendor/autoload.php';
         }
 
-        $where = " WHERE 1=1 ";
-        if (!empty($_GET['id_campaign'])) {
-            $where .= " AND id_campaign = '" . $this->db->escape_str($_GET['id_campaign']) . "' ";
-        }
-
-        // Default to optimization rows unless explicitly overridden.
-        if (isset($_GET['is_optimization']) && $_GET['is_optimization'] !== '') {
-            $flag = $_GET['is_optimization'] == '1' ? '1' : '0';
-            $where .= " AND is_optimization = '$flag' ";
-        } else {
-            $where .= " AND is_optimization = '1' ";
-        }
-
-        if (!empty($_GET['optimization_status'])) {
-            $where .= " AND optimization_status = '" . $this->db->escape_str($_GET['optimization_status']) . "' ";
-        }
-        if (!empty($_GET['platform'])) {
-            $where .= " AND platform = '" . $this->db->escape_str($_GET['platform']) . "' ";
-        }
-        if (!empty($_GET['request_by'])) {
-            $where .= " AND request_by LIKE '%" . $this->db->escape_str($_GET['request_by']) . "%' ";
-        }
-        if (!empty($_GET['device'])) {
-            $where .= " AND device LIKE '%" . $this->db->escape_str($_GET['device']) . "%' ";
-        }
-        if (!empty($_GET['media_type'])) {
-            $where .= " AND tiktok_media_type = '" . $this->db->escape_str($_GET['media_type']) . "' ";
-        }
-        if (!empty($_GET['start_date']) && !empty($_GET['until_date'])) {
-            $sd = $this->db->escape_str($_GET['start_date']);
-            $ud = $this->db->escape_str($_GET['until_date']);
-            $where .= " AND ( (request_date IS NOT NULL AND request_date BETWEEN '$sd' AND '$ud')
-                          OR (request_date IS NULL AND DATE(created_at) BETWEEN '$sd' AND '$ud') ) ";
-        }
-
-        $rows = $this->mymodel->selectWithQuery("
-            SELECT request_date, created_at, link_upload, platform, request_by, device, request_keyword,
-                   optimization_status, tiktok_media_type,
-                   comment_initial, like_initial, share_initial, save_initial, view_initial,
-                   comment_final, like_final, share_final, save_final, view_final,
-                   comment_growth, like_growth, share_growth, save_growth, view_growth,
-                   initial_fetched_at, final_fetched_at
-            FROM endorse
-            $where
-            ORDER BY id DESC
-        ");
+        $built = $this->build_optimization_rows($this->optimization_filters_from_get());
 
         $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Optimasi Konten');
 
-        $headers = [
-            'Tanggal Request', 'Link Konten', 'Platform', 'Request By', 'Device', 'Keyword', 'Status Optimasi', 'Media',
-            'Komentar Awal', 'Like Awal', 'Share Awal', 'Save Awal', 'View Awal',
-            'Komentar Akhir', 'Like Akhir', 'Share Akhir', 'Save Akhir', 'View Akhir',
-            'Growth Komentar', 'Growth Like', 'Growth Share', 'Growth Save', 'Growth View',
-            'Awal Diambil', 'Akhir Diambil',
-        ];
         $colIndex = 1;
-        foreach ($headers as $h) {
+        foreach ($built['header'] as $h) {
             $ref = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIndex) . '1';
             $sheet->setCellValue($ref, $h);
             $sheet->getStyle($ref)->getFont()->setBold(true);
@@ -1377,34 +1357,11 @@ class Endorse extends BaseController
         }
 
         $r = 2;
-        foreach ($rows as $row) {
-            $req_date = !empty($row['request_date'])
-                ? $row['request_date']
-                : (!empty($row['created_at']) ? date('Y-m-d', strtotime($row['created_at'])) : '');
-
-            $values = [
-                $req_date,
-                $row['link_upload'],
-                $row['platform'],
-                $row['request_by'],
-                $row['device'],
-                $row['request_keyword'],
-                $row['optimization_status'],
-                $row['tiktok_media_type'],
-                $row['comment_initial'], $row['like_initial'], $row['share_initial'], $row['save_initial'], $row['view_initial'],
-                $row['comment_final'], $row['like_final'], $row['share_final'], $row['save_final'], $row['view_final'],
-                $row['comment_growth'], $row['like_growth'], $row['share_growth'], $row['save_growth'], $row['view_growth'],
-                $row['initial_fetched_at'], $row['final_fetched_at'],
-            ];
-
+        foreach ($built['rows'] as $values) {
             $colIndex = 1;
             foreach ($values as $val) {
                 $ref = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIndex) . $r;
-                $sheet->setCellValueExplicit(
-                    $ref,
-                    (string) ($val ?? ''),
-                    \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING
-                );
+                $sheet->setCellValueExplicit($ref, (string) $val, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
                 $colIndex++;
             }
             $r++;
@@ -1422,6 +1379,18 @@ class Endorse extends BaseController
         $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
         $writer->save('php://output');
         exit;
+    }
+
+    /**
+     * Push the current (filtered) optimization rows to the configured Google Sheet tab.
+     * Full-replace of the app-owned AUTO_Optimasi tab. Returns JSON.
+     */
+    public function sync_optimization_sheet()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        $this->load->library('EndorseOptimizationSheet');
+        $result = $this->endorseoptimizationsheet->sync($this->optimization_filters_from_get());
+        echo json_encode($result);
     }
 
     public function alert_payment()
