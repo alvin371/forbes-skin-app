@@ -1,6 +1,8 @@
 # Environment files - keep credentials secure
 /.env
 /application/credentials/client_secret.json
+# Google Sheets service-account key (never commit)
+/application/config/google-sheets-sa.json
 # Added by code-review-graph
 .code-review-graph/
 
