@@ -246,7 +246,20 @@
 				</div>
 				<div class="col-md-4">
 					<label for="">Request By</label>
-					<input type="text" class="form-control" name="dt[request_by]" value="<?= htmlspecialchars($data['request_by'] ?? '') ?>">
+					<select class="form-control select2" name="dt[request_by]">
+						<?php
+						$cur_req_by = $data['request_by'] ?? '';
+						$req_by_users = array_map(function ($u) { return $u['full_name']; }, $pic);
+						if ($cur_req_by !== '' && !in_array($cur_req_by, $req_by_users, true)) {
+							array_unshift($req_by_users, $cur_req_by); // preserve existing value not in user list
+						}
+						echo "<option value=''>Pilih Request By</option>";
+						foreach ($req_by_users as $rbu) {
+							$text = ($cur_req_by === $rbu) ? 'selected' : '';
+							echo "<option $text value='" . htmlspecialchars($rbu) . "'>" . htmlspecialchars($rbu) . "</option>";
+						}
+						?>
+						</select>
 				</div>
 				<div class="col-md-4">
 					<label for="">Tools</label>

@@ -1299,6 +1299,9 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                 <button type="button" id="bulk-transfer-trigger" class="btn btn-transfer mt-0" onclick="openBulkTransferModal();">
                     <i class="bi bi-box-arrow-right fs-16"></i> Bulk Transfer
                 </button>
+                <button type="button" id="bulk-optimize-trigger" class="btn btn-primary mt-0" onclick="openBulkOptimizeModal();">
+                    <i class="bi bi-graph-up-arrow fs-16"></i> Aktifkan Tracking Optimasi
+                </button>
                 <a href="#!" onclick="sync_all('<?= $detail['id'] ?>')" class="btn btn-sync mt-0">
                     <i class="bi bi-bootstrap-reboot fs-16"></i> Refresh Semua
                 </a>
@@ -1972,6 +1975,129 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
 
 
 <input type="hidden" id="id_selected" name="id_selected" form="form-action">
+
+    <!-- ===== Bulk Activate Content-Optimization Tracking ===== -->
+    <div class="modal fade" tabindex="-1" role="dialog" aria-hidden="true" id="bulk-optimize-modal">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title mb-0">Aktifkan Tracking Optimasi Konten</h5>
+                        <small class="text-muted">Terapkan ke <span id="bulk-optimize-count">0</span> konten terpilih. Baseline metrik TikTok diambil otomatis.</small>
+                    </div>
+                    <a class="close a-link" data-bs-dismiss="modal"><i class="bi bi-x-circle fs-24"></i></a>
+                </div>
+                <div class="modal-body">
+                    <div id="bulk-optimize-empty" class="alert alert-warning" style="display:none;">
+                        Belum ada konten dipilih. Centang minimal satu data dulu.
+                    </div>
+                    <div class="row" id="bulk-optimize-form">
+                        <div class="col-md-4 mb-3">
+                            <label>Tanggal Request</label>
+                            <input type="date" class="form-control" id="bo-request-date" value="<?= date('Y-m-d') ?>">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label>Request By</label>
+                            <select class="form-control" id="bo-request-by">
+                                <?php
+                                $cur_user = $_SESSION['user']['full_name'] ?? '';
+                                $bo_users = isset($pic) && is_array($pic) ? array_map(function ($u) { return $u['full_name']; }, $pic) : [];
+                                if ($cur_user !== '' && !in_array($cur_user, $bo_users, true)) {
+                                    array_unshift($bo_users, $cur_user);
+                                }
+                                foreach ($bo_users as $bu) {
+                                    $sel = ($bu === $cur_user) ? 'selected' : '';
+                                    echo "<option $sel value='" . htmlspecialchars($bu) . "'>" . htmlspecialchars($bu) . "</option>";
+                                }
+                                ?>
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label>System Status</label>
+                            <select class="form-control" id="bo-system-status">
+                                <option value="Not Started">Not Started</option>
+                                <option value="In Progress" selected>In Progress</option>
+                                <option value="Completed">Completed</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label>Tools</label>
+                            <select class="form-control" id="bo-device">
+                                <option value="">Pilih Tools</option>
+                                <option value="Manual">Manual</option>
+                                <option value="Tools SMM.ID">Tools SMM.ID</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label>Manual Status</label>
+                            <select class="form-control" id="bo-manual-status">
+                                <option value="Input" selected>Input</option>
+                                <option value="On Process">On Process</option>
+                                <option value="Done">Done</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label>Request Keyword</label>
+                            <input type="text" class="form-control" id="bo-keyword" placeholder="mis. jerawat hilang">
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-end gap-2">
+                        <button class="btn btn-light" type="button" data-bs-dismiss="modal">Batal</button>
+                        <button class="btn btn-primary" type="button" id="bulk-optimize-submit">Aktifkan & Ambil Baseline</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function collectSelectedOptimizeIds() {
+            var ids = [];
+            $('input[name="list_id"]').each(function () {
+                if ($(this).is(':checked')) ids.push($(this).val());
+            });
+            return ids;
+        }
+        window.openBulkOptimizeModal = function () {
+            var ids = collectSelectedOptimizeIds();
+            $('#bulk-optimize-count').text(ids.length);
+            $('#bulk-optimize-empty').toggle(ids.length === 0);
+            $('#bulk-optimize-form, #bulk-optimize-submit').toggle(ids.length > 0);
+            $('#bulk-optimize-modal').modal('show');
+        };
+        $(function () {
+            $('#bulk-optimize-submit').on('click', function () {
+                var ids = collectSelectedOptimizeIds();
+                if (ids.length === 0) { alert('Tidak ada konten terpilih.'); return; }
+                var $btn = $(this);
+                var orig = $btn.html();
+                $btn.prop('disabled', true).html('Memproses...');
+                $.ajax({
+                    url: '<?= base_url() ?>endorse/bulk-activate-optimization',
+                    type: 'POST',
+                    dataType: 'json',
+                    data: {
+                        list_id: ids,
+                        dt: {
+                            request_date: $('#bo-request-date').val(),
+                            request_by: $('#bo-request-by').val(),
+                            optimization_status: $('#bo-system-status').val(),
+                            device: $('#bo-device').val(),
+                            manual_status: $('#bo-manual-status').val(),
+                            request_keyword: $('#bo-keyword').val()
+                        }
+                    }
+                }).done(function (res) {
+                    alert((res && res.msg) ? res.msg : 'Selesai.');
+                    if (res && res.status) { location.reload(); }
+                }).fail(function () {
+                    alert('Gagal menghubungi server.');
+                }).always(function () {
+                    $btn.prop('disabled', false).html(orig);
+                });
+            });
+        });
+    </script>
 
 <script src="https://unpkg.com/@popperjs/core@2"></script>
 <script src="https://unpkg.com/tippy.js@6"></script>
