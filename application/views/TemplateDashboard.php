@@ -53,36 +53,11 @@ if (!$_SESSION['is_login']) {
   <script src="<?= base_url() ?>assets/js/career-tree-visualization.js"></script>
 
   <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js"></script> -->
-  <!-- Firebase SDK -->
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <!-- Toastr -->
   <script src="https://cdn.jsdelivr.net/npm/toastr@2.1.4/toastr.min.js"></script>
 
   <!-- Load daterangepicker -->
-
-  <!-- <script>
-    // Konfigurasi Firebase
-    const firebaseConfig = {
-      apiKey: "AIzaSyDZUQ4Hei7Kmlplwl2ZLcncxE1rj3rzNkM",
-      authDomain: "notif-order-24c9c.firebaseapp.com",
-      databaseURL: "https://notif-order-24c9c-default-rtdb.asia-southeast1.firebasedatabase.app",
-      projectId: "notif-order-24c9c",
-      storageBucket: "notif-order-24c9c.appspot.com",
-      messagingSenderId: "741337654239",
-      appId: "1:741337654239:web:2dd302ccb675e58df3da6a",
-      measurementId: "G-EYS8BRN1EB"
-    };
-
-    // Inisialisasi Firebase
-    firebase.initializeApp(firebaseConfig);
-
-    // Akses database
-    const database = firebase.database();
-
-    console.log("Firebase berhasil diinisialisasi!");
-  </script> -->
 
   <script>
     $(document).ready(function() {
