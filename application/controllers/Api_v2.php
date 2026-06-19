@@ -8122,7 +8122,7 @@ class Api_v2 extends CI_Controller
             return; // no recipients configured -> log-only (above)
         }
 
-        $this->load->library('notificationdispatcher');
+        $this->load->library('NotificationDispatcher');
         $this->notificationdispatcher->dispatchMany($ids, 'system.fcm_unavailable', array());
     }
 
