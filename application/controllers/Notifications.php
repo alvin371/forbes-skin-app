@@ -94,21 +94,25 @@ class Notifications extends BaseController
             return;
         }
 
-        $result = $this->NotificationModel->markRead($notification_id, $user_id);
+        $affected = $this->NotificationModel->markRead($notification_id, $user_id);
         $this->json(array(
-            'success' => (bool) $result,
-            'message' => $result ? 'Notification marked as read' : 'Failed to mark notification as read',
+            'success' => $affected > 0,
+            'updated' => $affected,
+            'message' => $affected > 0
+                ? 'Notification marked as read'
+                : 'Notification not found or already read',
         ));
     }
 
     public function mark_all_read()
     {
         $user_id = (int) $_SESSION['user']['id'];
-        $result = $this->NotificationModel->markAllRead($user_id);
+        $affected = $this->NotificationModel->markAllRead($user_id);
 
         $this->json(array(
-            'success' => (bool) $result,
-            'message' => $result ? 'All notifications marked as read' : 'Failed to mark notifications as read',
+            'success' => true,
+            'updated' => $affected,
+            'message' => $affected . ' notification(s) marked as read',
         ));
     }
 
@@ -120,12 +124,12 @@ class Notifications extends BaseController
         }
 
         $user_id = (int) $_SESSION['user']['id'];
-        $result = $this->NotificationModel->delete($id, $user_id);
+        $affected = $this->NotificationModel->delete($id, $user_id);
 
-        if ($result) {
+        if ($affected > 0) {
             $this->session->set_flashdata('success', 'Notifikasi berhasil dihapus');
         } else {
-            $this->session->set_flashdata('error', 'Gagal menghapus notifikasi');
+            $this->session->set_flashdata('error', 'Notifikasi tidak ditemukan');
         }
 
         redirect('notifications');
@@ -134,11 +138,12 @@ class Notifications extends BaseController
     public function clear_read()
     {
         $user_id = (int) $_SESSION['user']['id'];
-        $result = $this->NotificationModel->clearRead($user_id);
+        $affected = $this->NotificationModel->clearRead($user_id);
 
         $this->json(array(
-            'success' => (bool) $result,
-            'message' => $result ? 'Read notifications cleared' : 'Failed to clear notifications',
+            'success' => true,
+            'deleted' => $affected,
+            'message' => $affected . ' read notification(s) cleared',
         ));
     }
 

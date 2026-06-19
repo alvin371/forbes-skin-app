@@ -25,25 +25,34 @@ class NotificationModel extends CI_Model
     /**
      * Insert a notification row.
      *
+     * Uses INSERT IGNORE so the UNIQUE(dedupe_key) index is the authority on
+     * deduplication: a concurrent insert with the same non-null dedupe_key is
+     * skipped at the DB level (returns 0), closing the check-then-insert race in
+     * NotificationDispatcher::emit(). NULL dedupe_key rows (e.g. quota changes)
+     * never collide — MySQL allows multiple NULLs in a unique index.
+     *
      * @param array $data Columns: user_id, title, message, type, related_table,
      *                    related_id, dedupe_key. is_read/created_at are defaulted.
-     * @return int Inserted id (0 on failure).
+     * @return int Inserted id (0 if deduped or on failure).
      */
     public function insert(array $data)
     {
-        $row = array(
-            'user_id'       => (int) ($data['user_id'] ?? 0),
-            'title'         => $data['title'] ?? null,
-            'message'       => $data['message'] ?? '',
-            'type'          => $data['type'] ?? 'info',
-            'related_table' => $data['related_table'] ?? null,
-            'related_id'    => isset($data['related_id']) ? (int) $data['related_id'] : null,
-            'dedupe_key'    => $data['dedupe_key'] ?? null,
-            'is_read'       => 0,
-            'created_at'    => date('Y-m-d H:i:s'),
-        );
+        $sql = "INSERT IGNORE INTO `" . self::TABLE . "`
+                (`user_id`, `title`, `message`, `type`, `related_table`, `related_id`, `dedupe_key`, `is_read`, `created_at`)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)";
 
-        $this->db->insert(self::TABLE, $row);
+        $this->db->query($sql, array(
+            (int) ($data['user_id'] ?? 0),
+            $data['title'] ?? null,
+            $data['message'] ?? '',
+            $data['type'] ?? 'info',
+            $data['related_table'] ?? null,
+            isset($data['related_id']) ? (int) $data['related_id'] : null,
+            $data['dedupe_key'] ?? null,
+            date('Y-m-d H:i:s'),
+        ));
+
+        // insert_id() is 0 when INSERT IGNORE skipped a duplicate dedupe_key.
         return (int) $this->db->insert_id();
     }
 
@@ -139,26 +148,28 @@ class NotificationModel extends CI_Model
      *
      * @param int $notificationId
      * @param int $userId
-     * @return bool
+     * @return int Rows affected (0 if not found / not owned by user).
      */
     public function markRead($notificationId, $userId)
     {
         $this->db->where('id', (int) $notificationId);
         $this->db->where('user_id', (int) $userId);
-        return $this->db->update(self::TABLE, array('is_read' => 1, 'updated_at' => date('Y-m-d H:i:s')));
+        $this->db->update(self::TABLE, array('is_read' => 1, 'updated_at' => date('Y-m-d H:i:s')));
+        return $this->db->affected_rows();
     }
 
     /**
      * Mark all unread notifications read for a user.
      *
      * @param int $userId
-     * @return bool
+     * @return int Rows affected.
      */
     public function markAllRead($userId)
     {
         $this->db->where('user_id', (int) $userId);
         $this->db->where('is_read', 0);
-        return $this->db->update(self::TABLE, array('is_read' => 1, 'updated_at' => date('Y-m-d H:i:s')));
+        $this->db->update(self::TABLE, array('is_read' => 1, 'updated_at' => date('Y-m-d H:i:s')));
+        return $this->db->affected_rows();
     }
 
     /**
@@ -166,26 +177,28 @@ class NotificationModel extends CI_Model
      *
      * @param int $notificationId
      * @param int $userId
-     * @return bool
+     * @return int Rows affected (0 if not found / not owned by user).
      */
     public function delete($notificationId, $userId)
     {
         $this->db->where('id', (int) $notificationId);
         $this->db->where('user_id', (int) $userId);
-        return $this->db->delete(self::TABLE);
+        $this->db->delete(self::TABLE);
+        return $this->db->affected_rows();
     }
 
     /**
      * Delete all read notifications for a user.
      *
      * @param int $userId
-     * @return bool
+     * @return int Rows affected.
      */
     public function clearRead($userId)
     {
         $this->db->where('user_id', (int) $userId);
         $this->db->where('is_read', 1);
-        return $this->db->delete(self::TABLE);
+        $this->db->delete(self::TABLE);
+        return $this->db->affected_rows();
     }
 
     /**
