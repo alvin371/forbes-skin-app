@@ -1,8 +1,8 @@
-FROM php:8.4-apache
+FROM php:8.4-apache AS base
 
 WORKDIR /var/www/html
 
-# Install system dependencies
+# Install runtime and build dependencies once so later stages can reuse them.
 RUN apt-get update && apt-get install -y \
     git \
     unzip \
@@ -34,31 +34,8 @@ RUN apt-get update && apt-get install -y \
     && a2enmod rewrite headers expires deflate \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Composer from official image
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# Copy application files
-COPY . /var/www/html
-
-# Create .env from example if not exists
-RUN if [ ! -f .env ]; then cp .env.example .env; fi
-
-# Create necessary directories
-RUN mkdir -p /var/www/html/application/cache/sessions \
-    && mkdir -p /var/www/html/application/logs \
-    && mkdir -p /var/www/html/assets/uploads
-
-# Set permissions
-RUN chown -R www-data:www-data /var/www/html \
-    && chmod -R 755 /var/www/html \
-    && chmod -R 775 /var/www/html/application/cache \
-    && chmod -R 775 /var/www/html/application/logs \
-    && chmod -R 775 /var/www/html/assets/uploads
-
-# Install Composer dependencies
-RUN composer install --no-dev --optimize-autoloader
-
-# PHP configuration
 RUN echo "upload_max_filesize = 50M" >> /usr/local/etc/php/conf.d/custom.ini \
     && echo "post_max_size = 50M" >> /usr/local/etc/php/conf.d/custom.ini \
     && echo "memory_limit = 256M" >> /usr/local/etc/php/conf.d/custom.ini \
@@ -66,7 +43,6 @@ RUN echo "upload_max_filesize = 50M" >> /usr/local/etc/php/conf.d/custom.ini \
     && echo "date.timezone = Asia/Jakarta" >> /usr/local/etc/php/conf.d/custom.ini \
     && echo "zend.exception_ignore_args = Off" >> /usr/local/etc/php/conf.d/custom.ini
 
-# Apache virtual host configuration
 RUN echo '<VirtualHost *:80>\n\
     ServerAdmin webmaster@localhost\n\
     DocumentRoot /var/www/html\n\
@@ -77,12 +53,69 @@ RUN echo '<VirtualHost *:80>\n\
         Require all granted\n\
     </Directory>\n\
 \n\
-    # Make Apache/PHP aware of HTTPS when behind reverse proxy\n\
     SetEnvIf X-Forwarded-Proto "https" HTTPS=on\n\
 \n\
     ErrorLog ${APACHE_LOG_DIR}/error.log\n\
     CustomLog ${APACHE_LOG_DIR}/access.log combined\n\
 </VirtualHost>\n' > /etc/apache2/sites-available/000-default.conf
+
+FROM base AS vendor-prod
+
+COPY composer.json composer.lock /var/www/html/
+
+RUN --mount=type=cache,target=/tmp/composer-cache \
+    COMPOSER_CACHE_DIR=/tmp/composer-cache \
+    composer install \
+    --no-dev \
+    --no-interaction \
+    --no-progress \
+    --prefer-dist \
+    --optimize-autoloader
+
+FROM base AS vendor-dev
+
+COPY composer.json composer.lock /var/www/html/
+
+RUN --mount=type=cache,target=/tmp/composer-cache \
+    COMPOSER_CACHE_DIR=/tmp/composer-cache \
+    composer install \
+    --no-interaction \
+    --no-progress \
+    --prefer-dist
+
+FROM base AS ci
+
+COPY . /var/www/html
+COPY --from=vendor-dev /var/www/html/vendor /var/www/html/vendor
+
+RUN if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi \
+    && mkdir -p /var/www/html/application/cache/sessions \
+    && mkdir -p /var/www/html/application/logs \
+    && mkdir -p /var/www/html/assets/uploads \
+    && chown -R www-data:www-data /var/www/html \
+    && chmod -R 755 /var/www/html \
+    && chmod -R 775 /var/www/html/application/cache \
+    && chmod -R 775 /var/www/html/application/logs \
+    && chmod -R 775 /var/www/html/assets/uploads
+
+FROM base AS runtime
+
+COPY . /var/www/html
+COPY --from=vendor-prod /var/www/html/vendor /var/www/html/vendor
+
+RUN if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi \
+    && mkdir -p /var/www/html/application/cache/sessions \
+    && mkdir -p /var/www/html/application/logs \
+    && mkdir -p /var/www/html/assets/uploads \
+    && rm -rf /var/www/html/tests /var/www/html/tools \
+    && rm -f /var/www/html/phpunit.xml /var/www/html/.php-cs-fixer.dist.php \
+    && chown -R www-data:www-data /var/www/html \
+    && chmod -R 755 /var/www/html \
+    && chmod -R 775 /var/www/html/application/cache \
+    && chmod -R 775 /var/www/html/application/logs \
+    && chmod -R 775 /var/www/html/assets/uploads
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD php -r '$body = @file_get_contents("http://127.0.0.1/healthz"); if ($body === false) { exit(1); } $payload = json_decode($body, true); exit((is_array($payload) && !empty($payload["ok"])) ? 0 : 1);'
 
 EXPOSE 80
 

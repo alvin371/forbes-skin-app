@@ -165,6 +165,7 @@ $route['admin/overtime-approval-routes/(:any)'] = 'admin/ApprovalRoutesControlle
 
 $route['diagnostic/check-leave-data'] = 'DiagnosticController/check_leave_data';
 $route['diagnostic/sentry'] = 'DiagnosticController/sentry';
+$route['healthz'] = 'HealthController/index';
 $route['fix/leave-status'] = 'FixLeaveStatusController/update_status';
 $route['migrate/leave-status'] = 'MigrateLeaveStatusController/submitted_to_pending';
 

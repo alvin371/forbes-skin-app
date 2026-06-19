@@ -56,6 +56,7 @@ assets/uploads/*
 node_modules/
 
 # Composer development dependencies
+vendor/
 vendor/bin/
 vendor/phpunit/
 vendor/fakerphp/

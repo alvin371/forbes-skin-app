@@ -8145,6 +8145,8 @@ class Api_v2 extends CI_Controller
                 'project_id'   => $info['project_id'],
                 'source'       => $info['source'],
                 'token_cached' => $info['token_cached'],
+                'client_email' => $info['client_email'],
+                'key_id'       => $info['key_id'],
                 'msg'          => 'FCM auth OK',
             ));
         } catch (Exception $e) {

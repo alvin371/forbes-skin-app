@@ -13,6 +13,7 @@
 # Local agent/tool output
 .impeccable/
 .claude/settings.local.json
+.php-cs-fixer.cache
 
 # Runtime cache
 /application/cache/sessions/*

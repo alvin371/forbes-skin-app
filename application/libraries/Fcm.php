@@ -133,6 +133,10 @@ class Fcm
             'project_id'   => $this->projectId,
             'source'       => $this->source,
             'token_cached' => $this->readCachedToken() !== null,
+            // Identity of the loaded SA — not secret (the private key is never exposed).
+            // Lets ops confirm the *right* service account is in play without reading .env.
+            'client_email' => isset($this->sa['client_email']) ? $this->sa['client_email'] : '',
+            'key_id'       => isset($this->sa['private_key_id']) ? substr($this->sa['private_key_id'], 0, 8) : '',
         );
     }
 
