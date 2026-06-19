@@ -1,5 +1,12 @@
 name: CI and Deploy
 
+permissions:
+  contents: read
+
+env:
+  DOCKER_BUILD_SUMMARY: "false"
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+
 on:
   push:
     branches:
@@ -13,7 +20,9 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -47,7 +56,9 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -115,7 +126,9 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Write Ansible inventory from secret
         run: echo "${{ secrets.ANSIBLE_HOSTS }}" > inventory.ini
