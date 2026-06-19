@@ -1514,7 +1514,6 @@ class Endorse extends BaseController
             return;
         }
 
-        $this->load->helper('social_platform');
         $user = $_SESSION['user'];
 
         $dt = $_POST['dt'] ?? [];
@@ -1541,34 +1540,40 @@ class Endorse extends BaseController
             $base['device'] = $device;
         }
 
-        $this->load->library('endorse_sync');
-        $activated = 0; $fetched = 0; $skipped = 0;
+        $this->load->library('EndorseRefreshQueueService');
+        $activated = 0; $enqueued = 0; $already_active = 0; $skipped = 0;
 
         foreach ($ids as $id) {
             $row = $this->mymodel->selectDataOne('endorse', ['id' => $id]);
             if (empty($row)) { $skipped++; continue; }
 
+            // Don't clobber rows that already track optimization — preserve their
+            // request metadata / status. Only newly-activated rows get $base applied.
+            if (!empty($row['is_optimization']) && $row['is_optimization'] == '1') {
+                $already_active++;
+                continue;
+            }
+
             $this->db->update('endorse', $base, ['id' => $id]);
             $activated++;
 
-            $platform = strval($row['platform'] ?? '');
+            // Baseline is fetched asynchronously by the queue worker — never inline
+            // (N synchronous RapidAPI calls would blow the request timeout). The helper
+            // handles link/platform gating, frozen-baseline guard, and dedup.
             $link = trim((string) ($row['link_upload'] ?? ''));
-            if ($link !== '' && is_auto_fetch_platform($platform) && empty($row['initial_fetched_at'])) {
-                $resp = $this->template->get_social_media('Tiktok', $link, false, null, true);
-                if (!empty($resp['status'])) {
-                    $row = array_merge($row, $base);
-                    $r = $this->endorse_sync->apply_snapshot($row, $resp, 'initial', intval($user['id']));
-                    if (!empty($r['status'])) { $fetched++; }
-                }
+            if ($link !== '' && empty($row['initial_fetched_at'])) {
+                $r = $this->endorserefreshqueueservice->enqueueSnapshot(intval($id), 'initial', intval($user['id']));
+                if (!empty($r['status'])) { $enqueued++; }
             }
         }
 
         echo json_encode([
-            'status'    => true,
-            'msg'       => "Tracking optimasi diaktifkan untuk $activated data. Baseline TikTok diambil: $fetched. Dilewati: $skipped.",
-            'activated' => $activated,
-            'fetched'   => $fetched,
-            'skipped'   => $skipped,
+            'status'         => true,
+            'msg'            => "Tracking optimasi diaktifkan untuk $activated data. Baseline TikTok diantrikan: $enqueued. Sudah aktif: $already_active. Dilewati: $skipped.",
+            'activated'      => $activated,
+            'enqueued'       => $enqueued,
+            'already_active' => $already_active,
+            'skipped'        => $skipped,
         ]);
     }
 

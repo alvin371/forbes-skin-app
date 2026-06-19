@@ -236,6 +236,18 @@ class NotificationEvents
                     "overtime_step_approved_{$ctx['overtime_request_id']}_{$ctx['step_no']}"
                 );
 
+            // ----- System -----
+            case 'system.fcm_unavailable':
+                return $this->payload(
+                    'Push Notifikasi Bermasalah',
+                    'Layanan push (FCM) gagal mengirim notifikasi. Silakan cek konfigurasi service account FCM.',
+                    self::TYPE_ERROR,
+                    null,
+                    null,
+                    'fcm_unavailable',
+                    true // in-app only: push is the thing that's broken, never enqueue it
+                );
+
             default:
                 log_message('error', 'NotificationEvents: unknown event key "' . $key . '"');
                 return null;
@@ -244,8 +256,11 @@ class NotificationEvents
 
     /**
      * Assemble a normalized payload array.
+     *
+     * @param bool $noPush When true, the dispatcher writes the in-app row but skips the push
+     *                     channel — used for alerts about push itself failing (avoids a loop).
      */
-    private function payload($title, $message, $type, $relatedTable, $relatedId, $dedupeKey)
+    private function payload($title, $message, $type, $relatedTable, $relatedId, $dedupeKey, $noPush = false)
     {
         return array(
             'title'         => $title,
@@ -254,6 +269,7 @@ class NotificationEvents
             'related_table' => $relatedTable,
             'related_id'    => $relatedId,
             'dedupe_key'    => $dedupeKey,
+            'no_push'       => $noPush,
         );
     }
 

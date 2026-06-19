@@ -221,6 +221,7 @@ $route['api/hrms/attendance/recap'] = 'Api_hrms/attendance_recap';
 $route['api/hrms/attendance/recap-all'] = 'Api_hrms/attendance_recap_all';
 $route['api/hrms/attendance/report'] = 'Api_hrms/attendance_report';
 $route['api/hrms/holidays'] = 'Api_hrms/holidays';
+$route['api/hrms/devices'] = 'Api_hrms/devices';
 $route['api/hrms/upload'] = 'Api_hrms/upload';
 $route['api/hrms/files/([^/]+)/(.+)'] = 'Api_hrms/uploaded_file/$1';
 $route['writable/uploads/([^/]+)/(.+)'] = 'Api_hrms/uploaded_file/$1';
@@ -301,6 +302,9 @@ $route['api/cronjob/tiktok-sync'] = 'Api_v2/cronjob_tiktok_sync';
 $route['api/cronjob/endorse-refresh'] = 'Api_v2/cronjob_endorse_refresh';
 $route['api/cronjob/endorse-final-reconcile'] = 'Api_v2/cronjob_endorse_final_reconcile';
 $route['api/cronjob/endorse-optimization-sheet'] = 'Api_v2/cronjob_endorse_optimization_sheet';
+$route['api/cronjob/notification-dispatch'] = 'Api_v2/cronjob_notification_dispatch';
+$route['api/fcm/health'] = 'Api_v2/fcm_health';
+$route['firebase-sw'] = 'Pushsetup/service_worker';
 
 $route['endorse/bulk-refresh'] = 'Endorse/bulk_refresh';
 $route['endorse/export-optimization'] = 'Endorse/export_optimization';

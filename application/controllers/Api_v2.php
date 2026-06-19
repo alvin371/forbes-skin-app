@@ -7970,4 +7970,190 @@ class Api_v2 extends CI_Controller
             'finished_at' => $finishedAt,
         ], $where);
     }
+
+    /**
+     * FCM Phase 5 — push delivery worker. Recommend cron every 1 minute.
+     *
+     * Drains notification_outbox: recover stale leases -> claim a batch -> for each row,
+     * expand to the user's live device tokens and send via FCM. Dead tokens are revoked;
+     * a row succeeds (markSent) when every token sent (or the user has no tokens), else it
+     * retries with backoff (markRetry, -> DEAD after max_attempts). A single token's
+     * non-retryable hard error does not block the other tokens.
+     *
+     * Route: GET api/cronjob/notification-dispatch
+     */
+    function cronjob_notification_dispatch()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        @set_time_limit(55);
+
+        $BATCH_SIZE = intval(env('NOTIFICATION_DISPATCH_BATCH', 20));
+        if ($BATCH_SIZE <= 0) {
+            $BATCH_SIZE = 20;
+        } elseif ($BATCH_SIZE > 200) {
+            $BATCH_SIZE = 200;
+        }
+
+        $this->load->library('fcm');
+        $this->load->model('DeviceTokenModel');
+        $this->load->model('NotificationOutboxModel');
+
+        $worker_id = uniqid('nw_', true);
+
+        // Step 1 — recover rows stranded in SENDING by a crashed worker.
+        $this->NotificationOutboxModel->recoverStale(5);
+
+        // Step 2 — atomic claim.
+        $rows = $this->NotificationOutboxModel->claimBatch($worker_id, $BATCH_SIZE);
+
+        if (empty($rows)) {
+            echo json_encode([
+                'status'    => true,
+                'worker'    => $worker_id,
+                'processed' => 0,
+                'msg'       => 'No pending notification outbox rows',
+            ]);
+            die;
+        }
+
+        $sent = 0;
+        $retried = 0;
+        $failed = 0;
+        $revoked = 0;
+        $authFailed = false;
+
+        foreach ($rows as $row) {
+            $tokens = $this->DeviceTokenModel->activeForUser($row['user_id']);
+
+            // No devices -> in-app only; nothing to push.
+            if (empty($tokens)) {
+                $this->NotificationOutboxModel->markSent($row['id']);
+                $sent++;
+                continue;
+            }
+
+            $data = !empty($row['data_json']) ? (json_decode($row['data_json'], true) ?: array()) : array();
+
+            // Classify the row by the best outcome across its tokens.
+            $anySent = false;   // at least one delivery
+            $anyRetry = false;  // a transient failure -> revisit the whole row
+            $anyHard = false;   // a permanent send error (e.g. 400) -> surface, don't retry
+            $lastErr = '';
+            foreach ($tokens as $t) {
+                $r = $this->fcm->send($t['token'], $row['title'], $row['body'], $data);
+
+                if (!empty($r['revoke'])) {
+                    $this->DeviceTokenModel->revokeByToken($t['token']);
+                    $revoked++;
+                }
+                if (!empty($r['auth'])) {
+                    $authFailed = true; // FCM auth broken, not just this token
+                }
+
+                if ($r['status'] === 'sent') {
+                    $anySent = true;
+                } elseif (!empty($r['retryable'])) {
+                    $anyRetry = true;
+                    $lastErr = $r['msg'];
+                } elseif (empty($r['revoke'])) {
+                    // hard, non-retryable, not a dead-token cleanup
+                    $anyHard = true;
+                    $lastErr = $r['msg'];
+                }
+            }
+
+            // Precedence: retry (give transient failures another pass) > delivered > hard fail.
+            // The else covers "only dead tokens" — nothing deliverable, but no real error.
+            if ($anyRetry) {
+                $this->NotificationOutboxModel->markRetry($row['id'], $lastErr);
+                $retried++;
+            } elseif ($anySent) {
+                $this->NotificationOutboxModel->markSent($row['id']);
+                $sent++;
+            } elseif ($anyHard) {
+                $this->NotificationOutboxModel->markFailed($row['id'], $lastErr);
+                $failed++;
+            } else {
+                $this->NotificationOutboxModel->markSent($row['id']);
+                $sent++;
+            }
+        }
+
+        // FCM auth is down -> alert admins (in-app, throttled). Rows stay retried and drain
+        // on their own once the service account is fixed.
+        if ($authFailed) {
+            $this->alert_fcm_unavailable($lastErr ?? '');
+        }
+
+        echo json_encode([
+            'status'    => true,
+            'worker'    => $worker_id,
+            'processed' => count($rows),
+            'sent'      => $sent,
+            'retried'   => $retried,
+            'failed'    => $failed,
+            'revoked'   => $revoked,
+            'auth_failed' => $authFailed,
+            'msg'       => count($rows) . " rows: $sent sent, $retried retried, $failed failed, $revoked tokens revoked",
+        ]);
+        die;
+    }
+
+    /**
+     * Notify configured admins that FCM push is failing. In-app only (push is what's broken)
+     * and throttled to once per hour so a sustained outage can't spam. Recipients come from
+     * env FCM_ALERT_USER_IDS (comma-separated user ids); with none set it just logs.
+     *
+     * @param string $lastErr
+     */
+    private function alert_fcm_unavailable($lastErr = '')
+    {
+        log_message('error', 'FCM push unavailable; auth failing in notification dispatch worker. ' . $lastErr);
+
+        $this->load->model('NotificationModel');
+
+        // Hourly throttle, independent of the dispatcher's own 60s dedupe window.
+        if ($this->NotificationModel->existsByDedupeKey('fcm_unavailable', 3600)) {
+            return;
+        }
+
+        $ids = array_filter(array_map('intval', explode(',', (string) env('FCM_ALERT_USER_IDS', ''))));
+        if (empty($ids)) {
+            return; // no recipients configured -> log-only (above)
+        }
+
+        $this->load->library('notificationdispatcher');
+        $this->notificationdispatcher->dispatchMany($ids, 'system.fcm_unavailable', array());
+    }
+
+    /**
+     * FCM health check — GET api/fcm/health. Verifies the service account loads and a real
+     * OAuth2 token can be minted. Internal, unauthenticated; leaks no secrets (project_id is
+     * not sensitive). The "is FCM configured right?" one-curl check.
+     */
+    function fcm_health()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+
+        try {
+            $this->load->library('fcm');
+            $info = $this->fcm->describe();
+            $this->fcm->getAccessToken(); // real round-trip to Google
+
+            echo json_encode(array(
+                'ok'           => true,
+                'project_id'   => $info['project_id'],
+                'source'       => $info['source'],
+                'token_cached' => $info['token_cached'],
+                'msg'          => 'FCM auth OK',
+            ));
+        } catch (Exception $e) {
+            $this->output->set_status_header(500);
+            echo json_encode(array(
+                'ok'  => false,
+                'msg' => $e->getMessage(),
+            ));
+        }
+        die;
+    }
 }

@@ -57,6 +57,9 @@ class NotificationDispatcher
             return false; // unknown key already logged by registry
         }
 
+        // Carry the event key so the push channel can record which event produced the row.
+        $event['event_key'] = $eventKey;
+
         return $this->emit($userId, $event);
     }
 
@@ -113,10 +116,19 @@ class NotificationDispatcher
             return false;
         }
 
-        // --- Phase 4 extension point ---
-        // Push delivery enqueues here (PushChannel), gated by the same dedupe decision:
-        //   $this->CI->load->library('PushChannel');
-        //   $this->CI->pushchannel->enqueue($userId, $event);
+        // Push delivery (FCM Phase 4): gated by the same dedupe decision above, so a
+        // suppressed event is suppressed on every channel. Queues one outbox row; the cron
+        // worker expands it to the user's live device tokens. Users with no tokens -> the
+        // worker marks the row SENT, no error. Never let push failure undo the in-app write.
+        // no_push events (e.g. the "push is broken" alert) stay in-app only to avoid a loop.
+        if (empty($event['no_push'])) {
+            try {
+                $this->CI->load->library('PushChannel');
+                $this->CI->pushchannel->enqueue($userId, $event);
+            } catch (Exception $e) {
+                log_message('error', 'NotificationDispatcher: push enqueue failed: ' . $e->getMessage());
+            }
+        }
 
         return true;
     }

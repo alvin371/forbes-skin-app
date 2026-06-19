@@ -2182,6 +2182,56 @@ if (!$_SESSION['is_login']) {
       box-shadow: 0 6px 16px rgba(108, 117, 125, 0.3) !important;
     }
   </style>
+
+  <?php if ((string) env('FCM_WEB_API_KEY', '') !== ''): ?>
+  <!-- FCM web push: register this browser as a device token (session-authenticated) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+  <script>
+    (function () {
+      if (!('serviceWorker' in navigator) || !('Notification' in window) || !('PushManager' in window)) {
+        return; // browser can't do web push
+      }
+
+      var firebaseConfig = {
+        apiKey: <?= json_encode(env('FCM_WEB_API_KEY', '')) ?>,
+        authDomain: <?= json_encode(env('FCM_WEB_AUTH_DOMAIN', '')) ?>,
+        projectId: <?= json_encode(env('FCM_WEB_PROJECT_ID', '')) ?>,
+        messagingSenderId: <?= json_encode(env('FCM_WEB_MESSAGING_SENDER_ID', '')) ?>,
+        appId: <?= json_encode(env('FCM_WEB_APP_ID', '')) ?>
+      };
+      var vapidKey = <?= json_encode(env('FCM_WEB_VAPID_KEY', '')) ?>;
+
+      try { firebase.initializeApp(firebaseConfig); } catch (e) { return; }
+      var messaging = firebase.messaging();
+
+      navigator.serviceWorker.register('<?= base_url() ?>firebase-sw', { scope: '/' })
+        .then(function (reg) {
+          return Notification.requestPermission().then(function (perm) {
+            if (perm !== 'granted') return;
+            return messaging.getToken({ vapidKey: vapidKey, serviceWorkerRegistration: reg })
+              .then(function (token) {
+                if (!token) return;
+                // Session cookie authenticates (ApiAuth falls back to session).
+                return fetch('<?= base_url() ?>api/hrms/devices', {
+                  method: 'POST',
+                  credentials: 'include',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ token: token, platform: 'web', app_version: 'web' })
+                });
+              });
+          });
+        })
+        .catch(function (err) { console.warn('FCM web registration failed:', err); });
+
+      // Foreground pushes (tab focused) -> toast instead of a system notification.
+      messaging.onMessage(function (payload) {
+        var n = (payload && payload.notification) || {};
+        if (window.toastr) { toastr.info(n.body || '', n.title || 'Notifikasi'); }
+      });
+    })();
+  </script>
+  <?php endif; ?>
 </body>
 
 </html>
