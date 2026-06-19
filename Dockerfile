@@ -103,7 +103,11 @@ FROM base AS runtime
 COPY . /var/www/html
 COPY --from=vendor-prod /var/www/html/vendor /var/www/html/vendor
 
+# The runtime image defaults to production: db_debug is off, so the app boots (and /healthz
+# answers 200) even with no database reachable — e.g. the CI smoke test runs the bare image
+# with no DB. Real deployments mount their own .env (with real DB creds) over this baked one.
 RUN if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi \
+    && sed -i 's/^CI_ENV=.*/CI_ENV=production/' .env \
     && mkdir -p /var/www/html/application/cache/sessions \
     && mkdir -p /var/www/html/application/logs \
     && mkdir -p /var/www/html/assets/uploads \
