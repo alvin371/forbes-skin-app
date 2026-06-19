@@ -28,12 +28,11 @@ use PhpCsFixer\Tokenizer\Tokens;
  *
  * @author Fabien Potencier <fabien@symfony.com>
  * @author Dariusz Rumiński <dariusz.ruminski@gmail.com>
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class SingleBlankLineAtEofFixer extends AbstractFixer implements WhitespacesAwareFixerInterface
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getDefinition(): FixerDefinitionInterface
     {
         return new FixerDefinition(
@@ -41,35 +40,26 @@ final class SingleBlankLineAtEofFixer extends AbstractFixer implements Whitespac
             [
                 new CodeSample("<?php\n\$a = 1;"),
                 new CodeSample("<?php\n\$a = 1;\n\n"),
-            ]
+            ],
         );
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function getPriority(): int
     {
         // must run last to be sure the file is properly formatted before it runs
-        return -50;
+        return -100;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isCandidate(Tokens $tokens): bool
     {
         return true;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     protected function applyFix(\SplFileInfo $file, Tokens $tokens): void
     {
         $count = $tokens->count();
 
-        if ($count > 0 && !$tokens[$count - 1]->isGivenKind([T_INLINE_HTML, T_CLOSE_TAG, T_OPEN_TAG])) {
+        if ($count > 0 && !$tokens[$count - 1]->isGivenKind([\T_INLINE_HTML, \T_CLOSE_TAG, \T_OPEN_TAG])) {
             $tokens->ensureWhitespaceAtIndex($count - 1, 1, $this->whitespacesConfig->getLineEnding());
         }
     }

@@ -24,17 +24,16 @@ use PhpCsFixer\Tokenizer\Tokens;
 
 /**
  * Fixer for part of rule defined in PSR5 ¶7.22.
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class PhpdocSingleLineVarSpacingFixer extends AbstractFixer
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getDefinition(): FixerDefinitionInterface
     {
         return new FixerDefinition(
             'Single line `@var` PHPDoc should have proper spacing.',
-            [new CodeSample("<?php /**@var   MyClass   \$a   */\n\$a = test();\n")]
+            [new CodeSample("<?php /**@var   MyClass   \$a   */\n\$a = test();\n")],
         );
     }
 
@@ -49,20 +48,13 @@ final class PhpdocSingleLineVarSpacingFixer extends AbstractFixer
         return -10;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isCandidate(Tokens $tokens): bool
     {
-        return $tokens->isAnyTokenKindsFound([T_COMMENT, T_DOC_COMMENT]);
+        return $tokens->isAnyTokenKindsFound([\T_COMMENT, \T_DOC_COMMENT]);
     }
 
-    /**
-     * {@inheritdoc}
-     */
     protected function applyFix(\SplFileInfo $file, Tokens $tokens): void
     {
-        /** @var Token $token */
         foreach ($tokens as $index => $token) {
             if (!$token->isComment()) {
                 continue;
@@ -72,7 +64,7 @@ final class PhpdocSingleLineVarSpacingFixer extends AbstractFixer
             $fixedContent = $this->fixTokenContent($content);
 
             if ($content !== $fixedContent) {
-                $tokens[$index] = new Token([T_DOC_COMMENT, $fixedContent]);
+                $tokens[$index] = new Token([\T_DOC_COMMENT, $fixedContent]);
             }
         }
     }
@@ -85,6 +77,7 @@ final class PhpdocSingleLineVarSpacingFixer extends AbstractFixer
                 $content = '/** @var';
 
                 for ($i = 1, $m = \count($matches); $i < $m; ++$i) {
+                    \assert(isset($matches[$i]));
                     if ('' !== $matches[$i]) {
                         $content .= ' '.$matches[$i];
                     }
@@ -92,7 +85,7 @@ final class PhpdocSingleLineVarSpacingFixer extends AbstractFixer
 
                 return rtrim($content).' */';
             },
-            $content
+            $content,
         );
     }
 }

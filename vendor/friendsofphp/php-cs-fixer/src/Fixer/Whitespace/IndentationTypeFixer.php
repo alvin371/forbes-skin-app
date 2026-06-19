@@ -27,24 +27,20 @@ use PhpCsFixer\Tokenizer\Tokens;
  * Fixer for rules defined in PSR2 ¶2.4.
  *
  * @author Dariusz Rumiński <dariusz.ruminski@gmail.com>
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class IndentationTypeFixer extends AbstractFixer implements WhitespacesAwareFixerInterface
 {
-    /**
-     * @var string
-     */
-    private $indent;
+    private string $indent;
 
-    /**
-     * {@inheritdoc}
-     */
     public function getDefinition(): FixerDefinitionInterface
     {
         return new FixerDefinition(
             'Code MUST use configured indentation type.',
             [
                 new CodeSample("<?php\n\nif (true) {\n\techo 'Hello!';\n}\n"),
-            ]
+            ],
         );
     }
 
@@ -59,17 +55,11 @@ final class IndentationTypeFixer extends AbstractFixer implements WhitespacesAwa
         return 50;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isCandidate(Tokens $tokens): bool
     {
-        return $tokens->isAnyTokenKindsFound([T_COMMENT, T_DOC_COMMENT, T_WHITESPACE]);
+        return $tokens->isAnyTokenKindsFound([\T_COMMENT, \T_DOC_COMMENT, \T_WHITESPACE]);
     }
 
-    /**
-     * {@inheritdoc}
-     */
     protected function applyFix(\SplFileInfo $file, Tokens $tokens): void
     {
         $this->indent = $this->whitespacesConfig->getIndent();
@@ -101,9 +91,7 @@ final class IndentationTypeFixer extends AbstractFixer implements WhitespacesAwa
         $indent = $this->indent;
 
         // change indent to expected one
-        $content = Preg::replaceCallback('/^(?:    )+/m', function (array $matches) use ($indent): string {
-            return $this->getExpectedIndent($matches[0], $indent);
-        }, $content);
+        $content = Preg::replaceCallback('/^(?:    )+/m', fn (array $matches): string => $this->getExpectedIndent($matches[0], $indent), $content);
 
         return new Token([$tokens[$index]->getId(), $content]);
     }
@@ -123,20 +111,21 @@ final class IndentationTypeFixer extends AbstractFixer implements WhitespacesAwa
         $newContent = Preg::replaceCallback(
             '/(\R)(\h+)/', // find indent
             function (array $matches) use ($indent): string {
+                \assert(isset($matches[1], $matches[2]));
                 // normalize mixed indent
                 $content = Preg::replace('/(?:(?<! ) {1,3})?\t/', '    ', $matches[2]);
 
                 // change indent to expected one
                 return $matches[1].$this->getExpectedIndent($content, $indent);
             },
-            $content
+            $content,
         );
 
         if ($previousTokenHasTrailingLinebreak) {
             $newContent = substr($newContent, 1);
         }
 
-        return new Token([T_WHITESPACE, $newContent]);
+        return new Token([\T_WHITESPACE, $newContent]);
     }
 
     /**

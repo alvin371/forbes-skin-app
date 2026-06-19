@@ -14,24 +14,41 @@ declare(strict_types=1);
 
 namespace PhpCsFixer\RuleSet\Sets;
 
-use PhpCsFixer\RuleSet\AbstractRuleSetDescription;
+use PhpCsFixer\RuleSet\AbstractRuleSetDefinition;
+use PhpCsFixer\RuleSet\DeprecatedRuleSetDefinitionInterface;
 
 /**
  * @internal
  *
- * Last updated to PER Coding Style v1.0.0.
+ * @deprecated use `@PER-CS:risky` instead
+ *
+ * @TODO 4.0 remove me
+ *
+ * Last updated to PER Coding Style v2.0.
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
-final class PERRiskySet extends AbstractRuleSetDescription
+final class PERRiskySet extends AbstractRuleSetDefinition implements DeprecatedRuleSetDefinitionInterface
 {
+    public function getName(): string
+    {
+        return '@PER:risky';
+    }
+
     public function getRules(): array
     {
         return [
-            '@PSR12:risky' => true,
+            '@PER-CS:risky' => true,
         ];
     }
 
     public function getDescription(): string
     {
-        return 'Rules that follow `PER Coding Style <https://www.php-fig.org/per/coding-style/>`_.';
+        return 'Alias for the newest ``PER-CS`` risky rules. It is recommended you use ``@PER-CS2.0:risky`` instead if you want to stick with stable ruleset.';
+    }
+
+    public function getSuccessorsNames(): array
+    {
+        return ['@PER-CS:risky'];
     }
 }

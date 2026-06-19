@@ -19,7 +19,11 @@ namespace PhpCsFixer\Linter;
  *
  * @author Dariusz Rumiński <dariusz.ruminski@gmail.com>
  *
+ * @readonly
+ *
  * @internal
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class Linter implements LinterInterface
 {
@@ -30,25 +34,16 @@ final class Linter implements LinterInterface
         $this->subLinter = new TokenizerLinter();
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isAsync(): bool
     {
         return $this->subLinter->isAsync();
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function lintFile(string $path): LintingResultInterface
     {
         return $this->subLinter->lintFile($path);
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function lintSource(string $source): LintingResultInterface
     {
         return $this->subLinter->lintSource($source);

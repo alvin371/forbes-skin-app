@@ -26,6 +26,8 @@ use PhpCsFixer\Tokenizer\Tokens;
 /**
  * @author Michał Adamski <michal.adamski@gmail.com>
  * @author Kuba Werłos <werlos@gmail.com>
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class PhpUnitMockShortWillReturnFixer extends AbstractPhpUnitFixer
 {
@@ -37,45 +39,40 @@ final class PhpUnitMockShortWillReturnFixer extends AbstractPhpUnitFixer
         'returnvaluemap' => 'willReturnMap',
     ];
 
-    /**
-     * {@inheritdoc}
-     */
     public function getDefinition(): FixerDefinitionInterface
     {
         return new FixerDefinition(
             'Usage of PHPUnit\'s mock e.g. `->will($this->returnValue(..))` must be replaced by its shorter equivalent such as `->willReturn(...)`.',
             [
-                new CodeSample('<?php
-final class MyTest extends \PHPUnit_Framework_TestCase
-{
-    public function testSomeTest()
-    {
-        $someMock = $this->createMock(Some::class);
-        $someMock->method("some")->will($this->returnSelf());
-        $someMock->method("some")->will($this->returnValue("example"));
-        $someMock->method("some")->will($this->returnArgument(2));
-        $someMock->method("some")->will($this->returnCallback("str_rot13"));
-        $someMock->method("some")->will($this->returnValueMap(["a","b","c"]));
-    }
-}
-'),
+                new CodeSample(
+                    <<<'PHP'
+                        <?php
+                        final class MyTest extends \PHPUnit_Framework_TestCase
+                        {
+                            public function testSomeTest()
+                            {
+                                $someMock = $this->createMock(Some::class);
+                                $someMock->method("some")->will($this->returnSelf());
+                                $someMock->method("some")->will($this->returnValue("example"));
+                                $someMock->method("some")->will($this->returnArgument(2));
+                                $someMock->method("some")->will($this->returnCallback("str_rot13"));
+                                $someMock->method("some")->will($this->returnValueMap(["a","b","c"]));
+                            }
+                        }
+
+                        PHP,
+                ),
             ],
             null,
-            'Risky when PHPUnit classes are overridden or not accessible, or when project has PHPUnit incompatibilities.'
+            'Risky when PHPUnit classes are overridden or not accessible, or when project has PHPUnit incompatibilities.',
         );
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isRisky(): bool
     {
         return true;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     protected function applyPhpUnitClassFix(Tokens $tokens, int $startIndex, int $endIndex): void
     {
         $functionsAnalyzer = new FunctionsAnalyzer();
@@ -86,7 +83,7 @@ final class MyTest extends \PHPUnit_Framework_TestCase
             }
 
             $functionToReplaceIndex = $tokens->getNextMeaningfulToken($index);
-            if (!$tokens[$functionToReplaceIndex]->equals([T_STRING, 'will'], false)) {
+            if (!$tokens[$functionToReplaceIndex]->equals([\T_STRING, 'will'], false)) {
                 continue;
             }
 
@@ -110,22 +107,23 @@ final class MyTest extends \PHPUnit_Framework_TestCase
 
             $openingBraceIndex = $tokens->getNextMeaningfulToken($functionToRemoveIndex);
 
-            if (!$tokens[$openingBraceIndex]->equals('(')) {
-                continue;
-            }
-
             if ($tokens[$tokens->getNextMeaningfulToken($openingBraceIndex)]->isGivenKind(CT::T_FIRST_CLASS_CALLABLE)) {
                 continue;
             }
 
-            $closingBraceIndex = $tokens->findBlockEnd(Tokens::BLOCK_TYPE_PARENTHESIS_BRACE, $openingBraceIndex);
+            $closingBraceIndex = $tokens->findBlockEnd(Tokens::BLOCK_TYPE_PARENTHESIS, $openingBraceIndex);
 
-            $tokens[$functionToReplaceIndex] = new Token([T_STRING, self::RETURN_METHODS_MAP[strtolower($tokens[$functionToRemoveIndex]->getContent())]]);
+            $tokens[$functionToReplaceIndex] = new Token([\T_STRING, self::RETURN_METHODS_MAP[strtolower($tokens[$functionToRemoveIndex]->getContent())]]);
             $tokens->clearTokenAndMergeSurroundingWhitespace($classReferenceIndex);
             $tokens->clearTokenAndMergeSurroundingWhitespace($objectOperatorIndex);
             $tokens->clearTokenAndMergeSurroundingWhitespace($functionToRemoveIndex);
             $tokens->clearTokenAndMergeSurroundingWhitespace($openingBraceIndex);
             $tokens->clearTokenAndMergeSurroundingWhitespace($closingBraceIndex);
+
+            $commaAfterClosingBraceIndex = $tokens->getNextMeaningfulToken($closingBraceIndex);
+            if ($tokens[$commaAfterClosingBraceIndex]->equals(',')) {
+                $tokens->clearTokenAndMergeSurroundingWhitespace($commaAfterClosingBraceIndex);
+            }
         }
     }
 }

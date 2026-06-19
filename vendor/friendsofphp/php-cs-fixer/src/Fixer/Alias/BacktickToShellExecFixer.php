@@ -24,20 +24,16 @@ use PhpCsFixer\Tokenizer\Tokens;
 
 /**
  * @author Filippo Tessarotto <zoeslam@gmail.com>
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class BacktickToShellExecFixer extends AbstractFixer
 {
-    /**
-     * {@inheritdoc}
-     */
     public function isCandidate(Tokens $tokens): bool
     {
         return $tokens->isTokenKindFound('`');
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function getDefinition(): FixerDefinitionInterface
     {
         return new FixerDefinition(
@@ -45,30 +41,27 @@ final class BacktickToShellExecFixer extends AbstractFixer
             [
                 new CodeSample(
                     <<<'EOT'
-<?php
-$plain = `ls -lah`;
-$withVar = `ls -lah $var1 ${var2} {$var3} {$var4[0]} {$var5->call()}`;
+                        <?php
+                        $plain = `ls -lah`;
+                        $withVar = `ls -lah $var1 ${var2} {$var3} {$var4[0]} {$var5->call()}`;
 
-EOT
+                        EOT,
                 ),
             ],
-            'Conversion is done only when it is non risky, so when special chars like single-quotes, double-quotes and backticks are not used inside the command.'
+            'Conversion is done only when it is non risky, so when special chars like single-quotes, double-quotes and backticks are not used inside the command.',
         );
     }
 
     /**
      * {@inheritdoc}
      *
-     * Must run before EscapeImplicitBackslashesFixer, ExplicitStringVariableFixer, NativeFunctionInvocationFixer, SingleQuoteFixer.
+     * Must run before ExplicitStringVariableFixer, NativeFunctionInvocationFixer, SingleQuoteFixer.
      */
     public function getPriority(): int
     {
         return 17;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     protected function applyFix(\SplFileInfo $file, Tokens $tokens): void
     {
         $backtickStarted = false;
@@ -104,9 +97,8 @@ EOT
     {
         // Track indices for final override
         ksort($backtickTokens);
-        $openingBacktickIndex = key($backtickTokens);
-        end($backtickTokens);
-        $closingBacktickIndex = key($backtickTokens);
+        $openingBacktickIndex = array_key_first($backtickTokens);
+        $closingBacktickIndex = array_key_last($backtickTokens);
 
         // Strip enclosing backticks
         array_shift($backtickTokens);
@@ -117,7 +109,7 @@ EOT
         $count = \count($backtickTokens);
 
         $newTokens = [
-            new Token([T_STRING, 'shell_exec']),
+            new Token([\T_STRING, 'shell_exec']),
             new Token('('),
         ];
 
@@ -126,7 +118,7 @@ EOT
         }
 
         foreach ($backtickTokens as $token) {
-            if (!$token->isGivenKind(T_ENCAPSED_AND_WHITESPACE)) {
+            if (!$token->isGivenKind(\T_ENCAPSED_AND_WHITESPACE)) {
                 $newTokens[] = $token;
 
                 continue;
@@ -138,11 +130,11 @@ EOT
                 return;
             }
 
-            $kind = T_ENCAPSED_AND_WHITESPACE;
+            $kind = \T_ENCAPSED_AND_WHITESPACE;
 
             if (1 === $count) {
                 $content = '"'.$content.'"';
-                $kind = T_CONSTANT_ENCAPSED_STRING;
+                $kind = \T_CONSTANT_ENCAPSED_STRING;
             }
 
             $newTokens[] = new Token([$kind, $content]);

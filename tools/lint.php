@@ -22,7 +22,7 @@ foreach ($targets as $target) {
     }
 
     $iterator = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($target, FilesystemIterator::SKIP_DOTS)
+        new RecursiveDirectoryIterator($target, FilesystemIterator::SKIP_DOTS),
     );
 
     foreach ($iterator as $file) {

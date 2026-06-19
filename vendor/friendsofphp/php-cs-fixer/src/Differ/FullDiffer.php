@@ -20,7 +20,11 @@ use SebastianBergmann\Diff\Output\StrictUnifiedDiffOutputBuilder;
 /**
  * @author Dariusz Rumiński <dariusz.ruminski@gmail.com>
  *
+ * @readonly
+ *
  * @internal
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class FullDiffer implements DifferInterface
 {
@@ -37,9 +41,6 @@ final class FullDiffer implements DifferInterface
         ]));
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function diff(string $old, string $new, ?\SplFileInfo $file = null): string
     {
         return $this->differ->diff($old, $new);

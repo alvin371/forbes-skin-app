@@ -25,31 +25,24 @@ use PhpCsFixer\FixerDefinition\FixerDefinitionInterface;
  * @deprecated
  *
  * @author Dariusz Rumiński <dariusz.ruminski@gmail.com>
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class NoTrailingCommaInListCallFixer extends AbstractProxyFixer implements DeprecatedFixerInterface
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getDefinition(): FixerDefinitionInterface
     {
         return new FixerDefinition(
             'Remove trailing commas in list function calls.',
-            [new CodeSample("<?php\nlist(\$a, \$b,) = foo();\n")]
+            [new CodeSample("<?php\nlist(\$a, \$b,) = foo();\n")],
         );
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function getSuccessorsNames(): array
     {
         return array_keys($this->proxyFixers);
     }
 
-    /**
-     * {@inheritdoc}
-     */
     protected function createProxyFixers(): array
     {
         $fixer = new NoTrailingCommaInSinglelineFixer();

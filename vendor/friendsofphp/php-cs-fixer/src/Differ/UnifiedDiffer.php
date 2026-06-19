@@ -18,11 +18,11 @@ use PhpCsFixer\Preg;
 use SebastianBergmann\Diff\Differ;
 use SebastianBergmann\Diff\Output\StrictUnifiedDiffOutputBuilder;
 
+/**
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
+ */
 final class UnifiedDiffer implements DifferInterface
 {
-    /**
-     * {@inheritdoc}
-     */
     public function diff(string $old, string $new, ?\SplFileInfo $file = null): string
     {
         if (null === $file) {
@@ -33,7 +33,7 @@ final class UnifiedDiffer implements DifferInterface
         } else {
             $filePath = $file->getRealPath();
 
-            if (1 === Preg::match('/\s/', $filePath)) {
+            if (Preg::match('/\s/', $filePath)) {
                 $filePath = '"'.$filePath.'"';
             }
 

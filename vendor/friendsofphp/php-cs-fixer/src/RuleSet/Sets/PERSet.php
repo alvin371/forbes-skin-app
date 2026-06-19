@@ -14,24 +14,36 @@ declare(strict_types=1);
 
 namespace PhpCsFixer\RuleSet\Sets;
 
-use PhpCsFixer\RuleSet\AbstractRuleSetDescription;
+use PhpCsFixer\RuleSet\AbstractRuleSetDefinition;
+use PhpCsFixer\RuleSet\DeprecatedRuleSetDefinitionInterface;
 
 /**
  * @internal
  *
- * Last updated to PER Coding Style v1.0.0.
+ * @deprecated use `@PER-CS` instead
+ *
+ * @TODO 4.0 remove me
+ *
+ * Last updated to PER Coding Style v2.0.
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
-final class PERSet extends AbstractRuleSetDescription
+final class PERSet extends AbstractRuleSetDefinition implements DeprecatedRuleSetDefinitionInterface
 {
     public function getRules(): array
     {
         return [
-            '@PSR12' => true,
+            '@PER-CS' => true,
         ];
     }
 
     public function getDescription(): string
     {
-        return 'Rules that follow `PER Coding Style <https://www.php-fig.org/per/coding-style/>`_.';
+        return 'Alias for the newest ``PER-CS`` rules. It is recommended you use ``@PER-CS3.0`` instead if you want to stick with stable ruleset.';
+    }
+
+    public function getSuccessorsNames(): array
+    {
+        return ['@PER-CS'];
     }
 }

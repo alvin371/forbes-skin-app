@@ -20,11 +20,17 @@ namespace PhpCsFixer\DocBlock;
  *
  * @author Graham Campbell <hello@gjcampbell.co.uk>
  * @author Jakub Kwaśniewski <jakub@zero-85.pl>
+ *
+ * @deprecated
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class TagComparator
 {
     /**
      * Groups of tags that should be allowed to immediately follow each other.
+     *
+     * @var non-empty-list<non-empty-list<string>>
      *
      * @internal
      */
@@ -38,10 +44,12 @@ final class TagComparator
     /**
      * Should the given tags be kept together, or kept apart?
      *
-     * @param string[][] $groups
+     * @param list<list<string>> $groups
      */
     public static function shouldBeTogether(Tag $first, Tag $second, array $groups = self::DEFAULT_GROUPS): bool
     {
+        @trigger_error('Method '.__METHOD__.' is deprecated and will be removed in version 4.0.', \E_USER_DEPRECATED);
+
         $firstName = $first->getName();
         $secondName = $second->getName();
 

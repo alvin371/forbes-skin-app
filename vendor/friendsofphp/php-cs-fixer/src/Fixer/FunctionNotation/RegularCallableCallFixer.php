@@ -25,36 +25,39 @@ use PhpCsFixer\Tokenizer\Tokens;
 
 /**
  * @author Dariusz Rumiński <dariusz.ruminski@gmail.com>
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class RegularCallableCallFixer extends AbstractFixer
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getDefinition(): FixerDefinitionInterface
     {
         return new FixerDefinition(
             'Callables must be called without using `call_user_func*` when possible.',
             [
                 new CodeSample(
-                    '<?php
-    call_user_func("var_dump", 1, 2);
+                    <<<'PHP'
+                        <?php
+                            call_user_func("var_dump", 1, 2);
 
-    call_user_func("Bar\Baz::d", 1, 2);
+                            call_user_func("Bar\Baz::d", 1, 2);
 
-    call_user_func_array($callback, [1, 2]);
-'
+                            call_user_func_array($callback, [1, 2]);
+
+                        PHP,
                 ),
                 new CodeSample(
-                    '<?php
-call_user_func(function ($a, $b) { var_dump($a, $b); }, 1, 2);
+                    <<<'PHP'
+                        <?php
+                        call_user_func(function ($a, $b) { var_dump($a, $b); }, 1, 2);
 
-call_user_func(static function ($a, $b) { var_dump($a, $b); }, 1, 2);
-'
+                        call_user_func(static function ($a, $b) { var_dump($a, $b); }, 1, 2);
+
+                        PHP,
                 ),
             ],
             null,
-            'Risky when the `call_user_func` or `call_user_func_array` function is overridden or when are used in constructions that should be avoided, like `call_user_func_array(\'foo\', [\'bar\' => \'baz\'])` or `call_user_func($foo, $foo = \'bar\')`.'
+            'Risky when the `call_user_func` or `call_user_func_array` function is overridden or when are used in constructions that should be avoided, like `call_user_func_array(\'foo\', [\'bar\' => \'baz\'])` or `call_user_func($foo, $foo = \'bar\')`.',
         );
     }
 
@@ -69,12 +72,9 @@ call_user_func(static function ($a, $b) { var_dump($a, $b); }, 1, 2);
         return 2;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isCandidate(Tokens $tokens): bool
     {
-        return $tokens->isTokenKindFound(T_STRING);
+        return $tokens->isTokenKindFound(\T_STRING);
     }
 
     public function isRisky(): bool
@@ -82,16 +82,13 @@ call_user_func(static function ($a, $b) { var_dump($a, $b); }, 1, 2);
         return true;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     protected function applyFix(\SplFileInfo $file, Tokens $tokens): void
     {
         $functionsAnalyzer = new FunctionsAnalyzer();
         $argumentsAnalyzer = new ArgumentsAnalyzer();
 
         for ($index = $tokens->count() - 1; $index > 0; --$index) {
-            if (!$tokens[$index]->equalsAny([[T_STRING, 'call_user_func'], [T_STRING, 'call_user_func_array']], false)) {
+            if (!$tokens[$index]->equalsAny([[\T_STRING, 'call_user_func'], [\T_STRING, 'call_user_func_array']], false)) {
                 continue;
             }
 
@@ -100,7 +97,7 @@ call_user_func(static function ($a, $b) { var_dump($a, $b); }, 1, 2);
             }
 
             $openParenthesis = $tokens->getNextMeaningfulToken($index);
-            $closeParenthesis = $tokens->findBlockEnd(Tokens::BLOCK_TYPE_PARENTHESIS_BRACE, $openParenthesis);
+            $closeParenthesis = $tokens->findBlockEnd(Tokens::BLOCK_TYPE_PARENTHESIS, $openParenthesis);
             $arguments = $argumentsAnalyzer->getArguments($tokens, $openParenthesis, $closeParenthesis);
 
             if (1 > \count($arguments)) {
@@ -112,18 +109,17 @@ call_user_func(static function ($a, $b) { var_dump($a, $b); }, 1, 2);
     }
 
     /**
-     * @param array<int, int> $arguments
+     * @param non-empty-array<int, int> $arguments
      */
     private function processCall(Tokens $tokens, int $index, array $arguments): void
     {
         $firstArgIndex = $tokens->getNextMeaningfulToken(
-            $tokens->getNextMeaningfulToken($index)
+            $tokens->getNextMeaningfulToken($index),
         );
 
-        /** @var Token $firstArgToken */
         $firstArgToken = $tokens[$firstArgIndex];
 
-        if ($firstArgToken->isGivenKind(T_CONSTANT_ENCAPSED_STRING)) {
+        if ($firstArgToken->isGivenKind(\T_CONSTANT_ENCAPSED_STRING)) {
             $afterFirstArgIndex = $tokens->getNextMeaningfulToken($firstArgIndex);
 
             if (!$tokens[$afterFirstArgIndex]->equalsAny([',', ')'])) {
@@ -144,22 +140,22 @@ call_user_func(static function ($a, $b) { var_dump($a, $b); }, 1, 2);
 
             $this->replaceCallUserFuncWithCallback($tokens, $index, $newCallTokens, $firstArgIndex, $firstArgIndex);
         } elseif (
-            $firstArgToken->isGivenKind(T_FUNCTION)
+            $firstArgToken->isGivenKind(\T_FUNCTION)
             || (
-                $firstArgToken->isGivenKind(T_STATIC)
-                && $tokens[$tokens->getNextMeaningfulToken($firstArgIndex)]->isGivenKind(T_FUNCTION)
+                $firstArgToken->isGivenKind(\T_STATIC)
+                && $tokens[$tokens->getNextMeaningfulToken($firstArgIndex)]->isGivenKind(\T_FUNCTION)
             )
         ) {
             $firstArgEndIndex = $tokens->findBlockEnd(
-                Tokens::BLOCK_TYPE_CURLY_BRACE,
-                $tokens->getNextTokenOfKind($firstArgIndex, ['{'])
+                Tokens::BLOCK_TYPE_BRACE,
+                $tokens->getNextTokenOfKind($firstArgIndex, ['{']),
             );
 
             $newCallTokens = $this->getTokensSubcollection($tokens, $firstArgIndex, $firstArgEndIndex);
             $newCallTokens->insertAt($newCallTokens->count(), new Token(')'));
             $newCallTokens->insertAt(0, new Token('('));
             $this->replaceCallUserFuncWithCallback($tokens, $index, $newCallTokens, $firstArgIndex, $firstArgEndIndex);
-        } elseif ($firstArgToken->isGivenKind(T_VARIABLE)) {
+        } elseif ($firstArgToken->isGivenKind(\T_VARIABLE)) {
             $firstArgEndIndex = reset($arguments);
 
             // check if the same variable is used multiple times and if so do not fix
@@ -182,13 +178,13 @@ call_user_func(static function ($a, $b) { var_dump($a, $b); }, 1, 2);
             $complex = false;
 
             for ($newCallIndex = \count($newCallTokens) - 1; $newCallIndex >= 0; --$newCallIndex) {
-                if ($newCallTokens[$newCallIndex]->isGivenKind([T_WHITESPACE, T_COMMENT, T_DOC_COMMENT, T_VARIABLE])) {
+                if ($newCallTokens[$newCallIndex]->isGivenKind([\T_WHITESPACE, \T_COMMENT, \T_DOC_COMMENT, \T_VARIABLE])) {
                     continue;
                 }
 
                 $blockType = Tokens::detectBlockType($newCallTokens[$newCallIndex]);
 
-                if (null !== $blockType && (Tokens::BLOCK_TYPE_ARRAY_INDEX_CURLY_BRACE === $blockType['type'] || Tokens::BLOCK_TYPE_INDEX_SQUARE_BRACE === $blockType['type'])) {
+                if (null !== $blockType && (Tokens::BLOCK_TYPE_INDEX_BRACE === $blockType['type'] || Tokens::BLOCK_TYPE_INDEX_BRACKET === $blockType['type'])) {
                     $newCallIndex = $newCallTokens->findBlockStart($blockType['type'], $newCallIndex);
 
                     continue;
@@ -215,11 +211,11 @@ call_user_func(static function ($a, $b) { var_dump($a, $b); }, 1, 2);
         $afterFirstArgToken = $tokens[$afterFirstArgIndex];
 
         if ($afterFirstArgToken->equals(',')) {
-            $useEllipsis = $tokens[$callIndex]->equals([T_STRING, 'call_user_func_array'], false);
+            $useEllipsis = $tokens[$callIndex]->equals([\T_STRING, 'call_user_func_array'], false);
 
             if ($useEllipsis) {
                 $secondArgIndex = $tokens->getNextMeaningfulToken($afterFirstArgIndex);
-                $tokens->insertAt($secondArgIndex, new Token([T_ELLIPSIS, '...']));
+                $tokens->insertAt($secondArgIndex, new Token([\T_ELLIPSIS, '...']));
             }
 
             $tokens->clearAt($afterFirstArgIndex);
@@ -229,7 +225,7 @@ call_user_func(static function ($a, $b) { var_dump($a, $b); }, 1, 2);
         $tokens->overrideRange($callIndex, $callIndex, $newCallTokens);
         $prevIndex = $tokens->getPrevMeaningfulToken($callIndex);
 
-        if ($tokens[$prevIndex]->isGivenKind(T_NS_SEPARATOR)) {
+        if ($tokens[$prevIndex]->isGivenKind(\T_NS_SEPARATOR)) {
             $tokens->clearTokenAndMergeSurroundingWhitespace($prevIndex);
         }
     }
@@ -240,7 +236,6 @@ call_user_func(static function ($a, $b) { var_dump($a, $b); }, 1, 2);
         $subCollection = new Tokens($size);
 
         for ($i = 0; $i < $size; ++$i) {
-            /** @var Token $toClone */
             $toClone = $tokens[$i + $indexStart];
             $subCollection[$i] = clone $toClone;
         }

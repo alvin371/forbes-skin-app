@@ -16,6 +16,10 @@ namespace PhpCsFixer\FixerDefinition;
 
 /**
  * @author Andreas Möller <am@localheinz.com>
+ *
+ * @readonly
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class VersionSpecification implements VersionSpecificationInterface
 {
@@ -41,13 +45,11 @@ final class VersionSpecification implements VersionSpecificationInterface
             throw new \InvalidArgumentException('Minimum or maximum need to be specified.');
         }
 
-        // @phpstan-ignore-next-line
         if (null !== $minimum && 1 > $minimum) {
             throw new \InvalidArgumentException('Minimum needs to be either null or an integer greater than 0.');
         }
 
         if (null !== $maximum) {
-            // @phpstan-ignore-next-line
             if (1 > $maximum) {
                 throw new \InvalidArgumentException('Maximum needs to be either null or an integer greater than 0.');
             }
@@ -61,9 +63,6 @@ final class VersionSpecification implements VersionSpecificationInterface
         $this->maximum = $maximum;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isSatisfiedBy(int $version): bool
     {
         if (null !== $this->minimum && $version < $this->minimum) {

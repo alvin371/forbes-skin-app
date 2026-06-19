@@ -22,36 +22,30 @@ use PhpCsFixer\Tokenizer\Analyzer\ArgumentsAnalyzer;
 use PhpCsFixer\Tokenizer\Analyzer\FunctionsAnalyzer;
 use PhpCsFixer\Tokenizer\Tokens;
 
+/**
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
+ */
 final class NoUselessSprintfFixer extends AbstractFixer
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getDefinition(): FixerDefinitionInterface
     {
         return new FixerDefinition(
             'There must be no `sprintf` calls with only the first argument.',
             [
                 new CodeSample(
-                    "<?php\n\$foo = sprintf('bar');\n"
+                    "<?php\n\$foo = sprintf('bar');\n",
                 ),
             ],
             null,
-            'Risky when if the `sprintf` function is overridden.'
+            'Risky when if the `sprintf` function is overridden.',
         );
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isCandidate(Tokens $tokens): bool
     {
-        return $tokens->isTokenKindFound(T_STRING);
+        return $tokens->isTokenKindFound(\T_STRING);
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isRisky(): bool
     {
         return true;
@@ -60,23 +54,20 @@ final class NoUselessSprintfFixer extends AbstractFixer
     /**
      * {@inheritdoc}
      *
-     * Must run before MethodArgumentSpaceFixer, NativeFunctionCasingFixer, NoEmptyStatementFixer, NoExtraBlankLinesFixer, NoSpacesInsideParenthesisFixer.
+     * Must run before MethodArgumentSpaceFixer, NativeFunctionCasingFixer, NoEmptyStatementFixer, NoExtraBlankLinesFixer, NoSpacesInsideParenthesisFixer, SpacesInsideParenthesesFixer.
      */
     public function getPriority(): int
     {
         return 42;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     protected function applyFix(\SplFileInfo $file, Tokens $tokens): void
     {
         $functionAnalyzer = new FunctionsAnalyzer();
         $argumentsAnalyzer = new ArgumentsAnalyzer();
 
         for ($index = \count($tokens) - 1; $index > 0; --$index) {
-            if (!$tokens[$index]->isGivenKind(T_STRING)) {
+            if (!$tokens[$index]->isGivenKind(\T_STRING)) {
                 continue;
             }
 
@@ -90,11 +81,11 @@ final class NoUselessSprintfFixer extends AbstractFixer
 
             $openParenthesisIndex = $tokens->getNextTokenOfKind($index, ['(']);
 
-            if ($tokens[$tokens->getNextMeaningfulToken($openParenthesisIndex)]->isGivenKind(T_ELLIPSIS)) {
+            if ($tokens[$tokens->getNextMeaningfulToken($openParenthesisIndex)]->isGivenKind(\T_ELLIPSIS)) {
                 continue;
             }
 
-            $closeParenthesisIndex = $tokens->findBlockEnd(Tokens::BLOCK_TYPE_PARENTHESIS_BRACE, $openParenthesisIndex);
+            $closeParenthesisIndex = $tokens->findBlockEnd(Tokens::BLOCK_TYPE_PARENTHESIS, $openParenthesisIndex);
 
             if (1 !== $argumentsAnalyzer->countArguments($tokens, $openParenthesisIndex, $closeParenthesisIndex)) {
                 continue;
@@ -113,7 +104,7 @@ final class NoUselessSprintfFixer extends AbstractFixer
 
             $prevMeaningfulTokenIndex = $tokens->getPrevMeaningfulToken($index);
 
-            if ($tokens[$prevMeaningfulTokenIndex]->isGivenKind(T_NS_SEPARATOR)) {
+            if ($tokens[$prevMeaningfulTokenIndex]->isGivenKind(\T_NS_SEPARATOR)) {
                 $tokens->clearTokenAndMergeSurroundingWhitespace($prevMeaningfulTokenIndex);
             }
         }

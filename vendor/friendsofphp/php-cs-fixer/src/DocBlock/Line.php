@@ -20,8 +20,10 @@ use PhpCsFixer\Preg;
  * This represents a line of a docblock.
  *
  * @author Graham Campbell <hello@gjcampbell.co.uk>
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
-final class Line
+final class Line implements \Stringable
 {
     /**
      * The content of this line.
@@ -59,7 +61,7 @@ final class Line
      */
     public function containsUsefulContent(): bool
     {
-        return 0 !== Preg::match('/\\*\s*\S+/', $this->content) && '' !== trim(str_replace(['/', '*'], ' ', $this->content));
+        return Preg::match('/\*\s*\S+/', $this->content) && '' !== trim(str_replace(['/', '*'], ' ', $this->content));
     }
 
     /**
@@ -69,7 +71,7 @@ final class Line
      */
     public function containsATag(): bool
     {
-        return 0 !== Preg::match('/\\*\s*@/', $this->content);
+        return Preg::match('/\*\s*@/', $this->content);
     }
 
     /**
@@ -119,7 +121,7 @@ final class Line
     {
         $matched = Preg::match('/^(\h*\*)[^\r\n]*(\r?\n)$/', $this->content, $matches);
 
-        if (1 !== $matched) {
+        if (!$matched) {
             return;
         }
 

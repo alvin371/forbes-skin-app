@@ -16,8 +16,11 @@ namespace PhpCsFixer\Cache;
 
 /**
  * @author Andreas Möller <am@localheinz.com>
+ * @author Dariusz Rumiński <dariusz.ruminski@gmail.com>
  *
  * @internal
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class NullCacheManager implements CacheManagerInterface
 {
@@ -26,7 +29,7 @@ final class NullCacheManager implements CacheManagerInterface
         return true;
     }
 
-    public function setFile(string $file, string $fileContent): void
-    {
-    }
+    public function setFile(string $file, string $fileContent): void {}
+
+    public function setFileHash(string $file, string $hash): void {}
 }

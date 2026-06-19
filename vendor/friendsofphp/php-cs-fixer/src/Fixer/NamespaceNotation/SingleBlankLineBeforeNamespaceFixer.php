@@ -14,7 +14,9 @@ declare(strict_types=1);
 
 namespace PhpCsFixer\Fixer\NamespaceNotation;
 
-use PhpCsFixer\AbstractLinesBeforeNamespaceFixer;
+use PhpCsFixer\AbstractProxyFixer;
+use PhpCsFixer\Fixer\DeprecatedFixerInterface;
+use PhpCsFixer\Fixer\WhitespacesAwareFixerInterface;
 use PhpCsFixer\FixerDefinition\CodeSample;
 use PhpCsFixer\FixerDefinition\FixerDefinition;
 use PhpCsFixer\FixerDefinition\FixerDefinitionInterface;
@@ -22,12 +24,18 @@ use PhpCsFixer\Tokenizer\Tokens;
 
 /**
  * @author Graham Campbell <hello@gjcampbell.co.uk>
+ *
+ * @deprecated Use `blank_lines_before_namespace` with config: ['min_line_breaks' => 2, 'max_line_breaks' => 2] (default)
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
-final class SingleBlankLineBeforeNamespaceFixer extends AbstractLinesBeforeNamespaceFixer
+final class SingleBlankLineBeforeNamespaceFixer extends AbstractProxyFixer implements WhitespacesAwareFixerInterface, DeprecatedFixerInterface
 {
-    /**
-     * {@inheritdoc}
-     */
+    public function getSuccessorsNames(): array
+    {
+        return array_keys($this->proxyFixers);
+    }
+
     public function getDefinition(): FixerDefinitionInterface
     {
         return new FixerDefinition(
@@ -35,37 +43,35 @@ final class SingleBlankLineBeforeNamespaceFixer extends AbstractLinesBeforeNames
             [
                 new CodeSample("<?php  namespace A {}\n"),
                 new CodeSample("<?php\n\n\nnamespace A{}\n"),
-            ]
+            ],
         );
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isCandidate(Tokens $tokens): bool
     {
-        return $tokens->isTokenKindFound(T_NAMESPACE);
+        return $tokens->isTokenKindFound(\T_NAMESPACE);
     }
 
     /**
      * {@inheritdoc}
+     *
+     * Must run after HeaderCommentFixer.
      */
     public function getPriority(): int
     {
-        return -21;
+        return parent::getPriority();
     }
 
-    /**
-     * {@inheritdoc}
-     */
-    protected function applyFix(\SplFileInfo $file, Tokens $tokens): void
+    protected function createProxyFixers(): array
     {
-        for ($index = $tokens->count() - 1; $index >= 0; --$index) {
-            $token = $tokens[$index];
+        $blankLineBeforeNamespace = new BlankLinesBeforeNamespaceFixer();
+        $blankLineBeforeNamespace->configure([
+            'min_line_breaks' => 2,
+            'max_line_breaks' => 2,
+        ]);
 
-            if ($token->isGivenKind(T_NAMESPACE)) {
-                $this->fixLinesBeforeNamespace($tokens, $index, 2, 2);
-            }
-        }
+        return [
+            $blankLineBeforeNamespace,
+        ];
     }
 }

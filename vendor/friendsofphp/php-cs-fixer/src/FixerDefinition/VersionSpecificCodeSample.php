@@ -16,6 +16,10 @@ namespace PhpCsFixer\FixerDefinition;
 
 /**
  * @author Andreas Möller <am@localheinz.com>
+ *
+ * @readonly
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class VersionSpecificCodeSample implements VersionSpecificCodeSampleInterface
 {
@@ -35,25 +39,16 @@ final class VersionSpecificCodeSample implements VersionSpecificCodeSampleInterf
         $this->versionSpecification = $versionSpecification;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function getCode(): string
     {
         return $this->codeSample->getCode();
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function getConfiguration(): ?array
     {
         return $this->codeSample->getConfiguration();
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isSuitableFor(int $version): bool
     {
         return $this->versionSpecification->isSatisfiedBy($version);

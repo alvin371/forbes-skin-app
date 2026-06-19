@@ -19,7 +19,11 @@ use PhpCsFixer\Preg;
 use PhpCsFixer\Utils;
 
 /**
+ * @readonly
+ *
  * @internal
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class DocumentationLocator
 {
@@ -43,11 +47,9 @@ final class DocumentationLocator
     public function getFixerDocumentationFilePath(FixerInterface $fixer): string
     {
         return $this->getFixersDocumentationDirectoryPath().'/'.Preg::replaceCallback(
-            '/^.*\\\\(.+)\\\\(.+)Fixer$/',
-            static function (array $matches): string {
-                return Utils::camelCaseToUnderscore($matches[1]).'/'.Utils::camelCaseToUnderscore($matches[2]);
-            },
-            \get_class($fixer)
+            '/^.*\\\(.+)\\\(.+)Fixer$/',
+            static fn (array $matches): string => Utils::camelCaseToUnderscore($matches[1]).'/'.Utils::camelCaseToUnderscore($matches[2]),
+            \get_class($fixer),
         ).'.rst';
     }
 
@@ -56,7 +58,7 @@ final class DocumentationLocator
         return Preg::replace(
             '#^'.preg_quote($this->getFixersDocumentationDirectoryPath(), '#').'/#',
             '',
-            $this->getFixerDocumentationFilePath($fixer)
+            $this->getFixerDocumentationFilePath($fixer),
         );
     }
 
@@ -75,8 +77,8 @@ final class DocumentationLocator
         return $this->getRuleSetsDocumentationDirectoryPath().'/'.str_replace(':risky', 'Risky', ucfirst(substr($name, 1))).'.rst';
     }
 
-    public function getListingFilePath(): string
+    public function getUsageFilePath(): string
     {
-        return $this->path.'/list.rst';
+        return $this->path.'/usage.rst';
     }
 }

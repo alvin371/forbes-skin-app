@@ -4,6 +4,169 @@ All notable changes to this library will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.9.2](https://github.com/CodeIgniter/coding-standard/compare/v1.9.1...v1.9.2) - 2026-04-12
+
+- Bump to php-cs-fixer v3.95
+- Security harden the workflows
+
+## [v1.9.1](https://github.com/CodeIgniter/coding-standard/compare/v1.9.0...v1.9.1) - 2026-02-17
+
+- Set `other` option of `phpdoc_line_span` to `null` for now
+
+## [v1.9.0](https://github.com/CodeIgniter/coding-standard/compare/v1.8.9...v1.9.0) - 2026-02-17
+
+- Add new fixers of php-cs-fixer v3.93
+- Enable new options of `phpdoc_line_span`
+- Rename configs
+- Bump to PHP 8.2
+- Cleanup workflows
+
+## [v1.8.9](https://github.com/CodeIgniter/coding-standard/compare/v1.8.8...v1.8.9) - 2025-12-12
+
+- Bump dependencies
+
+## [v1.8.8](https://github.com/CodeIgniter/coding-standard/compare/v1.8.7...v1.8.8) - 2025-09-27
+
+- Add but disable`phpdoc_tag_no_named_arguments`
+- Add `modifier_keywords` fixer
+- Add `@const` to `phpdoc_no_alias_tag`
+
+## [v1.8.7](https://github.com/CodeIgniter/coding-standard/compare/v1.8.6...v1.8.7) - 2025-07-18
+
+- Enable `no_useless_printf` fixer
+
+## [v1.8.6](https://github.com/CodeIgniter/coding-standard/compare/v1.8.5...v1.8.6) - 2025-07-05
+
+- Bump to php-cs-fixer v3.76
+- Test on PHP 8.4
+
+## [v1.8.5](https://github.com/CodeIgniter/coding-standard/compare/v1.8.4...v1.8.5) - 2025-05-02
+
+- Enable `import_symbols` option in `fully_qualified_strict_types`
+- Fix `staticMethod.internalClass` error
+
+## [v1.8.4](https://github.com/CodeIgniter/coding-standard/compare/v1.8.3...v1.8.4) - 2025-02-23
+
+- Update badges
+- Enable `php_unit_data_provider_method_order` fixer
+- Bump php-cs-fixer to v3.70
+- Enable `modernize_stripos` option in `modernize_strpos` fixer
+
+## [v1.8.3](https://github.com/CodeIgniter/coding-standard/compare/v1.8.2...v1.8.3) - 2025-01-13
+
+- Bump to php-cs-fixer v3.67 and cs-config v3.25
+- Add `@phpstan-ignore` to ignored tags of `comment_to_phpdoc`
+- Add `general_attribute_remove` fixer
+- Enable `get_class_to_class_keyword`
+- Add more elements to `trailing_comma_in_multiline`
+
+## [v1.8.2](https://github.com/CodeIgniter/coding-standard/compare/v1.8.1...v1.8.2) - 2024-11-20
+
+- Add `case` to ordered_class_elements order
+- Bump to phpstan 2.0
+
+## [v1.8.1](https://github.com/CodeIgniter/coding-standard/compare/v1.8.0...v1.8.1) - 2024-08-05
+
+- Add `keep_annotations` option for `php_unit_attributes`
+- Add `php_unit_assert_new_names` fixer
+- Bump dependencies
+
+## [v1.8.0](https://github.com/CodeIgniter/coding-standard/compare/v1.7.16...v1.8.0) - 2024-06-16
+
+- Enable rules for PHP 8.1 (#20)
+
+## [v1.7.16](https://github.com/CodeIgniter/coding-standard/compare/v1.7.15...v1.7.16) - 2024-05-18
+
+- Disable `php_unit_attributes` for now
+- Fix cs-config to v3.18 for now
+- Disable `ordered_attributes` for PHP <8.0
+
+## [v1.7.15](https://github.com/CodeIgniter/coding-standard/compare/v1.7.14...v1.7.15) - 2024-03-24
+
+- Remove deprecated option of `nullable_type_declaration_for_default_null_value`
+
+## [v1.7.14](https://github.com/CodeIgniter/coding-standard/compare/v1.7.13...v1.7.14) - 2024-02-25
+
+- Bump php-cs-fixer to v3.49
+- Enable `string_implicit_backslashes` fixer
+- Add/remove property-read and property-write
+- Enable `phpdoc_list_type`
+- Bump to php-cs-fixer v3.50
+- Enable `allow_hidden_params` option
+- also align `@phpstan-type` and `@phpstan-var`
+- Enable `phpdoc_array_type`
+
+## [v1.7.13](https://github.com/CodeIgniter/coding-standard/compare/v1.7.12...v1.7.13) - 2024-01-27
+
+- Update GHA workflows
+- Bump to php-cs-fixer v3.47
+- Disable all new rules in v3.47
+- Apply new options to `phpdoc_align` fixer
+- Bump actions/cache from 3 to 4 (#17)
+
+## [v1.7.12](https://github.com/CodeIgniter/coding-standard/compare/v1.7.11...v1.7.12) - 2023-12-29
+
+- Bump php-cs-fixer to v3.43
+- Enable other options of `fully_qualified_strict_types`
+- Disable `class_keyword`
+- Disable option for `statement_indentation`
+- Use default for option of `unary_operator_spaces`
+
+## [v1.7.11](https://github.com/CodeIgniter/coding-standard/compare/v1.7.10...v1.7.11) - 2023-10-13
+
+- Bump to php-cs-fixer v3.35
+
+## [v1.7.10](https://github.com/CodeIgniter/coding-standard/compare/v1.7.9...v1.7.10) - 2023-10-01
+
+- Bump to php-cs-fixer v3.34
+- Bump to php-cs-fixer v3.30
+- Fix tag name in release
+
+## [v1.7.9](https://github.com/CodeIgniter/coding-standard/compare/v1.7.8...v1.7.9) - 2023-09-18
+
+- Update release.yml
+- Add `long_to_shorthand_operator` (#13)
+- Bump actions/checkout from 3 to 4 (#12)
+
+## [v1.7.8](https://github.com/CodeIgniter/coding-standard/compare/v1.7.7...v1.7.8) - 2023-08-30
+
+- Add `case_sensitive` option to order fixers
+
+## [v1.7.7](https://github.com/CodeIgniter/coding-standard/compare/v1.7.6...v1.7.7) - 2023-08-15
+
+- Specify force option for `php_unit_data_provider_static` fixer
+
+## [v1.7.6](https://github.com/CodeIgniter/coding-standard/compare/v1.7.5...v1.7.6) - 2023-08-15
+
+- Enable 'php_unit_data_provider_static'
+- Add new fixers in php-cs-fixer v3.23
+- Add `yield_from_array_to_yields`
+- Enable `php_unit_data_provider_name`
+- Use all available checked tokens for `no_extra_blank_lines`
+- Configure `php_unit_data_provider_return_type`
+- Remove parallel.timeout in phpstan.neon.dist
+
+## [v1.7.5](https://github.com/CodeIgniter/coding-standard/compare/v1.7.4...v1.7.5) - 2023-07-15
+
+- Configure new fixers in php-cs-fixer v3.20
+
+## [v1.7.4](https://github.com/CodeIgniter/coding-standard/compare/v1.7.3...v1.7.4) - 2023-06-19
+
+- Bump php-cs-fixer to v3.18
+- fix: ruleset deprecated on `v3.18` (#10)
+- Add case_sensitive option to ordered_class_elements
+- Add missing rules
+
+## [v1.7.3](https://github.com/CodeIgniter/coding-standard/compare/v1.7.2...v1.7.3) - 2023-05-05
+
+- Replace `single_space_after_construct` with `single_space_around_construct`
+- Remove deprecated `braces` rules
+- Bump php-cs-fixer to v3.16
+
+## [v1.7.2](https://github.com/CodeIgniter/coding-standard/compare/v1.7.1...v1.7.2) - 2023-03-05
+
+- Bump php-cs-fixer to v3.14
+
 ## [v1.7.1](https://github.com/CodeIgniter/coding-standard/compare/v1.7.0...v1.7.1) - 2022-12-22
 
 - Fix php-cs-fixer version to 3.13.0

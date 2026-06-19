@@ -25,45 +25,38 @@ use PhpCsFixer\Tokenizer\Tokens;
  * @author Carlos Cirello <carlos.cirello.nl@gmail.com>
  * @author Dariusz Rumiński <dariusz.ruminski@gmail.com>
  * @author Graham Campbell <hello@gjcampbell.co.uk>
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class NoMultilineWhitespaceAroundDoubleArrowFixer extends AbstractFixer
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getDefinition(): FixerDefinitionInterface
     {
         return new FixerDefinition(
             'Operator `=>` should not be surrounded by multi-line whitespaces.',
-            [new CodeSample("<?php\n\$a = array(1\n\n=> 2);\n")]
+            [new CodeSample("<?php\n\$a = array(1\n\n=> 2);\n")],
         );
     }
 
     /**
      * {@inheritdoc}
      *
-     * Must run before BinaryOperatorSpacesFixer, MethodArgumentSpaceFixer, TrailingCommaInMultilineFixer.
+     * Must run before BinaryOperatorSpacesFixer, MethodArgumentSpaceFixer.
      */
     public function getPriority(): int
     {
         return 31;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isCandidate(Tokens $tokens): bool
     {
-        return $tokens->isTokenKindFound(T_DOUBLE_ARROW);
+        return $tokens->isTokenKindFound(\T_DOUBLE_ARROW);
     }
 
-    /**
-     * {@inheritdoc}
-     */
     protected function applyFix(\SplFileInfo $file, Tokens $tokens): void
     {
         foreach ($tokens as $index => $token) {
-            if (!$token->isGivenKind(T_DOUBLE_ARROW)) {
+            if (!$token->isGivenKind(\T_DOUBLE_ARROW)) {
                 continue;
             }
 
@@ -83,7 +76,7 @@ final class NoMultilineWhitespaceAroundDoubleArrowFixer extends AbstractFixer
         $token = $tokens[$index];
 
         if ($token->isWhitespace() && !$token->isWhitespace(" \t")) {
-            $tokens[$index] = new Token([T_WHITESPACE, rtrim($token->getContent()).' ']);
+            $tokens[$index] = new Token([\T_WHITESPACE, rtrim($token->getContent()).' ']);
         }
     }
 }
