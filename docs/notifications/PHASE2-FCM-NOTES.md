@@ -1,5 +1,9 @@
 # Notification Module — Phase 2 (FCM Push) Notes
 
+> **Status update (2026-06-18):** Phases 1-5 are now all implemented. Push fires end-to-end
+> (dispatcher → outbox → cron worker → FCM). The live resume + remaining manual/ops actions
+> live in `docs/notifications/PHASE3-5-RESUME.md`. This file is kept as the original design record.
+
 Handoff notes for the next session. Phase 0 (refactor of the legacy in-app notification
 module) is **done and committed**. This document describes what remains: adding FCM push
 on top of the clean base.
