@@ -6,6 +6,7 @@
     "require": {
         "appolous/lazada-php-sdk": "1.6",
         "doctrine/annotations": "1.14.4",
+        "firebase/php-jwt": "^6.10",
         "google/apiclient": "^2.18",
         "illuminate/support": "v12.20.0",
         "kint-php/kint": "5.1.1",
