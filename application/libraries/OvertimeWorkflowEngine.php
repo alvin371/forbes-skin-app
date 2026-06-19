@@ -126,7 +126,8 @@ class OvertimeWorkflowEngine
         );
         $instanceId = $this->CI->OvertimeApprovalInstanceModel->insert($instanceData);
 
-        // Create approval steps
+        // Create approval steps, capturing each created id by step_no for deep-link routing.
+        $stepIds = array();
         foreach ($route['steps'] as $step) {
             $stepData = array(
                 'approval_instance_id' => $instanceId,
@@ -137,7 +138,7 @@ class OvertimeWorkflowEngine
                 'action' => 'PENDING',
                 'version' => 1,
             );
-            $this->CI->OvertimeApprovalStepModel->insert($stepData);
+            $stepIds[$step['step_no']] = (int) $this->CI->OvertimeApprovalStepModel->insert($stepData);
         }
 
         // Update overtime request
@@ -169,7 +170,8 @@ class OvertimeWorkflowEngine
             $this->CI->overtimenotificationservice->notifyApproverAssigned(
                 $firstStep['assigned_approver_id'],
                 $overtimeRequestId,
-                $request
+                $request,
+                $stepIds[$firstStep['step_no']] ?? null
             );
         }
 
@@ -332,7 +334,8 @@ class OvertimeWorkflowEngine
             $this->CI->overtimenotificationservice->notifyApproverAssigned(
                 $nextStep['assigned_approver_id'],
                 $overtimeRequestId,
-                $request
+                $request,
+                $nextStep['id']
             );
         }
 

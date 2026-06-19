@@ -49,7 +49,9 @@ class NotificationEvents
                     self::TYPE_INFO,
                     'leave_requests',
                     $ctx['leave_request_id'] ?? null,
-                    "approver_assigned_{$ctx['leave_request_id']}_{$ctx['approver_id']}"
+                    "approver_assigned_{$ctx['leave_request_id']}_{$ctx['approver_id']}",
+                    false,
+                    array('step_id' => $ctx['approval_step_id'] ?? null)
                 );
 
             case 'leave.approved':
@@ -166,7 +168,9 @@ class NotificationEvents
                     self::TYPE_INFO,
                     'overtime_requests',
                     $ctx['overtime_request_id'] ?? null,
-                    "overtime_approver_assigned_{$ctx['overtime_request_id']}_{$ctx['approver_id']}"
+                    "overtime_approver_assigned_{$ctx['overtime_request_id']}_{$ctx['approver_id']}",
+                    false,
+                    array('step_id' => $ctx['approval_step_id'] ?? null)
                 );
 
             case 'overtime.approved':
@@ -260,7 +264,7 @@ class NotificationEvents
      * @param bool $noPush When true, the dispatcher writes the in-app row but skips the push
      *                     channel — used for alerts about push itself failing (avoids a loop).
      */
-    private function payload($title, $message, $type, $relatedTable, $relatedId, $dedupeKey, $noPush = false)
+    private function payload($title, $message, $type, $relatedTable, $relatedId, $dedupeKey, $noPush = false, $extra = array())
     {
         return array(
             'title'         => $title,
@@ -270,6 +274,9 @@ class NotificationEvents
             'related_id'    => $relatedId,
             'dedupe_key'    => $dedupeKey,
             'no_push'       => $noPush,
+            // Extra routing keys merged into the push `data` (e.g. step_id for approver
+            // deep-links). Null values are dropped at enqueue time.
+            'extra'         => $extra,
         );
     }
 

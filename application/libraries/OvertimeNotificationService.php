@@ -27,10 +27,11 @@ class OvertimeNotificationService
     /**
      * Notify approver of a new pending overtime approval.
      */
-    public function notifyApproverAssigned($approverId, $overtimeRequestId, $request)
+    public function notifyApproverAssigned($approverId, $overtimeRequestId, $request, $stepId = null)
     {
         return $this->CI->notificationdispatcher->dispatch($approverId, 'overtime.approver_assigned', array(
             'overtime_request_id' => $overtimeRequestId,
+            'approval_step_id'    => $stepId,
             'approver_id'         => $approverId,
             'requester_name'      => $request['requester_name'] ?? null,
             'overtime_type_name'  => $request['overtime_type_name'] ?? null,

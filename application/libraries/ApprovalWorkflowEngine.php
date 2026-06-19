@@ -141,7 +141,8 @@ class ApprovalWorkflowEngine
         $this->db->insert('approval_instances', $instanceData);
         $instanceId = $this->db->insert_id();
 
-        // Create approval steps
+        // Create approval steps, capturing each created id by step_no for deep-link routing.
+        $stepIds = array();
         foreach ($route['steps'] as $step) {
             $stepData = array(
                 'approval_instance_id' => $instanceId,
@@ -155,6 +156,7 @@ class ApprovalWorkflowEngine
                 'updated_at' => date('Y-m-d H:i:s'),
             );
             $this->db->insert('approval_steps', $stepData);
+            $stepIds[$step['step_no']] = (int) $this->db->insert_id();
         }
 
         // Update leave request
@@ -187,7 +189,8 @@ class ApprovalWorkflowEngine
             $this->CI->notificationservice->notifyApproverAssigned(
                 $firstStep['assigned_approver_id'],
                 $leaveRequestId,
-                $request
+                $request,
+                $stepIds[$firstStep['step_no']] ?? null
             );
         }
 
@@ -355,7 +358,8 @@ class ApprovalWorkflowEngine
             $this->CI->notificationservice->notifyApproverAssigned(
                 $nextStep['assigned_approver_id'],
                 $leaveRequestId,
-                $request
+                $request,
+                $nextStep['id']
             );
         }
 
@@ -739,7 +743,8 @@ class ApprovalWorkflowEngine
         $this->db->insert('approval_instances', $instanceData);
         $instanceId = $this->db->insert_id();
 
-        // Create steps
+        // Create steps, capturing each created id by step_no for deep-link routing.
+        $stepIds = array();
         foreach ($resolvedSteps as $step) {
             $stepData = array(
                 'approval_instance_id' => $instanceId,
@@ -753,6 +758,7 @@ class ApprovalWorkflowEngine
                 'updated_at' => date('Y-m-d H:i:s'),
             );
             $this->db->insert('approval_steps', $stepData);
+            $stepIds[$step['step_no']] = (int) $this->db->insert_id();
         }
 
         // Update leave request
@@ -770,7 +776,8 @@ class ApprovalWorkflowEngine
             $this->CI->notificationservice->notifyApproverAssigned(
                 $resolvedSteps[0]['assigned_approver_id'],
                 $leaveRequestId,
-                $request
+                $request,
+                $stepIds[$resolvedSteps[0]['step_no']] ?? null
             );
         }
 
