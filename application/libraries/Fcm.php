@@ -139,13 +139,17 @@ class Fcm
     /**
      * Return a valid OAuth2 access token, minting + caching a new one when needed.
      *
+     * @param bool $forceRefresh Skip the disk cache and mint a fresh token (used by the
+     *                           health check and the stale-token recovery in send()).
      * @return string
      */
-    public function getAccessToken()
+    public function getAccessToken($forceRefresh = false)
     {
-        $cached = $this->readCachedToken();
-        if ($cached !== null) {
-            return $cached;
+        if (!$forceRefresh) {
+            $cached = $this->readCachedToken();
+            if ($cached !== null) {
+                return $cached;
+            }
         }
 
         $now = time();
@@ -207,6 +211,10 @@ class Fcm
      */
     public function send($token, $title, $body, array $data = array())
     {
+        // Note whether we're about to send on a cached token: if a cached token is rejected
+        // (401/403) it may simply be stale, so we get one shot to bust it and mint fresh.
+        $usedCache = ($this->readCachedToken() !== null);
+
         try {
             $accessToken = $this->getAccessToken();
         } catch (Exception $e) {
@@ -232,25 +240,21 @@ class Fcm
             $message['message']['data'] = $stringData;
         }
 
-        $url = 'https://fcm.googleapis.com/v1/projects/' . $this->projectId . '/messages:send';
+        list($response, $httpCode, $err) = $this->postMessage($accessToken, $message);
 
-        $curl = curl_init();
-        curl_setopt_array($curl, array(
-            CURLOPT_URL            => $url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 30,
-            CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
-            CURLOPT_CUSTOMREQUEST  => 'POST',
-            CURLOPT_POSTFIELDS     => json_encode($message),
-            CURLOPT_HTTPHEADER     => array(
-                'Content-Type: application/json',
-                'Authorization: Bearer ' . $accessToken,
-            ),
-        ));
-        $response = curl_exec($curl);
-        $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-        $err = curl_error($curl);
-        curl_close($curl);
+        // Stale cached token recovery: a cached bearer can be rejected as expired even though
+        // the SA is fine. Bust the cache, mint a genuinely fresh token, and retry once. Only
+        // when the rejected token came from cache, so a truly-bad SA still fails fast (below).
+        if (($httpCode === 401 || $httpCode === 403) && $usedCache) {
+            $this->clearCachedToken();
+            try {
+                $accessToken = $this->getAccessToken(true);
+            } catch (Exception $e) {
+                log_message('error', 'FCM auth failure (forced re-mint): ' . $e->getMessage());
+                return $this->result('error', true, false, 0, $e->getMessage(), true);
+            }
+            list($response, $httpCode, $err) = $this->postMessage($accessToken, $message);
+        }
 
         if ($err) {
             return $this->result('error', true, false, 0, 'cURL Error: ' . $err);
@@ -269,8 +273,10 @@ class Fcm
         }
 
         // 401/403 = FCM auth rejected the credentials (SA disabled / wrong project / missing
-        // scope). Retryable in case it's a stale cached token, and flagged auth to alert.
+        // scope), and a fresh-minted token didn't help. Drop any cache so the next attempt
+        // re-mints, mark retryable in case it's transient, and flag auth so admins are alerted.
         if ($httpCode === 401 || $httpCode === 403) {
+            $this->clearCachedToken();
             log_message('error', 'FCM auth failure (HTTP ' . $httpCode . '): ' . ($fcmError ?: $response));
             return $this->result('error', true, false, $httpCode, 'FCM auth rejected: ' . ($fcmError ?: $response), true);
         }
@@ -282,6 +288,40 @@ class Fcm
 
         // Other 4xx (bad request) -> not retryable, do not revoke.
         return $this->result('error', false, false, $httpCode, 'FCM error (HTTP ' . $httpCode . '): ' . ($fcmError ?: $response));
+    }
+
+    /**
+     * POST one built message to the FCM v1 endpoint with the given bearer token.
+     * Pure transport, no classification — returns the raw [body, http_code, curl_error]
+     * so send() can decide (and retry) once on a stale token.
+     *
+     * @param string $accessToken
+     * @param array  $message
+     * @return array [string|false $response, int $httpCode, string $err]
+     */
+    private function postMessage($accessToken, array $message)
+    {
+        $url = 'https://fcm.googleapis.com/v1/projects/' . $this->projectId . '/messages:send';
+
+        $curl = curl_init();
+        curl_setopt_array($curl, array(
+            CURLOPT_URL            => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST  => 'POST',
+            CURLOPT_POSTFIELDS     => json_encode($message),
+            CURLOPT_HTTPHEADER     => array(
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $accessToken,
+            ),
+        ));
+        $response = curl_exec($curl);
+        $httpCode = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        $err = curl_error($curl);
+        curl_close($curl);
+
+        return array($response, $httpCode, $err);
     }
 
     private function result($status, $retryable, $revoke, $httpCode, $msg, $auth = false)
@@ -327,6 +367,18 @@ class Fcm
         // Restrictive perms: the cache holds a live bearer token.
         if (@file_put_contents($this->tokenCachePath, $payload, LOCK_EX) !== false) {
             @chmod($this->tokenCachePath, 0600);
+        }
+    }
+
+    /**
+     * Drop the cached bearer token so the next getAccessToken() mints a fresh one.
+     * Called when FCM rejects a cached token (401/403) — recovers from a stale cache
+     * without any manual file deletion on the server.
+     */
+    private function clearCachedToken()
+    {
+        if (is_file($this->tokenCachePath)) {
+            @unlink($this->tokenCachePath);
         }
     }
 }
