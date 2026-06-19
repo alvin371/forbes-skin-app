@@ -31,50 +31,43 @@ class EndorseOptimizationSheet
     public function buildRows(array $filters): array
     {
         $db = $this->CI->db;
+        // Columns are qualified with the `e.` alias inline (the query JOINs user/campaign),
+        // so escaped literal values are never touched by alias rewriting.
         $where = " WHERE 1=1 ";
 
         if (!empty($filters['id_campaign'])) {
-            $where .= " AND id_campaign = '" . $db->escape_str($filters['id_campaign']) . "' ";
+            $where .= " AND e.id_campaign = '" . $db->escape_str($filters['id_campaign']) . "' ";
         }
 
         // Default to optimization rows unless explicitly overridden with ''.
         if (isset($filters['is_optimization']) && $filters['is_optimization'] !== '') {
             $flag = $filters['is_optimization'] == '1' ? '1' : '0';
-            $where .= " AND is_optimization = '$flag' ";
+            $where .= " AND e.is_optimization = '$flag' ";
         } else {
-            $where .= " AND is_optimization = '1' ";
+            $where .= " AND e.is_optimization = '1' ";
         }
 
         if (!empty($filters['optimization_status'])) {
-            $where .= " AND optimization_status = '" . $db->escape_str($filters['optimization_status']) . "' ";
+            $where .= " AND e.optimization_status = '" . $db->escape_str($filters['optimization_status']) . "' ";
         }
         if (!empty($filters['platform'])) {
-            $where .= " AND platform = '" . $db->escape_str($filters['platform']) . "' ";
+            $where .= " AND e.platform = '" . $db->escape_str($filters['platform']) . "' ";
         }
         if (!empty($filters['request_by'])) {
-            $where .= " AND request_by LIKE '%" . $db->escape_str($filters['request_by']) . "%' ";
+            $where .= " AND e.request_by LIKE '%" . $db->escape_str($filters['request_by']) . "%' ";
         }
         if (!empty($filters['device'])) {
-            $where .= " AND device LIKE '%" . $db->escape_str($filters['device']) . "%' ";
+            $where .= " AND e.device LIKE '%" . $db->escape_str($filters['device']) . "%' ";
         }
         if (!empty($filters['media_type'])) {
-            $where .= " AND tiktok_media_type = '" . $db->escape_str($filters['media_type']) . "' ";
+            $where .= " AND e.tiktok_media_type = '" . $db->escape_str($filters['media_type']) . "' ";
         }
         if (!empty($filters['start_date']) && !empty($filters['until_date'])) {
             $sd = $db->escape_str($filters['start_date']);
             $ud = $db->escape_str($filters['until_date']);
-            $where .= " AND ( (request_date IS NOT NULL AND request_date BETWEEN '$sd' AND '$ud')
-                          OR (request_date IS NULL AND DATE(created_at) BETWEEN '$sd' AND '$ud') ) ";
+            $where .= " AND ( (e.request_date IS NOT NULL AND e.request_date BETWEEN '$sd' AND '$ud')
+                          OR (e.request_date IS NULL AND DATE(e.created_at) BETWEEN '$sd' AND '$ud') ) ";
         }
-
-        // `$where` is built above against the endorse table; qualify it for the JOIN aliases.
-        $where_e = str_replace(
-            ['id_campaign', 'is_optimization', 'optimization_status', 'platform', 'request_by',
-             'device', 'tiktok_media_type', 'request_date', 'created_at'],
-            ['e.id_campaign', 'e.is_optimization', 'e.optimization_status', 'e.platform', 'e.request_by',
-             'e.device', 'e.tiktok_media_type', 'e.request_date', 'e.created_at'],
-            $where
-        );
 
         $rows = $this->CI->mymodel->selectWithQuery("
             SELECT e.request_date, e.created_at, e.pic, e.link_upload, e.platform, e.request_by, e.device,
@@ -90,7 +83,7 @@ class EndorseOptimizationSheet
             FROM endorse e
             LEFT JOIN user u ON u.id = e.created_by
             LEFT JOIN endorse_campaign c ON c.id = e.id_campaign
-            $where_e
+            $where
             ORDER BY e.id DESC
         ");
 
