@@ -33,9 +33,7 @@ application/cache/sessions/*
 !CLAUDE.md
 docs/
 
-# Test files
-tests/
-phpunit.xml
+# Test cache
 .phpunit.result.cache
 
 # CI/CD
