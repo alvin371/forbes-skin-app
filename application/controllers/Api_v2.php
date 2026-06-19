@@ -8138,7 +8138,7 @@ class Api_v2 extends CI_Controller
         try {
             $this->load->library('fcm');
             $info = $this->fcm->describe();
-            $this->fcm->getAccessToken(); // real round-trip to Google
+            $this->fcm->getAccessToken(true); // force a fresh mint — a cached token can pass while the SA is broken
 
             echo json_encode(array(
                 'ok'           => true,
