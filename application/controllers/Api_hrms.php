@@ -22,6 +22,7 @@ class Api_hrms extends CI_Controller
         $this->load->model('ApprovalRouteModel');
         $this->load->model('ApprovalStepModel');
         $this->load->model('LeaveLedgerModel');
+        $this->load->model('DeviceTokenModel');
         $this->load->model('Performance_model');
         $this->load->library('AttendanceEligibilityService');
         $this->load->library('LeaveCalculatorService');
@@ -2121,6 +2122,83 @@ class Api_hrms extends CI_Controller
             $payload = $this->input->post(NULL, true);
         }
         return is_array($payload) ? $payload : array();
+    }
+
+    /**
+     * Device push-token registration (FCM Phase 1).
+     *
+     *   POST   /api/hrms/devices  body {token, platform, app_version?}  -> upsert
+     *   DELETE /api/hrms/devices  body {token}                          -> revoke
+     *
+     * JWT-authenticated (reuses require_user()). One route, method-branched, matching
+     * the 405 pattern used throughout this controller. The push channel reads these
+     * tokens at send time and revokes any FCM reports dead.
+     */
+    public function devices()
+    {
+        $method = $this->input->method(TRUE);
+
+        if ($method === 'POST') {
+            return $this->devices_register();
+        }
+        if ($method === 'DELETE') {
+            return $this->devices_unregister();
+        }
+
+        return $this->respond(405, array('message' => 'Method not allowed'));
+    }
+
+    private function devices_register()
+    {
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        $payload = $this->json_input();
+        $token = trim((string) ($payload['token'] ?? ''));
+        $platform = strtolower(trim((string) ($payload['platform'] ?? '')));
+        $appVersion = isset($payload['app_version']) ? trim((string) $payload['app_version']) : null;
+
+        $errors = array();
+        if ($token === '' || strlen($token) > 255) {
+            $errors['token'] = 'Token is required and must be at most 255 characters.';
+        }
+        if (!in_array($platform, array('android', 'ios', 'web'), true)) {
+            $errors['platform'] = 'Platform must be one of: android, ios, web.';
+        }
+        if ($appVersion !== null && strlen($appVersion) > 30) {
+            $errors['app_version'] = 'App version must be at most 30 characters.';
+        }
+        if (!empty($errors)) {
+            return $this->respond(422, array('message' => 'Validation failed.', 'errors' => $errors));
+        }
+
+        $ok = $this->DeviceTokenModel->upsert((int) $user['id'], $token, $platform, $appVersion);
+        if (!$ok) {
+            return $this->respond(500, array('message' => 'Failed to register device token.'));
+        }
+
+        return $this->respond(200, array('ok' => true));
+    }
+
+    private function devices_unregister()
+    {
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        $payload = $this->json_input();
+        $token = trim((string) ($payload['token'] ?? ''));
+        if ($token === '') {
+            return $this->respond(422, array('message' => 'Validation failed.', 'errors' => array('token' => 'Token is required.')));
+        }
+
+        $this->DeviceTokenModel->revokeByToken($token);
+
+        // Idempotent: a token that was never registered or already revoked still 200s.
+        return $this->respond(200, array('ok' => true));
     }
 
     private function respond($statusCode, $payload)
