@@ -36,10 +36,11 @@ class NotificationService
     /**
      * Notify approver of a new pending approval.
      */
-    public function notifyApproverAssigned($approverId, $leaveRequestId, $request)
+    public function notifyApproverAssigned($approverId, $leaveRequestId, $request, $stepId = null)
     {
         return $this->CI->notificationdispatcher->dispatch($approverId, 'leave.approver_assigned', array(
             'leave_request_id' => $leaveRequestId,
+            'approval_step_id' => $stepId,
             'approver_id'      => $approverId,
             'requester_name'   => $request['requester_name'] ?? null,
             'leave_type_name'  => $request['leave_type_name'] ?? null,

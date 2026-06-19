@@ -42,6 +42,14 @@ class PushChannel
             'related_id'    => $event['related_id'] ?? null,
         );
 
+        // Extra routing keys (e.g. step_id for approver deep-links). Drop nulls so the push
+        // data stays minimal; never clobber the core keys above.
+        foreach (($event['extra'] ?? array()) as $k => $v) {
+            if ($v !== null && !isset($data[$k])) {
+                $data[$k] = $v;
+            }
+        }
+
         return $this->CI->NotificationOutboxModel->enqueue(
             (int) $userId,
             $event['event_key'] ?? null,
