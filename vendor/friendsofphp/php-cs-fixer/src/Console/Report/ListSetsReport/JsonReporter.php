@@ -14,33 +14,29 @@ declare(strict_types=1);
 
 namespace PhpCsFixer\Console\Report\ListSetsReport;
 
-use PhpCsFixer\RuleSet\RuleSetDescriptionInterface;
+use PhpCsFixer\RuleSet\RuleSetDefinitionInterface;
 
 /**
  * @author Dariusz Rumiński <dariusz.ruminski@gmail.com>
  *
+ * @readonly
+ *
  * @internal
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class JsonReporter implements ReporterInterface
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getFormat(): string
     {
         return 'json';
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function generate(ReportSummary $reportSummary): string
     {
         $sets = $reportSummary->getSets();
 
-        usort($sets, static function (RuleSetDescriptionInterface $a, RuleSetDescriptionInterface $b): int {
-            return strcmp($a->getName(), $b->getName());
-        });
+        usort($sets, static fn (RuleSetDefinitionInterface $a, RuleSetDefinitionInterface $b): int => $a->getName() <=> $b->getName());
 
         $json = ['sets' => []];
 
@@ -53,6 +49,6 @@ final class JsonReporter implements ReporterInterface
             ];
         }
 
-        return json_encode($json, JSON_PRETTY_PRINT);
+        return json_encode($json, \JSON_THROW_ON_ERROR | \JSON_PRETTY_PRINT);
     }
 }

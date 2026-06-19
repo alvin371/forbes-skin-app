@@ -21,16 +21,16 @@ use PhpCsFixer\FixerDefinition\FixerDefinitionInterface;
 use PhpCsFixer\Tokenizer\Token;
 use PhpCsFixer\Tokenizer\Tokens;
 
+/**
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
+ */
 final class SemicolonAfterInstructionFixer extends AbstractFixer
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getDefinition(): FixerDefinitionInterface
     {
         return new FixerDefinition(
             'Instructions must be terminated with a semicolon.',
-            [new CodeSample("<?php echo 1 ?>\n")]
+            [new CodeSample("<?php echo 1 ?>\n")],
         );
     }
 
@@ -44,26 +44,20 @@ final class SemicolonAfterInstructionFixer extends AbstractFixer
         return 2;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isCandidate(Tokens $tokens): bool
     {
-        return $tokens->isTokenKindFound(T_CLOSE_TAG);
+        return $tokens->isTokenKindFound(\T_CLOSE_TAG);
     }
 
-    /**
-     * {@inheritdoc}
-     */
     protected function applyFix(\SplFileInfo $file, Tokens $tokens): void
     {
         for ($index = \count($tokens) - 1; $index > 1; --$index) {
-            if (!$tokens[$index]->isGivenKind(T_CLOSE_TAG)) {
+            if (!$tokens[$index]->isGivenKind(\T_CLOSE_TAG)) {
                 continue;
             }
 
             $prev = $tokens->getPrevMeaningfulToken($index);
-            if ($tokens[$prev]->equalsAny([';', '{', '}', ':', [T_OPEN_TAG]])) {
+            if ($tokens[$prev]->equalsAny([';', '{', '}', ':', [\T_OPEN_TAG]])) {
                 continue;
             }
 

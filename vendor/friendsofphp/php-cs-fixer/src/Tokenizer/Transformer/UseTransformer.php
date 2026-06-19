@@ -16,6 +16,7 @@ namespace PhpCsFixer\Tokenizer\Transformer;
 
 use PhpCsFixer\Tokenizer\AbstractTransformer;
 use PhpCsFixer\Tokenizer\CT;
+use PhpCsFixer\Tokenizer\FCT;
 use PhpCsFixer\Tokenizer\Token;
 use PhpCsFixer\Tokenizer\Tokens;
 
@@ -27,32 +28,27 @@ use PhpCsFixer\Tokenizer\Tokens;
  * @author Dariusz Rumiński <dariusz.ruminski@gmail.com>
  *
  * @internal
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class UseTransformer extends AbstractTransformer
 {
-    /**
-     * {@inheritdoc}
-     */
+    private const CLASS_TYPES = [\T_TRAIT, FCT::T_ENUM];
+
     public function getPriority(): int
     {
         // Should run after CurlyBraceTransformer and before TypeColonTransformer
         return -5;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function getRequiredPhpVersionId(): int
     {
-        return 50300;
+        return 5_03_00;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function process(Tokens $tokens, Token $token, int $index): void
     {
-        if ($token->isGivenKind(T_USE) && $this->isUseForLambda($tokens, $index)) {
+        if ($token->isGivenKind(\T_USE) && $this->isUseForLambda($tokens, $index)) {
             $tokens[$index] = new Token([CT::T_USE_LAMBDA, $token->getContent()]);
 
             return;
@@ -61,27 +57,21 @@ final class UseTransformer extends AbstractTransformer
         // Only search inside class/trait body for `T_USE` for traits.
         // Cannot import traits inside interfaces or anywhere else
 
-        $classTypes = [T_TRAIT];
-
-        if (\defined('T_ENUM')) { // @TODO: drop condition when PHP 8.1+ is required
-            $classTypes[] = T_ENUM;
-        }
-
-        if ($token->isGivenKind(T_CLASS)) {
-            if ($tokens[$tokens->getPrevMeaningfulToken($index)]->isGivenKind(T_DOUBLE_COLON)) {
+        if ($token->isGivenKind(\T_CLASS)) {
+            if ($tokens[$tokens->getPrevMeaningfulToken($index)]->isGivenKind(\T_DOUBLE_COLON)) {
                 return;
             }
-        } elseif (!$token->isGivenKind($classTypes)) {
+        } elseif (!$token->isGivenKind(self::CLASS_TYPES)) {
             return;
         }
 
         $index = $tokens->getNextTokenOfKind($index, ['{']);
-        $innerLimit = $tokens->findBlockEnd(Tokens::BLOCK_TYPE_CURLY_BRACE, $index);
+        $innerLimit = $tokens->findBlockEnd(Tokens::BLOCK_TYPE_BRACE, $index);
 
         while ($index < $innerLimit) {
             $token = $tokens[++$index];
 
-            if (!$token->isGivenKind(T_USE)) {
+            if (!$token->isGivenKind(\T_USE)) {
                 continue;
             }
 
@@ -93,9 +83,6 @@ final class UseTransformer extends AbstractTransformer
         }
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function getCustomTokens(): array
     {
         return [CT::T_USE_TRAIT, CT::T_USE_LAMBDA];

@@ -16,7 +16,7 @@ namespace PhpCsFixer\Console\Command;
 
 use PhpCsFixer\FixerConfiguration\AllowedValueSubset;
 use PhpCsFixer\FixerConfiguration\FixerOptionInterface;
-use PhpCsFixer\Preg;
+use PhpCsFixer\Utils;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\HelpCommand as BaseHelpCommand;
 use Symfony\Component\Console\Formatter\OutputFormatterStyle;
@@ -28,39 +28,41 @@ use Symfony\Component\Console\Output\OutputInterface;
  * @author Dariusz Rumiński <dariusz.ruminski@gmail.com>
  *
  * @internal
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 #[AsCommand(name: 'help')]
 final class HelpCommand extends BaseHelpCommand
 {
-    /**
-     * @var string
-     */
-    protected static $defaultName = 'help';
+    public function __construct()
+    {
+        parent::__construct('help');
+    }
 
     /**
-     * @param mixed $value
+     * Formats the description of an option to include its allowed values.
+     *
+     * @param string                 $description   description with a single `%s` placeholder for the allowed values
+     * @param non-empty-list<string> $allowedValues
      */
-    public static function toString($value): string
+    public static function getDescriptionWithAllowedValues(string $description, array $allowedValues): string
     {
-        return \is_array($value)
-            ? static::arrayToString($value)
-            : static::scalarToString($value)
-        ;
+        $allowedValues = Utils::naturalLanguageJoinWithBackticks($allowedValues, 'or');
+
+        return \sprintf($description, 'can be '.$allowedValues);
     }
 
     /**
      * Returns the allowed values of the given option that can be converted to a string.
      *
-     * @return null|list<AllowedValueSubset|mixed>
+     * @return null|non-empty-list<AllowedValueSubset|mixed>
      */
     public static function getDisplayableAllowedValues(FixerOptionInterface $option): ?array
     {
         $allowed = $option->getAllowedValues();
 
         if (null !== $allowed) {
-            $allowed = array_filter($allowed, static function ($value): bool {
-                return !$value instanceof \Closure;
-            });
+            $allowed = array_filter($allowed, static fn ($value): bool => !$value instanceof \Closure);
 
             usort($allowed, static function ($valueA, $valueB): int {
                 if ($valueA instanceof AllowedValueSubset) {
@@ -72,8 +74,8 @@ final class HelpCommand extends BaseHelpCommand
                 }
 
                 return strcasecmp(
-                    self::toString($valueA),
-                    self::toString($valueB)
+                    Utils::toString($valueA),
+                    Utils::toString($valueB),
                 );
             });
 
@@ -85,47 +87,8 @@ final class HelpCommand extends BaseHelpCommand
         return $allowed;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     protected function initialize(InputInterface $input, OutputInterface $output): void
     {
         $output->getFormatter()->setStyle('url', new OutputFormatterStyle('blue'));
-    }
-
-    /**
-     * @param mixed $value
-     */
-    private static function scalarToString($value): string
-    {
-        $str = var_export($value, true);
-
-        return Preg::replace('/\bNULL\b/', 'null', $str);
-    }
-
-    /**
-     * @param array<mixed> $value
-     */
-    private static function arrayToString(array $value): string
-    {
-        if (0 === \count($value)) {
-            return '[]';
-        }
-
-        $isHash = !array_is_list($value);
-        $str = '[';
-
-        foreach ($value as $k => $v) {
-            if ($isHash) {
-                $str .= static::scalarToString($k).' => ';
-            }
-
-            $str .= \is_array($v)
-                ? static::arrayToString($v).', '
-                : static::scalarToString($v).', '
-            ;
-        }
-
-        return substr($str, 0, -2).']';
     }
 }

@@ -22,48 +22,49 @@ use PhpCsFixer\Preg;
 use PhpCsFixer\Tokenizer\Token;
 use PhpCsFixer\Tokenizer\Tokens;
 
+/**
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
+ */
 final class IntegerLiteralCaseFixer extends AbstractFixer
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getDefinition(): FixerDefinitionInterface
     {
         return new FixerDefinition(
             'Integer literals must be in correct case.',
             [
                 new CodeSample(
-                    "<?php\n\$foo = 0Xff;\n\$bar = 0B11111111;\n"
+                    "<?php\n\$foo = 0Xff;\n\$bar = 0B11111111;\n",
                 ),
-            ]
+            ],
         );
     }
 
     public function isCandidate(Tokens $tokens): bool
     {
-        return $tokens->isTokenKindFound(T_LNUMBER);
+        return $tokens->isTokenKindFound(\T_LNUMBER);
     }
 
     protected function applyFix(\SplFileInfo $file, Tokens $tokens): void
     {
         foreach ($tokens as $index => $token) {
-            if (!$token->isGivenKind(T_LNUMBER)) {
+            if (!$token->isGivenKind(\T_LNUMBER)) {
                 continue;
             }
 
             $content = $token->getContent();
 
-            if (1 !== Preg::match('#^0[bxoBXO][0-9a-fA-F]+$#', $content)) {
-                continue;
-            }
-
-            $newContent = '0'.strtolower($content[1]).strtoupper(substr($content, 2));
+            $newContent = Preg::replaceCallback(
+                '#^0([boxBOX])([0-9a-fA-F_]+)$#',
+                // @phpstan-ignore-next-line offsetAccess.notFound
+                static fn (array $matches): string => '0'.strtolower($matches[1]).strtoupper($matches[2]),
+                $content,
+            );
 
             if ($content === $newContent) {
                 continue;
             }
 
-            $tokens[$index] = new Token([T_LNUMBER, $newContent]);
+            $tokens[$index] = new Token([\T_LNUMBER, $newContent]);
         }
     }
 }

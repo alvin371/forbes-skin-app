@@ -22,24 +22,27 @@ use PhpCsFixer\Tokenizer\Tokens;
 
 /**
  * @author Javier Spagnoletti <phansys@gmail.com>
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class NotOperatorWithSuccessorSpaceFixer extends AbstractFixer
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getDefinition(): FixerDefinitionInterface
     {
         return new FixerDefinition(
             'Logical NOT operators (`!`) should have one trailing whitespace.',
-            [new CodeSample(
-                '<?php
+            [
+                new CodeSample(
+                    <<<'PHP'
+                        <?php
 
-if (!$bar) {
-    echo "Help!";
-}
-'
-            )]
+                        if (!$bar) {
+                            echo "Help!";
+                        }
+
+                        PHP,
+                ),
+            ],
         );
     }
 
@@ -53,17 +56,11 @@ if (!$bar) {
         return -10;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isCandidate(Tokens $tokens): bool
     {
         return $tokens->isTokenKindFound('!');
     }
 
-    /**
-     * {@inheritdoc}
-     */
     protected function applyFix(\SplFileInfo $file, Tokens $tokens): void
     {
         for ($index = $tokens->count() - 1; $index >= 0; --$index) {

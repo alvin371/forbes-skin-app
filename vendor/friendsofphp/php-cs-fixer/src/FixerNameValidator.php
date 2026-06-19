@@ -18,15 +18,17 @@ namespace PhpCsFixer;
  * @author Dariusz Rumiński <dariusz.ruminski@gmail.com>
  *
  * @internal
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class FixerNameValidator
 {
     public function isValid(string $name, bool $isCustom): bool
     {
         if (!$isCustom) {
-            return 1 === Preg::match('/^[a-z][a-z0-9_]*$/', $name);
+            return Preg::match('/^[a-z][a-z0-9_]*$/', $name);
         }
 
-        return 1 === Preg::match('/^[A-Z][a-zA-Z0-9]*\/[a-z][a-z0-9_]*$/', $name);
+        return Preg::match('/^[A-Z][a-zA-Z0-9]*\/[a-z][a-z0-9_]*$/', $name);
     }
 }

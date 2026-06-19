@@ -19,13 +19,15 @@ use PhpCsFixer\Fixer\WhitespacesAwareFixerInterface;
 use PhpCsFixer\FixerDefinition\CodeSample;
 use PhpCsFixer\FixerDefinition\FixerDefinition;
 use PhpCsFixer\FixerDefinition\FixerDefinitionInterface;
+use PhpCsFixer\Tokenizer\Analyzer\WhitespacesAnalyzer;
 use PhpCsFixer\Tokenizer\CT;
-use PhpCsFixer\Tokenizer\Token;
 use PhpCsFixer\Tokenizer\Tokens;
 use PhpCsFixer\Tokenizer\TokensAnalyzer;
 
 /**
  * @author Sander Verkuil <s.verkuil@pm.me>
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class BlankLineBetweenImportGroupsFixer extends AbstractFixer implements WhitespacesAwareFixerInterface
 {
@@ -35,56 +37,61 @@ final class BlankLineBetweenImportGroupsFixer extends AbstractFixer implements W
 
     private const IMPORT_TYPE_FUNCTION = 'function';
 
-    /**
-     * {@inheritdoc}
-     */
     public function getDefinition(): FixerDefinitionInterface
     {
         return new FixerDefinition(
             'Putting blank lines between `use` statement groups.',
             [
                 new CodeSample(
-                    '<?php
+                    <<<'PHP'
+                        <?php
 
-use function AAC;
-use const AAB;
-use AAA;
-'
+                        use function AAC;
+                        use const AAB;
+                        use AAA;
+
+                        PHP,
                 ),
                 new CodeSample(
-                    '<?php
-use const AAAA;
-use const BBB;
-use Bar;
-use AAC;
-use Acme;
-use function CCC\AA;
-use function DDD;
-'
+                    <<<'PHP'
+                        <?php
+                        use const AAAA;
+                        use const BBB;
+                        use Bar;
+                        use AAC;
+                        use Acme;
+                        use function CCC\AA;
+                        use function DDD;
+
+                        PHP,
                 ),
                 new CodeSample(
-                    '<?php
-use const BBB;
-use const AAAA;
-use Acme;
-use AAC;
-use Bar;
-use function DDD;
-use function CCC\AA;
-'
+                    <<<'PHP'
+                        <?php
+                        use const BBB;
+                        use const AAAA;
+                        use Acme;
+                        use AAC;
+                        use Bar;
+                        use function DDD;
+                        use function CCC\AA;
+
+                        PHP,
                 ),
                 new CodeSample(
-                    '<?php
-use const AAAA;
-use const BBB;
-use Acme;
-use function DDD;
-use AAC;
-use function CCC\AA;
-use Bar;
-'
+                    <<<'PHP'
+                        <?php
+                        use const AAAA;
+                        use const BBB;
+                        use Acme;
+                        use function DDD;
+                        use AAC;
+                        use function CCC\AA;
+                        use Bar;
+
+                        PHP,
                 ),
-            ]
+            ],
         );
     }
 
@@ -98,17 +105,11 @@ use Bar;
         return -40;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isCandidate(Tokens $tokens): bool
     {
-        return $tokens->isTokenKindFound(T_USE);
+        return $tokens->isTokenKindFound(\T_USE);
     }
 
-    /**
-     * {@inheritdoc}
-     */
     protected function applyFix(\SplFileInfo $file, Tokens $tokens): void
     {
         $tokensAnalyzer = new TokensAnalyzer($tokens);
@@ -120,7 +121,7 @@ use Bar;
     }
 
     /**
-     * @param int[] $uses
+     * @param list<int> $uses
      */
     private function walkOverUses(Tokens $tokens, array $uses): void
     {
@@ -133,9 +134,10 @@ use Bar;
         $previousType = null;
 
         for ($i = $usesCount - 1; $i >= 0; --$i) {
+            \assert(isset($uses[$i]));
             $index = $uses[$i];
             $startIndex = $tokens->getNextMeaningfulToken($index + 1);
-            $endIndex = $tokens->getNextTokenOfKind($startIndex, [';', [T_CLOSE_TAG]]);
+            $endIndex = $tokens->getNextTokenOfKind($startIndex, [';', [\T_CLOSE_TAG]]);
 
             if ($tokens[$startIndex]->isGivenKind(CT::T_CONST_IMPORT)) {
                 $type = self::IMPORT_TYPE_CONST;
@@ -163,12 +165,9 @@ use Bar;
         }
 
         $index = $this->getInsertIndex($tokens, $index);
+        $indent = WhitespacesAnalyzer::detectIndent($tokens, $index);
 
-        if ($tokens[$index]->isWhitespace()) {
-            $tokens[$index] = new Token([T_WHITESPACE, $lineEnding]);
-        } else {
-            $tokens->insertSlices([$index + 1 => [new Token([T_WHITESPACE, $lineEnding])]]);
-        }
+        $tokens->ensureWhitespaceAtIndex($index, 1, $lineEnding.$indent);
     }
 
     private function getInsertIndex(Tokens $tokens, int $index): int
@@ -183,7 +182,7 @@ use Bar;
             $content = $tokens[$index]->getContent();
 
             if (str_contains($content, "\n")) {
-                return $index;
+                break;
             }
         }
 

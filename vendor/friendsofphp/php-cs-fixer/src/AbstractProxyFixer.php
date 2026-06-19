@@ -22,26 +22,27 @@ use PhpCsFixer\Tokenizer\Tokens;
  * @author Dariusz Rumiński <dariusz.ruminski@gmail.com>
  *
  * @internal
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 abstract class AbstractProxyFixer extends AbstractFixer
 {
     /**
-     * @var array<string, FixerInterface>
+     * @var non-empty-array<string, FixerInterface>
      */
-    protected array $proxyFixers = [];
+    protected array $proxyFixers;
 
     public function __construct()
     {
+        $proxyFixers = [];
         foreach (Utils::sortFixers($this->createProxyFixers()) as $proxyFixer) {
-            $this->proxyFixers[$proxyFixer->getName()] = $proxyFixer;
+            $proxyFixers[$proxyFixer->getName()] = $proxyFixer;
         }
+        $this->proxyFixers = $proxyFixers;
 
         parent::__construct();
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isCandidate(Tokens $tokens): bool
     {
         foreach ($this->proxyFixers as $fixer) {
@@ -53,9 +54,6 @@ abstract class AbstractProxyFixer extends AbstractFixer
         return false;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isRisky(): bool
     {
         foreach ($this->proxyFixers as $fixer) {
@@ -67,9 +65,6 @@ abstract class AbstractProxyFixer extends AbstractFixer
         return false;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function getPriority(): int
     {
         if (\count($this->proxyFixers) > 1) {
@@ -79,9 +74,6 @@ abstract class AbstractProxyFixer extends AbstractFixer
         return reset($this->proxyFixers)->getPriority();
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function supports(\SplFileInfo $file): bool
     {
         foreach ($this->proxyFixers as $fixer) {
@@ -93,9 +85,6 @@ abstract class AbstractProxyFixer extends AbstractFixer
         return false;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function setWhitespacesConfig(WhitespacesFixerConfig $config): void
     {
         parent::setWhitespacesConfig($config);
@@ -107,9 +96,6 @@ abstract class AbstractProxyFixer extends AbstractFixer
         }
     }
 
-    /**
-     * {@inheritdoc}
-     */
     protected function applyFix(\SplFileInfo $file, Tokens $tokens): void
     {
         foreach ($this->proxyFixers as $fixer) {
@@ -118,7 +104,7 @@ abstract class AbstractProxyFixer extends AbstractFixer
     }
 
     /**
-     * @return FixerInterface[]
+     * @return non-empty-list<FixerInterface>
      */
     abstract protected function createProxyFixers(): array;
 }

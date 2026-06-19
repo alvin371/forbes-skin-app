@@ -17,7 +17,11 @@ namespace PhpCsFixer\Cache;
 /**
  * @author Dariusz Rumiński <dariusz.ruminski@gmail.com>
  *
+ * @readonly
+ *
  * @internal
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class Directory implements DirectoryInterface
 {
@@ -28,16 +32,13 @@ final class Directory implements DirectoryInterface
         $this->directoryName = $directoryName;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function getRelativePathTo(string $file): string
     {
         $file = $this->normalizePath($file);
 
         if (
             '' === $this->directoryName
-            || 0 !== stripos($file, $this->directoryName.\DIRECTORY_SEPARATOR)
+            || !str_starts_with(strtolower($file), strtolower($this->directoryName.\DIRECTORY_SEPARATOR))
         ) {
             return $file;
         }

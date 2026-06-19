@@ -16,6 +16,10 @@ namespace PhpCsFixer\FixerDefinition;
 
 /**
  * @author Dariusz Rumiński <dariusz.ruminski@gmail.com>
+ *
+ * @readonly
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class FixerDefinition implements FixerDefinitionInterface
 {
@@ -26,8 +30,14 @@ final class FixerDefinition implements FixerDefinitionInterface
      */
     private array $codeSamples;
 
+    /**
+     * Description of Fixer and benefit of using it.
+     */
     private ?string $description;
 
+    /**
+     * Description why Fixer is risky.
+     */
     private ?string $riskyDescription;
 
     /**

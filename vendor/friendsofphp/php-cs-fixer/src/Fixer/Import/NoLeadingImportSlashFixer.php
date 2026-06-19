@@ -25,17 +25,16 @@ use PhpCsFixer\Tokenizer\TokensAnalyzer;
 
 /**
  * @author Carlos Cirello <carlos.cirello.nl@gmail.com>
+ *
+ * @no-named-arguments Parameter names are not covered by the backward compatibility promise.
  */
 final class NoLeadingImportSlashFixer extends AbstractFixer
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getDefinition(): FixerDefinitionInterface
     {
         return new FixerDefinition(
             'Remove leading slashes in `use` clauses.',
-            [new CodeSample("<?php\nnamespace Foo;\nuse \\Bar;\n")]
+            [new CodeSample("<?php\nnamespace Foo;\nuse \\Bar;\n")],
         );
     }
 
@@ -50,17 +49,11 @@ final class NoLeadingImportSlashFixer extends AbstractFixer
         return -20;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function isCandidate(Tokens $tokens): bool
     {
-        return $tokens->isTokenKindFound(T_USE);
+        return $tokens->isTokenKindFound(\T_USE);
     }
 
-    /**
-     * {@inheritdoc}
-     */
     protected function applyFix(\SplFileInfo $file, Tokens $tokens): void
     {
         $tokensAnalyzer = new TokensAnalyzer($tokens);
@@ -70,11 +63,11 @@ final class NoLeadingImportSlashFixer extends AbstractFixer
             $nextTokenIdx = $tokens->getNextMeaningfulToken($idx);
             $nextToken = $tokens[$nextTokenIdx];
 
-            if ($nextToken->isGivenKind(T_NS_SEPARATOR)) {
+            if ($nextToken->isGivenKind(\T_NS_SEPARATOR)) {
                 $this->removeLeadingImportSlash($tokens, $nextTokenIdx);
             } elseif ($nextToken->isGivenKind([CT::T_FUNCTION_IMPORT, CT::T_CONST_IMPORT])) {
                 $nextTokenIdx = $tokens->getNextMeaningfulToken($nextTokenIdx);
-                if ($tokens[$nextTokenIdx]->isGivenKind(T_NS_SEPARATOR)) {
+                if ($tokens[$nextTokenIdx]->isGivenKind(\T_NS_SEPARATOR)) {
                     $this->removeLeadingImportSlash($tokens, $nextTokenIdx);
                 }
             }
@@ -94,6 +87,6 @@ final class NoLeadingImportSlashFixer extends AbstractFixer
             return;
         }
 
-        $tokens[$index] = new Token([T_WHITESPACE, ' ']);
+        $tokens[$index] = new Token([\T_WHITESPACE, ' ']);
     }
 }
