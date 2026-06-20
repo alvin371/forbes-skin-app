@@ -4902,10 +4902,15 @@ class Api_v2 extends CI_Controller
 
         $list = $this->mymodel->selectWithQuery("SELECT * FROM endorse WHERE status = 'Aktif' AND status_campaign = 'Aktif' AND (sync_at < '$today' OR sync_at IS NULL) AND link_upload != '' LIMIT 10");
 
+        // Track only the campaigns whose endorse_logs actually changed this run, so we
+        // re-aggregate just those instead of re-SUMming every active campaign's full history.
+        $touched = array();
+
         foreach ($list as $kl => $vl) {
 
             $id_endorse = $vl['id'];
             $v = $vl;
+            $touched[strval($vl['id_campaign'])] = true;
             $today = DATE("Y-m-d");
             $yesterday = DATE('Y-m-d', strtotime($today . " -1 days"));
 
@@ -5084,12 +5089,11 @@ class Api_v2 extends CI_Controller
             $this->db->update('endorse', $dtt, array('id' => $v['id']));
         }
 
-        $data = $this->mymodel->selectWithQuery("SELECT id
-        FROM endorse_campaign 
-        WHERE status = 'Aktif'");
-        foreach ($data as $k => $v) {
-            $id_parent = $v['id'];
-            $this->update_endorse_parent($id_parent, $v);
+        // Only roll up campaigns that received new/updated logs this run. The cumulative
+        // SUM over endorse_logs is unchanged for untouched campaigns, so re-aggregating all
+        // active campaigns every minute was the dominant CPU cost (~697k rows scanned/call).
+        foreach (array_keys($touched) as $id_parent) {
+            $this->update_endorse_parent($id_parent, array('status' => 'Aktif'));
         }
 
         header('Content-Type: application/json; charset=utf-8');
