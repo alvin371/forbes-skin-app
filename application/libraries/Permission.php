@@ -348,6 +348,7 @@ class Permission
             'approvals/leaveapprovalcontroller' => 'leave_approvals',
             'attendancepagecontroller' => 'attendance',
             'attendancereport' => 'attendance_report',
+            'announcement' => 'announcement',
             'benefit' => 'benefit',
             'calendar' => 'calendar',
             'codeboost' => 'codeboost',

@@ -530,6 +530,7 @@ if (!$_SESSION['is_login']) {
     $menu_operasional = $menu_stock = $menu_product = $menu_product_3rd = $menu_discount = $menu_marketplace = $menu_shipping = '';
     $menu_hr_management = $menu_quest_level = $menu_position = $menu_benefit = $menu_quest = $menu_milestone = $menu_recruitment = $menu_roles = '';
     $menu_attendance = $menu_attendance_report = $menu_leave = $menu_overtime = $menu_leave_approvals = $menu_overtime_approvals = $menu_leave_types = $menu_leave_quotas = $menu_leave_requests_admin = $menu_approval_routes = $menu_offices = $menu_holidays = $menu_attendance_settings = $menu_performance_appraisal = '';
+    $menu_announcement = '';
     $menu_akun = $menu_user = $menu_profile = $menu_logout = '';
 
     // Get user permissions for menu visibility using module names from clear_and_replace_modules.sql
@@ -598,7 +599,8 @@ if (!$_SESSION['is_login']) {
       $CI->permission->check_permission($user_id, 'leave_types', 'view') ||
       $CI->permission->check_permission($user_id, 'leave_quotas', 'view') ||
       $CI->permission->check_permission($user_id, 'approval_routes', 'view') ||
-      $CI->permission->check_permission($user_id, 'performance_admin', 'view');
+      $CI->permission->check_permission($user_id, 'performance_admin', 'view') ||
+      $CI->permission->check_permission($user_id, 'announcement', 'view');
 
     // Account Management - show if user has access to any account module  
     $can_view_akun = $CI->permission->check_permission($user_id, 'user', 'view') ||
@@ -659,6 +661,7 @@ if (!$_SESSION['is_login']) {
       'holidays' => $CI->permission->check_permission($user_id, 'holidays', 'view'),
       'attendance_settings' => $CI->permission->check_permission($user_id, 'attendance_settings', 'view'),
       'performance_admin' => $CI->permission->check_permission($user_id, 'performance_admin', 'view'),
+      'announcement' => $CI->permission->check_permission($user_id, 'announcement', 'view'),
       'modules' => $CI->permission->check_permission($user_id, 'modules', 'view'),
 
       // Account Management
@@ -770,7 +773,7 @@ if (!$_SESSION['is_login']) {
       } else if ($uri_1 == 'product' || $uri_1 == 'marketplace' || $uri_1 == 'shipping' || $uri_1 == 'marketplace-account') {
         $menu_product = 'active';
       }
-    } else if ($uri_1 == 'quest_level' || $uri_1 == 'position' || $uri_1 == 'benefit' || $uri_1 == 'quest' || $uri_1 == 'milestone' || $uri_1 == 'recruitment' || $uri_1 == 'attendance' || $uri_1 == 'leave' || $uri_1 == 'overtime' || ($uri_1 == 'approvals' && $uri_2 == 'leaves') || ($uri_1 == 'approvals' && $uri_2 == 'overtime') || ($uri_1 == 'admin' && in_array($uri_2, array('offices', 'leave-types', 'approval-routes', 'holidays', 'attendance-settings', 'performance-appraisal'), true))) {
+    } else if ($uri_1 == 'quest_level' || $uri_1 == 'position' || $uri_1 == 'benefit' || $uri_1 == 'announcement' || $uri_1 == 'quest' || $uri_1 == 'milestone' || $uri_1 == 'recruitment' || $uri_1 == 'attendance' || $uri_1 == 'leave' || $uri_1 == 'overtime' || ($uri_1 == 'approvals' && $uri_2 == 'leaves') || ($uri_1 == 'approvals' && $uri_2 == 'overtime') || ($uri_1 == 'admin' && in_array($uri_2, array('offices', 'leave-types', 'approval-routes', 'holidays', 'attendance-settings', 'performance-appraisal'), true))) {
       $menu_hr_management = 'show';
       if ($uri_1 == 'quest_level') {
         $menu_quest_level = 'active';
@@ -778,6 +781,8 @@ if (!$_SESSION['is_login']) {
         $menu_position = 'active';
       } else if ($uri_1 == 'benefit') {
         $menu_benefit = 'active';
+      } else if ($uri_1 == 'announcement') {
+        $menu_announcement = 'active';
       } else if ($uri_1 == 'quest') {
         $menu_quest = 'active';
       } else if ($uri_1 == 'milestone') {
@@ -832,6 +837,7 @@ if (!$_SESSION['is_login']) {
       $menu_operasional = $menu_stock = $menu_product = '';
       $menu_hr_management = $menu_quest_level = $menu_position = $menu_benefit = $menu_quest = $menu_milestone = $menu_recruitment = $menu_roles = '';
       $menu_attendance = $menu_attendance_report = $menu_leave = $menu_overtime = $menu_leave_approvals = $menu_overtime_approvals = $menu_leave_types = $menu_leave_quotas = $menu_leave_requests_admin = $menu_approval_routes = $menu_offices = $menu_holidays = $menu_attendance_settings = $menu_performance_appraisal = '';
+      $menu_announcement = '';
       $menu_akun = $menu_user = $menu_profile = $menu_logout = '';
     }
     ?>
@@ -1071,6 +1077,12 @@ if (!$_SESSION['is_login']) {
           </a>
 
           <div class="collapse <?= $menu_hr_management ? 'show' : '' ?>" id="submenu-hr-management">
+            <?php if ($modules_permissions['announcement']): ?>
+              <a href="<?= base_url() ?>announcement" class="ms-3 item-menu <?= $menu_announcement ?>">
+                <i class="icon bi bi-megaphone"></i>
+                ANNOUNCEMENTS
+              </a>
+            <?php endif; ?>
             <?php if ($modules_permissions['attendance']): ?>
               <a href="<?= base_url() ?>attendance" class="ms-3 item-menu <?= $menu_attendance ?>">
                 <i class="icon bi bi-calendar-check"></i>
