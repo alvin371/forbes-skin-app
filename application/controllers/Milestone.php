@@ -338,9 +338,9 @@ class Milestone extends BaseController
         
         try {
             // First check if user_side_quest_stats table exists and has data
-            $table_check = $this->mymodel->selectWithQuery("SHOW TABLES LIKE 'user_side_quest_stats'");
+            $table_check = $this->db->table_exists('user_side_quest_stats');
             
-            if (empty($table_check)) {
+            if (!$table_check) {
                 // Table doesn't exist, return empty data
                 $data['data'] = array();
                 $data['current_month'] = $current_month;
@@ -396,9 +396,9 @@ class Milestone extends BaseController
     {
         try {
             // First check if user_side_quest_stats table exists and has data
-            $table_check = $this->mymodel->selectWithQuery("SHOW TABLES LIKE 'user_side_quest_stats'");
+            $table_check = $this->db->table_exists('user_side_quest_stats');
             
-            if (empty($table_check)) {
+            if (!$table_check) {
                 // Table doesn't exist, return empty data
                 $data['data'] = array();
                 $data['error_message'] = 'Statistics table not found. Please run the database setup script.';
@@ -458,15 +458,15 @@ class Milestone extends BaseController
 
         try {
             // First check if tables exist
-            $stats_table_check = $this->mymodel->selectWithQuery("SHOW TABLES LIKE 'user_side_quest_stats'");
-            $submissions_table_check = $this->mymodel->selectWithQuery("SHOW TABLES LIKE 'side_quest_submissions'");
-            
-            if (empty($stats_table_check)) {
+            $stats_table_check = $this->db->table_exists('user_side_quest_stats');
+            $submissions_table_check = $this->db->table_exists('side_quest_submissions');
+
+            if (!$stats_table_check) {
                 echo $this->template->alert_danger('Statistics table not found. Please run the database setup script first.');
                 return;
             }
-            
-            if (empty($submissions_table_check)) {
+
+            if (!$submissions_table_check) {
                 echo $this->template->alert_warning('No side quest submissions table found. Creating empty stats records.');
                 // Create empty stats for all user profiles
                 $this->db->query("INSERT IGNORE INTO user_side_quest_stats (user_profile_id, total_completed_quests, total_points_earned, monthly_completed_quests, monthly_points_earned, current_month)

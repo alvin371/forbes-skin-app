@@ -1441,8 +1441,8 @@ class Quest extends BaseController
             $this->log_quest_debug($log_file, "=== updateUserSideQuestStats START for profile_id: $user_profile_id ===");
 
             // Check if user_side_quest_stats table exists
-            $table_check = $this->mymodel->selectWithQuery("SHOW TABLES LIKE 'user_side_quest_stats'");
-            if (empty($table_check)) {
+            $table_check = $this->db->table_exists('user_side_quest_stats');
+            if (!$table_check) {
                 $this->log_quest_debug($log_file, "ERROR: user_side_quest_stats table does not exist");
 
                 // Try to create the table using basic structure
