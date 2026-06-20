@@ -3136,6 +3136,9 @@ class Endorse extends BaseController
         $this->db->delete('payment_logs', array('id_campaign' => $id_campaign, 'nama_influencer' => $nama_creator));
 
         if ($this->db->delete('endorse', array('id' => $id))) {
+            // Refresh the campaign rollup now; deleting an endorse changes its counts and
+            // this path is not part of the sync cron that would otherwise re-aggregate it.
+            $this->update_endorse_parent($id_campaign);
             $msg = 'Hapus data berhasil!';
             echo $this->template->alert_success($msg);
         } else {
