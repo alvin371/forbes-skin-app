@@ -2903,7 +2903,13 @@ class Endorse extends BaseController
             $date = !empty($fallback[0]['latest_date']) ? $fallback[0]['latest_date'] : DATE('Y-m-d');
         }
 
-        $qry = " DATE(endorse_logs.date) = '$date' ";
+        // Sargable single-day range instead of DATE(endorse_logs.date) = '$date'.
+        // Wrapping the column in DATE() prevented any index on `date` from being used,
+        // forcing a full scan (~24.6k rows examined to return ~438 under load test).
+        // The half-open range lets idx_campaign_date serve the access path. Works for
+        // both DATE and DATETIME column types.
+        $date_end = date('Y-m-d', strtotime($date . ' +1 day'));
+        $qry = " endorse_logs.date >= '$date 00:00:00' AND endorse_logs.date < '$date_end 00:00:00' ";
         $qry_endorse = "";
         $data['date'] = $date;
 
