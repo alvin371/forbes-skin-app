@@ -2903,7 +2903,12 @@ class Endorse extends BaseController
             $date = !empty($fallback[0]['latest_date']) ? $fallback[0]['latest_date'] : DATE('Y-m-d');
         }
 
-        $qry = " DATE(endorse_logs.date) = '$date' ";
+        // Sargable equality instead of DATE(endorse_logs.date) = '$date'.
+        // endorse_logs.date is a varchar storing 'Y-m-d', so wrapping it in DATE() only
+        // prevented the existing idx_endorse_logs_campaign_date index from being used,
+        // forcing a per-campaign scan (~591k rows examined to return ~20; 525ms).
+        // Plain equality matches the stored format exactly and uses the index (77ms).
+        $qry = " endorse_logs.date = '$date' ";
         $qry_endorse = "";
         $data['date'] = $date;
 
