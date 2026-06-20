@@ -4,6 +4,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 class LeaveQuotaModel extends CI_Model
 {
     private $hasDefaultQuotaDaysColumn = null;
+    private $hasYearColumn = null;
 
     public function __construct()
     {
@@ -20,30 +21,67 @@ class LeaveQuotaModel extends CI_Model
         return $this->hasDefaultQuotaDaysColumn;
     }
 
-    public function get_by_user($userId)
+    private function leave_quotas_has_year_column()
+    {
+        if ($this->hasYearColumn === null) {
+            $this->hasYearColumn = $this->db->field_exists('year', 'leave_quotas');
+        }
+
+        return $this->hasYearColumn;
+    }
+
+    private function normalize_year($year = null)
+    {
+        if (!$this->leave_quotas_has_year_column()) {
+            return null;
+        }
+
+        if ($year === null || $year === '') {
+            return (int) date('Y');
+        }
+
+        return (int) $year;
+    }
+
+    private function apply_year_filter($alias = null, $year = null)
+    {
+        $resolvedYear = $this->normalize_year($year);
+        if ($resolvedYear === null) {
+            return null;
+        }
+
+        $column = $alias ? $alias . '.year' : 'year';
+        $this->db->where($column, $resolvedYear);
+        return $resolvedYear;
+    }
+
+    public function get_by_user($userId, $year = null)
     {
         $this->db->select('lq.*, lt.name as leave_type_name, lt.code as leave_type_code');
         $this->db->from('leave_quotas lq');
         $this->db->join('leave_types lt', 'lt.id = lq.leave_type_id', 'left');
         $this->db->where('lq.user_id', (int) $userId);
+        $this->apply_year_filter('lq', $year);
         $this->db->where('lt.code !=', 'SPECIAL');
         $this->db->order_by('lt.name', 'ASC');
         return $this->db->get()->result_array();
     }
 
-    public function get_by_user_and_type($userId, $leaveTypeId)
+    public function get_by_user_and_type($userId, $leaveTypeId, $year = null)
     {
         $this->db->where('user_id', (int) $userId);
         $this->db->where('leave_type_id', (int) $leaveTypeId);
+        $this->apply_year_filter(null, $year);
         return $this->db->get('leave_quotas')->row_array();
     }
 
-    public function get_all_with_details()
+    public function get_all_with_details($year = null)
     {
         $this->db->select('lq.*, u.full_name as user_name, u.email as user_email, lt.name as leave_type_name, lt.code as leave_type_code');
         $this->db->from('leave_quotas lq');
         $this->db->join('user u', 'u.id = lq.user_id', 'left');
         $this->db->join('leave_types lt', 'lt.id = lq.leave_type_id', 'left');
+        $this->apply_year_filter('lq', $year);
         $this->db->where('lt.code !=', 'SPECIAL');
         $this->db->order_by('u.full_name', 'ASC');
         $this->db->order_by('lt.name', 'ASC');
@@ -68,9 +106,10 @@ class LeaveQuotaModel extends CI_Model
         return $this->db->delete('leave_quotas');
     }
 
-    public function upsert($userId, $leaveTypeId, $totalDays)
+    public function upsert($userId, $leaveTypeId, $totalDays, $year = null)
     {
-        $existing = $this->get_by_user_and_type($userId, $leaveTypeId);
+        $resolvedYear = $this->normalize_year($year);
+        $existing = $this->get_by_user_and_type($userId, $leaveTypeId, $resolvedYear);
 
         $data = array(
             'total_days' => (int) $totalDays,
@@ -84,16 +123,21 @@ class LeaveQuotaModel extends CI_Model
         } else {
             $data['user_id'] = (int) $userId;
             $data['leave_type_id'] = (int) $leaveTypeId;
+            if ($resolvedYear !== null) {
+                $data['year'] = $resolvedYear;
+            }
             return $this->insert($data);
         }
     }
 
-    public function apply_defaults_for_user($userId)
+    public function apply_defaults_for_user($userId, $year = null)
     {
         $userId = (int) $userId;
         if ($userId <= 0) {
             return 0;
         }
+
+        $resolvedYear = $this->normalize_year($year);
 
         // Older databases may not have leave_types.default_quota_days yet.
         // In that case, default quota seeding is skipped instead of failing user creation.
@@ -102,7 +146,7 @@ class LeaveQuotaModel extends CI_Model
             return 0;
         }
 
-        $existing = $this->get_by_user($userId);
+        $existing = $this->get_by_user($userId, $resolvedYear);
         $existingTypeIds = array();
         foreach ($existing as $quota) {
             $existingTypeIds[(int) $quota['leave_type_id']] = true;
@@ -133,6 +177,9 @@ class LeaveQuotaModel extends CI_Model
                 'remaining_days' => $days,
                 'updated_at' => date('Y-m-d H:i:s'),
             );
+            if ($resolvedYear !== null) {
+                $data['year'] = $resolvedYear;
+            }
             $this->insert($data);
             $count++;
         }
@@ -140,9 +187,9 @@ class LeaveQuotaModel extends CI_Model
         return $count;
     }
 
-    public function deduct_quota($userId, $leaveTypeId, $days)
+    public function deduct_quota($userId, $leaveTypeId, $days, $year = null)
     {
-        $quota = $this->get_by_user_and_type($userId, $leaveTypeId);
+        $quota = $this->get_by_user_and_type($userId, $leaveTypeId, $year);
         if (!$quota) {
             return false;
         }
@@ -155,9 +202,9 @@ class LeaveQuotaModel extends CI_Model
         ));
     }
 
-    public function restore_quota($userId, $leaveTypeId, $days)
+    public function restore_quota($userId, $leaveTypeId, $days, $year = null)
     {
-        $quota = $this->get_by_user_and_type($userId, $leaveTypeId);
+        $quota = $this->get_by_user_and_type($userId, $leaveTypeId, $year);
         if (!$quota) {
             return false;
         }

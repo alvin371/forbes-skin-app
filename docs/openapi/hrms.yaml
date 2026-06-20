@@ -24,6 +24,7 @@ tags:
   - name: Leave
   - name: Performance
   - name: Overtime
+  - name: Announcements
 paths:
   /api/hrms/auth/login:
     post:
@@ -1437,6 +1438,67 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+
+  /api/hrms/announcements:
+    get:
+      tags: [Announcements]
+      summary: List published announcements
+      description: >
+        Paginated feed of currently-published, in-window announcements (pinned
+        first). Readable by any authenticated user.
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: category
+          in: query
+          required: false
+          description: Filter by category label.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Announcement feed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnnouncementListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/hrms/announcements/{id}:
+    get:
+      tags: [Announcements]
+      summary: Get an announcement (deep-link target)
+      description: >
+        Detail for an announcement push (data.related_table='announcements',
+        related_id={id}, no step_id). Readable by any authenticated user. Returns
+        404 for missing/deleted/draft/out-of-window announcements.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Announcement detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnnouncementDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
 components:
   securitySchemes:
@@ -3235,3 +3297,91 @@ components:
             quotaWarning:
               type: string
               nullable: true
+
+    AnnouncementListItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        category:
+          type: string
+          nullable: true
+        subcategory:
+          type: string
+          nullable: true
+        priority:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, URGENT]
+        isPinned:
+          type: integer
+          enum: [0, 1]
+        publishStartAt:
+          type: string
+          format: date-time
+          nullable: true
+        publishEndAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    AnnouncementListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnnouncementListItem'
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    AnnouncementDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        content:
+          type: string
+          description: Sanitized HTML body.
+        category:
+          type: string
+          nullable: true
+        subcategory:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [DRAFT, PUBLISHED, ARCHIVED]
+        priority:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, URGENT]
+        isPinned:
+          type: integer
+          enum: [0, 1]
+        publishStartAt:
+          type: string
+          format: date-time
+          nullable: true
+        publishEndAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true

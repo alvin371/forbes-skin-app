@@ -240,6 +240,23 @@ class NotificationEvents
                     "overtime_step_approved_{$ctx['overtime_request_id']}_{$ctx['step_no']}"
                 );
 
+            // ----- Announcement -----
+            case 'announcement.published':
+                return $this->payload(
+                    'Pengumuman Baru: ' . ($ctx['title'] ?? 'Pengumuman'),
+                    sprintf(
+                        'Ada pengumuman baru%s. Ketuk untuk membaca selengkapnya.',
+                        !empty($ctx['category']) ? ' di kategori ' . $ctx['category'] : ''
+                    ),
+                    self::TYPE_INFO,
+                    'announcements',
+                    $ctx['announcement_id'] ?? null,
+                    // Per-recipient key: dedupe is global within the window, so a shared key
+                    // would suppress every recipient after the first. The owner/viewer deep-link
+                    // needs no step_id -> mobile opens GET /api/hrms/announcements/{related_id}.
+                    "announcement_published_{$ctx['announcement_id']}_{$ctx['user_id']}"
+                );
+
             // ----- System -----
             case 'system.fcm_unavailable':
                 return $this->payload(

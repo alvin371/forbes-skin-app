@@ -291,6 +291,13 @@ if (!function_exists('sidebar_registry')) {
                 'permissions' => ['view', 'create', 'edit', 'delete'],
                 'is_active' => 0,
             ],
+            'announcement' => [
+                'display_name' => 'ANNOUNCEMENTS',
+                'controller' => 'announcement',
+                'category' => 'HR Management',
+                'sort_order' => 505,
+                'permissions' => ['view', 'create', 'edit', 'delete'],
+            ],
             'quest' => [
                 'display_name' => 'QUEST MANAGEMENT',
                 'controller' => 'quest',

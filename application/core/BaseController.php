@@ -41,6 +41,7 @@ class BaseController extends CI_Controller
         'position' => 'position',
         'roles' => 'roles',
         'benefit' => 'benefit',
+        'announcement' => 'announcement',
         'quest' => 'quest',
         'milestone' => 'milestone',
         'attendancereport' => 'attendance_report',

@@ -4753,4 +4753,120 @@ class Api_hrms extends CI_Controller
                 return $status;
         }
     }
+
+    // ---------------------------------------------------------------------
+    // Announcements (mobile read + deep-link target)
+    // ---------------------------------------------------------------------
+
+    /**
+     * GET /api/hrms/announcements
+     *
+     * Paginated feed of currently-published announcements (pinned first). Readable
+     * by any authenticated user. Optional query: page, limit, category.
+     */
+    public function announcement_list()
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        $this->load->model('AnnouncementModel');
+
+        $page = max(1, (int) ($this->input->get('page') ?: 1));
+        $limit = (int) ($this->input->get('limit') ?: 20);
+        $limit = max(1, min(100, $limit));
+        $category = $this->input->get('category') ?: '';
+
+        $now = date('Y-m-d H:i:s');
+        $this->db->where('deleted_at IS NULL', null, false);
+        $this->db->where('status', 'PUBLISHED');
+        $this->db->group_start()->where('publish_start_at IS NULL', null, false)->or_where('publish_start_at <=', $now)->group_end();
+        $this->db->group_start()->where('publish_end_at IS NULL', null, false)->or_where('publish_end_at >=', $now)->group_end();
+        if ($category !== '') {
+            $this->db->where('category', $category);
+        }
+        $total = (int) $this->db->count_all_results('announcements', false);
+
+        $this->db->order_by('is_pinned DESC, publish_start_at DESC, created_at DESC', '', false);
+        $this->db->limit($limit, ($page - 1) * $limit);
+        $rows = $this->db->get('announcements')->result_array();
+
+        $data = array();
+        foreach ($rows as $r) {
+            $data[] = array(
+                'id' => (int) $r['id'],
+                'title' => $r['title'],
+                'category' => $r['category'],
+                'subcategory' => $r['subcategory'],
+                'priority' => $r['priority'],
+                'isPinned' => (int) $r['is_pinned'],
+                'publishStartAt' => $r['publish_start_at'],
+                'publishEndAt' => $r['publish_end_at'],
+                'createdAt' => $r['created_at'],
+            );
+        }
+
+        return $this->respond(200, array(
+            'data' => $data,
+            'page' => $page,
+            'limit' => $limit,
+            'total' => $total,
+            'totalPages' => (int) ceil($total / $limit),
+        ));
+    }
+
+    /**
+     * GET /api/hrms/announcements/{id}
+     *
+     * Deep-link target for an announcement push (data.related_table='announcements',
+     * related_id={id}, no step_id). Readable by any authenticated user. Returns 404
+     * for missing/deleted/draft/out-of-window announcements (clean fallback per the
+     * RN deep-link handoff).
+     */
+    public function announcement_detail($id)
+    {
+        if ($this->input->method(TRUE) !== 'GET') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $user = $this->require_user();
+        if (!$user) {
+            return null;
+        }
+
+        $this->load->model('AnnouncementModel');
+        $row = $this->AnnouncementModel->get_by_id((int) $id);
+
+        if (!$row || $row['status'] !== 'PUBLISHED') {
+            return $this->respond(404, array('message' => 'Announcement not found.'));
+        }
+
+        $now = time();
+        if (!empty($row['publish_start_at']) && strtotime($row['publish_start_at']) > $now) {
+            return $this->respond(404, array('message' => 'Announcement not found.'));
+        }
+        if (!empty($row['publish_end_at']) && strtotime($row['publish_end_at']) < $now) {
+            return $this->respond(404, array('message' => 'Announcement not found.'));
+        }
+
+        return $this->respond(200, array(
+            'id' => (int) $row['id'],
+            'title' => $row['title'],
+            'content' => $row['content'],
+            'category' => $row['category'],
+            'subcategory' => $row['subcategory'],
+            'status' => $row['status'],
+            'priority' => $row['priority'],
+            'isPinned' => (int) $row['is_pinned'],
+            'publishStartAt' => $row['publish_start_at'],
+            'publishEndAt' => $row['publish_end_at'],
+            'createdAt' => $row['created_at'],
+            'updatedAt' => $row['updated_at'],
+        ));
+    }
 }

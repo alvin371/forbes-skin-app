@@ -263,6 +263,9 @@ $route['api/hrms/overtime/approvals/(:num)/approve'] = 'Api_hrms/overtime_approv
 $route['api/hrms/overtime/approvals/(:num)/reject'] = 'Api_hrms/overtime_approval_reject/$1';
 $route['api/hrms/overtime/approvals/history'] = 'Api_hrms/overtime_approvals_history';
 
+$route['api/hrms/announcements'] = 'Api_hrms/announcement_list';
+$route['api/hrms/announcements/(:num)'] = 'Api_hrms/announcement_detail/$1';
+
 $route['api/attendance/confirm'] = 'AttendanceController/confirm';
 $route['api/attendance/status'] = 'AttendanceController/status';
 $route['api/attendance/logs'] = 'AttendanceController/logs';

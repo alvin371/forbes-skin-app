@@ -4652,7 +4652,7 @@ class Api_v2 extends CI_Controller
         $list = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer
             WHERE status = 'Aktif'
-            AND (DATE(sync_at) <= '$sync_date' OR sync_at IS NULL)
+            AND (sync_at < ('$sync_date' + INTERVAL 1 DAY) OR sync_at IS NULL)
             AND url != ''
             LIMIT 10
         ");
@@ -4724,7 +4724,7 @@ class Api_v2 extends CI_Controller
         $list = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer_dummy
             WHERE status = 'Aktif'
-            AND (DATE(sync_at) <= '$sync_date' OR sync_at IS NULL)
+            AND (sync_at < ('$sync_date' + INTERVAL 1 DAY) OR sync_at IS NULL)
             AND url != ''
             LIMIT 10
         ");
@@ -4900,7 +4900,7 @@ class Api_v2 extends CI_Controller
         // $today = DATE('Y-m-d', strtotime($today . " -1 days"));
         $todayy = $today;
 
-        $list = $this->mymodel->selectWithQuery("SELECT * FROM endorse WHERE status = 'Aktif' AND status_campaign = 'Aktif' AND (DATE(sync_at) < '$today' OR DATE(sync_at) IS NULL) AND link_upload != '' LIMIT 10");
+        $list = $this->mymodel->selectWithQuery("SELECT * FROM endorse WHERE status = 'Aktif' AND status_campaign = 'Aktif' AND (sync_at < '$today' OR sync_at IS NULL) AND link_upload != '' LIMIT 10");
 
         foreach ($list as $kl => $vl) {
 
@@ -7317,7 +7317,7 @@ class Api_v2 extends CI_Controller
             WHERE i.status = 'Aktif' AND i.url != ''
             AND i.type != 'Tiktok'
             AND ec.status = 'Aktif'
-            AND (DATE(i.sync_at) <= '$three_days_ago' OR i.sync_at IS NULL)
+            AND (i.sync_at < ('$three_days_ago' + INTERVAL 1 DAY) OR i.sync_at IS NULL)
             LIMIT 20
         ");
         foreach ($tier2 as $row) {
@@ -7331,7 +7331,7 @@ class Api_v2 extends CI_Controller
             SELECT id, type, url FROM influencer
             WHERE status = 'Aktif' AND url != ''
             AND type != 'Tiktok'
-            AND DATE(sync_at) <= '$seven_days_ago'
+            AND sync_at < ('$seven_days_ago' + INTERVAL 1 DAY)
             LIMIT 10
         ");
         foreach ($tier3_influencer as $row) {
@@ -7343,7 +7343,7 @@ class Api_v2 extends CI_Controller
             SELECT id, type, url FROM influencer_dummy
             WHERE status = 'Aktif' AND url != ''
             AND type != 'Tiktok'
-            AND DATE(sync_at) <= '$seven_days_ago'
+            AND sync_at < ('$seven_days_ago' + INTERVAL 1 DAY)
             LIMIT 10
         ");
         foreach ($tier3_dummy as $row) {
@@ -7357,7 +7357,7 @@ class Api_v2 extends CI_Controller
             SELECT id, type, url FROM influencer
             WHERE status = 'Aktif' AND url != ''
             AND type != 'Tiktok'
-            AND DATE(sync_at) <= '$fourteen_days_ago'
+            AND sync_at < ('$fourteen_days_ago' + INTERVAL 1 DAY)
             LIMIT 5
         ");
         foreach ($tier4 as $row) {
@@ -7429,7 +7429,7 @@ class Api_v2 extends CI_Controller
                 INNER JOIN endorse_campaign ec ON e.id_campaign = ec.id
                 WHERE i.status = 'Aktif' AND i.url != '' AND i.type = 'Tiktok'
                 AND ec.status = 'Aktif'
-                AND (DATE(i.sync_at) <= '$three_days_ago' OR i.sync_at IS NULL)
+                AND (i.sync_at < ('$three_days_ago' + INTERVAL 1 DAY) OR i.sync_at IS NULL)
                 LIMIT 10
             ");
             foreach ($tier2 as $row) {
@@ -7447,7 +7447,7 @@ class Api_v2 extends CI_Controller
             $tier3_influencer = $this->mymodel->selectWithQuery("
                 SELECT id, type, url FROM influencer
                 WHERE status = 'Aktif' AND url != '' AND type = 'Tiktok'
-                AND DATE(sync_at) <= '$seven_days_ago'
+                AND sync_at < ('$seven_days_ago' + INTERVAL 1 DAY)
                 LIMIT 5
             ");
             foreach ($tier3_influencer as $row) {
@@ -7461,7 +7461,7 @@ class Api_v2 extends CI_Controller
             $tier3_dummy = $this->mymodel->selectWithQuery("
                 SELECT id, type, url FROM influencer_dummy
                 WHERE status = 'Aktif' AND url != '' AND type = 'Tiktok'
-                AND DATE(sync_at) <= '$seven_days_ago'
+                AND sync_at < ('$seven_days_ago' + INTERVAL 1 DAY)
                 LIMIT 5
             ");
             foreach ($tier3_dummy as $row) {
@@ -7479,7 +7479,7 @@ class Api_v2 extends CI_Controller
             $tier4 = $this->mymodel->selectWithQuery("
                 SELECT id, type, url FROM influencer
                 WHERE status = 'Aktif' AND url != '' AND type = 'Tiktok'
-                AND DATE(sync_at) <= '$fourteen_days_ago'
+                AND sync_at < ('$fourteen_days_ago' + INTERVAL 1 DAY)
                 LIMIT 5
             ");
             foreach ($tier4 as $row) {
@@ -7545,7 +7545,7 @@ class Api_v2 extends CI_Controller
                   AND status = 'Aktif'
                   AND status_campaign = 'Aktif'
                   AND link_upload != ''
-                  AND (DATE(sync_at) < '$today' OR sync_at IS NULL)
+                  AND (sync_at < '$today' OR sync_at IS NULL)
                 LIMIT 10
             ");
 
