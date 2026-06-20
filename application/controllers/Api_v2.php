@@ -5096,6 +5096,20 @@ class Api_v2 extends CI_Controller
             $this->update_endorse_parent($id_parent, array('status' => 'Aktif'));
         }
 
+        // Hourly full-sweep backstop: re-aggregate every active campaign at most once per
+        // hour. Catches campaigns changed outside the sync path (e.g. bulk delete/status
+        // edits) that don't self-roll, without paying the full scan every minute. Gated by a
+        // file marker so it piggybacks the existing per-minute cron (no extra crontab entry).
+        $sweep_marker = APPPATH . 'cache/endorse_rollup_sweep.txt';
+        $last_sweep = is_file($sweep_marker) ? (int) filemtime($sweep_marker) : 0;
+        if (time() - $last_sweep >= 3600) {
+            $all_active = $this->mymodel->selectWithQuery("SELECT id FROM endorse_campaign WHERE status = 'Aktif'");
+            foreach ($all_active as $c) {
+                $this->update_endorse_parent($c['id'], array('status' => 'Aktif'));
+            }
+            @touch($sweep_marker);
+        }
+
         header('Content-Type: application/json; charset=utf-8');
         $html = array();
         $html['status'] = true;
