@@ -74,6 +74,29 @@ foreach ($data as $k => $v) {
     $data_with_diff[] = $v;
 }
 
+// Prefetch campaign titles + influencer usernames in bulk to avoid N+1 in the row loops below
+// (each rendered row previously fired one query per campaign + one per influencer).
+$campaign_titles = array();
+$influencer_names = array();
+$cids = array();
+$inf_ids = array();
+foreach ($data_with_diff as $v) {
+    if (!empty($v['id_campaign'])) $cids[(string) $v['id_campaign']] = true;
+    if (!empty($v['influencer'])) $inf_ids[(string) $v['influencer']] = true;
+}
+if ($cids) {
+    $in = implode(',', array_map('intval', array_keys($cids)));
+    foreach ($this->mymodel->selectWithQuery("SELECT id, title FROM endorse_campaign WHERE id IN ($in)") as $row) {
+        $campaign_titles[(string) $row['id']] = $row['title'];
+    }
+}
+if ($inf_ids) {
+    $in = implode(',', array_map('intval', array_keys($inf_ids)));
+    foreach ($this->mymodel->selectWithQuery("SELECT id, username FROM influencer WHERE id IN ($in)") as $row) {
+        $influencer_names[(string) $row['id']] = $row['username'];
+    }
+}
+
 // Sort berdasarkan selisih views tertinggi
 usort($data_with_diff, function($a, $b) {
     return $b['views_diff'] - $a['views_diff'];
@@ -344,11 +367,9 @@ $top_5_data = array_slice($data_with_diff, 0, 5);
                         </thead>
                         <tbody>
                             <?php foreach ($top_5_data as $k => $v) {
-                                $this->db->select('title');
-                                $campaign = $this->mymodel->selectDataOne('endorse_campaign', array('id' => $v['id_campaign']));
-                                $this->db->select('username');
-                                $influencer = $this->mymodel->selectDataOne('influencer', array('id' => $v['influencer']));
-                                
+                                $campaign = array('title' => isset($campaign_titles[(string) $v['id_campaign']]) ? $campaign_titles[(string) $v['id_campaign']] : '');
+                                $influencer = array('username' => isset($influencer_names[(string) $v['influencer']]) ? $influencer_names[(string) $v['influencer']] : '');
+
                                 $percentage_increase = $v['views_before'] > 0 ? (($v['views_diff'] / $v['views_before']) * 100) : 0;
                                 $campaign_link = '<a href="' . base_url() . 'endorse?id_campaign=' . $v['id_campaign'] . '&ids=' . $v['id_endorse'] . '" target="_blank">' . $campaign['title'] . '</a>';
                                 $content_link = '<a href="' . $v['link_upload'] . '" target="_blank" class="btn btn-sm btn-outline-primary">View</a>';
@@ -466,10 +487,8 @@ $top_5_data = array_slice($data_with_diff, 0, 5);
                             </thead>
                             <tbody>
                                 <?php foreach ($data_with_diff as $k => $v) {
-                                    $this->db->select('title');
-                                    $campaign = $this->mymodel->selectDataOne('endorse_campaign', array('id' => $v['id_campaign']));
-                                    $this->db->select('username');
-                                    $influencer = $this->mymodel->selectDataOne('influencer', array('id' => $v['influencer']));
+                                    $campaign = array('title' => isset($campaign_titles[(string) $v['id_campaign']]) ? $campaign_titles[(string) $v['id_campaign']] : '');
+                                    $influencer = array('username' => isset($influencer_names[(string) $v['influencer']]) ? $influencer_names[(string) $v['influencer']] : '');
 
                                     $v['link_upload'] = '<a href="' . $v['link_upload'] . '" target="_blank">' . $v['link_upload'] . '</a>';
                                     $campaign['title'] = '<a href="' . base_url() . 'endorse?id_campaign=' . $v['id_campaign'] . '&ids=' . $v['id_endorse'] . '" target="_blank">' . $campaign['title'] . '</a>';
