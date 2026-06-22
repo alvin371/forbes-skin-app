@@ -215,3 +215,48 @@ if (!function_exists('monitoring_db_stats')) {
         );
     }
 }
+
+if (!function_exists('monitoring_slow_threshold_ms')) {
+    /**
+     * Requests at/above this duration get a full query dump (env MONITOR_SLOW_MS,
+     * default 1000ms). Set higher to reduce noise once the worst offenders are fixed.
+     */
+    function monitoring_slow_threshold_ms()
+    {
+        $v = function_exists('env') ? env('MONITOR_SLOW_MS', 1000) : 1000;
+
+        return is_numeric($v) ? (int) $v : 1000;
+    }
+}
+
+if (!function_exists('monitoring_db_query_list')) {
+    /**
+     * Every query of the request (sql + ms), sorted slowest-first, capped to $limit.
+     * Used to dump the full breakdown for a slow request so it is reproducible.
+     */
+    function monitoring_db_query_list($limit = 50)
+    {
+        $db = monitoring_db();
+        if ($db === null) {
+            return array();
+        }
+
+        $queries = (isset($db->queries) && is_array($db->queries)) ? $db->queries : array();
+        $times = (isset($db->query_times) && is_array($db->query_times)) ? $db->query_times : array();
+
+        $rows = array();
+        foreach ($queries as $i => $sql) {
+            $sql = (string) $sql;
+            $rows[] = array(
+                'ms' => isset($times[$i]) ? round((float) $times[$i] * 1000, 2) : null,
+                'sql' => strlen($sql) > 400 ? substr($sql, 0, 400) : $sql,
+            );
+        }
+
+        usort($rows, static function ($a, $b) {
+            return ($b['ms'] ?? 0) <=> ($a['ms'] ?? 0);
+        });
+
+        return array_slice($rows, 0, max(1, (int) $limit));
+    }
+}
