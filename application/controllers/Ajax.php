@@ -373,20 +373,12 @@ class Ajax extends CI_Controller
 			$total_cost_from_endorse += (float)$row['total_cost'];
 		}
 
-		$logs_can_skip_filtered_join = (
-			trim($filters_common) === '' &&
-			trim($filters_date_on_endorse) === '' &&
-			$need_join_campaign === false
-		);
-
 			$log_aggregates = !empty($filtered_endorse_rows)
 				? $this->getChartCampaignLogAggregates(
 					$filtered_endorse_subquery,
 					$start_date,
 					$until_date,
-					$ids_sql_filter,
-					!$logs_can_skip_filtered_join,
-					($is_dashboard == 'true' && empty($ids_sql_filter))
+					$ids_sql_filter
 				)
 			: array(
 				'baseline' => array(
@@ -1071,19 +1063,16 @@ class Ajax extends CI_Controller
 		log_message('info', 'Slow get_chart_campaign ' . round($elapsed, 3) . 's ' . json_encode($signature));
 	}
 
-	private function getChartCampaignLogAggregates($filtered_endorse_subquery, $start_date, $until_date, $ids_sql_filter, $use_filtered_endorse_join, $prefer_date_index)
+	private function getChartCampaignLogAggregates($filtered_endorse_subquery, $start_date, $until_date, $ids_sql_filter)
 	{
-		$with_parts = array();
-		if ($use_filtered_endorse_join) {
-			$with_parts[] = "filtered_endorse AS ($filtered_endorse_subquery)";
-		}
+		$with_parts = array(
+			"filtered_endorse AS ($filtered_endorse_subquery)"
+		);
 
-		$baseline_join = $use_filtered_endorse_join
-			? " INNER JOIN filtered_endorse filtered_endorse ON filtered_endorse.id = el.id_endorse "
-			: "";
+		$baseline_join = " INNER JOIN filtered_endorse filtered_endorse ON filtered_endorse.id = el.id_endorse ";
 		$range_join = $baseline_join;
 		$id_filter_sql = !empty($ids_sql_filter) ? " AND el.id_endorse IN ($ids_sql_filter) " : "";
-		$range_index_hint = $prefer_date_index ? " FORCE INDEX (idx_endorse_logs_log_date_endorse) " : " FORCE INDEX (idx_endorse_logs_endorse_log_date) ";
+		$range_index_hint = " FORCE INDEX (idx_endorse_logs_endorse_log_date) ";
 
 		$baseline_latest_sql = "
 			SELECT
