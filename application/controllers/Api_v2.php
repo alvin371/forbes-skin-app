@@ -25,6 +25,7 @@ class Api_v2 extends CI_Controller
         parent::__construct();
         $this->load->library('Template');
         $this->load->helper('env');
+        $this->load->helper('monitoring');
         $this->load->helper('sentry');
 
         // TikTok Shop API credentials
@@ -128,6 +129,34 @@ class Api_v2 extends CI_Controller
         }
 
         return true;
+    }
+
+    private function cron_monitor_start($job, array $context = array())
+    {
+        if (!function_exists('monitoring_start_job')) {
+            return null;
+        }
+
+        $context['controller'] = 'Api_v2';
+        return monitoring_start_job($job, $context);
+    }
+
+    private function cron_monitor_finish($monitor, array $payload = array())
+    {
+        if ($monitor === null || !function_exists('monitoring_finish_job')) {
+            return;
+        }
+
+        monitoring_finish_job($monitor, $payload);
+    }
+
+    private function cron_monitor_fail($monitor, Throwable $exception, array $payload = array())
+    {
+        if ($monitor === null || !function_exists('monitoring_fail_job')) {
+            return;
+        }
+
+        monitoring_fail_job($monitor, $exception, $payload);
     }
     function interpolateVar($value, $env)
     {
@@ -4629,6 +4658,9 @@ class Api_v2 extends CI_Controller
 
     function cronjob_influencer()
     {
+        $monitor = $this->cron_monitor_start('cronjob_influencer', array(
+            'mode' => isset($_GET['mode']) ? strval($_GET['mode']) : '',
+        ));
         $mode = isset($_GET['mode']) ? strval($_GET['mode']) : '';
 
         $target = DATE("Y-m-d 11:00:00");
@@ -4641,6 +4673,13 @@ class Api_v2 extends CI_Controller
                     'data' => [],
                     'msg' => "Acneno System influencer cronjob will be processed at " . $target . "!"
                 ]);
+                $this->cron_monitor_finish($monitor, array(
+                    'status' => 'skipped',
+                    'processed_count' => 0,
+                    'queue_count' => 0,
+                    'target_time' => $target,
+                    'reason' => 'before_target_time',
+                ));
                 die;
             }
         }
@@ -4695,11 +4734,20 @@ class Api_v2 extends CI_Controller
             'data' => [],
             'msg' => $enqueued . " of " . count($list) . " influencer records enqueued for sync (sync_at <= $sync_date)"
         ]);
+        $this->cron_monitor_finish($monitor, array(
+            'status' => 'ok',
+            'processed_count' => count($list),
+            'queue_count' => $enqueued,
+            'sync_date' => $sync_date,
+        ));
         die;
     }
 
     function cronjob_influencer_dummy()
     {
+        $monitor = $this->cron_monitor_start('cronjob_influencer_dummy', array(
+            'mode' => isset($_GET['mode']) ? strval($_GET['mode']) : '',
+        ));
         $mode = isset($_GET['mode']) ? strval($_GET['mode']) : '';
 
         $target = DATE("Y-m-d 01:00:00");
@@ -4713,6 +4761,13 @@ class Api_v2 extends CI_Controller
                     'data' => [],
                     'msg' => "Influencer dummy cronjob will be processed at " . $target . "!"
                 ]);
+                $this->cron_monitor_finish($monitor, array(
+                    'status' => 'skipped',
+                    'processed_count' => 0,
+                    'queue_count' => 0,
+                    'target_time' => $target,
+                    'reason' => 'before_target_time',
+                ));
                 die;
             }
         }
@@ -4742,6 +4797,12 @@ class Api_v2 extends CI_Controller
             'data' => [],
             'msg' => $enqueued . " of " . count($list) . " influencer dummy records enqueued for sync (sync_at <= $sync_date)"
         ]);
+        $this->cron_monitor_finish($monitor, array(
+            'status' => 'ok',
+            'processed_count' => count($list),
+            'queue_count' => $enqueued,
+            'sync_date' => $sync_date,
+        ));
         die;
     }
 
@@ -4875,6 +4936,9 @@ class Api_v2 extends CI_Controller
 
     function cronjob_endorse()
     {
+        $monitor = $this->cron_monitor_start('cronjob_endorse', array(
+            'mode' => isset($_GET['mode']) ? strval($_GET['mode']) : '',
+        ));
 
 
         $user = $_SESSION['user'];
@@ -4893,6 +4957,13 @@ class Api_v2 extends CI_Controller
                 $html['data'] = array();
                 $html['msg'] = "Acneno System influencer cronjob will be processed at " . $target . "!";
                 echo json_encode($html, true);
+                $this->cron_monitor_finish($monitor, array(
+                    'status' => 'skipped',
+                    'processed_count' => 0,
+                    'queue_count' => 0,
+                    'target_time' => $target,
+                    'reason' => 'before_target_time',
+                ));
                 die;
             }
         }
@@ -5116,6 +5187,12 @@ class Api_v2 extends CI_Controller
         $html['data'] = array();
         $html['msg'] = count($list) . " data endorse yg di sync <= $todayy berhasil diperbarui";
         echo json_encode($html, true);
+        $this->cron_monitor_finish($monitor, array(
+            'status' => 'ok',
+            'processed_count' => count($list),
+            'queue_count' => count($touched),
+            'sync_date' => $todayy,
+        ));
         die;
     }
 
@@ -5268,6 +5345,9 @@ class Api_v2 extends CI_Controller
 
     function cronjob_endorse_campaign()
     {
+        $monitor = $this->cron_monitor_start('cronjob_endorse_campaign', array(
+            'mode' => isset($_GET['mode']) ? strval($_GET['mode']) : '',
+        ));
 
 
         $user = $_SESSION['user'];
@@ -5286,6 +5366,13 @@ class Api_v2 extends CI_Controller
                 $html['data'] = array();
                 $html['msg'] = "Acneno System endorse campaign cronjob will be processed at " . $target . "!";
                 echo json_encode($html, true);
+                $this->cron_monitor_finish($monitor, array(
+                    'status' => 'skipped',
+                    'processed_count' => 0,
+                    'queue_count' => 0,
+                    'target_time' => $target,
+                    'reason' => 'before_target_time',
+                ));
                 die;
             }
         }
@@ -5310,6 +5397,12 @@ class Api_v2 extends CI_Controller
         $html['data'] = array();
         $html['msg'] = count($list) . " data endorse campaign yg di sync <= $todayy berhasil diperbarui";
         echo json_encode($html, true);
+        $this->cron_monitor_finish($monitor, array(
+            'status' => 'ok',
+            'processed_count' => count($list),
+            'queue_count' => count($list),
+            'sync_date' => $todayy,
+        ));
         die;
     }
     public function webhook()
@@ -7217,6 +7310,7 @@ class Api_v2 extends CI_Controller
      */
     function cronjob_scraping_poll()
     {
+        $monitor = $this->cron_monitor_start('cronjob_scraping_poll');
         header('Content-Type: application/json; charset=utf-8');
 
         $this->load->library('scrapingbot');
@@ -7283,6 +7377,13 @@ class Api_v2 extends CI_Controller
             'total'     => count($items),
             'msg'       => "Poll results: $completed completed, $pending pending, $failed failed",
         ]);
+        $this->cron_monitor_finish($monitor, array(
+            'status' => 'ok',
+            'processed_count' => count($items),
+            'queue_count' => $pending,
+            'completed_count' => $completed,
+            'failed_count' => $failed,
+        ));
         die;
     }
 
@@ -7762,6 +7863,7 @@ class Api_v2 extends CI_Controller
      */
     function cronjob_endorse_refresh()
     {
+        $monitor = $this->cron_monitor_start('cronjob_endorse_refresh');
         header('Content-Type: application/json; charset=utf-8');
         @set_time_limit(55);
 
@@ -7818,6 +7920,12 @@ class Api_v2 extends CI_Controller
                 'processed' => 0,
                 'msg'       => 'No pending endorse refresh items',
             ]);
+            $this->cron_monitor_finish($monitor, array(
+                'status' => 'ok',
+                'processed_count' => 0,
+                'queue_count' => 0,
+                'worker' => $worker_id,
+            ));
             die;
         }
 
@@ -7955,6 +8063,15 @@ class Api_v2 extends CI_Controller
             'retrying'  => $retrying,
             'msg'       => count($items) . " items: $completed ok, $failed failed, $retrying retrying",
         ]);
+        $this->cron_monitor_finish($monitor, array(
+            'status' => 'ok',
+            'processed_count' => count($items),
+            'queue_count' => $claimed_count,
+            'completed_count' => $completed,
+            'failed_count' => $failed,
+            'retrying_count' => $retrying,
+            'worker' => $worker_id,
+        ));
         die;
     }
 
@@ -8002,6 +8119,7 @@ class Api_v2 extends CI_Controller
      */
     function cronjob_notification_dispatch()
     {
+        $monitor = $this->cron_monitor_start('cronjob_notification_dispatch');
         header('Content-Type: application/json; charset=utf-8');
         @set_time_limit(55);
 
@@ -8031,6 +8149,12 @@ class Api_v2 extends CI_Controller
                 'processed' => 0,
                 'msg'       => 'No pending notification outbox rows',
             ]);
+            $this->cron_monitor_finish($monitor, array(
+                'status' => 'ok',
+                'processed_count' => 0,
+                'queue_count' => 0,
+                'worker' => $worker_id,
+            ));
             die;
         }
 
@@ -8114,6 +8238,17 @@ class Api_v2 extends CI_Controller
             'auth_failed' => $authFailed,
             'msg'       => count($rows) . " rows: $sent sent, $retried retried, $failed failed, $revoked tokens revoked",
         ]);
+        $this->cron_monitor_finish($monitor, array(
+            'status' => 'ok',
+            'processed_count' => count($rows),
+            'queue_count' => count($rows),
+            'sent_count' => $sent,
+            'retried_count' => $retried,
+            'failed_count' => $failed,
+            'revoked_count' => $revoked,
+            'auth_failed' => $authFailed,
+            'worker' => $worker_id,
+        ));
         die;
     }
 
