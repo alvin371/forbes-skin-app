@@ -119,8 +119,12 @@ RUN if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi \
     && chmod -R 775 /var/www/html/application/logs \
     && chmod -R 775 /var/www/html/assets/uploads
 
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD php -r '$body = @file_get_contents("http://127.0.0.1/healthz"); if ($body === false) { exit(1); } $payload = json_decode($body, true); exit((is_array($payload) && !empty($payload["ok"])) ? 0 : 1);'
 
 EXPOSE 80
 
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["apache2-foreground"]
