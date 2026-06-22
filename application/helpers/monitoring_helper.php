@@ -125,3 +125,138 @@ if (!function_exists('monitoring_fail_job')) {
         return monitoring_finish_job($state, $payload);
     }
 }
+
+if (!function_exists('monitoring_current_user')) {
+    /**
+     * Identify the authenticated user for the current request from the session,
+     * so request logs answer "WHO" (remote_addr is always the reverse proxy).
+     * Returns null for anonymous/CLI.
+     */
+    function monitoring_current_user()
+    {
+        if (empty($_SESSION['user']) || !is_array($_SESSION['user'])) {
+            return null;
+        }
+
+        $u = $_SESSION['user'];
+
+        return array(
+            'id' => isset($u['id']) ? (int) $u['id'] : null,
+            'username' => isset($u['username']) ? (string) $u['username'] : null,
+            'role' => isset($u['role_text']) ? (string) $u['role_text']
+                : (isset($u['role']) ? (string) $u['role'] : null),
+        );
+    }
+}
+
+if (!function_exists('monitoring_db')) {
+    /**
+     * The default CI3 database object if it is loaded, else null.
+     * (database.php has save_queries=TRUE, so $db->queries / $db->query_times
+     * already hold every executed query + its time for this request.)
+     */
+    function monitoring_db()
+    {
+        if (!function_exists('get_instance')) {
+            return null;
+        }
+
+        $ci = @get_instance();
+        if (!$ci || !isset($ci->db) || !is_object($ci->db)) {
+            return null;
+        }
+
+        return $ci->db;
+    }
+}
+
+if (!function_exists('monitoring_db_stats')) {
+    /**
+     * Per-request DB summary so logs answer "WHY" a request was slow:
+     * how many queries, total query time, and the single slowest statement.
+     */
+    function monitoring_db_stats()
+    {
+        $db = monitoring_db();
+        if ($db === null) {
+            return null;
+        }
+
+        $queries = (isset($db->queries) && is_array($db->queries)) ? $db->queries : array();
+        $times = (isset($db->query_times) && is_array($db->query_times)) ? $db->query_times : array();
+
+        $count = count($queries);
+        if ($count === 0) {
+            return array('count' => 0, 'time_ms' => 0.0, 'slowest_ms' => 0.0, 'slowest_sql' => null);
+        }
+
+        $total = 0.0;
+        $maxIdx = 0;
+        $max = -1.0;
+        foreach ($times as $i => $t) {
+            $t = (float) $t;
+            $total += $t;
+            if ($t > $max) {
+                $max = $t;
+                $maxIdx = $i;
+            }
+        }
+
+        $slowSql = isset($queries[$maxIdx]) ? (string) $queries[$maxIdx] : null;
+        if ($slowSql !== null && strlen($slowSql) > 600) {
+            $slowSql = substr($slowSql, 0, 600);
+        }
+
+        return array(
+            'count' => $count,
+            'time_ms' => round($total * 1000, 2),
+            'slowest_ms' => round(max($max, 0.0) * 1000, 2),
+            'slowest_sql' => $slowSql,
+        );
+    }
+}
+
+if (!function_exists('monitoring_slow_threshold_ms')) {
+    /**
+     * Requests at/above this duration get a full query dump (env MONITOR_SLOW_MS,
+     * default 1000ms). Set higher to reduce noise once the worst offenders are fixed.
+     */
+    function monitoring_slow_threshold_ms()
+    {
+        $v = function_exists('env') ? env('MONITOR_SLOW_MS', 1000) : 1000;
+
+        return is_numeric($v) ? (int) $v : 1000;
+    }
+}
+
+if (!function_exists('monitoring_db_query_list')) {
+    /**
+     * Every query of the request (sql + ms), sorted slowest-first, capped to $limit.
+     * Used to dump the full breakdown for a slow request so it is reproducible.
+     */
+    function monitoring_db_query_list($limit = 50)
+    {
+        $db = monitoring_db();
+        if ($db === null) {
+            return array();
+        }
+
+        $queries = (isset($db->queries) && is_array($db->queries)) ? $db->queries : array();
+        $times = (isset($db->query_times) && is_array($db->query_times)) ? $db->query_times : array();
+
+        $rows = array();
+        foreach ($queries as $i => $sql) {
+            $sql = (string) $sql;
+            $rows[] = array(
+                'ms' => isset($times[$i]) ? round((float) $times[$i] * 1000, 2) : null,
+                'sql' => strlen($sql) > 400 ? substr($sql, 0, 400) : $sql,
+            );
+        }
+
+        usort($rows, static function ($a, $b) {
+            return ($b['ms'] ?? 0) <=> ($a['ms'] ?? 0);
+        });
+
+        return array_slice($rows, 0, max(1, (int) $limit));
+    }
+}

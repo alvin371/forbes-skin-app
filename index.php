@@ -457,6 +457,8 @@ if (function_exists('monitoring_is_http_request') && monitoring_is_http_request(
 			'remote_addr' => $_SERVER['REMOTE_ADDR'] ?? null,
 			'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
 			'query_string' => $_SERVER['QUERY_STRING'] ?? null,
+			'user' => function_exists('monitoring_current_user') ? monitoring_current_user() : null,
+			'db' => function_exists('monitoring_db_stats') ? monitoring_db_stats() : null,
 		);
 
 		$lastError = error_get_last();
@@ -470,6 +472,17 @@ if (function_exists('monitoring_is_http_request') && monitoring_is_http_request(
 		}
 
 		monitoring_write_log($payload, 'monitor');
+
+		// Slow requests get a full per-query dump (separate 'slow' channel) so the
+		// exact statements are reproducible — answers WHICH queries made it slow.
+		$slowThreshold = function_exists('monitoring_slow_threshold_ms') ? monitoring_slow_threshold_ms() : 1000;
+		if ($payload['duration_ms'] >= $slowThreshold && function_exists('monitoring_db_query_list')) {
+			$slow = $payload;
+			$slow['type'] = 'slow_request';
+			$slow['threshold_ms'] = $slowThreshold;
+			$slow['queries'] = monitoring_db_query_list(50);
+			monitoring_write_log($slow, 'slow');
+		}
 	});
 }
 
