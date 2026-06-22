@@ -125,3 +125,26 @@ if (!function_exists('monitoring_fail_job')) {
         return monitoring_finish_job($state, $payload);
     }
 }
+
+if (!function_exists('monitoring_current_user')) {
+    /**
+     * Identify the authenticated user for the current request from the session,
+     * so request logs answer "WHO" (remote_addr is always the reverse proxy).
+     * Returns null for anonymous/CLI.
+     */
+    function monitoring_current_user()
+    {
+        if (empty($_SESSION['user']) || !is_array($_SESSION['user'])) {
+            return null;
+        }
+
+        $u = $_SESSION['user'];
+
+        return array(
+            'id' => isset($u['id']) ? (int) $u['id'] : null,
+            'username' => isset($u['username']) ? (string) $u['username'] : null,
+            'role' => isset($u['role_text']) ? (string) $u['role_text']
+                : (isset($u['role']) ? (string) $u['role'] : null),
+        );
+    }
+}
