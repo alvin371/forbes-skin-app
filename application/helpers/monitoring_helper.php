@@ -148,3 +148,70 @@ if (!function_exists('monitoring_current_user')) {
         );
     }
 }
+
+if (!function_exists('monitoring_db')) {
+    /**
+     * The default CI3 database object if it is loaded, else null.
+     * (database.php has save_queries=TRUE, so $db->queries / $db->query_times
+     * already hold every executed query + its time for this request.)
+     */
+    function monitoring_db()
+    {
+        if (!function_exists('get_instance')) {
+            return null;
+        }
+
+        $ci = @get_instance();
+        if (!$ci || !isset($ci->db) || !is_object($ci->db)) {
+            return null;
+        }
+
+        return $ci->db;
+    }
+}
+
+if (!function_exists('monitoring_db_stats')) {
+    /**
+     * Per-request DB summary so logs answer "WHY" a request was slow:
+     * how many queries, total query time, and the single slowest statement.
+     */
+    function monitoring_db_stats()
+    {
+        $db = monitoring_db();
+        if ($db === null) {
+            return null;
+        }
+
+        $queries = (isset($db->queries) && is_array($db->queries)) ? $db->queries : array();
+        $times = (isset($db->query_times) && is_array($db->query_times)) ? $db->query_times : array();
+
+        $count = count($queries);
+        if ($count === 0) {
+            return array('count' => 0, 'time_ms' => 0.0, 'slowest_ms' => 0.0, 'slowest_sql' => null);
+        }
+
+        $total = 0.0;
+        $maxIdx = 0;
+        $max = -1.0;
+        foreach ($times as $i => $t) {
+            $t = (float) $t;
+            $total += $t;
+            if ($t > $max) {
+                $max = $t;
+                $maxIdx = $i;
+            }
+        }
+
+        $slowSql = isset($queries[$maxIdx]) ? (string) $queries[$maxIdx] : null;
+        if ($slowSql !== null && strlen($slowSql) > 600) {
+            $slowSql = substr($slowSql, 0, 600);
+        }
+
+        return array(
+            'count' => $count,
+            'time_ms' => round($total * 1000, 2),
+            'slowest_ms' => round(max($max, 0.0) * 1000, 2),
+            'slowest_sql' => $slowSql,
+        );
+    }
+}

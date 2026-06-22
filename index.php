@@ -458,6 +458,7 @@ if (function_exists('monitoring_is_http_request') && monitoring_is_http_request(
 			'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
 			'query_string' => $_SERVER['QUERY_STRING'] ?? null,
 			'user' => function_exists('monitoring_current_user') ? monitoring_current_user() : null,
+			'db' => function_exists('monitoring_db_stats') ? monitoring_db_stats() : null,
 		);
 
 		$lastError = error_get_last();
