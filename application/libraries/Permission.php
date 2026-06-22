@@ -313,6 +313,16 @@ class Permission
         return $this->permission_table_capabilities;
     }
 
+    /**
+     * Clear the request-lifetime capability cache. In production the static cache is
+     * reset naturally each request (PHP process boundary); tests that run many cases in
+     * one process must reset it between cases to keep request isolation.
+     */
+    public static function resetTableCapabilityCache(): void
+    {
+        self::$permission_table_capabilities_cache = null;
+    }
+
     private function filter_active_module_names(array $modules)
     {
         $module_names = [];

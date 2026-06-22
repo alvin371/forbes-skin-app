@@ -107,6 +107,10 @@ final class PermissionTest extends TestCase
 
         require_once __DIR__ . '/../../application/libraries/Permission.php';
 
+        // Each test case is a fresh "request"; clear the request-lifetime static cache so
+        // the capability probe runs once per case (matches production per-request behaviour).
+        Permission::resetTableCapabilityCache();
+
         return new Permission();
     }
 }
