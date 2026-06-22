@@ -1317,38 +1317,51 @@ if ($_GET['type'] == "Yearly") {
                 executeProgressiveLoad: function(metricIds) {
                     const self = this;
                     let completedCount = 0;
+                    let nextIndex = 0;
                     const totalCount = metricIds.length;
+                    // Concurrency cap. Each get_summary is PHP-heavy (~30+ queries); firing
+                    // all ~23 cards at once pegged the box (1 user -> ~100%+ CPU, measured
+                    // 2026-06-22). A small worker pool keeps the dashboard progressive while
+                    // bounding simultaneous load on the 3-vCPU server.
+                    const CONCURRENCY = 3;
 
                     // Show progress indicator
                     const loadingIndicator = $('<div class="batch-loading-indicator"><i class="fa fa-spinner fa-spin"></i> Loading metrics: 0/' + totalCount + '</div>');
                     $('body').append(loadingIndicator);
 
+                    function startNext() {
+                        if (nextIndex >= totalCount) {
+                            return;
+                        }
+                        const metricId = metricIds[nextIndex++];
+                        self.loadIndividualMetricProgressive(metricId, function(success) {
+                            completedCount++;
 
-                    // Load each metric individually and immediately show results
-                    metricIds.forEach(function(metricId, index) {
-                        // Add small stagger to prevent overwhelming the server
-                        setTimeout(() => {
-                            self.loadIndividualMetricProgressive(metricId, function(success) {
-                                completedCount++;
+                            // Update progress indicator
+                            if (success) {
+                                loadingIndicator.html('<i class="fa fa-spinner fa-spin"></i> Loading metrics: ' + completedCount + '/' + totalCount);
+                            }
 
-                                // Update progress indicator
-                                if (success) {
-                                    loadingIndicator.html('<i class="fa fa-spinner fa-spin"></i> Loading metrics: ' + completedCount + '/' + totalCount);
-                                }
+                            // All metrics completed
+                            if (completedCount >= totalCount) {
+                                loadingIndicator.removeClass('error').addClass('success').html('<i class="fa fa-check"></i> All ' + totalCount + ' metrics loaded!');
 
-                                // All metrics completed
-                                if (completedCount >= totalCount) {
-                                    loadingIndicator.removeClass('error').addClass('success').html('<i class="fa fa-check"></i> All ' + totalCount + ' metrics loaded!');
+                                setTimeout(function() {
+                                    loadingIndicator.fadeOut(300, function() {
+                                        $(this).remove();
+                                    });
+                                }, 2000);
+                            } else {
+                                // free slot -> pull the next queued metric
+                                startNext();
+                            }
+                        });
+                    }
 
-                                    setTimeout(function() {
-                                        loadingIndicator.fadeOut(300, function() {
-                                            $(this).remove();
-                                        });
-                                    }, 2000);
-                                }
-                            });
-                        }, index * 50); // 50ms stagger between requests
-                    });
+                    // Prime the worker pool; each completion starts the next via startNext().
+                    for (let i = 0; i < Math.min(CONCURRENCY, totalCount); i++) {
+                        startNext();
+                    }
                 },
 
                 loadIndividualMetricProgressive: function(metricId, callback) {
