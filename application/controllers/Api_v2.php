@@ -5344,11 +5344,16 @@ class Api_v2 extends CI_Controller
                     $_GET['shop_id'] = $shop_id;
                     $_GET['mode'] = 'webhook';
 
-                    // Call the existing sync process that populates all order data
-                    $this->marketplace_order_detail();
-
-                    // The marketplace_order_detail() function will handle the response
-                    // and die, so the code below won't execute
+                    // MARKETPLACE TAKEDOWN (2026-06-22): marketplace features are
+                    // currently unused. The inline marketplace_order_detail() made an
+                    // external marketplace API call (CURLOPT_TIMEOUT=0) on the request
+                    // path, blocking an Apache worker per webhook and spiking CPU /
+                    // exhausting the worker pool during inbound webhook bursts. The raw
+                    // payload is still stored above (audit), so processing can be
+                    // re-enabled later — ideally async via a drain cron
+                    // (see docs/2026-06-22-webhook-and-cron-audit.md). For now, fall
+                    // through to the standard 200 ACK below.
+                    // $this->marketplace_order_detail();
                 } catch (Exception $e) {
                     // Log error but still return success webhook response
                     error_log("Webhook order sync error: " . $e->getMessage());
