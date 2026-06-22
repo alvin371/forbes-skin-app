@@ -4,7 +4,12 @@ defined('BASEPATH') or exit('No direct script access allowed');
 if (!function_exists('monitoring_is_http_request')) {
     function monitoring_is_http_request()
     {
-        return PHP_SAPI !== 'cli' && !isset($_SERVER['argv']);
+        // Detect HTTP via REQUEST_METHOD. The previous `!isset($_SERVER['argv'])` check
+        // disabled monitoring under apache whenever php has register_argc_argv=On (the
+        // common default), because $_SERVER['argv'] is then populated for web requests too.
+        return PHP_SAPI !== 'cli'
+            && PHP_SAPI !== 'phpdbg'
+            && isset($_SERVER['REQUEST_METHOD']);
     }
 }
 
