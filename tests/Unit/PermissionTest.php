@@ -19,6 +19,9 @@ if (! class_exists('CI_Model')) {
     }
 }
 
+/**
+ * @internal
+ */
 final class PermissionTest extends TestCase
 {
     protected function setUp(): void
@@ -36,7 +39,7 @@ final class PermissionTest extends TestCase
     public function testBulkLoadHydratesRequestCache(): void
     {
         $db = new PermissionTestDb([
-            'tables' => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles'],
+            'tables'     => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles'],
             'cache_rows' => [
                 ['module_name' => 'dashboard', 'can_view' => 1, 'can_create' => 0, 'can_edit' => 0, 'can_delete' => 0, 'can_approve' => 0],
                 ['module_name' => 'report', 'can_view' => 1, 'can_create' => 1, 'can_edit' => 0, 'can_delete' => 0, 'can_approve' => 0],
@@ -58,8 +61,8 @@ final class PermissionTest extends TestCase
     public function testMissingCacheRowsUseSingleBatchedFallback(): void
     {
         $db = new PermissionTestDb([
-            'tables' => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles'],
-            'cache_rows' => [],
+            'tables'        => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles'],
+            'cache_rows'    => [],
             'fallback_rows' => [
                 ['module_name' => 'expense', 'can_view' => 1, 'can_create' => 0, 'can_edit' => 0, 'can_delete' => 0, 'can_approve' => 0],
                 ['module_name' => 'report', 'can_view' => 1, 'can_create' => 1, 'can_edit' => 0, 'can_delete' => 0, 'can_approve' => 0],
@@ -82,10 +85,10 @@ final class PermissionTest extends TestCase
     public function testTableCapabilityChecksAreCachedPerRequest(): void
     {
         $db = new PermissionTestDb([
-            'tables' => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles'],
+            'tables'               => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles'],
             'cache_rows_by_module' => [
                 'dashboard' => ['module_name' => 'dashboard', 'can_view' => 1, 'can_create' => 0, 'can_edit' => 0, 'can_delete' => 0, 'can_approve' => 0],
-                'report' => ['module_name' => 'report', 'can_view' => 1, 'can_create' => 0, 'can_edit' => 0, 'can_delete' => 0, 'can_approve' => 0],
+                'report'    => ['module_name' => 'report', 'can_view' => 1, 'can_create' => 0, 'can_edit' => 0, 'can_delete' => 0, 'can_approve' => 0],
             ],
         ]);
         $permission = $this->makePermission($db);
@@ -99,7 +102,7 @@ final class PermissionTest extends TestCase
 
     private function makePermission(PermissionTestDb $db): Permission
     {
-        $ci = new PermissionTestCi($db);
+        $ci                              = new PermissionTestCi($db);
         $GLOBALS['__permission_test_ci'] = $ci;
 
         require_once __DIR__ . '/../../application/libraries/Permission.php';
@@ -116,9 +119,9 @@ final class PermissionTestCi
 
     public function __construct(PermissionTestDb $db)
     {
-        $this->db = $db;
+        $this->db      = $db;
         $this->mymodel = new PermissionTestModel($db);
-        $this->load = new PermissionTestLoader();
+        $this->load    = new PermissionTestLoader();
     }
 }
 
@@ -152,11 +155,10 @@ final class PermissionTestModel
 
 final class PermissionTestDb
 {
-    public $infoSchemaQueries = 0;
+    public $infoSchemaQueries           = 0;
     public $userModulePermissionQueries = 0;
-    public $fallbackAggregateQueries = 0;
-    public $roleQueries = 0;
-
+    public $fallbackAggregateQueries    = 0;
+    public $roleQueries                 = 0;
     private $config;
 
     public function __construct(array $config)
@@ -166,9 +168,10 @@ final class PermissionTestDb
 
     public function query($sql, array $params = [])
     {
-        if (strpos($sql, 'INFORMATION_SCHEMA.TABLES') !== false) {
+        if (str_contains($sql, 'INFORMATION_SCHEMA.TABLES')) {
             $this->infoSchemaQueries++;
             $rows = [];
+
             foreach ($this->config['tables'] as $table) {
                 $rows[] = ['TABLE_NAME' => $table];
             }
@@ -176,11 +179,12 @@ final class PermissionTestDb
             return new PermissionTestResult($rows);
         }
 
-        if (strpos($sql, 'FROM user_module_permissions') !== false && strpos($sql, 'module_name IN') !== false) {
+        if (str_contains($sql, 'FROM user_module_permissions') && str_contains($sql, 'module_name IN')) {
             $this->userModulePermissionQueries++;
 
             if (isset($this->config['cache_rows_by_module'])) {
                 $rows = [];
+
                 foreach (array_slice($params, 1) as $moduleName) {
                     if (isset($this->config['cache_rows_by_module'][$moduleName])) {
                         $rows[] = $this->config['cache_rows_by_module'][$moduleName];
@@ -193,13 +197,15 @@ final class PermissionTestDb
             return new PermissionTestResult($this->config['cache_rows'] ?? []);
         }
 
-        if (strpos($sql, 'FROM user_roles ur') !== false && strpos($sql, 'MAX(rp.can_view)') !== false) {
+        if (str_contains($sql, 'FROM user_roles ur') && str_contains($sql, 'MAX(rp.can_view)')) {
             $this->fallbackAggregateQueries++;
+
             return new PermissionTestResult($this->config['fallback_rows'] ?? []);
         }
 
-        if (strpos($sql, 'SELECT r.name') !== false && strpos($sql, 'FROM user_roles ur') !== false) {
+        if (str_contains($sql, 'SELECT r.name') && str_contains($sql, 'FROM user_roles ur')) {
             $this->roleQueries++;
+
             return new PermissionTestResult($this->config['role_rows'] ?? []);
         }
 
