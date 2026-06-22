@@ -338,6 +338,18 @@ if (is_readable($envHelper)) {
 	require_once $envHelper;
 }
 
+$monitoringHelper = APPPATH . 'helpers/monitoring_helper.php';
+if (is_readable($monitoringHelper)) {
+	require_once $monitoringHelper;
+}
+
+if (function_exists('monitoring_is_http_request') && monitoring_is_http_request()) {
+	$requestId = monitoring_request_id();
+	if (!headers_sent()) {
+		header('X-Request-Id: ' . $requestId);
+	}
+}
+
 $vendorAutoload = FCPATH . 'vendor/autoload.php';
 if (is_readable($vendorAutoload)) {
 	require_once $vendorAutoload;
@@ -423,6 +435,42 @@ if (defined('SENTRY_INITIALIZED')
 				$scope->setSpan(null);
 			});
 		});
+}
+
+if (function_exists('monitoring_is_http_request') && monitoring_is_http_request()) {
+	$monitoringStartedAt = microtime(true);
+
+	register_shutdown_function(static function () use ($monitoringStartedAt): void {
+		$statusCode = (int) http_response_code();
+		if ($statusCode <= 0) {
+			$statusCode = 200;
+		}
+
+		$payload = array(
+			'type' => 'request',
+			'method' => isset($_SERVER['REQUEST_METHOD']) ? strtoupper((string) $_SERVER['REQUEST_METHOD']) : 'GET',
+			'uri' => isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '/',
+			'route' => isset($_SERVER['PATH_INFO']) ? (string) $_SERVER['PATH_INFO'] : null,
+			'status_code' => $statusCode,
+			'duration_ms' => (int) round((microtime(true) - $monitoringStartedAt) * 1000),
+			'peak_memory_mb' => round(memory_get_peak_usage(true) / 1048576, 2),
+			'remote_addr' => $_SERVER['REMOTE_ADDR'] ?? null,
+			'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
+			'query_string' => $_SERVER['QUERY_STRING'] ?? null,
+		);
+
+		$lastError = error_get_last();
+		if ($lastError !== null && in_array($lastError['type'], array(E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR), true)) {
+			$payload['error'] = array(
+				'type' => $lastError['type'],
+				'message' => $lastError['message'],
+				'file' => $lastError['file'],
+				'line' => $lastError['line'],
+			);
+		}
+
+		monitoring_write_log($payload, 'monitor');
+	});
 }
 
 /*
