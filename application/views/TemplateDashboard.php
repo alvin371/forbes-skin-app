@@ -505,8 +505,145 @@ if (!$_SESSION['is_login']) {
 
     $CI = &get_instance();
     $CI->load->library('permission');
+    $menu_marketing = $menu_overview = $menu_overview_ads = $menu_overview_kol = $menu_overview_influencer = '';
+    $menu_ads = $menu_ads_tiktok = $menu_ads_meta = $menu_ads_shopee = $menu_ads_lazada = '';
+    $menu_endorsement = $menu_influencer = $menu_influencer_dummy = $menu_calendar = $menu_payment_fee = $menu_codeboost = '';
+    $menu_order_customer = $menu_toko = $menu_order_item = $menu_crm_mg = $menu_crm_pome = $menu_grup_wa = '';
+    $menu_operasional = $menu_stock = $menu_product = $menu_product_3rd = $menu_discount = $menu_marketplace = $menu_shipping = '';
+    $menu_hr_management = $menu_quest_level = $menu_position = $menu_benefit = $menu_quest = $menu_milestone = $menu_recruitment = $menu_roles = '';
+    $menu_attendance = $menu_attendance_report = $menu_leave = $menu_overtime = $menu_leave_approvals = $menu_overtime_approvals = $menu_leave_types = $menu_leave_quotas = $menu_leave_requests_admin = $menu_approval_routes = $menu_offices = $menu_holidays = $menu_attendance_settings = $menu_performance_appraisal = '';
+    $menu_announcement = '';
+    $menu_akun = $menu_user = $menu_profile = $menu_logout = '';
 
-    $can_view_dashboard = $CI->permission->check_permission($user_id, 'dashboard', 'view');
+    $permission_module_map = [
+      'dashboard' => 'dashboard',
+      'report' => 'report',
+      'expense' => 'expense',
+      'overview' => 'marketing',
+      'ads_tiktok' => 'ads_tiktok',
+      'ads_meta' => 'ads_meta',
+      'ads_shopee' => 'ads_shopee',
+      'ads_lazada' => 'ads_lazada',
+      'influencer' => 'influencer',
+      'influencer_dummy' => 'influencer_dummy',
+      'endorse_campaign' => 'endorse_campaign',
+      'calendar' => 'calendar',
+      'payment' => 'payment',
+      'codeboost' => 'codeboost',
+      'marketplace_account' => 'marketplace_account',
+      'transaction' => 'transaction',
+      'transaction_item' => 'transaction_item',
+      'crm_mg' => 'crm_mg',
+      'crm_pome' => 'crm_pome',
+      'group_wa' => 'group_wa',
+      'stock' => 'stock',
+      'product' => 'product',
+      'quest_level' => 'quest_level',
+      'position' => 'position',
+      'roles' => 'roles',
+      'benefit' => 'benefit',
+      'quest' => 'quest',
+      'milestone' => 'milestone',
+      'recruitment' => 'recruitment',
+      'attendance' => 'attendance',
+      'attendance_report' => 'attendance_report',
+      'leave' => 'leave',
+      'overtime' => 'overtime',
+      'leave_approvals' => 'leave_approvals',
+      'overtime_approvals' => 'overtime_approvals',
+      'offices' => 'offices',
+      'attendance_settings' => 'attendance_settings',
+      'holidays' => 'holidays',
+      'leave_types' => 'leave_types',
+      'leave_quotas' => 'leave_quotas',
+      'approval_routes' => 'approval_routes',
+      'performance_admin' => 'performance_admin',
+      'announcement' => 'announcement',
+      'modules' => 'modules',
+      'user' => 'user',
+      'profile' => 'profile',
+      'scraper' => 'scraper',
+    ];
+
+    $raw_permissions = $CI->permission->get_permissions_for_modules($user_id, array_values(array_unique($permission_module_map)));
+    $modules_permissions = [];
+    foreach ($permission_module_map as $alias => $module_name) {
+      $modules_permissions[$alias] = !empty($raw_permissions[$module_name]['view']);
+    }
+
+    $has_any_permission = function (array $keys) use ($modules_permissions) {
+      foreach ($keys as $key) {
+        if (!empty($modules_permissions[$key])) {
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    $can_view_dashboard = $modules_permissions['dashboard'];
+    $can_view_report = $modules_permissions['report'];
+    $can_view_expense = $modules_permissions['expense'];
+    $can_view_marketing = $has_any_permission([
+      'overview',
+      'ads_tiktok',
+      'ads_meta',
+      'ads_shopee',
+      'ads_lazada',
+      'influencer',
+      'influencer_dummy',
+      'endorse_campaign',
+      'calendar',
+      'payment',
+      'codeboost',
+    ]);
+    $can_view_overview = $modules_permissions['overview'];
+    $can_view_advertiser = $has_any_permission([
+      'ads_tiktok',
+      'ads_meta',
+      'ads_shopee',
+      'ads_lazada',
+    ]);
+    $can_view_endorsement = $has_any_permission([
+      'influencer',
+      'influencer_dummy',
+      'endorse_campaign',
+      'calendar',
+      'payment',
+      'codeboost',
+    ]);
+    $can_view_order_customer = $has_any_permission([
+      'marketplace_account',
+      'transaction',
+      'transaction_item',
+      'crm_mg',
+      'crm_pome',
+      'group_wa',
+    ]);
+    $can_view_operasional = $has_any_permission(['stock', 'product']);
+    $can_view_hr_management = $has_any_permission([
+      'quest_level',
+      'position',
+      'benefit',
+      'quest',
+      'milestone',
+      'recruitment',
+      'attendance',
+      'attendance_report',
+      'leave',
+      'overtime',
+      'leave_approvals',
+      'overtime_approvals',
+      'offices',
+      'attendance_settings',
+      'holidays',
+      'leave_types',
+      'leave_quotas',
+      'approval_routes',
+      'performance_admin',
+      'announcement',
+    ]);
+    $can_view_akun = $has_any_permission(['user', 'profile', 'roles', 'modules']);
     ?>
 
     <div class="d-flex mb-3 img-logo" style="padding-left:15px;padding-top:20px;padding-bottom:20px;position:sticky!important;top:0;background:#FFF;z-index:100;
@@ -523,154 +660,6 @@ if (!$_SESSION['is_login']) {
         <h1 class="sidebar-title text-white">DNX1SCREEN</h1>
       </div> -->
     <?php
-    $menu_marketing = $menu_overview = $menu_overview_ads = $menu_overview_kol = $menu_overview_influencer = '';
-    $menu_ads = $menu_ads_tiktok = $menu_ads_meta = $menu_ads_shopee = $menu_ads_lazada = '';
-    $menu_endorsement = $menu_influencer = $menu_influencer_dummy = $menu_calendar = $menu_payment_fee = $menu_codeboost = '';
-    $menu_order_customer = $menu_toko = $menu_order_item = $menu_crm_mg = $menu_crm_pome = $menu_grup_wa = '';
-    $menu_operasional = $menu_stock = $menu_product = $menu_product_3rd = $menu_discount = $menu_marketplace = $menu_shipping = '';
-    $menu_hr_management = $menu_quest_level = $menu_position = $menu_benefit = $menu_quest = $menu_milestone = $menu_recruitment = $menu_roles = '';
-    $menu_attendance = $menu_attendance_report = $menu_leave = $menu_overtime = $menu_leave_approvals = $menu_overtime_approvals = $menu_leave_types = $menu_leave_quotas = $menu_leave_requests_admin = $menu_approval_routes = $menu_offices = $menu_holidays = $menu_attendance_settings = $menu_performance_appraisal = '';
-    $menu_announcement = '';
-    $menu_akun = $menu_user = $menu_profile = $menu_logout = '';
-
-    // Get user permissions for menu visibility using module names from clear_and_replace_modules.sql
-    // Access permission library through CodeIgniter instance
-    $CI = &get_instance();
-    $CI->load->library('permission');
-
-    // System Management
-    $can_view_report = $CI->permission->check_permission($user_id, 'report', 'view');
-    $can_view_expense = $CI->permission->check_permission($user_id, 'expense', 'view');
-
-    // Marketing Category - show if user has access to any marketing module
-    $can_view_marketing = $CI->permission->check_permission($user_id, 'marketing', 'view') ||
-      $CI->permission->check_permission($user_id, 'ads_tiktok', 'view') ||
-      $CI->permission->check_permission($user_id, 'ads_meta', 'view') ||
-      $CI->permission->check_permission($user_id, 'ads_shopee', 'view') ||
-      $CI->permission->check_permission($user_id, 'ads_lazada', 'view') ||
-      $CI->permission->check_permission($user_id, 'influencer', 'view') ||
-      $CI->permission->check_permission($user_id, 'influencer_dummy', 'view') ||
-      $CI->permission->check_permission($user_id, 'endorse_campaign', 'view') ||
-      $CI->permission->check_permission($user_id, 'calendar', 'view') ||
-      $CI->permission->check_permission($user_id, 'payment', 'view') ||
-      $CI->permission->check_permission($user_id, 'codeboost', 'view');
-
-    // Marketing Sub-modules
-    $can_view_overview = $CI->permission->check_permission($user_id, 'marketing', 'view');
-    $can_view_advertiser = $CI->permission->check_permission($user_id, 'ads_tiktok', 'view') ||
-      $CI->permission->check_permission($user_id, 'ads_meta', 'view') ||
-      $CI->permission->check_permission($user_id, 'ads_shopee', 'view') ||
-      $CI->permission->check_permission($user_id, 'ads_lazada', 'view');
-    $can_view_endorsement = $CI->permission->check_permission($user_id, 'influencer', 'view') ||
-      $CI->permission->check_permission($user_id, 'influencer_dummy', 'view') ||
-      $CI->permission->check_permission($user_id, 'endorse_campaign', 'view') ||
-      $CI->permission->check_permission($user_id, 'calendar', 'view') ||
-      $CI->permission->check_permission($user_id, 'payment', 'view') ||
-      $CI->permission->check_permission($user_id, 'codeboost', 'view');
-
-    // Order & Customer Management - show if user has access to any module
-    $can_view_order_customer = $CI->permission->check_permission($user_id, 'marketplace_account', 'view') ||
-      $CI->permission->check_permission($user_id, 'transaction', 'view') ||
-      $CI->permission->check_permission($user_id, 'transaction_item', 'view') ||
-      $CI->permission->check_permission($user_id, 'crm_mg', 'view') ||
-      $CI->permission->check_permission($user_id, 'crm_pome', 'view') ||
-      $CI->permission->check_permission($user_id, 'group_wa', 'view');
-
-    // Operations - show if user has access to any operations module
-    $can_view_operasional = $CI->permission->check_permission($user_id, 'stock', 'view') ||
-      $CI->permission->check_permission($user_id, 'product', 'view');
-
-    // HR Management - show if user has access to any HR module
-    $can_view_hr_management = $CI->permission->check_permission($user_id, 'quest_level', 'view') ||
-      $CI->permission->check_permission($user_id, 'position', 'view') ||
-      $CI->permission->check_permission($user_id, 'benefit', 'view') ||
-      $CI->permission->check_permission($user_id, 'quest', 'view') ||
-      $CI->permission->check_permission($user_id, 'milestone', 'view') ||
-      $CI->permission->check_permission($user_id, 'recruitment', 'view') ||
-      $CI->permission->check_permission($user_id, 'attendance', 'view') ||
-      $CI->permission->check_permission($user_id, 'attendance_report', 'view') ||
-      $CI->permission->check_permission($user_id, 'leave', 'view') ||
-      $CI->permission->check_permission($user_id, 'overtime', 'view') ||
-      $CI->permission->check_permission($user_id, 'leave_approvals', 'view') ||
-      $CI->permission->check_permission($user_id, 'overtime_approvals', 'view') ||
-      $CI->permission->check_permission($user_id, 'offices', 'view') ||
-      $CI->permission->check_permission($user_id, 'attendance_settings', 'view') ||
-      $CI->permission->check_permission($user_id, 'holidays', 'view') ||
-      $CI->permission->check_permission($user_id, 'leave_types', 'view') ||
-      $CI->permission->check_permission($user_id, 'leave_quotas', 'view') ||
-      $CI->permission->check_permission($user_id, 'approval_routes', 'view') ||
-      $CI->permission->check_permission($user_id, 'performance_admin', 'view') ||
-      $CI->permission->check_permission($user_id, 'announcement', 'view');
-
-    // Account Management - show if user has access to any account module  
-    $can_view_akun = $CI->permission->check_permission($user_id, 'user', 'view') ||
-      $CI->permission->check_permission($user_id, 'profile', 'view') ||
-      $CI->permission->check_permission($user_id, 'roles', 'view') ||
-      $CI->permission->check_permission($user_id, 'modules', 'view');
-
-    // Individual module permissions for detailed checks
-    $modules_permissions = [
-      // System Management
-      'dashboard' => $CI->permission->check_permission($user_id, 'dashboard', 'view'),
-      'report' => $CI->permission->check_permission($user_id, 'report', 'view'),
-      'expense' => $CI->permission->check_permission($user_id, 'expense', 'view'),
-
-      // Marketing
-      'overview' => $CI->permission->check_permission($user_id, 'marketing', 'view'),
-      'ads_tiktok' => $CI->permission->check_permission($user_id, 'ads_tiktok', 'view'),
-      'ads_meta' => $CI->permission->check_permission($user_id, 'ads_meta', 'view'),
-      'ads_shopee' => $CI->permission->check_permission($user_id, 'ads_shopee', 'view'),
-      'ads_lazada' => $CI->permission->check_permission($user_id, 'ads_lazada', 'view'),
-      'influencer' => $CI->permission->check_permission($user_id, 'influencer', 'view'),
-      'influencer_dummy' => $CI->permission->check_permission($user_id, 'influencer_dummy', 'view'),
-      'endorse_campaign' => $CI->permission->check_permission($user_id, 'endorse_campaign', 'view'),
-      'calendar' => $CI->permission->check_permission($user_id, 'calendar', 'view'),
-      'payment' => $CI->permission->check_permission($user_id, 'payment', 'view'),
-      'codeboost' => $CI->permission->check_permission($user_id, 'codeboost', 'view'),
-
-      // Order & Customer Management
-      'marketplace_account' => $CI->permission->check_permission($user_id, 'marketplace_account', 'view'),
-      'transaction' => $CI->permission->check_permission($user_id, 'transaction', 'view'),
-      'transaction_item' => $CI->permission->check_permission($user_id, 'transaction_item', 'view'),
-      'crm_mg' => $CI->permission->check_permission($user_id, 'crm_mg', 'view'),
-      'crm_pome' => $CI->permission->check_permission($user_id, 'crm_pome', 'view'),
-      'group_wa' => $CI->permission->check_permission($user_id, 'group_wa', 'view'),
-
-      // Operations
-      'stock' => $CI->permission->check_permission($user_id, 'stock', 'view'),
-      'product' => $CI->permission->check_permission($user_id, 'product', 'view'),
-
-      // HR Management
-      'quest_level' => $CI->permission->check_permission($user_id, 'quest_level', 'view'),
-      'position' => $CI->permission->check_permission($user_id, 'position', 'view'),
-      'roles' => $CI->permission->check_permission($user_id, 'roles', 'view'),
-      'benefit' => $CI->permission->check_permission($user_id, 'benefit', 'view'),
-      'quest' => $CI->permission->check_permission($user_id, 'quest', 'view'),
-      'milestone' => $CI->permission->check_permission($user_id, 'milestone', 'view'),
-      'recruitment' => $CI->permission->check_permission($user_id, 'recruitment', 'view'),
-      'attendance' => $CI->permission->check_permission($user_id, 'attendance', 'view'),
-      'attendance_report' => $CI->permission->check_permission($user_id, 'attendance_report', 'view'),
-      'leave' => $CI->permission->check_permission($user_id, 'leave', 'view'),
-      'overtime' => $CI->permission->check_permission($user_id, 'overtime', 'view'),
-      'leave_approvals' => $CI->permission->check_permission($user_id, 'leave_approvals', 'view'),
-      'overtime_approvals' => $CI->permission->check_permission($user_id, 'overtime_approvals', 'view'),
-      'offices' => $CI->permission->check_permission($user_id, 'offices', 'view'),
-      'leave_types' => $CI->permission->check_permission($user_id, 'leave_types', 'view'),
-      'leave_quotas' => $CI->permission->check_permission($user_id, 'leave_quotas', 'view'),
-      'approval_routes' => $CI->permission->check_permission($user_id, 'approval_routes', 'view'),
-      'holidays' => $CI->permission->check_permission($user_id, 'holidays', 'view'),
-      'attendance_settings' => $CI->permission->check_permission($user_id, 'attendance_settings', 'view'),
-      'performance_admin' => $CI->permission->check_permission($user_id, 'performance_admin', 'view'),
-      'announcement' => $CI->permission->check_permission($user_id, 'announcement', 'view'),
-      'modules' => $CI->permission->check_permission($user_id, 'modules', 'view'),
-
-      // Account Management
-      'user' => $CI->permission->check_permission($user_id, 'user', 'view'),
-      'profile' => $CI->permission->check_permission($user_id, 'profile', 'view'),
-
-      // Additional
-      'scraper' => $CI->permission->check_permission($user_id, 'scraper', 'view')
-    ];
 
     if ($uri_1 == 'dashboard') {
       $menu_dashboard = 'active';

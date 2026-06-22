@@ -11,6 +11,8 @@ class Permission
 {
     protected $CI;
     protected $user_permissions_cache = [];
+    protected $permission_table_capabilities;
+    protected $logged_fallback_batches = [];
     
     public function __construct()
     {
@@ -60,37 +62,21 @@ class Permission
             $this->user_permissions_cache[$cache_key] = false;
             return false;
         }
-        
-        // Check if permission tables exist first
-        if (!$this->permission_tables_exist()) {
-            // Use fallback role-based system
-            $has_permission = $this->fallback_permission_check($user_id, $module_name, $action);
-        } else {
-            // Use the role-based permission system
-            try {
-                // Use the view for easy permission checking
-                $result = $this->CI->mymodel->selectWithQuery("
-                    SELECT can_{$action} as has_permission
-                    FROM user_module_permissions 
-                    WHERE user_id = '$user_id' AND module_name = '$module_name'
-                    LIMIT 1
-                ");
-                
-                if (empty($result)) {
-                    // No permission found, use fallback
-                    $has_permission = $this->fallback_permission_check($user_id, $module_name, $action);
-                } else {
-                    $has_permission = $result[0]['has_permission'] == 1;
-                }
-            } catch (Exception $e) {
-                // If any error occurs, use fallback
-                $has_permission = $this->fallback_permission_check($user_id, $module_name, $action);
-            }
+
+        $permissions = $this->get_permissions_for_modules($user_id, [$module_name]);
+        if (isset($permissions[$module_name]) && array_key_exists($action, $permissions[$module_name])) {
+            return $permissions[$module_name][$action];
         }
-        
-        // Cache the result
-        $this->user_permissions_cache[$cache_key] = $has_permission;
-        
+
+        $has_permission = $this->fallback_permission_check($user_id, $module_name, $action);
+        $this->cache_module_permissions($user_id, $module_name, [
+            'view' => $action === 'view' ? $has_permission : false,
+            'create' => $action === 'create' ? $has_permission : false,
+            'edit' => $action === 'edit' ? $has_permission : false,
+            'delete' => $action === 'delete' ? $has_permission : false,
+            'approve' => $action === 'approve' ? $has_permission : false,
+        ]);
+
         return $has_permission;
     }
     
@@ -108,19 +94,48 @@ class Permission
         }
 
         try {
-            $result = $this->CI->mymodel->selectWithQuery("
-                SELECT COUNT(*) as count
-                FROM user_module_permissions 
-                WHERE user_id = $user_id 
-                AND controller = '$controller' 
-                AND (can_view = 1 OR can_create = 1 OR can_edit = 1 OR can_delete = 1)
-            ");
-            
-            return !empty($result) && $result[0]['count'] > 0;
+            $capabilities = $this->get_permission_table_capabilities();
+            if ($capabilities['cache_table']) {
+                $result = $this->CI->db->query("
+                    SELECT COUNT(*) as count
+                    FROM user_module_permissions
+                    WHERE user_id = ?
+                    AND controller = ?
+                    AND (can_view = 1 OR can_create = 1 OR can_edit = 1 OR can_delete = 1)
+                ", [(int) $user_id, $controller])->row_array();
+
+                return !empty($result) && (int) $result['count'] > 0;
+            }
         } catch (Exception $e) {
-            // Fallback to role-based check
-            return $this->fallback_permission_check($user_id, $controller, 'view');
+            // Fall through to the role-based fallback.
         }
+
+        // Fallback to role-based check
+        return $this->fallback_permission_check($user_id, $controller, 'view');
+    }
+
+    /**
+     * Bulk-load permissions for a set of modules and hydrate the request cache.
+     *
+     * @param int $user_id
+     * @param array $modules
+     * @return array<string, array<string, bool>>
+     */
+    public function get_permissions_for_modules($user_id, array $modules)
+    {
+        $module_names = $this->filter_active_module_names($modules);
+        if (empty($module_names)) {
+            return [];
+        }
+
+        $this->prime_permissions_cache($user_id, $module_names);
+
+        $permissions = [];
+        foreach ($module_names as $module_name) {
+            $permissions[$module_name] = $this->get_cached_permissions_for_module($user_id, $module_name);
+        }
+
+        return $permissions;
     }
     
     /**
@@ -132,7 +147,7 @@ class Permission
     public function get_user_permissions($user_id)
     {
         try {
-            $permissions = $this->CI->mymodel->selectWithQuery("
+            $permissions = $this->CI->db->query("
                 SELECT 
                     module_name,
                     module_display_name,
@@ -145,10 +160,10 @@ class Permission
                     can_approve,
                     has_override
                 FROM user_module_permissions 
-                WHERE user_id = $user_id
+                WHERE user_id = ?
                 AND (can_view = 1 OR can_create = 1 OR can_edit = 1 OR can_delete = 1 OR can_approve = 1)
                 ORDER BY module_name
-            ");
+            ", [(int) $user_id])->result_array();
             return array_values(array_filter($permissions, function ($perm) {
                 return $this->is_module_active($perm['module_name'] ?? '');
             }));
@@ -166,7 +181,7 @@ class Permission
      */
     public function get_user_sidebar_modules($user_id)
     {
-        $permissions = $this->CI->mymodel->selectWithQuery("
+        $permissions = $this->CI->db->query("
             SELECT 
                 m.id,
                 m.name,
@@ -184,7 +199,7 @@ class Permission
             WHERE m.is_active = 1 
             AND (ump.can_view = 1 OR ump.can_create = 1 OR ump.can_edit = 1 OR ump.can_delete = 1)
             ORDER BY m.sort_order, m.display_name
-        ", [$user_id]);
+        ", [(int) $user_id])->result_array();
 
         $permissions = array_values(array_filter($permissions, function ($module) {
             return $this->is_module_active($module['name'] ?? '');
@@ -240,17 +255,293 @@ class Permission
      */
     private function permission_tables_exist()
     {
-        try {
-            // Check if role-based permission tables exist
-            $modules = $this->CI->mymodel->selectWithQuery("SHOW TABLES LIKE 'modules'");
-            $roles = $this->CI->mymodel->selectWithQuery("SHOW TABLES LIKE 'roles'");
-            $role_permissions = $this->CI->mymodel->selectWithQuery("SHOW TABLES LIKE 'role_permissions'");
-            $user_roles = $this->CI->mymodel->selectWithQuery("SHOW TABLES LIKE 'user_roles'");
-            
-            return !empty($modules) && !empty($roles) && !empty($role_permissions) && !empty($user_roles);
-        } catch (Exception $e) {
-            return false;
+        return $this->get_permission_table_capabilities()['fallback_tables'];
+    }
+
+    private function get_permission_table_capabilities()
+    {
+        if ($this->permission_table_capabilities !== null) {
+            return $this->permission_table_capabilities;
         }
+
+        $capabilities = [
+            'cache_table' => false,
+            'fallback_tables' => false,
+        ];
+
+        try {
+            $rows = $this->CI->db->query("
+                SELECT TABLE_NAME
+                FROM INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME IN ('user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles')
+            ")->result_array();
+
+            $tables = [];
+            foreach ($rows as $row) {
+                $tables[$row['TABLE_NAME']] = true;
+            }
+
+            $capabilities['cache_table'] = isset($tables['user_module_permissions']);
+            $capabilities['fallback_tables'] = isset($tables['modules'])
+                && isset($tables['roles'])
+                && isset($tables['role_permissions'])
+                && isset($tables['user_roles']);
+        } catch (Exception $e) {
+            $capabilities = [
+                'cache_table' => false,
+                'fallback_tables' => false,
+            ];
+        }
+
+        $this->permission_table_capabilities = $capabilities;
+
+        return $this->permission_table_capabilities;
+    }
+
+    private function filter_active_module_names(array $modules)
+    {
+        $module_names = [];
+        foreach ($modules as $module_name) {
+            $module_name = trim((string) $module_name);
+            if ($module_name === '') {
+                continue;
+            }
+            if (!$this->is_module_active($module_name)) {
+                continue;
+            }
+            $module_names[$module_name] = true;
+        }
+
+        return array_keys($module_names);
+    }
+
+    private function prime_permissions_cache($user_id, array $modules)
+    {
+        $uncached_modules = [];
+        foreach ($modules as $module_name) {
+            if (!$this->is_module_cached($user_id, $module_name)) {
+                $uncached_modules[] = $module_name;
+            }
+        }
+
+        if (empty($uncached_modules)) {
+            return;
+        }
+
+        $capabilities = $this->get_permission_table_capabilities();
+        $missing_modules = $uncached_modules;
+
+        if ($capabilities['cache_table']) {
+            $loaded_permissions = $this->load_cached_module_permissions($user_id, $uncached_modules);
+            foreach ($loaded_permissions as $module_name => $actions) {
+                $this->cache_module_permissions($user_id, $module_name, $actions);
+            }
+
+            $missing_modules = array_values(array_diff($uncached_modules, array_keys($loaded_permissions)));
+        }
+
+        if (empty($missing_modules)) {
+            return;
+        }
+
+        if ($capabilities['fallback_tables']) {
+            $fallback_permissions = $this->load_fallback_permissions_batch($user_id, $missing_modules);
+            foreach ($fallback_permissions as $module_name => $actions) {
+                $this->cache_module_permissions($user_id, $module_name, $actions);
+            }
+            $this->log_fallback_batch($user_id, $missing_modules);
+            return;
+        }
+
+        foreach ($missing_modules as $module_name) {
+            $this->cache_module_permissions($user_id, $module_name, [
+                'view' => $this->fallback_permission_check($user_id, $module_name, 'view'),
+                'create' => $this->fallback_permission_check($user_id, $module_name, 'create'),
+                'edit' => $this->fallback_permission_check($user_id, $module_name, 'edit'),
+                'delete' => $this->fallback_permission_check($user_id, $module_name, 'delete'),
+                'approve' => $this->fallback_permission_check($user_id, $module_name, 'approve'),
+            ]);
+        }
+    }
+
+    private function is_module_cached($user_id, $module_name)
+    {
+        foreach (['view', 'create', 'edit', 'delete', 'approve'] as $action) {
+            if (!array_key_exists($this->build_cache_key($user_id, $module_name, $action), $this->user_permissions_cache)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function build_cache_key($user_id, $module_name, $action)
+    {
+        return "{$user_id}_{$module_name}_{$action}";
+    }
+
+    private function get_cached_permissions_for_module($user_id, $module_name)
+    {
+        $permissions = [];
+        foreach (['view', 'create', 'edit', 'delete', 'approve'] as $action) {
+            $permissions[$action] = (bool) ($this->user_permissions_cache[$this->build_cache_key($user_id, $module_name, $action)] ?? false);
+        }
+
+        return $permissions;
+    }
+
+    private function cache_module_permissions($user_id, $module_name, array $permissions)
+    {
+        foreach (['view', 'create', 'edit', 'delete', 'approve'] as $action) {
+            $this->user_permissions_cache[$this->build_cache_key($user_id, $module_name, $action)] = (bool) ($permissions[$action] ?? false);
+        }
+    }
+
+    private function load_cached_module_permissions($user_id, array $modules)
+    {
+        if (empty($modules)) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($modules), '?'));
+        $params = array_merge([(int) $user_id], array_values($modules));
+        $rows = $this->CI->db->query("
+            SELECT
+                module_name,
+                can_view,
+                can_create,
+                can_edit,
+                can_delete,
+                can_approve
+            FROM user_module_permissions
+            WHERE user_id = ?
+            AND module_name IN ($placeholders)
+        ", $params)->result_array();
+
+        $permissions = [];
+        foreach ($rows as $row) {
+            $permissions[$row['module_name']] = [
+                'view' => (int) $row['can_view'] === 1,
+                'create' => (int) $row['can_create'] === 1,
+                'edit' => (int) $row['can_edit'] === 1,
+                'delete' => (int) $row['can_delete'] === 1,
+                'approve' => (int) $row['can_approve'] === 1,
+            ];
+        }
+
+        return $permissions;
+    }
+
+    private function load_fallback_permissions_batch($user_id, array $modules)
+    {
+        $module_names = array_values(array_unique($modules));
+        if (empty($module_names)) {
+            return [];
+        }
+
+        $permissions = [];
+        foreach ($module_names as $module_name) {
+            $permissions[$module_name] = [
+                'view' => false,
+                'create' => false,
+                'edit' => false,
+                'delete' => false,
+                'approve' => false,
+            ];
+        }
+
+        try {
+            $placeholders = implode(',', array_fill(0, count($module_names), '?'));
+            $params = array_merge([(int) $user_id], $module_names);
+            $rows = $this->CI->db->query("
+                SELECT
+                    m.name AS module_name,
+                    MAX(rp.can_view) AS can_view,
+                    MAX(rp.can_create) AS can_create,
+                    MAX(rp.can_edit) AS can_edit,
+                    MAX(rp.can_delete) AS can_delete,
+                    MAX(rp.can_approve) AS can_approve
+                FROM user_roles ur
+                INNER JOIN roles r ON ur.role_id = r.id AND r.is_active = 1
+                INNER JOIN role_permissions rp ON r.id = rp.role_id
+                INNER JOIN modules m ON rp.module_id = m.id AND m.is_active = 1
+                WHERE ur.user_id = ?
+                AND m.name IN ($placeholders)
+                GROUP BY m.name
+            ", $params)->result_array();
+
+            foreach ($rows as $row) {
+                $permissions[$row['module_name']] = [
+                    'view' => (int) $row['can_view'] === 1,
+                    'create' => (int) $row['can_create'] === 1,
+                    'edit' => (int) $row['can_edit'] === 1,
+                    'delete' => (int) $row['can_delete'] === 1,
+                    'approve' => (int) $row['can_approve'] === 1,
+                ];
+            }
+
+            $role_rows = $this->CI->db->query("
+                SELECT r.name
+                FROM user_roles ur
+                INNER JOIN roles r ON ur.role_id = r.id
+                WHERE ur.user_id = ? AND r.is_active = 1
+            ", [(int) $user_id])->result_array();
+
+            $is_admin = false;
+            foreach ($role_rows as $role) {
+                if (in_array(strtolower($role['name']), ['super_admin', 'admin'], true)) {
+                    $is_admin = true;
+                    break;
+                }
+            }
+
+            foreach ($permissions as $module_name => $actions) {
+                if ($is_admin) {
+                    $permissions[$module_name] = [
+                        'view' => true,
+                        'create' => true,
+                        'edit' => true,
+                        'delete' => true,
+                        'approve' => true,
+                    ];
+                    continue;
+                }
+
+                if ($module_name === 'profile' || $module_name === 'home') {
+                    $permissions[$module_name]['view'] = true;
+                }
+            }
+
+            return $permissions;
+        } catch (Exception $e) {
+            foreach ($module_names as $module_name) {
+                $permissions[$module_name] = [
+                    'view' => $this->fallback_permission_check($user_id, $module_name, 'view'),
+                    'create' => $this->fallback_permission_check($user_id, $module_name, 'create'),
+                    'edit' => $this->fallback_permission_check($user_id, $module_name, 'edit'),
+                    'delete' => $this->fallback_permission_check($user_id, $module_name, 'delete'),
+                    'approve' => $this->fallback_permission_check($user_id, $module_name, 'approve'),
+                ];
+            }
+
+            return $permissions;
+        }
+    }
+
+    private function log_fallback_batch($user_id, array $modules)
+    {
+        sort($modules);
+        $signature = $user_id . ':' . implode(',', $modules);
+        if (isset($this->logged_fallback_batches[$signature])) {
+            return;
+        }
+
+        $this->logged_fallback_batches[$signature] = true;
+        log_message(
+            'info',
+            'Permission cache fallback batch used for user ' . (int) $user_id . ' modules=' . implode(',', $modules)
+        );
     }
 
     /**
