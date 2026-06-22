@@ -1775,6 +1775,25 @@ if (!$_SESSION['is_login']) {
       }
     }
 
+    // Badge polling halt-on-session-expiry (2026-06-22): when the session expires,
+    // get_unread_count / queue-count return 401/403 or a redirect to the login page
+    // (non-JSON -> jQuery 'parsererror'). Previously the setInterval pollers kept firing
+    // every 15-30s forever from abandoned tabs, each redirecting to /auth/login and
+    // re-rendering it -> steady wasted CPU. Stop polling on the first auth failure;
+    // a page reload / re-login resumes it.
+    var __badgePollStopped = false;
+    var __badgeTimers = [];
+    function __isSessionError(xhr, status) {
+      return !xhr || xhr.status === 401 || xhr.status === 403 || xhr.status === 0 || status === 'parsererror';
+    }
+    function __stopBadgePolling(reason) {
+      if (__badgePollStopped) return;
+      __badgePollStopped = true;
+      __badgeTimers.forEach(function(t) { clearInterval(t); });
+      __badgeTimers = [];
+      console.warn('Badge polling stopped (' + reason + '): session likely expired. Reload to resume.');
+    }
+
     $(document).ready(function() {
       $.ajax({
         url: '<?= base_url("notifications/get_unread_count") ?>',
@@ -1785,10 +1804,12 @@ if (!$_SESSION['is_login']) {
         },
         error: function(xhr, status, error) {
           console.error('Error loading notification count:', error);
+          if (__isSessionError(xhr, status)) __stopBadgePolling('notif-init');
         }
       });
 
       function refreshQueueBadge() {
+        if (__badgePollStopped) return;
         $.ajax({
           url: '<?= base_url("endorse/queue-count") ?>',
           method: 'GET',
@@ -1811,14 +1832,18 @@ if (!$_SESSION['is_login']) {
             $link.attr('title', stalled && data.oldest_pending_at
               ? 'Antrian Refresh Konten macet sejak ' + data.oldest_pending_at
               : 'Antrian Refresh Konten');
+          },
+          error: function(xhr, status) {
+            if (__isSessionError(xhr, status)) __stopBadgePolling('queue');
           }
         });
       }
       refreshQueueBadge();
-      setInterval(refreshQueueBadge, 15000);
+      __badgeTimers.push(setInterval(refreshQueueBadge, 15000));
     });
 
-    setInterval(function() {
+    __badgeTimers.push(setInterval(function() {
+      if (__badgePollStopped) return;
       $.ajax({
         url: '<?= base_url("notifications/get_unread_count") ?>',
         method: 'GET',
@@ -1834,9 +1859,10 @@ if (!$_SESSION['is_login']) {
         },
         error: function(xhr, status, error) {
           console.error('Error auto-refreshing notification count:', error);
+          if (__isSessionError(xhr, status)) __stopBadgePolling('notif');
         }
       });
-    }, 30000);
+    }, 30000));
   </script>
   <script>
     $(document).ready(function() {
