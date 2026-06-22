@@ -12,6 +12,15 @@ class Permission
     protected $CI;
     protected $user_permissions_cache = [];
     protected $permission_table_capabilities;
+
+    /**
+     * Request-scoped cache of the permission-table capability probe. The probe queries
+     * INFORMATION_SCHEMA, which showed up as a per-page cost (~120-380ms) because the
+     * Permission library is re-instantiated within a single request. A static cache
+     * computes it once per PHP request across all Permission instances. The five RBAC
+     * tables never change at runtime, so a request-lifetime cache is safe.
+     */
+    protected static $permission_table_capabilities_cache = null;
     protected $logged_fallback_batches = [];
     
     public function __construct()
@@ -260,6 +269,10 @@ class Permission
 
     private function get_permission_table_capabilities()
     {
+        if (self::$permission_table_capabilities_cache !== null) {
+            return self::$permission_table_capabilities_cache;
+        }
+
         if ($this->permission_table_capabilities !== null) {
             return $this->permission_table_capabilities;
         }
@@ -295,6 +308,7 @@ class Permission
         }
 
         $this->permission_table_capabilities = $capabilities;
+        self::$permission_table_capabilities_cache = $capabilities;
 
         return $this->permission_table_capabilities;
     }
