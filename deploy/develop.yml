@@ -7,7 +7,7 @@
   vars:
     working_directory: "/home/forbes/artifact/forbes-skin"
     stack_name: "forbes"
-    container_version: "{{ lookup('env', 'GITHUB_SHA') | regex_replace('^(.{8}).*$', '\\1') }}"
+    container_version: "{{ CI_COMMIT_SHORT_SHA | default(lookup('env', 'GITHUB_SHA') | regex_replace('^(.{8}).*$', '\\1'), true) }}"
     container_image: "gilangp/forbes-app:develop{{ container_version }}"
 
   tasks:
