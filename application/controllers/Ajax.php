@@ -148,7 +148,10 @@ class Ajax extends CI_Controller
 
 		$cache_driver = null;
 		$cache_key = null;
-		$enable_dashboard_chart_cache = false;
+		$enable_dashboard_chart_cache = true;
+		// endorse_logs only changes on the endorse sync/refresh crons, so a few minutes
+		// of staleness is acceptable. TTL aligned to cron cadence.
+		$chart_cache_ttl = 300;
 		if ($is_dashboard == 'true' && $enable_dashboard_chart_cache) {
 			$cache_driver = $this->loadChartCampaignCacheDriver();
 			if ($cache_driver) {
@@ -373,13 +376,24 @@ class Ajax extends CI_Controller
 			$total_cost_from_endorse += (float)$row['total_cost'];
 		}
 
+			// Read from the precomputed endorse_logs_daily_rollup when enabled
+			// (env ENDORSE_ROLLUP_READ=1). Falls back to scanning raw endorse_logs.
+			// Keep OFF until rollup numbers are validated against raw on prod data.
+			$use_rollup = (env('ENDORSE_ROLLUP_READ', '0') === '1');
 			$log_aggregates = !empty($filtered_endorse_rows)
-				? $this->getChartCampaignLogAggregates(
-					$filtered_endorse_subquery,
-					$start_date,
-					$until_date,
-					$ids_sql_filter
-				)
+				? ($use_rollup
+					? $this->getChartCampaignLogAggregatesRollup(
+						$filtered_endorse_subquery,
+						$start_date,
+						$until_date,
+						$ids_sql_filter
+					)
+					: $this->getChartCampaignLogAggregates(
+						$filtered_endorse_subquery,
+						$start_date,
+						$until_date,
+						$ids_sql_filter
+					))
 			: array(
 				'baseline' => array(
 					'likes' => 0,
@@ -995,7 +1009,7 @@ class Ajax extends CI_Controller
 			</script>';
 
 		if ($cache_driver && $cache_key && $enable_dashboard_chart_cache) {
-			$cache_driver->save($cache_key, $html, 60);
+			$cache_driver->save($cache_key, $html, $chart_cache_ttl);
 		}
 
 		header('Content-Type: application/json; charset=utf-8');
@@ -1161,6 +1175,143 @@ class Ajax extends CI_Controller
 				WHERE el.log_date IS NOT NULL
 				$id_filter_sql
 				GROUP BY id_endorse
+			)
+		";
+
+		$daily_sql = "
+			WITH " . implode(",\n", $with_for_daily) . "
+			SELECT
+				range_logs.log_date,
+				SUM(range_logs.likes_delta) AS likes_delta,
+				SUM(range_logs.comment_delta) AS comment_delta,
+				SUM(range_logs.share_save_delta) AS share_save_delta,
+				SUM(range_logs.views_delta) AS views_delta,
+				SUM(CASE
+					WHEN first_seen_logs.first_log_date = range_logs.log_date
+					THEN range_logs.total_cost
+					ELSE 0
+				END) AS cost_delta,
+				SUM(CASE
+					WHEN first_seen_logs.first_log_date = range_logs.log_date
+					THEN 1
+					ELSE 0
+				END) AS endorse_delta,
+				MAX(range_logs.last_updated) AS last_updated
+			FROM range_logs
+			INNER JOIN first_seen_logs
+				ON first_seen_logs.id_endorse = range_logs.id_endorse
+			GROUP BY range_logs.log_date
+			ORDER BY range_logs.log_date ASC
+		";
+
+		return array(
+			'baseline' => $baseline_row,
+			'daily' => $this->db->query($daily_sql)->result_array(),
+		);
+	}
+
+	/**
+	 * Rollup-backed twin of getChartCampaignLogAggregates(): identical math/output shape,
+	 * but reads the precomputed endorse_logs_daily_rollup (one row per id_endorse/log_date)
+	 * instead of scanning raw endorse_logs. Gated by env ENDORSE_ROLLUP_READ in
+	 * get_chart_campaign(). The *_delta / *_after / last_updated columns are already
+	 * aggregated by the cron, so no per-row GREATEST/COALESCE is needed here.
+	 *
+	 * Caveat: today's row only reflects the last rollup cron run, so very recent log
+	 * updates can lag until the next run.
+	 */
+	private function getChartCampaignLogAggregatesRollup($filtered_endorse_subquery, $start_date, $until_date, $ids_sql_filter)
+	{
+		$with_parts = array(
+			"filtered_endorse AS ($filtered_endorse_subquery)"
+		);
+
+		$base_join = " INNER JOIN filtered_endorse filtered_endorse ON filtered_endorse.id = r.id_endorse ";
+		$id_filter_sql = !empty($ids_sql_filter) ? " AND r.id_endorse IN ($ids_sql_filter) " : "";
+
+		$baseline_latest_sql = "
+			SELECT
+				r.id_endorse,
+				MAX(r.log_date) AS log_date
+			FROM endorse_logs_daily_rollup r
+			$base_join
+			WHERE r.log_date < " . $this->db->escape($start_date) . "
+			$id_filter_sql
+			GROUP BY r.id_endorse
+		";
+
+		$with_for_baseline = $with_parts;
+		$with_for_baseline[] = "baseline_latest AS ($baseline_latest_sql)";
+		$with_for_baseline[] = "
+				baseline_logs AS (
+					SELECT
+						r.id_endorse,
+						r.log_date AS log_date,
+						r.likes_after,
+						r.comment_after,
+						r.share_save_after,
+						r.views_after,
+						r.total_cost,
+						r.last_updated
+					FROM endorse_logs_daily_rollup r
+					INNER JOIN baseline_latest baseline
+						ON baseline.id_endorse = r.id_endorse
+					   AND baseline.log_date = r.log_date
+				)
+			";
+
+		$baseline_sql = "
+			WITH " . implode(",\n", $with_for_baseline) . "
+			SELECT
+				COALESCE(SUM(likes_after), 0) AS likes,
+				COALESCE(SUM(comment_after), 0) AS comment,
+				COALESCE(SUM(share_save_after), 0) AS share_save,
+				COALESCE(SUM(views_after), 0) AS views,
+				COALESCE(SUM(total_cost), 0) AS cost,
+				COUNT(*) AS endorse
+			FROM baseline_logs
+		";
+		$baseline_row = $this->db->query($baseline_sql)->row_array();
+		if (empty($baseline_row)) {
+			$baseline_row = array(
+				'likes' => 0,
+				'comment' => 0,
+				'share_save' => 0,
+				'views' => 0,
+				'cost' => 0,
+				'endorse' => 0,
+			);
+		}
+
+		$range_logs_sql = "
+			SELECT
+				r.id_endorse,
+				r.log_date AS log_date,
+				r.likes_delta,
+				r.comment_delta,
+				r.share_save_delta,
+				r.views_delta,
+				r.total_cost,
+				r.last_updated
+			FROM endorse_logs_daily_rollup r
+			$base_join
+			WHERE r.log_date >= " . $this->db->escape($start_date) . "
+			  AND r.log_date <= " . $this->db->escape($until_date) . "
+			$id_filter_sql
+		";
+
+		$with_for_daily = $with_parts;
+		$with_for_daily[] = "range_logs AS ($range_logs_sql)";
+		$with_for_daily[] = "
+			first_seen_logs AS (
+				SELECT
+					r.id_endorse,
+					MIN(r.log_date) AS first_log_date
+				FROM endorse_logs_daily_rollup r
+				$base_join
+				WHERE r.log_date IS NOT NULL
+				$id_filter_sql
+				GROUP BY r.id_endorse
 			)
 		";
 

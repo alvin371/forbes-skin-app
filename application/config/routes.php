@@ -311,6 +311,7 @@ $route['api/cronjob/tiktok-sync'] = 'Api_v2/cronjob_tiktok_sync';
 $route['api/cronjob/endorse-refresh'] = 'Api_v2/cronjob_endorse_refresh';
 $route['api/cronjob/endorse-final-reconcile'] = 'Api_v2/cronjob_endorse_final_reconcile';
 $route['api/cronjob/endorse-optimization-sheet'] = 'Api_v2/cronjob_endorse_optimization_sheet';
+$route['api/cronjob/endorse-rollup'] = 'Api_v2/cronjob_endorse_rollup';
 $route['api/cronjob/notification-dispatch'] = 'Api_v2/cronjob_notification_dispatch';
 $route['api/fcm/health'] = 'Api_v2/fcm_health';
 $route['firebase-sw'] = 'Pushsetup/service_worker';
