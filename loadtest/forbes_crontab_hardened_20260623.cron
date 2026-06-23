@@ -1,0 +1,107 @@
+# Forbes + Sec-Forbes crontab — HARDENED restore 2026-06-23
+# Restored from ~/crontab.backup.20260622-045759 (full 54 jobs) with:
+#  - --max-time on every curl (40 per-minute, 90 mid, 120 daily) so a hung
+#    endpoint can't stack runs / block indefinitely
+#  - per-minute jobs staggered via `sleep` so they don't all fire at :00
+#    (forbes 0-9s, sec-forbes 10-18s) — flattens the minute-boundary spike
+#  - marketplace/product moved from * * * * * to */15 (was a heavy per-minute sync)
+#  - the two brands offset on shared cadences (sec-forbes +20s)
+# m h  dom mon dow   command
+
+# ========================================
+# Forbes (acneno) — Every Minute (staggered 0-9s, --max-time 40)
+# ========================================
+* * * * * sleep 0; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-webhook-refresh.log && curl --max-time 40 -s -X GET "https://acnenosystem.com/api/marketplace/webhook/refresh" >> /var/log/cron/forbes-webhook-refresh.log 2>&1
+* * * * * sleep 1; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-webhook-reset.log && curl --max-time 40 -s -X GET "https://acnenosystem.com/api/marketplace/webhook/reset" >> /var/log/cron/forbes-webhook-reset.log 2>&1
+* * * * * sleep 2; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-endorse.log && curl --max-time 40 -s -X GET "https://acnenosystem.com/api/cronjob/endorse" >> /var/log/cron/forbes-endorse.log 2>&1
+* * * * * sleep 3; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-endorse-campaign.log && curl --max-time 40 -s -X GET "https://acnenosystem.com/api/cronjob/endorse-campaign" >> /var/log/cron/forbes-endorse-campaign.log 2>&1
+* * * * * sleep 4; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-influencer.log && curl --max-time 40 -s -X GET "https://acnenosystem.com/api/cronjob/influencer" >> /var/log/cron/forbes-influencer.log 2>&1
+* * * * * sleep 5; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-influencer-dummy.log && curl --max-time 40 -s -X GET "https://acnenosystem.com/api/cronjob/influencer-dummy" >> /var/log/cron/forbes-influencer-dummy.log 2>&1
+* * * * * sleep 6; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-update-customer.log && curl --max-time 40 -s -X GET "https://acnenosystem.com/cronjob/update-customer" >> /var/log/cron/forbes-update-customer.log 2>&1
+* * * * * sleep 7; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-scraping-poll.log && curl --max-time 40 -s -X GET "https://acnenosystem.com/api/cronjob/scraping-poll" >> /var/log/cron/forbes-scraping-poll.log 2>&1
+* * * * * sleep 8;  echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-endorse-refresh.log && curl --max-time 50 -s "https://acnenosystem.com/api/cronjob/endorse-refresh" >> /var/log/cron/endorse-refresh.log 2>&1
+* * * * * sleep 28; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-endorse-refresh.log && curl --max-time 50 -s "https://acnenosystem.com/api/cronjob/endorse-refresh" >> /var/log/cron/endorse-refresh.log 2>&1
+* * * * * sleep 48; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-endorse-refresh.log && curl --max-time 50 -s "https://acnenosystem.com/api/cronjob/endorse-refresh" >> /var/log/cron/endorse-refresh.log 2>&1
+* * * * * sleep 9; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-notification-dispatch.log && curl --max-time 40 -s -X GET "https://acnenosystem.com/api/cronjob/notification-dispatch" >> /var/log/cron/forbes-notification-dispatch.log 2>&1
+
+# ========================================
+# Sec-Forbes (BKA) — Every Minute (staggered 10-18s, --max-time 40)
+# ========================================
+* * * * * sleep 10; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-webhook-refresh.log && curl --max-time 40 -s -X GET "https://bkasystem.com/api/marketplace/webhook/refresh" >> /var/log/cron/sec-forbes-webhook-refresh.log 2>&1
+* * * * * sleep 11; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-webhook-reset.log && curl --max-time 40 -s -X GET "https://bkasystem.com/api/marketplace/webhook/reset" >> /var/log/cron/sec-forbes-webhook-reset.log 2>&1
+* * * * * sleep 12; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-endorse.log && curl --max-time 40 -s -X GET "https://bkasystem.com/api/cronjob/endorse" >> /var/log/cron/sec-forbes-endorse.log 2>&1
+* * * * * sleep 13; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-endorse-campaign.log && curl --max-time 40 -s -X GET "https://bkasystem.com/api/cronjob/endorse-campaign" >> /var/log/cron/sec-forbes-endorse-campaign.log 2>&1
+* * * * * sleep 14; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-influencer.log && curl --max-time 40 -s -X GET "https://bkasystem.com/api/cronjob/influencer" >> /var/log/cron/sec-forbes-influencer.log 2>&1
+* * * * * sleep 15; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-influencer-dummy.log && curl --max-time 40 -s -X GET "https://bkasystem.com/api/cronjob/influencer-dummy" >> /var/log/cron/sec-forbes-influencer-dummy.log 2>&1
+* * * * * sleep 16; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-update-customer.log && curl --max-time 40 -s -X GET "https://bkasystem.com/cronjob/update-customer" >> /var/log/cron/sec-forbes-update-customer.log 2>&1
+* * * * * sleep 17; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-scraping-poll.log && curl --max-time 40 -s "https://bkasystem.com/api/cronjob/scraping-poll" >> /var/log/cron/scraping-poll.log 2>&1
+* * * * * sleep 18; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-endorse-refresh.log && curl --max-time 50 -s "https://bkasystem.com/api/cronjob/endorse-refresh" >> /var/log/cron/sec-forbes-endorse-refresh.log 2>&1
+* * * * * sleep 38; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-endorse-refresh.log && curl --max-time 50 -s "https://bkasystem.com/api/cronjob/endorse-refresh" >> /var/log/cron/sec-forbes-endorse-refresh.log 2>&1
+* * * * * sleep 58; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-endorse-refresh.log && curl --max-time 50 -s "https://bkasystem.com/api/cronjob/endorse-refresh" >> /var/log/cron/sec-forbes-endorse-refresh.log 2>&1
+
+# ========================================
+# Every 15 Minutes — endorse sync + marketplace/product (moved off per-minute)
+# ========================================
+*/15 * * * * sleep 0;  echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')] [endorse-refresh]" >> /var/log/cron/forbes-endorse.log && curl --max-time 90 -s -X GET "https://acnenosystem.com/api/cronjob/endorse-sync-campaign" >> /var/log/cron/forbes-endorse.log 2>&1
+*/15 * * * * sleep 30; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-marketplace-product.log && curl --max-time 90 -s -X GET "https://acnenosystem.com/api/marketplace/product" >> /var/log/cron/forbes-marketplace-product.log 2>&1
+*/15 * * * * sleep 35; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-marketplace-product.log && curl --max-time 90 -s -X GET "https://bkasystem.com/api/marketplace/product" >> /var/log/cron/sec-forbes-marketplace-product.log 2>&1
+
+# ========================================
+# Every 30 Minutes — ads (Shopee/Lazada) + token refresh + scraping enqueue
+# ========================================
+0,30 * * * * sleep 0;  echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-shopee-ads.log && curl --max-time 90 -s -X GET "https://acnenosystem.com/api/marketplace/ads?marketplace=SHOPEE" >> /var/log/cron/forbes-shopee-ads.log 2>&1
+0,30 * * * * sleep 2;  echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-lazada-ads.log && curl --max-time 90 -s -X GET "https://acnenosystem.com/api/marketplace/ads?marketplace=LAZADA" >> /var/log/cron/forbes-lazada-ads.log 2>&1
+0,30 * * * * sleep 4;  echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-token-refresh.log && curl --max-time 90 -s -X GET "https://acnenosystem.com/api/marketplace/token/refresh" >> /var/log/cron/forbes-token-refresh.log 2>&1
+0,30 * * * * sleep 6;  echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-scraping-enqueue.log && curl --max-time 90 -s -X GET "https://acnenosystem.com/api/cronjob/scraping-enqueue" >> /var/log/cron/forbes-scraping-enqueue.log 2>&1
+0,30 * * * * sleep 20; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-shopee-ads.log && curl --max-time 90 -s -X GET "https://bkasystem.com/api/marketplace/ads?marketplace=SHOPEE" >> /var/log/cron/sec-forbes-shopee-ads.log 2>&1
+0,30 * * * * sleep 22; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-lazada-ads.log && curl --max-time 90 -s -X GET "https://bkasystem.com/api/marketplace/ads?marketplace=LAZADA" >> /var/log/cron/sec-forbes-lazada-ads.log 2>&1
+0,30 * * * * sleep 24; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-token-refresh.log && curl --max-time 90 -s -X GET "https://bkasystem.com/api/marketplace/token/refresh" >> /var/log/cron/sec-forbes-token-refresh.log 2>&1
+0,30 * * * * sleep 26; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-scraping-enqueue.log && curl --max-time 90 -s "https://bkasystem.com/api/cronjob/scraping-enqueue" >> /var/log/cron/scraping-enqueue.log 2>&1
+
+# ========================================
+# Every 5 Minutes — ads (Meta/TiktokBC) + tiktok campaign/gmv + scraping submit + reconcile
+# ========================================
+*/5 * * * * sleep 0;  echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-meta-ads.log && curl --max-time 90 -s -X GET "https://acnenosystem.com/api/marketplace/ads?marketplace=META" >> /var/log/cron/forbes-meta-ads.log 2>&1
+*/5 * * * * sleep 5;  echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-tiktok-campaign.log && curl --max-time 90 -s -X GET "https://acnenosystem.com/api/tiktok/campaign" >> /var/log/cron/forbes-tiktok-campaign.log 2>&1
+*/5 * * * * sleep 10; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-tiktok-gmv.log && curl --max-time 90 -s -X GET "https://acnenosystem.com/api/tiktok/gmv" >> /var/log/cron/forbes-tiktok-gmv.log 2>&1
+*/5 * * * * sleep 15; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-tiktokbc-ads.log && curl --max-time 90 -s -X GET "https://acnenosystem.com/api/marketplace/ads?marketplace=TIKTOKBC" >> /var/log/cron/forbes-tiktokbc-ads.log 2>&1
+*/5 * * * * sleep 20; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-scraping-submit.log && curl --max-time 90 -s -X GET "https://acnenosystem.com/api/cronjob/scraping-submit" >> /var/log/cron/forbes-scraping-submit.log 2>&1
+*/5 * * * * sleep 25; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-endorse-final-reconcile.log && curl --max-time 90 -s -X GET "https://acnenosystem.com/api/cronjob/endorse-final-reconcile" >> /var/log/cron/forbes-endorse-final-reconcile.log 2>&1
+*/5 * * * * sleep 30; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-meta-ads.log && curl --max-time 90 -s -X GET "https://bkasystem.com/api/marketplace/ads?marketplace=META" >> /var/log/cron/sec-forbes-meta-ads.log 2>&1
+*/5 * * * * sleep 35; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-tiktok-campaign.log && curl --max-time 90 -s -X GET "https://bkasystem.com/api/tiktok/campaign" >> /var/log/cron/sec-forbes-tiktok-campaign.log 2>&1
+*/5 * * * * sleep 40; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-tiktok-gmv.log && curl --max-time 90 -s -X GET "https://bkasystem.com/api/tiktok/gmv" >> /var/log/cron/sec-forbes-tiktok-gmv.log 2>&1
+*/5 * * * * sleep 45; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-tiktokbc-ads.log && curl --max-time 90 -s -X GET "https://bkasystem.com/api/marketplace/ads?marketplace=TIKTOKBC" >> /var/log/cron/sec-forbes-tiktokbc-ads.log 2>&1
+*/5 * * * * sleep 50; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-scraping-submit.log && curl --max-time 90 -s "https://bkasystem.com/api/cronjob/scraping-submit" >> /var/log/cron/scraping-submit.log 2>&1
+
+# ========================================
+# Every 10 Minutes — tiktok-sync (acneno)
+# ========================================
+*/10 * * * * sleep 0; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/tiktok-sync.log && curl --max-time 90 -s -X GET "https://acnenosystem.com/api/cronjob/tiktok-sync" >> /var/log/cron/tiktok-sync.log 2>&1
+
+# ========================================
+# Hourly — endorse stats + campaign aggregate (forbes)
+# ========================================
+0 * * * * sleep 0;  echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')] [endorse-stats]" >> /var/log/cron/forbes-endorse.log && curl --max-time 90 -s -X GET "https://acnenosystem.com/api/cronjob/endorse?mode=true" >> /var/log/cron/forbes-endorse.log 2>&1
+0 * * * * sleep 10; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')] [endorse-campaign]" >> /var/log/cron/forbes-endorse.log && curl --max-time 90 -s -X GET "https://acnenosystem.com/api/cronjob/endorse-campaign" >> /var/log/cron/forbes-endorse.log 2>&1
+
+# ========================================
+# Daily — expense + product (forbes 00:00, influencer 11:00)
+# ========================================
+0 0 * * * sleep 0;  echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-expense.log && curl --max-time 120 -s -X GET "https://acnenosystem.com/cronjob/expense" >> /var/log/cron/forbes-expense.log 2>&1
+0 0 * * * sleep 30; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/forbes-marketplace-product-daily.log && curl --max-time 120 -s -X GET "https://acnenosystem.com/api/marketplace/product" >> /var/log/cron/forbes-marketplace-product-daily.log 2>&1
+0 11 * * * echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')] [influencer]" >> /var/log/cron/forbes-influencer.log && curl --max-time 120 -s -X GET "https://acnenosystem.com/api/cronjob/influencer" >> /var/log/cron/forbes-influencer.log 2>&1
+
+# ========================================
+# Daily — expense + product + refresh enqueue (sec-forbes, offset +20s)
+# ========================================
+0 0 * * * sleep 20; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-expense.log && curl --max-time 120 -s -X GET "https://bkasystem.com/cronjob/expense" >> /var/log/cron/sec-forbes-expense.log 2>&1
+0 0 * * * sleep 50; echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-marketplace-product-daily.log && curl --max-time 120 -s -X GET "https://bkasystem.com/api/marketplace/product" >> /var/log/cron/sec-forbes-marketplace-product-daily.log 2>&1
+0 1 * * * echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/sec-forbes-endorse-refresh-enqueue-daily.log && curl --max-time 120 -s "https://bkasystem.com/api/cronjob/endorse-refresh-enqueue-daily" >> /var/log/cron/sec-forbes-endorse-refresh-enqueue-daily.log 2>&1
+
+# ========================================
+# Daily Queue — endorse refresh enqueue all (acneno + BKA, 06:00 & 23:00)
+# ========================================
+0 6 * * *  echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/acneno-endorse-morning-sync.log && curl --max-time 120 -s "https://acnenosystem.com/api/cronjob/endorse-refresh-enqueue-all" >/dev/null 2>&1
+0 23 * * * echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/acneno-endorse-night-sync.log && curl --max-time 120 -s "https://acnenosystem.com/api/cronjob/endorse-refresh-enqueue-all" >/dev/null 2>&1
+0 6 * * *  echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/bka-endorse-morning-sync.log && curl --max-time 120 -s "https://bkasystem.com/api/cronjob/endorse-refresh-enqueue-all" >/dev/null 2>&1
+0 23 * * * echo "[$(date '+\%Y-\%m-\%d \%H:\%M:\%S')]" >> /var/log/cron/bka-endorse-night-sync.log && curl --max-time 120 -s "https://bkasystem.com/api/cronjob/endorse-refresh-enqueue-all" >/dev/null 2>&1
