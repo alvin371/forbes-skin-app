@@ -7885,6 +7885,47 @@ class Api_v2 extends CI_Controller
         $this->load->library('template');
         $this->load->library('endorse_sync');
 
+        // Daily request cap — protect the shared RapidAPI budget. The counter below
+        // counts this brand's own attempt rows (each attempt = one RapidAPI request),
+        // and each brand has its own DB, so when one key is shared across brands set
+        // each brand's cap to its share (e.g. 7500 + 7500 = 15000/day). 0/unset = off.
+        $DAILY_CAP = intval(env('ENDORSE_REFRESH_DAILY_CAP', 0));
+        if ($DAILY_CAP > 0) {
+            $startOfDay = date('Y-m-d') . ' 00:00:00';
+            $usedRow = $this->mymodel->selectWithQuery("
+                SELECT COUNT(*) AS c
+                FROM endorse_refresh_queue_attempts
+                WHERE started_at >= '$startOfDay'
+            ");
+            $usedToday = intval($usedRow[0]['c'] ?? 0);
+            $remaining = $DAILY_CAP - $usedToday;
+
+            if ($remaining <= 0) {
+                echo json_encode([
+                    'status'     => true,
+                    'processed'  => 0,
+                    'used_today' => $usedToday,
+                    'daily_cap'  => $DAILY_CAP,
+                    'msg'        => "Daily cap reached ($usedToday/$DAILY_CAP) — skipping run",
+                ]);
+                $this->cron_monitor_finish($monitor, array(
+                    'status'          => 'ok',
+                    'processed_count' => 0,
+                    'queue_count'     => 0,
+                    'note'            => 'daily_cap_reached',
+                    'used_today'      => $usedToday,
+                ));
+                die;
+            }
+
+            // Final run of the day: shrink the batch so we don't overshoot the cap.
+            // (Parallel staggered entries can still overshoot by up to one batch each;
+            // that slack is bounded and acceptable.)
+            if ($remaining < $BATCH_SIZE) {
+                $BATCH_SIZE = $remaining;
+            }
+        }
+
         $worker_id = uniqid('w_', true);
         $now       = date('Y-m-d H:i:s');
         $today     = date('Y-m-d');
