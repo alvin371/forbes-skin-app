@@ -7885,6 +7885,47 @@ class Api_v2 extends CI_Controller
         $this->load->library('template');
         $this->load->library('endorse_sync');
 
+        // Daily request cap — protect the shared RapidAPI budget. The counter below
+        // counts this brand's own attempt rows (each attempt = one RapidAPI request),
+        // and each brand has its own DB, so when one key is shared across brands set
+        // each brand's cap to its share (e.g. 7500 + 7500 = 15000/day). 0/unset = off.
+        $DAILY_CAP = intval(env('ENDORSE_REFRESH_DAILY_CAP', 0));
+        if ($DAILY_CAP > 0) {
+            $startOfDay = date('Y-m-d') . ' 00:00:00';
+            $usedRow = $this->mymodel->selectWithQuery("
+                SELECT COUNT(*) AS c
+                FROM endorse_refresh_queue_attempts
+                WHERE started_at >= '$startOfDay'
+            ");
+            $usedToday = intval($usedRow[0]['c'] ?? 0);
+            $remaining = $DAILY_CAP - $usedToday;
+
+            if ($remaining <= 0) {
+                echo json_encode([
+                    'status'     => true,
+                    'processed'  => 0,
+                    'used_today' => $usedToday,
+                    'daily_cap'  => $DAILY_CAP,
+                    'msg'        => "Daily cap reached ($usedToday/$DAILY_CAP) — skipping run",
+                ]);
+                $this->cron_monitor_finish($monitor, array(
+                    'status'          => 'ok',
+                    'processed_count' => 0,
+                    'queue_count'     => 0,
+                    'note'            => 'daily_cap_reached',
+                    'used_today'      => $usedToday,
+                ));
+                die;
+            }
+
+            // Final run of the day: shrink the batch so we don't overshoot the cap.
+            // (Parallel staggered entries can still overshoot by up to one batch each;
+            // that slack is bounded and acceptable.)
+            if ($remaining < $BATCH_SIZE) {
+                $BATCH_SIZE = $remaining;
+            }
+        }
+
         $worker_id = uniqid('w_', true);
         $now       = date('Y-m-d H:i:s');
         $today     = date('Y-m-d');
@@ -7972,7 +8013,11 @@ class Api_v2 extends CI_Controller
         foreach ($items as $i => $item) {
             $tasks[$i] = ['platform' => $item['platform'], 'url' => $item['link_upload']];
         }
-        $responses = $this->template->get_social_media_batch($tasks, $PARALLEL_HTTP);
+        // Wall-clock budget for the whole fetch so the run always returns before the
+        // cron curl --max-time / nginx 60s timeout. Leftover items are deferred back to
+        // the queue (see deferred handling below), not failed.
+        $DEADLINE_SEC = floatval(env('ENDORSE_REFRESH_DEADLINE_SEC', 45));
+        $responses = $this->template->get_social_media_batch($tasks, $PARALLEL_HTTP, $DEADLINE_SEC);
 
         // Step 5 — apply results
         $completed = 0; $failed = 0; $retrying = 0;
@@ -7985,6 +8030,22 @@ class Api_v2 extends CI_Controller
             $attempts    = intval($item['attempts']) + 1;
             $maxAttempts = intval($item['max_attempts']);
             $response    = $responses[$i] ?? ['status' => false, 'msg' => 'No response', 'data' => []];
+
+            // Wall-clock deferral: the batch ran out of budget before fetching this row.
+            // Return it to the queue untouched (no attempt charged, attempts column not
+            // bumped) so a later staggered run handles it. This is what lets a deep queue
+            // drain across many short, always-completing runs instead of timing out.
+            if (!empty($response['deferred'])) {
+                $this->db->update('endorse_refresh_queue', [
+                    'status'     => 'pending',
+                    'worker_id'  => null,
+                    'started_at' => null,
+                    'claimed_at' => null,
+                ], ['id' => $queue_id]);
+                $this->finalize_queue_attempt($queue_id, $attempts, $worker_id, 'retrying', Endorse_sync::ERR_TRANSIENT, 'Deferred: batch wall-clock budget', date('Y-m-d H:i:s'));
+                $retrying++;
+                continue;
+            }
 
             if (!$endorse) {
                 $this->mark_queue_failed($queue_id, $attempts, 'Endorse row no longer exists', Endorse_sync::ERR_PERMANENT, $worker_id);
