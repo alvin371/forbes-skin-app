@@ -18,6 +18,9 @@
           </div>
           <input name="password" type="password" class="form-control" placeholder="Masukkan password disini" id="password_1">
         </div>
+        <div class="text-end mt-1">
+          <a href="<?= base_url() ?>auth/forgot-password" class="text-white" style="text-decoration: underline; font-size: 12px;">Lupa password?</a>
+        </div>
       </div>
       <div class="col-lg-12 mt-4">
         <div class="row align-items-center">

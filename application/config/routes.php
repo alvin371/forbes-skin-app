@@ -59,6 +59,10 @@ $route['auth'] = 'auth';
 $route['login'] = 'auth/login';
 $route['signup'] = 'auth/signup';
 $route['signup-process'] = 'auth/signup_process';
+$route['forgot-password'] = 'auth/forgot_password';
+$route['forgot-password-process'] = 'auth/forgot_password_process';
+$route['reset-password/(:any)'] = 'auth/reset_password/$1';
+$route['reset-password-process'] = 'auth/reset_password_process';
 
 $route['admin/offices'] = 'admin/offices/index';
 $route['admin/offices/create'] = 'admin/offices/create';
@@ -203,6 +207,7 @@ $route['api/marketplace/order/download'] = 'Api_v2/marketplace_order_download';
 
 $route['api/hrms/auth/login'] = 'Api_hrms/auth_login';
 $route['api/hrms/auth/refresh'] = 'Api_hrms/auth_refresh';
+$route['api/hrms/auth/forgot-password'] = 'Api_hrms/auth_forgot_password';
 $route['api/hrms/profile'] = 'Api_hrms/profile';
 $route['api/hrms/profile/password'] = 'Api_hrms/profile_password';
 $route['api/hrms/pin/setup'] = 'Api_hrms/pin_setup';

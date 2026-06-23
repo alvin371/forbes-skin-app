@@ -32,8 +32,11 @@ class Api_hrms extends CI_Controller
         $this->load->library('LeaveQuotaService');
         $this->load->library('permission');
         $this->load->library('UploadService');
+        $this->load->library('ResendMailer');
+        $this->load->model('Password_reset_model');
         $this->load->helper('attendance');
         $this->load->helper('sentry');
+        $this->load->helper('password');
     }
 
     public function auth_login()
@@ -83,17 +86,8 @@ class Api_hrms extends CI_Controller
             return $this->respond(401, array('message' => 'Invalid credentials.'));
         }
 
-        $isValid = false;
-        if (password_verify($password, $user['password'])) {
-            $isValid = true;
-        } elseif ($user['password'] === md5($password)) {
-            $isValid = true;
-            $newHash = password_hash($password, PASSWORD_DEFAULT);
-            $this->db->update('user', array('password' => $newHash), array('id' => $user['id']));
-            $user['password'] = $newHash;
-        }
-
-        if (!$isValid) {
+        // Accepts modern hash + legacy MD5, upgrading the stored hash on success.
+        if (!verify_and_upgrade_password($this->db, $user, $password)) {
             return $this->respond(401, array('message' => 'Invalid credentials.'));
         }
 
@@ -135,6 +129,78 @@ class Api_hrms extends CI_Controller
             'accessToken' => $tokens['accessToken'],
             'refreshToken' => $tokens['refreshToken'],
         ));
+    }
+
+    /**
+     * Request a password-reset link (mobile).
+     *
+     *   POST /api/hrms/auth/forgot-password  body {email}
+     *
+     * Issues a single-use token and emails a link to the shared web reset page
+     * (APP_RESET_URL/{token}); on success that page bounces back to the app via
+     * APP_LOGIN_DEEPLINK. Public endpoint (no JWT). Per product, an unknown email
+     * returns 404 EMAIL_NOT_FOUND; abuse is bounded by a per-user/per-IP throttle.
+     */
+    public function auth_forgot_password()
+    {
+        if ($this->input->method(TRUE) !== 'POST') {
+            return $this->respond(405, array('message' => 'Method not allowed'));
+        }
+
+        $payload = $this->json_input();
+        $login = strtolower(trim((string) ($payload['email'] ?? '')));
+
+        if ($login === '') {
+            return $this->respond(422, array(
+                'message' => 'Validation failed.',
+                'errors' => array('email' => 'Email is required.'),
+            ));
+        }
+
+        $this->db->from('user');
+        $this->db->group_start();
+        $this->db->where('LOWER(email)', $login);
+        $this->db->or_where('LOWER(username)', $login);
+        $this->db->group_end();
+        $user = $this->db->get()->row_array();
+
+        if (!$user) {
+            return $this->respond(404, array('message' => 'Email not registered.', 'code' => 'EMAIL_NOT_FOUND'));
+        }
+
+        if (isset($user['status']) && $user['status'] !== 'Aktif') {
+            return $this->respond(403, array('message' => 'Account is inactive.'));
+        }
+
+        $ip = $this->input->ip_address();
+        $throttleSec = (int) env('PASSWORD_RESET_THROTTLE_SEC', 60);
+        if ($this->Password_reset_model->recent_request_count((int) $user['id'], $ip, $throttleSec) > 0) {
+            return $this->respond(429, array('message' => 'A reset link was just sent. Please wait before trying again.'));
+        }
+
+        $rawToken = $this->Password_reset_model->create_token((int) $user['id'], 'api', $ip);
+        $this->send_password_reset_email($user, $rawToken);
+
+        return $this->respond(200, array('ok' => true));
+    }
+
+    private function send_password_reset_email($user, $rawToken)
+    {
+        $base = rtrim((string) env('APP_RESET_URL', base_url('reset-password')), '/');
+        $resetUrl = $base . '/' . rawurlencode($rawToken);
+
+        $body = $this->load->view('emails/reset_password', array(
+            'name' => (string) ($user['full_name'] ?? $user['username'] ?? ''),
+            'reset_url' => $resetUrl,
+            'ttl_minutes' => (int) env('PASSWORD_RESET_TTL_MIN', 30),
+        ), true);
+
+        return $this->resendmailer->send(
+            (string) ($user['email'] ?? ''),
+            (string) ($user['full_name'] ?? ''),
+            'Reset your Forbes Skin password',
+            $body
+        );
     }
 
     public function profile()
@@ -2605,21 +2671,8 @@ class Api_hrms extends CI_Controller
 
     private function verify_user_password($user, $password)
     {
-        $password = (string) $password;
-        if ($password === '') {
-            return false;
-        }
-
-        $currentHash = (string) ($user['password'] ?? '');
-        if ($currentHash === '') {
-            return false;
-        }
-
-        if (password_verify($password, $currentHash)) {
-            return true;
-        }
-
-        return $currentHash === md5($password);
+        // Shared verify path: modern hash + legacy MD5, with opportunistic upgrade.
+        return verify_and_upgrade_password($this->db, $user, $password);
     }
 
     private function detect_uploaded_file_mime_type($fullPath)

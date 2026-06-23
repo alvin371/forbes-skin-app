@@ -14,6 +14,10 @@ class Auth extends CI_Controller
         $this->load->library('form_validation');
         $this->load->library('permission');
         $this->load->library('UploadService');
+        $this->load->library('ApiAuth');
+        $this->load->library('ResendMailer');
+        $this->load->model('Password_reset_model');
+        $this->load->helper('password');
     }
 
     public function index()
@@ -105,32 +109,8 @@ class Auth extends CI_Controller
 
     private function validate_password($password)
     {
-        // Minimum 8 characters
-        if (strlen($password) < 8) {
-            return "Password must be at least 8 characters long.";
-        }
-        
-        // Must contain uppercase letter
-        if (!preg_match('/[A-Z]/', $password)) {
-            return "Password must contain at least one uppercase letter.";
-        }
-        
-        // Must contain lowercase letter
-        if (!preg_match('/[a-z]/', $password)) {
-            return "Password must contain at least one lowercase letter.";
-        }
-        
-        // Must contain number
-        if (!preg_match('/[0-9]/', $password)) {
-            return "Password must contain at least one number.";
-        }
-        
-        // Must contain special character
-        if (!preg_match('/[!@#$%^&*(),.?":{}|<>]/', $password)) {
-            return "Password must contain at least one special character (!@#$%^&*(),.?\":{}|<>).";
-        }
-        
-        return true;
+        // Delegates to the shared helper so web + API enforce identical rules.
+        return validate_password_strength($password);
     }
 
     private function get_user_default_page($user)
@@ -597,26 +577,14 @@ class Auth extends CI_Controller
         $user = $this->mymodel->selectDataOne('user', array('username' => $email));
         
         if ($user) {
-            $is_valid_password = false;
-            
-            // Check if password is hashed with password_hash (new system)
-            if (password_verify($password, $user['password'])) {
-                $is_valid_password = true;
-            } 
-            // Check if password is MD5 hashed (old system)
-            else if ($user['password'] === md5($password)) {
-                $is_valid_password = true;
-                
-                // Upgrade password to new secure hash
-                $new_password_hash = password_hash($password, PASSWORD_DEFAULT);
-                $this->db->update('user', 
-                    array('password' => $new_password_hash), 
-                    array('id' => $user['id'])
-                );
-                $user['password'] = $new_password_hash; // Update for session
-            }
-            
+            // Verify against both the modern hash and legacy MD5, upgrading the
+            // stored hash to the current algorithm on a successful match.
+            $is_valid_password = verify_and_upgrade_password($this->db, $user, $password);
+
             if ($is_valid_password) {
+                // Reload so the session carries any freshly-upgraded password hash.
+                $user = $this->mymodel->selectDataOne('user', array('id' => $user['id']));
+
                 if ($user['status'] == "Aktif") {
                     $_SESSION['is_login'] = true;
                     $_SESSION['user'] = $user;
@@ -655,5 +623,143 @@ class Auth extends CI_Controller
         $_SESSION['is_login'] = false;
         $_SESSION['user'] = array();
         return redirect(base_url() . 'auth/login');
+    }
+
+    // ---------------------------------------------------------------------
+    // Forgot / reset password
+    // ---------------------------------------------------------------------
+
+    public function forgot_password()
+    {
+        $data['title'] = 'Forgot Password - ' . $this->template->title();
+        $data['content'] = $this->load->view('ForgotPassword', $data, true);
+        $this->load->view('Template', $data);
+    }
+
+    /**
+     * AJAX endpoint: accept an email/username, issue a reset token, send the link.
+     * Mirrors the login toast pattern (echo alert_success / alert_danger).
+     */
+    public function forgot_password_process()
+    {
+        $login = strtolower(trim((string) ($_POST['email'] ?? '')));
+
+        if ($login === '') {
+            echo $this->template->alert_danger('Masukkan email kamu terlebih dahulu.');
+            return;
+        }
+
+        // Look up by email or username (login here is username-based).
+        $this->db->from('user');
+        $this->db->group_start();
+        $this->db->where('LOWER(email)', $login);
+        $this->db->or_where('LOWER(username)', $login);
+        $this->db->group_end();
+        $user = $this->db->get()->row_array();
+
+        // Product decision: give explicit "not registered" feedback (enumeration
+        // accepted) — abuse is bounded by the per-user/per-IP throttle below.
+        if (!$user) {
+            echo $this->template->alert_danger('Email tidak terdaftar.');
+            return;
+        }
+
+        if (isset($user['status']) && $user['status'] !== 'Aktif') {
+            echo $this->template->alert_danger('Akun kamu tidak aktif. Hubungi admin.');
+            return;
+        }
+
+        $ip = $this->input->ip_address();
+        $throttleSec = (int) env('PASSWORD_RESET_THROTTLE_SEC', 60);
+        if ($this->Password_reset_model->recent_request_count((int) $user['id'], $ip, $throttleSec) > 0) {
+            echo $this->template->alert_danger('Link reset baru saja dikirim. Cek email kamu atau coba lagi sebentar.');
+            return;
+        }
+
+        $rawToken = $this->Password_reset_model->create_token((int) $user['id'], 'web', $ip);
+        $this->send_reset_email($user, $rawToken);
+
+        echo $this->template->alert_success('Link reset password sudah dikirim ke email kamu.');
+    }
+
+    public function reset_password($token = '')
+    {
+        $row = $this->Password_reset_model->find_valid($token);
+
+        $data['title'] = 'Reset Password - ' . $this->template->title();
+        $data['token'] = (string) $token;
+        $data['valid'] = (bool) $row;
+        $data['channel'] = $row ? (string) $row['channel'] : 'web';
+        $data['login_url'] = base_url('auth/login');
+        $data['deeplink'] = (string) env('APP_LOGIN_DEEPLINK', '');
+        $data['content'] = $this->load->view('ResetPassword', $data, true);
+        $this->load->view('Template', $data);
+    }
+
+    /**
+     * AJAX endpoint: verify the token, set the new password, invalidate everything.
+     */
+    public function reset_password_process()
+    {
+        $token = (string) ($_POST['token'] ?? '');
+        $password = (string) ($_POST['password'] ?? '');
+        $confirm = (string) ($_POST['confirm'] ?? '');
+
+        $row = $this->Password_reset_model->find_valid($token);
+        if (!$row) {
+            echo $this->template->alert_danger('Link reset tidak valid atau sudah kedaluwarsa. Silakan minta link baru.');
+            return;
+        }
+
+        $strength = validate_password_strength($password);
+        if ($strength !== true) {
+            echo $this->template->alert_danger($strength);
+            return;
+        }
+
+        if ($password !== $confirm) {
+            echo $this->template->alert_danger('Konfirmasi password tidak cocok.');
+            return;
+        }
+
+        $user = $this->mymodel->selectDataOne('user', array('id' => (int) $row['user_id']));
+        if (!$user) {
+            echo $this->template->alert_danger('Akun tidak ditemukan.');
+            return;
+        }
+
+        // Reject reusing the current password.
+        if (verify_and_upgrade_password($this->db, $user, $password)) {
+            echo $this->template->alert_danger('Password baru harus berbeda dari password lama.');
+            return;
+        }
+
+        $this->db->update('user', array('password' => hash_password($password)), array('id' => (int) $user['id']));
+
+        // Single-use token + invalidate any siblings, then revoke all sessions.
+        $this->Password_reset_model->consume((int) $row['id']);
+        $this->Password_reset_model->invalidate_user_tokens((int) $user['id']);
+        $this->apiauth->revoke_all_for_user((int) $user['id']);
+
+        echo $this->template->alert_success('Password berhasil diubah. Silakan login dengan password baru.');
+    }
+
+    private function send_reset_email($user, $rawToken)
+    {
+        $base = rtrim((string) env('APP_RESET_URL', base_url('reset-password')), '/');
+        $resetUrl = $base . '/' . rawurlencode($rawToken);
+
+        $body = $this->load->view('emails/reset_password', array(
+            'name' => (string) ($user['full_name'] ?? $user['username'] ?? ''),
+            'reset_url' => $resetUrl,
+            'ttl_minutes' => (int) env('PASSWORD_RESET_TTL_MIN', 30),
+        ), true);
+
+        return $this->resendmailer->send(
+            (string) ($user['email'] ?? ''),
+            (string) ($user['full_name'] ?? ''),
+            'Reset your Forbes Skin password',
+            $body
+        );
     }
 }

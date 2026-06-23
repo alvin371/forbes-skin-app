@@ -204,6 +204,19 @@ class ApiAuth
         ));
     }
 
+    /**
+     * Revoke every still-active refresh token for a user. Used after a password
+     * reset so the change forces re-login on all devices.
+     */
+    public function revoke_all_for_user($userId)
+    {
+        $this->CI->db->where('user_id', (int) $userId);
+        $this->CI->db->where('revoked_at IS NULL', null, false);
+        $this->CI->db->update('api_refresh_tokens', array(
+            'revoked_at' => date('Y-m-d H:i:s'),
+        ));
+    }
+
     private function base64url_encode($data)
     {
         return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');

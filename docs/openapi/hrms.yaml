@@ -79,6 +79,43 @@ paths:
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
 
+  /api/hrms/auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Request a password-reset link
+      description: |
+        Issues a single-use, 30-minute reset token and emails a link to the shared
+        web reset page (`APP_RESET_URL/{token}`). On success that page redirects an
+        app-originated reset back to the app via the configured custom scheme
+        (`APP_LOGIN_DEEPLINK`). Public endpoint.
+
+        Per product, an unknown email returns `404 EMAIL_NOT_FOUND`. Requests are
+        throttled per-user and per-IP (`429` when too frequent).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthForgotPasswordRequest'
+      responses:
+        '200':
+          description: Reset link sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
   /api/hrms/profile:
     get:
       tags: [Profile]
@@ -1784,6 +1821,14 @@ components:
           type: string
         user:
           $ref: '#/components/schemas/UserProfile'
+
+    AuthForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          description: Email address or username of the account to reset.
 
     AuthRefreshRequest:
       type: object
