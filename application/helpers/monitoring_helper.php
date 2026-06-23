@@ -4,7 +4,7 @@ defined('BASEPATH') or exit('No direct script access allowed');
 if (!function_exists('monitoring_is_http_request')) {
     function monitoring_is_http_request()
     {
-        return PHP_SAPI !== 'cli' && !isset($_SERVER['argv']);
+        return PHP_SAPI !== 'cli' && PHP_SAPI !== 'phpdbg';
     }
 }
 

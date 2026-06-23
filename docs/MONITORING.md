@@ -44,13 +44,13 @@ The finish record includes duration and workload counters such as `processed_cou
 Run locally or on the server:
 
 ```bash
-php tools/monitoring/backlog_snapshot.php
+php application/monitoring/backlog_snapshot.php
 ```
 
 Write to a node-exporter textfile directory:
 
 ```bash
-php tools/monitoring/backlog_snapshot.php /var/lib/node_exporter/textfile_collector/forbes_backlog.prom
+php application/monitoring/backlog_snapshot.php /var/lib/node_exporter/textfile_collector/forbes_backlog.prom
 ```
 
 Current gauges:
@@ -63,7 +63,7 @@ Current gauges:
 - `forbes_notification_pending_total`
 - `forbes_monitor_snapshot_timestamp_seconds`
 
-The exporter reads DB settings from this project’s root `.env` using the same simple key/value format used by the app.
+The exporter reads DB settings from this project’s root `.env` using the same simple key/value format used by the app. It lives under `application/` so it survives the runtime image cleanup that removes `/var/www/html/tools`.
 
 ## Cron Wrapper
 
