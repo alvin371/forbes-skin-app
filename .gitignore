@@ -19,3 +19,6 @@
 /application/cache/sessions/*
 # Cached FCM OAuth2 bearer token (never commit)
 /application/cache/fcm_token.json
+
+# runtime logs
+application/logs/*.log
