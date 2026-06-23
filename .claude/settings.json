@@ -1,4 +1,19 @@
 {
+  "permissions": {
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Edit(.env)",
+      "Edit(**/.env)"
+    ]
+  },
+  "deny": [
+    "Bash(cat:*.env*)",
+    "Bash(grep:* .env*)",
+    "Bash(env)"
+  ],
   "hooks": {
     "PostToolUse": [
       {
