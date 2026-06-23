@@ -7972,7 +7972,11 @@ class Api_v2 extends CI_Controller
         foreach ($items as $i => $item) {
             $tasks[$i] = ['platform' => $item['platform'], 'url' => $item['link_upload']];
         }
-        $responses = $this->template->get_social_media_batch($tasks, $PARALLEL_HTTP);
+        // Wall-clock budget for the whole fetch so the run always returns before the
+        // cron curl --max-time / nginx 60s timeout. Leftover items are deferred back to
+        // the queue (see deferred handling below), not failed.
+        $DEADLINE_SEC = floatval(env('ENDORSE_REFRESH_DEADLINE_SEC', 45));
+        $responses = $this->template->get_social_media_batch($tasks, $PARALLEL_HTTP, $DEADLINE_SEC);
 
         // Step 5 — apply results
         $completed = 0; $failed = 0; $retrying = 0;
@@ -7985,6 +7989,22 @@ class Api_v2 extends CI_Controller
             $attempts    = intval($item['attempts']) + 1;
             $maxAttempts = intval($item['max_attempts']);
             $response    = $responses[$i] ?? ['status' => false, 'msg' => 'No response', 'data' => []];
+
+            // Wall-clock deferral: the batch ran out of budget before fetching this row.
+            // Return it to the queue untouched (no attempt charged, attempts column not
+            // bumped) so a later staggered run handles it. This is what lets a deep queue
+            // drain across many short, always-completing runs instead of timing out.
+            if (!empty($response['deferred'])) {
+                $this->db->update('endorse_refresh_queue', [
+                    'status'     => 'pending',
+                    'worker_id'  => null,
+                    'started_at' => null,
+                    'claimed_at' => null,
+                ], ['id' => $queue_id]);
+                $this->finalize_queue_attempt($queue_id, $attempts, $worker_id, 'retrying', Endorse_sync::ERR_TRANSIENT, 'Deferred: batch wall-clock budget', date('Y-m-d H:i:s'));
+                $retrying++;
+                continue;
+            }
 
             if (!$endorse) {
                 $this->mark_queue_failed($queue_id, $attempts, 'Endorse row no longer exists', Endorse_sync::ERR_PERMANENT, $worker_id);

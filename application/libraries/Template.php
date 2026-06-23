@@ -300,7 +300,8 @@ class Template
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_ENCODING => "",
             CURLOPT_MAXREDIRS => 10,
-            CURLOPT_TIMEOUT => 30,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 12,
             CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
             CURLOPT_CUSTOMREQUEST => "GET",
             CURLOPT_HTTPHEADER => $headers,
@@ -324,7 +325,7 @@ class Template
     /**
      * Retry wrapper around curlRequest with validation callback
      */
-    function curlRequestWithRetry($url, $headers, $isValidResponse, $maxRetry = 3, $delayMs = 300)
+    function curlRequestWithRetry($url, $headers, $isValidResponse, $maxRetry = 2, $delayMs = 300)
     {
         $lastResponse = null;
         for ($attempt = 1; $attempt <= $maxRetry; $attempt++) {
@@ -1068,7 +1069,7 @@ class Template
      * Each $tasks entry: ['platform' => 'Tiktok'|'Instagram', 'url' => string].
      * Returns array indexed identically; each element matches the get_social_media() shape.
      */
-    function get_social_media_batch(array $tasks, int $maxConcurrent = 10): array
+    function get_social_media_batch(array $tasks, int $maxConcurrent = 10, float $deadlineSeconds = 45.0): array
     {
         $results = [];
 
@@ -1076,12 +1077,34 @@ class Template
             $maxConcurrent = 10;
         }
 
+        $startedAt = microtime(true);
+        $overBudget = function () use ($startedAt, $deadlineSeconds) {
+            return $deadlineSeconds > 0 && (microtime(true) - $startedAt) >= $deadlineSeconds;
+        };
+
         $chunks = array_chunk($tasks, $maxConcurrent, true);
         foreach ($chunks as $chunk) {
+            // Wall-clock guard: never overrun the worker's HTTP timeout. Out of budget →
+            // defer this chunk (and every later one) so the caller returns those rows to
+            // the queue instead of the run timing out mid-batch (504 + stuck rows).
+            if ($overBudget()) {
+                foreach ($chunk as $idx => $task) {
+                    $results[$idx] = $this->deferredBatchResult();
+                }
+                continue;
+            }
+
             $pageScrapes = $this->fetchTiktokDetailPagesBatch($chunk);
             foreach ($chunk as $idx => $task) {
                 $platform = $task['platform'] ?? '';
                 $url = $task['url'] ?? '';
+
+                // Budget can be exhausted mid-chunk by slow sequential fallbacks below.
+                if ($overBudget()) {
+                    $results[$idx] = $this->deferredBatchResult();
+                    continue;
+                }
+
                 if ($platform === 'Tiktok' && !empty($pageScrapes[$idx]) && $this->isValidTiktokScrapeItem($pageScrapes[$idx])) {
                     $response = [
                         "status" => true,
@@ -1111,6 +1134,22 @@ class Template
         return $results;
     }
 
+    /**
+     * Sentinel result for an item the batch ran out of wall-clock budget to fetch.
+     * The caller (endorse refresh worker) detects the `deferred` flag and returns the
+     * row to the queue without charging a retry attempt, so a deep queue drains across
+     * many short, always-completing runs instead of one run that times out.
+     */
+    private function deferredBatchResult(): array
+    {
+        return [
+            'status'   => false,
+            'msg'      => 'Deferred: batch wall-clock budget reached',
+            'data'     => [],
+            'deferred' => true,
+        ];
+    }
+
     protected function fetchTiktokDetailPagesBatch(array $tasks): array
     {
         $multiHandle = curl_multi_init();
@@ -1131,7 +1170,8 @@ class Template
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_ENCODING => '',
                 CURLOPT_MAXREDIRS => 10,
-                CURLOPT_TIMEOUT => 30,
+                CURLOPT_CONNECTTIMEOUT => 5,
+                CURLOPT_TIMEOUT => 8,
                 CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:100.0) Gecko/20100101 Firefox/100.0',
                 CURLOPT_FOLLOWLOCATION => true,
                 CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
@@ -1231,7 +1271,8 @@ class Template
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_ENCODING => '',
             CURLOPT_MAXREDIRS => 10,
-            CURLOPT_TIMEOUT => 30,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 8,
             CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:100.0) Gecko/20100101 Firefox/100.0',
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
