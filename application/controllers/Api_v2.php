@@ -7257,7 +7257,7 @@ class Api_v2 extends CI_Controller
             SELECT * FROM scraping_queue
             WHERE status = 'pending'
             ORDER BY priority DESC, created_at ASC
-            LIMIT 5
+            LIMIT 20
         ");
 
         $submitted = 0;
@@ -7327,7 +7327,7 @@ class Api_v2 extends CI_Controller
             WHERE status = 'submitted'
             AND attempts < max_attempts
             ORDER BY submitted_at ASC
-            LIMIT 10
+            LIMIT 25
         ");
 
         $completed = 0;
