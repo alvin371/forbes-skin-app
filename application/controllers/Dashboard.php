@@ -14,30 +14,58 @@ class Dashboard extends BaseController
         $this->load->library('permission');
         $this->load->library('template');
 
-        // Initialize cache system for dashboard performance optimization
+        // Initialize cache system for dashboard performance optimization.
+        //
+        // The memcached PHP extension can be loaded while no memcached server is
+        // actually running. In that case load->driver('cache', memcached) "succeeds"
+        // but every get()/save() silently fails, so the dashboard recomputes its heavy
+        // aggregation on every request (observed in prod: extension present, server
+        // unreachable, file cache idle). So probe a real set/get round-trip first and
+        // only use memcached when the server genuinely responds; otherwise use the file
+        // cache, which is provisioned and writable.
+        $adapter = $this->detect_cache_adapter();
         try {
-            // Try Memcached first
-            $this->load->driver('cache', array('adapter' => 'memcached'));
-            log_message('info', 'Memcached cache initialized successfully');
+            $this->load->driver('cache', array('adapter' => $adapter, 'backup' => 'file'));
         } catch (Exception $e) {
-            log_message('error', 'Memcached initialization failed, falling back to file cache: ' . $e->getMessage());
+            log_message('error', 'Cache driver init failed (' . $adapter . '): ' . $e->getMessage());
             sentry_capture_exception($e, array(
                 'controller' => 'Dashboard',
                 'method' => '__construct',
-                'cache_adapter' => 'memcached',
+                'cache_adapter' => $adapter,
             ));
-            try {
-                // Fallback to file cache if Memcached fails
-                $this->load->driver('cache', array('adapter' => 'file'));
-                log_message('info', 'File cache initialized as fallback');
-            } catch (Exception $e2) {
-                log_message('error', 'All cache initialization failed: ' . $e2->getMessage());
-                sentry_capture_exception($e2, array(
-                    'controller' => 'Dashboard',
-                    'method' => '__construct',
-                    'cache_adapter' => 'file',
-                ));
+        }
+    }
+
+    /**
+     * Return 'memcached' only when a memcached server actually answers a round-trip;
+     * otherwise 'file'. Guards against the extension-present-but-server-down case where
+     * the cache silently no-ops and the dashboard never caches anything.
+     */
+    private function detect_cache_adapter()
+    {
+        if (!class_exists('Memcached')) {
+            return 'file';
+        }
+
+        $config = array('hostname' => '127.0.0.1', 'port' => 11211);
+        $config_file = APPPATH . 'config/memcached.php';
+        if (file_exists($config_file)) {
+            include $config_file;
+            if (isset($config['default']) && is_array($config['default'])) {
+                $config = array_merge($config, $config['default']);
             }
+        }
+
+        try {
+            $mc = new Memcached();
+            $mc->setOption(Memcached::OPT_CONNECT_TIMEOUT, 200); // ms, fail fast
+            $mc->addServer($config['hostname'], (int) $config['port']);
+            $ok = @$mc->set('__dashboard_cache_healthcheck', 1, 10)
+                && @$mc->get('__dashboard_cache_healthcheck') === 1;
+            $mc->quit();
+            return $ok ? 'memcached' : 'file';
+        } catch (Exception $e) {
+            return 'file';
         }
     }
 
