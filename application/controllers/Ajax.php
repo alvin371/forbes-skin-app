@@ -1390,7 +1390,7 @@ class Ajax extends CI_Controller
 		}
 
 		$id = intval($id);
-		$where = "WHERE id_endorse = '$id' AND DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' $qry";
+		$where = "WHERE id_endorse = '$id' AND date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) $qry";
 		$metric_select = $checkbox[0] != 'true'
 			? "MAX(likes_after) AS likes, MAX(comment_after) AS comment, MAX(share_save_after) AS share_save, MAX(views_after) AS views"
 			: "SUM(likes) AS likes, SUM(comment) AS comment, SUM(share_save) AS share_save, SUM(views) AS views";
@@ -2133,7 +2133,7 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 
 		$qry = "";
 
-		$qry .= " WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' ";
+		$qry .= " WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) ";
 
 		if ($brand) {
 			$qry .= " AND brand = '$brand' ";
@@ -2320,7 +2320,7 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 				ORDER BY b.qty_out_pos DESC
 			");
 
-			$qry_2 .= " WHERE DATE(date) < '$start_date' ";
+			$qry_2 .= " WHERE date < '$start_date' ";
 
 			$query_before = $this->mymodel->selectWithQuery("SELECT * FROM
 			(SELECT * FROM product WHERE 1=1 AND is_varian = 0 $statusFilter $jenisFilter) a 
@@ -2430,7 +2430,7 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 				ORDER BY b.qty_out_pos DESC
 			");
 
-			$qry_2 .= " WHERE DATE(date) < '$start_date' ";
+			$qry_2 .= " WHERE date < '$start_date' ";
 
 			$query_before = $this->mymodel->selectWithQuery("SELECT * FROM
 			(SELECT * FROM product WHERE 1=1 AND is_varian = 0 $statusFilter $jenisFilter) a 
@@ -2788,8 +2788,8 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
                     END AS qty_out
                 FROM stock s
                 JOIN product p ON p.id = s.product
-                WHERE DATE(s.date) >= '$start_date'
-                AND DATE(s.date) <= '$until_date'
+                WHERE s.date >= '$start_date'
+                AND s.date < DATE_ADD('$until_date', INTERVAL 1 DAY)
                 AND s.type = 'Out'
                 AND s.type_sub IN ('POS','Stock')
                 AND s.status = 'Aktif'
@@ -3270,8 +3270,8 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 	// 			SELECT DISTINCT order_id
 	// 			FROM stock
 	// 			WHERE order_status = 'RETURN'
-	// 			AND DATE(date) >= ".$this->db->escape($start_date)."
-	// 			AND DATE(date) <= ".$this->db->escape($until_date)."
+	// 			AND date >= ".$this->db->escape($start_date)."
+	// 			AND date < DATE_ADD(".$this->db->escape($until_date).", INTERVAL 1 DAY)
 	// 		) r ON r.order_id = s.order_id
 	// 		WHERE s.product = ".$this->db->escape($product_id)."
 	// 		ORDER BY s.order_id, s.date, s.id
@@ -3364,8 +3364,8 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 			SELECT SUM(qty_in_pos) AS good_count, SUM(qty_out_retur) AS bad_count
 			FROM stock s
 			WHERE s.product = ".$this->db->escape($product_id)."
-			AND DATE(date) >= ".$this->db->escape($start_date)."
-			AND DATE(date) <= ".$this->db->escape($until_date)."
+			AND date >= ".$this->db->escape($start_date)."
+			AND date < DATE_ADD(".$this->db->escape($until_date).", INTERVAL 1 DAY)
 			AND order_status LIKE '%RETURN%'
 			ORDER BY s.order_id, s.date, s.id;
 		");
@@ -3428,7 +3428,7 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 
 		$qry = "";
 
-		$qry .= " WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' ";
+		$qry .= " WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) ";
 
 		if ($brand) {
 			$qry .= " AND brand = '$brand' ";
@@ -4463,13 +4463,13 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 
 		$cat = $_GET['cat'];
 		if ($cat == "Tanggal Dibuat") {
-			$qry .= " AND DATE(created_at) >= '$start_date' AND DATE(created_at) <= '$until_date' ";
+			$qry .= " AND created_at >= '$start_date' AND created_at < DATE_ADD('$until_date', INTERVAL 1 DAY) ";
 		} else if ($cat == "Rencana Upload") {
-			$qry .= " AND DATE(rencana_at) >= '$start_date' AND DATE(rencana_at) <= '$until_date' ";
+			$qry .= " AND rencana_at >= '$start_date' AND rencana_at < DATE_ADD('$until_date', INTERVAL 1 DAY) ";
 		} else if ($cat == "Tanggal Posting") {
-			$qry .= " AND DATE(posting_at) >= '$start_date' AND DATE(posting_at) <= '$until_date' ";
+			$qry .= " AND posting_at >= '$start_date' AND posting_at < DATE_ADD('$until_date', INTERVAL 1 DAY) ";
 		} else {
-			// $qry .= " AND DATE(created_at) >= '$start_date' AND DATE(created_at) <= '$until_date' ";
+			// $qry .= " AND created_at >= '$start_date' AND created_at < DATE_ADD('$until_date', INTERVAL 1 DAY) ";
 		}
 
 		$status = $_GET['status'];
@@ -4593,7 +4593,7 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 		} else if ($id == "mar-6") {
 			// $list = $this->mymodel->selectWithQuery("SELECT *
 			// FROM endorse_logs
-			// WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' $qry_list AND id_campaign = '$id_campaign'
+			// WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) $qry_list AND id_campaign = '$id_campaign'
 			// GROUP BY id_endorse
 			// ORDER BY DATE(date) DESC");
 			// $query['result'] = 0;
@@ -4608,7 +4608,7 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 		} else if ($id == "mar-7") {
 			// $list = $this->mymodel->selectWithQuery("SELECT *
 			// FROM endorse_logs
-			// WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' $qry_list AND id_campaign = '$id_campaign'
+			// WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) $qry_list AND id_campaign = '$id_campaign'
 			// GROUP BY id_endorse
 			// ORDER BY DATE(date) DESC");
 			// $query['result'] = 0;
@@ -4623,7 +4623,7 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 		} else if ($id == "mar-8") {
 			// $list = $this->mymodel->selectWithQuery("SELECT *
 			// FROM endorse_logs
-			// WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' $qry_list AND id_campaign = '$id_campaign'
+			// WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) $qry_list AND id_campaign = '$id_campaign'
 			// GROUP BY id_endorse
 			// ORDER BY DATE(date) DESC
 			// ");
@@ -4726,16 +4726,16 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 		// Fast-path optimization for most common dashboard queries
 		$fast_path_queries = array(
 			'order-1' => array(
-				'current' => "SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND type_sub = 'POS' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') $qry",
-				'previous' => "SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND type_sub = 'POS' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') $qry"
+				'current' => "SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND type_sub = 'POS' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') $qry",
+				'previous' => "SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND type_sub = 'POS' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') $qry"
 			),
 			'order-2' => array(
-				'current' => "SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status IN ('PENDING','READY_TO_SHIP')  AND type_sub = 'POS' $qry",
-				'previous' => "SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND order_status IN ('PENDING','READY_TO_SHIP')  AND type_sub = 'POS' $qry"
+				'current' => "SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status IN ('PENDING','READY_TO_SHIP')  AND type_sub = 'POS' $qry",
+				'previous' => "SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND order_status IN ('PENDING','READY_TO_SHIP')  AND type_sub = 'POS' $qry"
 			),
 			'order-5' => array(
-				'current' => "SELECT SUM(omset_kotor) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry",
-				'previous' => "SELECT SUM(omset_kotor) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry"
+				'current' => "SELECT SUM(omset_kotor) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry",
+				'previous' => "SELECT SUM(omset_kotor) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry"
 			)
 		);
 
@@ -4751,27 +4751,27 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 			$query_2 = $query_2[0];
 		} else if ($id == "order-1") {
 			$cache_key_1 = "order1_{$start_date}_{$until_date}_" . md5($qry);
-			$query = $this->executeCachedQuery("SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND type_sub = 'POS' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') $qry", $cache_key_1, 60);
+			$query = $this->executeCachedQuery("SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND type_sub = 'POS' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') $qry", $cache_key_1, 60);
 			$query = $query[0];
 			$text = $this->template->separator_only($query['result']);
 
 			$cache_key_1_2 = "order1_prev_{$start_date_2}_{$until_date_2}_" . md5($qry);
-			$query_2 = $this->executeCachedQuery("SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND type_sub = 'POS' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') $qry", $cache_key_1_2, 60);
+			$query_2 = $this->executeCachedQuery("SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND type_sub = 'POS' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') $qry", $cache_key_1_2, 60);
 			$query_2 = $query_2[0];
 		} else if ($id == "order-2") {
 			$cache_key_2 = "order2_{$start_date}_{$until_date}_" . md5($qry);
-			$query = $this->executeCachedQuery("SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status IN ('PENDING','READY_TO_SHIP')  AND type_sub = 'POS' $qry", $cache_key_2, 60);
+			$query = $this->executeCachedQuery("SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status IN ('PENDING','READY_TO_SHIP')  AND type_sub = 'POS' $qry", $cache_key_2, 60);
 			$query = $query[0];
 			$text = $this->template->separator_only($query['result']);
 
 			$cache_key_2_2 = "order2_prev_{$start_date_2}_{$until_date_2}_" . md5($qry);
-			$query_2 = $this->executeCachedQuery("SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND order_status IN ('PENDING','READY_TO_SHIP')  AND type_sub = 'POS' $qry", $cache_key_2_2, 60);
+			$query_2 = $this->executeCachedQuery("SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND order_status IN ('PENDING','READY_TO_SHIP')  AND type_sub = 'POS' $qry", $cache_key_2_2, 60);
 			$query_2 = $query_2[0];
 		} else if ($id == "order-3") {
 			// Batch execute both current and previous queries for order-3
 			$queries_batch = array(
-				'current' => "SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND payment_status IN ('Unpaid') AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry",
-				'previous' => "SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND payment_status IN ('Unpaid') AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry"
+				'current' => "SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND payment_status IN ('Unpaid') AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry",
+				'previous' => "SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND payment_status IN ('Unpaid') AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry"
 			);
 			
 			$cache_key_3 = "order3_batch_{$start_date}_{$until_date}_" . md5($qry);
@@ -4787,8 +4787,8 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 		} else if ($id == "order-4") {
 			// Batch execute both current and previous queries for order-4
 			$queries_batch = array(
-				'current' => "SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status IN ('RETURN')  AND type_sub = 'POS' $qry",
-				'previous' => "SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND order_status IN ('RETURN') AND type_sub = 'POS' $qry"
+				'current' => "SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status IN ('RETURN')  AND type_sub = 'POS' $qry",
+				'previous' => "SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND order_status IN ('RETURN') AND type_sub = 'POS' $qry"
 			);
 			
 			$cache_key_4 = "order4_batch_{$start_date}_{$until_date}_" . md5($qry);
@@ -4802,34 +4802,34 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 			$query_2 = $query_2[0];
 		} else if ($id == "order-5") {
 			$cache_key_5 = "order5_{$start_date}_{$until_date}_" . md5($qry);
-			$query = $this->executeCachedQuery("SELECT SUM(omset_kotor) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry", $cache_key_5, 60);
+			$query = $this->executeCachedQuery("SELECT SUM(omset_kotor) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry", $cache_key_5, 60);
 			$query = $query[0];
 			$text = $this->template->separator_only($query['result']);
 
 			$cache_key_5_2 = "order5_prev_{$start_date_2}_{$until_date_2}_" . md5($qry);
-			$query_2 = $this->executeCachedQuery("SELECT SUM(omset_kotor) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry", $cache_key_5_2, 60);
+			$query_2 = $this->executeCachedQuery("SELECT SUM(omset_kotor) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry", $cache_key_5_2, 60);
 			$query_2 = $query_2[0];
 		} else if ($id == "order-6") {
 			// Batch execute both current and previous queries for order-6
 			$cache_key_6 = "order6_batch_{$start_date}_{$until_date}_" . md5($qry);
 			$cache_key_6_2 = "order6_batch_prev_{$start_date_2}_{$until_date_2}_" . md5($qry);
 			
-			$query = $this->executeCachedQuery("SELECT SUM(diskon_penjual) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry", $cache_key_6, 60);
+			$query = $this->executeCachedQuery("SELECT SUM(diskon_penjual) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry", $cache_key_6, 60);
 			$query = $query[0];
 			$text = $this->template->separator_only($query['result']);
 
-			$query_2 = $this->executeCachedQuery("SELECT SUM(diskon_penjual) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry", $cache_key_6_2, 60);
+			$query_2 = $this->executeCachedQuery("SELECT SUM(diskon_penjual) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry", $cache_key_6_2, 60);
 			$query_2 = $query_2[0];
 		} else if ($id == "order-7") {
 			// Batch execute both current and previous queries for order-7
 			$cache_key_7 = "order7_batch_{$start_date}_{$until_date}_" . md5($qry);
 			$cache_key_7_2 = "order7_batch_prev_{$start_date_2}_{$until_date_2}_" . md5($qry);
 			
-			$query = $this->executeCachedQuery("SELECT SUM(omset_kotor-diskon_penjual) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date'AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry", $cache_key_7, 60);
+			$query = $this->executeCachedQuery("SELECT SUM(omset_kotor-diskon_penjual) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY)AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry", $cache_key_7, 60);
 			$query = $query[0];
 			$text = $this->template->separator_only($query['result']);
 
-			$query_2 = $this->executeCachedQuery("SELECT SUM(omset_kotor-diskon_penjual) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2'AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry", $cache_key_7_2, 60);
+			$query_2 = $this->executeCachedQuery("SELECT SUM(omset_kotor-diskon_penjual) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY)AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry", $cache_key_7_2, 60);
 			$query_2 = $query_2[0];
 		} else if ($id == "order-8") {
 			$brand_filter = $this->input->get('brand');
@@ -4859,7 +4859,7 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 				$net_sales_after_fee = $this->mymodel->selectWithQuery("
 					SELECT SUM(omset_kotor - diskon_penjual - marketplace_fee) as result
 					FROM transaction
-					WHERE DATE(date) BETWEEN '$start_date' AND '$until_date'
+					WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY)
 					AND type_sub = 'POS'
 					AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') $qry
 				");
@@ -4900,11 +4900,11 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 				$progress = '<div class="text-black"> N/A</div>';
 			}
 		} else if ($id == "order-10") {
-			$query = $this->mymodel->selectWithQuery("SELECT SUM(komisi_afiliasi) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry");
+			$query = $this->mymodel->selectWithQuery("SELECT SUM(komisi_afiliasi) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry");
 			$query = $query[0];
 			$text = $this->template->separator_only($query['result']);
 
-			$query_2 = $this->mymodel->selectWithQuery("SELECT SUM(komisi_afiliasi) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry");
+			$query_2 = $this->mymodel->selectWithQuery("SELECT SUM(komisi_afiliasi) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry");
 			$query_2 = $query_2[0];
 		} else if ($id == "order-11") {
 			$brand_filter = $this->input->get('brand');
@@ -4955,11 +4955,11 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 				$progress = '<div class="text-black"> N/A</div>';
 			}
 		} else if ($id == "order-13") {
-			// $query = $this->mymodel->selectWithQuery("SELECT SUM(qty*hpp) as result FROM stock WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date'");
+			// $query = $this->mymodel->selectWithQuery("SELECT SUM(qty*hpp) as result FROM stock WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY)");
 			// $query = $query[0];
 			// $text = $this->template->separator_only($query['result']);
 
-			// $query_2 = $this->mymodel->selectWithQuery("SELECT SUM(qty*hpp) as result FROM stock WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2'");
+			// $query_2 = $this->mymodel->selectWithQuery("SELECT SUM(qty*hpp) as result FROM stock WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY)");
 			// $query_2 = $query_2[0];
 
 			$query = $this->mymodel->selectWithQuery("SELECT SUM(stock*price_buy) as result FROM product");
@@ -4970,71 +4970,71 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 			// $query_2 = $query_2[0];
 			$query_2 = $query;
 		} else if ($id == "order-14") {
-			$query = $this->mymodel->selectWithQuery("SELECT SUM(ongkir) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND type_sub = 'POS' $qry");
+			$query = $this->mymodel->selectWithQuery("SELECT SUM(ongkir) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND type_sub = 'POS' $qry");
 			$query = $query[0];
 			$text = $this->template->separator_only($query['result']);
 
-			$query_2 = $this->mymodel->selectWithQuery("SELECT SUM(ongkir) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND type_sub = 'POS' $qry");
+			$query_2 = $this->mymodel->selectWithQuery("SELECT SUM(ongkir) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND type_sub = 'POS' $qry");
 			$query_2 = $query_2[0];
 		} else if ($id == "order-15") {
-			$query = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND payment_status = 'Unpaid' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED') AND type_sub = 'POS' $qry");
+			$query = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND payment_status = 'Unpaid' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED') AND type_sub = 'POS' $qry");
 			$query = $query[0];
 			$text = $this->template->separator_only($query['result']);
 
-			$query_2 = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND payment_status = 'Unpaid' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED') AND type_sub = 'POS' $qry");
+			$query_2 = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND payment_status = 'Unpaid' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED') AND type_sub = 'POS' $qry");
 			$query_2 = $query_2[0];
 		} else if ($id == "order-16") {
-			$query = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status IN ('RETURN')  AND type_sub = 'POS' $qry");
+			$query = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status IN ('RETURN')  AND type_sub = 'POS' $qry");
 			$query = $query[0];
 			$text = $this->template->separator_only($query['result']);
 
-			$query_2 = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND order_status IN ('RETURN') AND type_sub = 'POS' $qry");
+			$query_2 = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND order_status IN ('RETURN') AND type_sub = 'POS' $qry");
 			$query_2 = $query_2[0];
 		} else if ($id == "order-17") {
-			$query = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor-diskon_penjual) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
+			$query = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor-diskon_penjual) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
 			$query = $query[0];
 			$text = $this->template->separator_only($query['result']);
 
-			$query_2 = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor-diskon_penjual) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID')  AND type_sub = 'POS' AND marketplace = '$channel' $qry");
+			$query_2 = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor-diskon_penjual) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID')  AND type_sub = 'POS' AND marketplace = '$channel' $qry");
 			$query_2 = $query_2[0];
 		} else if ($id == "order-18") {
-			$query = $this->mymodel->selectWithQuery("SELECT SUM(komisi_afiliasi+diskon_penjual+marketplace_fee) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
+			$query = $this->mymodel->selectWithQuery("SELECT SUM(komisi_afiliasi+diskon_penjual+marketplace_fee) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
 			$query = $query[0];
 			$text = $this->template->separator_only($query['result']);
 
-			$query_2 = $this->mymodel->selectWithQuery("SELECT SUM(komisi_afiliasi+diskon_penjual+marketplace_fee) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
+			$query_2 = $this->mymodel->selectWithQuery("SELECT SUM(komisi_afiliasi+diskon_penjual+marketplace_fee) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
 			$query_2 = $query_2[0];
 		} else if ($id == "order-19") {
-			$query = $this->mymodel->selectWithQuery("SELECT SUM(dana_pencairan) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
+			$query = $this->mymodel->selectWithQuery("SELECT SUM(dana_pencairan) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
 			$query = $query[0];
 			$text = $this->template->separator_only($query['result']);
 
-			$query_2 = $this->mymodel->selectWithQuery("SELECT SUM(dana_pencairan) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
+			$query_2 = $this->mymodel->selectWithQuery("SELECT SUM(dana_pencairan) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
 			$query_2 = $query_2[0];
 		} else if ($id == "order-20") {
-			$query = $this->mymodel->selectWithQuery("SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
+			$query = $this->mymodel->selectWithQuery("SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
 			$query = $query[0];
 			$text = $this->template->separator_only($query['result']);
 
-			$query_2 = $this->mymodel->selectWithQuery("SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
+			$query_2 = $this->mymodel->selectWithQuery("SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
 			$query_2 = $query_2[0];
 		} else if ($id == "order-21") {
-			$query = $this->mymodel->selectWithQuery("SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND dana_pencairan > 0 AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
+			$query = $this->mymodel->selectWithQuery("SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND dana_pencairan > 0 AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
 			$query = $query[0];
 
-			$query_b = $this->mymodel->selectWithQuery("SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
+			$query_b = $this->mymodel->selectWithQuery("SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
 			$query_b = $query_b[0];
 
 			$text = $this->template->separator_only($query['result']) . '/' . $this->template->separator_only($query_b['result']);
 
-			// $query_2 = $this->mymodel->selectWithQuery("SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
+			// $query_2 = $this->mymodel->selectWithQuery("SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' AND marketplace = '$channel' $qry");
 			// $query_2 = $query_2[0];
 
 		} else if ($id == "order-22") {
 			$query = $this->mymodel->selectWithQuery("
 				SELECT SUM(omset_bersih) - FLOOR(SUM(marketplace_fee)) AS result 
 				FROM transaction 
-				WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' 
+				WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) 
 				AND order_status IN ('PROCESSED','SHIPPED','COMPLETED', 'READY_TO_SHIP', 'DELIVERED') 
 				AND dana_pencairan = 0 AND is_disbursement = 0
 				AND type_sub = 'POS' $qry
@@ -5045,7 +5045,7 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 			$penjualan_bersih = $this->mymodel->selectWithQuery("
 				SELECT SUM(omset_kotor - diskon_penjual) AS result 
 				FROM transaction 
-				WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' 
+				WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) 
 				AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND c_type NOT IN ('Affiliate','Endorse','Free') AND type_sub = 'POS' $qry
 			");
 			$penjualan_bersih_result = doubleval($penjualan_bersih[0]['result']);
@@ -5059,11 +5059,11 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 				$progress = '<div class="text-black">N/A</div>';
 			}
 		} else if ($id == "order-23") {
-			$query = $this->mymodel->selectWithQuery("SELECT COUNT(id) AS result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status IN ('PROCESSED','SHIPPED','COMPLETED', 'READY_TO_SHIP', 'DELIVERED') AND dana_pencairan = 0 AND is_disbursement = 0 AND c_type NOT IN ('Affiliate','Endorse','Free') $qry");
+			$query = $this->mymodel->selectWithQuery("SELECT COUNT(id) AS result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status IN ('PROCESSED','SHIPPED','COMPLETED', 'READY_TO_SHIP', 'DELIVERED') AND dana_pencairan = 0 AND is_disbursement = 0 AND c_type NOT IN ('Affiliate','Endorse','Free') $qry");
 			$query = $query[0];
 			$text = $this->template->separator_only($query['result']);
 
-			$penjualan_bersih = $this->mymodel->selectWithQuery("SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND type_sub = 'POS' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') $qry ");
+			$penjualan_bersih = $this->mymodel->selectWithQuery("SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND type_sub = 'POS' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') $qry ");
 			
 			$penjualan_bersih_result = doubleval($penjualan_bersih[0]['result']);
 		
@@ -5429,7 +5429,7 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 				COUNT(CASE WHEN order_status IN ('PENDING','READY_TO_SHIP') THEN 1 END) as order_2_current,
 				COUNT(CASE WHEN order_status IN ('RETURN') THEN 1 END) as order_4_current
 			FROM transaction 
-			WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' 
+			WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) 
 			AND type_sub = 'POS' $qry
 		";
 		
@@ -5444,7 +5444,7 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 				COUNT(CASE WHEN order_status IN ('PENDING','READY_TO_SHIP') THEN 1 END) as order_2_previous,
 				COUNT(CASE WHEN order_status IN ('RETURN') THEN 1 END) as order_4_previous
 			FROM transaction 
-			WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' 
+			WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) 
 			AND type_sub = 'POS' $qry
 		";
 		
@@ -5488,7 +5488,7 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 				SUM(CASE WHEN order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') THEN (omset_kotor - diskon_penjual) ELSE 0 END) as order_7_current,
 				SUM(CASE WHEN order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') THEN marketplace_fee ELSE 0 END) as order_9_current
 			FROM transaction 
-			WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' 
+			WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) 
 			AND type_sub = 'POS' $qry
 		";
 		
@@ -5503,7 +5503,7 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 				SUM(CASE WHEN order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') THEN (omset_kotor - diskon_penjual) ELSE 0 END) as order_7_previous,
 				SUM(CASE WHEN order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') THEN marketplace_fee ELSE 0 END) as order_9_previous
 			FROM transaction 
-			WHERE DATE(date) >= '$start_date_2' AND DATE(date) <= '$until_date_2' 
+			WHERE date >= '$start_date_2' AND date < DATE_ADD('$until_date_2', INTERVAL 1 DAY) 
 			AND type_sub = 'POS' $qry
 		";
 		
@@ -5554,26 +5554,26 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 				SELECT DATE(date) AS date, SUM(expense_after_tax) AS expense
 				FROM shopee_ads_data
 				INNER JOIN marketplace_config ON marketplace_config.shop_id = shopee_ads_data.shop_id
-				WHERE DATE(date) BETWEEN '$start_date' AND '$until_date' $shopee_brand
+				WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) $shopee_brand
 				GROUP BY DATE(date)
 			) AS shopee
 			LEFT JOIN (
 				SELECT DATE(date) AS date, SUM(spend_after_tax) AS spend
 				FROM meta_ads_data
 				INNER JOIN ads_meta_account ON meta_ads_data.account_id = ads_meta_account.account_id
-				WHERE DATE(date) BETWEEN '$start_date' AND '$until_date' $meta_brand
+				WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) $meta_brand
 				GROUP BY DATE(date)
 			) AS meta ON shopee.date = meta.date
 			LEFT JOIN (
 				SELECT DATE(date) AS date, SUM(spend_idr_after_tax) AS spend_idr
 				FROM tiktok_ads_data
-				WHERE DATE(date) BETWEEN '$start_date' AND '$until_date' $tiktok_brand
+				WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) $tiktok_brand
 				GROUP BY DATE(date)
 			) AS tiktok ON shopee.date = tiktok.date
 			LEFT JOIN (
 				SELECT DATE(date) AS date, SUM(spend_idr_after_tax) AS spend_idr_after_tax
 				FROM advertiser_spend
-				WHERE DATE(date) BETWEEN '$start_date' AND '$until_date' $gmv_brand
+				WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) $gmv_brand
 				GROUP BY DATE(date)
 			) AS gmv ON shopee.date = gmv.date;
 		";
@@ -5596,7 +5596,7 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 		$sql_spend_etc = "
 			SELECT ABS(SUM(e.price_total)) AS total_spend_etc
 			FROM expense e
-			WHERE DATE(e.date) BETWEEN '$start_date' AND '$until_date' $brand_like;
+			WHERE e.date >= '$start_date' AND e.date < DATE_ADD('$until_date', INTERVAL 1 DAY) $brand_like;
 		";
 
 		$data['spend_etc'] = $this->mymodel->selectWithQuery($sql_spend_etc);
@@ -5672,7 +5672,7 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 		if ($id == "kol-1") {
 
 			$query = $this->mymodel->selectWithQuery("SELECT COUNT(id) as result FROM endorse
-			WHERE DATE(posting_at) >= '$start_date' AND DATE(posting_at) <= '$until_date'
+			WHERE posting_at >= '$start_date' AND posting_at < DATE_ADD('$until_date', INTERVAL 1 DAY)
 			GROUP BY influencer
 			");
 
@@ -5681,14 +5681,14 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 		} else if ($id == "kol-2") {
 
 			$query = $this->mymodel->selectWithQuery("SELECT COUNT(id) as result FROM endorse
-			WHERE DATE(posting_at) >= '$start_date' AND DATE(posting_at) <= '$until_date'");
+			WHERE posting_at >= '$start_date' AND posting_at < DATE_ADD('$until_date', INTERVAL 1 DAY)");
 
 			$query = $query[0];
 			$text = $this->template->separator_only($query['result']);
 		} else if ($id == "kol-3") {
 			$status = "'DP','FP','Barang Dikirim','Draft Content','Posted Content'";
 			$query = $this->mymodel->selectWithQuery("SELECT SUM(total_cost) as result FROM endorse
-			WHERE DATE(posting_at) >= '$start_date' AND DATE(posting_at) <= '$until_date' AND 
+			WHERE posting_at >= '$start_date' AND posting_at < DATE_ADD('$until_date', INTERVAL 1 DAY) AND 
 			status_endorse IN ($status)
  			");
 
@@ -5849,8 +5849,8 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 			$group = "  GROUP BY DATE(date) ";
 		}
 
-		$qry = " DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' ";
-		$qry_2 = " DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' ";
+		$qry = " date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) ";
+		$qry_2 = " date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) ";
 
 		// $qry = "";
 		// $qry_2 = "";
@@ -6580,7 +6580,7 @@ gradient_5.addColorStop(0.75, "rgba(225, 225, 225, 0)")
             FROM shopee_ads_data
             INNER JOIN marketplace_config 
                 ON marketplace_config.shop_id = shopee_ads_data.shop_id
-            WHERE DATE(date) BETWEEN '$start_date' AND '$end_date'
+            WHERE date >= '$start_date' AND date < DATE_ADD('$end_date', INTERVAL 1 DAY)
             $shopee_brand
             GROUP BY DATE(date)
         ) AS shopee ON shopee.date = dates.date
@@ -6589,14 +6589,14 @@ gradient_5.addColorStop(0.75, "rgba(225, 225, 225, 0)")
             FROM meta_ads_data
             INNER JOIN ads_meta_account 
                 ON meta_ads_data.account_id = ads_meta_account.account_id
-            WHERE DATE(date) BETWEEN '$start_date' AND '$end_date'
+            WHERE date >= '$start_date' AND date < DATE_ADD('$end_date', INTERVAL 1 DAY)
             $meta_brand
             GROUP BY DATE(date)
         ) AS meta ON meta.date = dates.date
         LEFT JOIN (
             SELECT DATE(date) AS date, SUM(spend_idr) AS spend_idr
             FROM tiktok_ads_data
-            WHERE DATE(date) BETWEEN '$start_date' AND '$end_date'
+            WHERE date >= '$start_date' AND date < DATE_ADD('$end_date', INTERVAL 1 DAY)
             $tiktok_brand
             GROUP BY DATE(date)
         ) AS tiktok ON tiktok.date = dates.date
@@ -7334,22 +7334,22 @@ gradient_5.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 		try {
 			switch ($type) {
 				case 'count':
-					$result = $this->mymodel->selectWithQuery("SELECT COUNT(id) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND type_sub = 'POS' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') $qry");
+					$result = $this->mymodel->selectWithQuery("SELECT COUNT(id) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND type_sub = 'POS' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') $qry");
 					break;
 				case 'gross_sales':
-					$result = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry");
+					$result = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry");
 					break;
 				case 'net_sales':
-					$result = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor-diskon_penjual) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry");
+					$result = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor-diskon_penjual) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry");
 					break;
 				case 'discount':
-					$result = $this->mymodel->selectWithQuery("SELECT SUM(diskon_penjual) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry");
+					$result = $this->mymodel->selectWithQuery("SELECT SUM(diskon_penjual) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry");
 					break;
 				case 'marketplace_fee':
-					$result = $this->mymodel->selectWithQuery("SELECT SUM(marketplace_fee) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry");
+					$result = $this->mymodel->selectWithQuery("SELECT SUM(marketplace_fee) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry");
 					break;
 				case 'net_sales_after_fee':
-					$result = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor - diskon_penjual - marketplace_fee) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND type_sub = 'POS' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') $qry");
+					$result = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor - diskon_penjual - marketplace_fee) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND type_sub = 'POS' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') $qry");
 					break;
 				default:
 					log_message('error', 'Unknown transaction summary type: ' . $type);
@@ -7481,7 +7481,7 @@ gradient_5.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 					SUM(a.qty) AS qty
 				FROM stock a
 				LEFT JOIN product p ON a.product = p.id
-				WHERE DATE(a.date) >= '$start_date' AND DATE(a.date) <= '$until_date'
+				WHERE a.date >= '$start_date' AND a.date < DATE_ADD('$until_date', INTERVAL 1 DAY)
 				AND a.type_sub = 'POS' $qry_stock
 				AND a.order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED')
 				GROUP BY a.product
