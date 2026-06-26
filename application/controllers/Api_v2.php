@@ -8173,6 +8173,104 @@ class Api_v2 extends CI_Controller
     }
 
     /**
+     * Precompute endorse_logs_daily_rollup — one row per (id_endorse, log_date).
+     *
+     * Powers the /overview?t=kol GRAFIK CAMPAIGN chart so it reads pre-aggregated daily
+     * rows instead of scanning raw endorse_logs on every request. Upsert-only, so old
+     * rows persist; the dashboard baseline (latest log before a range) stays correct as
+     * long as the window has been backfilled at least once.
+     *
+     * Usage:
+     *   - Backfill ALL history once:  GET api/cronjob/endorse-rollup?full=1
+     *   - Schedule rolling refresh:   GET api/cronjob/endorse-rollup   (last N days only)
+     *
+     * Window size: env ENDORSE_ROLLUP_WINDOW_DAYS (default 60). Schedule alongside the
+     * endorse sync/refresh crons so the rollup trails fresh logs.
+     *
+     * Route: GET api/cronjob/endorse-rollup
+     */
+    function cronjob_endorse_rollup()
+    {
+        $monitor = $this->cron_monitor_start('cronjob_endorse_rollup');
+        header('Content-Type: application/json; charset=utf-8');
+
+        $full = ($this->input->get('full') === '1');
+        @set_time_limit($full ? 0 : 55);
+
+        $window_days = intval(env('ENDORSE_ROLLUP_WINDOW_DAYS', 60));
+        if ($window_days <= 0) {
+            $window_days = 60;
+        }
+
+        // Full backfill walks all history; rolling refresh only re-aggregates recent days
+        // (cumulative *_after columns for those days may still be changing).
+        $since = $full
+            ? '1970-01-01'
+            : date('Y-m-d', strtotime('-' . $window_days . ' days'));
+
+        $sql = "
+            INSERT INTO endorse_logs_daily_rollup
+                (id_endorse, log_date, likes_delta, comment_delta, share_save_delta, views_delta,
+                 likes_after, comment_after, share_save_after, views_after, total_cost, last_updated)
+            SELECT
+                el.id_endorse,
+                el.log_date,
+                SUM(GREATEST(COALESCE(el.likes, 0), 0))        AS likes_delta,
+                SUM(GREATEST(COALESCE(el.comment, 0), 0))      AS comment_delta,
+                SUM(GREATEST(COALESCE(el.share_save, 0), 0))   AS share_save_delta,
+                SUM(GREATEST(COALESCE(el.views, 0), 0))        AS views_delta,
+                MAX(COALESCE(el.likes_after, 0))               AS likes_after,
+                MAX(COALESCE(el.comment_after, 0))             AS comment_after,
+                MAX(COALESCE(el.share_save_after, 0))          AS share_save_after,
+                MAX(COALESCE(el.views_after, 0))               AS views_after,
+                MAX(COALESCE(el.total_cost, 0))                AS total_cost,
+                MAX(COALESCE(el.updated_at, el.created_at, CONCAT(el.date, ' 00:00:00'))) AS last_updated
+            FROM endorse_logs el
+            WHERE el.log_date IS NOT NULL
+              AND el.log_date >= " . $this->db->escape($since) . "
+            GROUP BY el.id_endorse, el.log_date
+            ON DUPLICATE KEY UPDATE
+                likes_delta      = VALUES(likes_delta),
+                comment_delta    = VALUES(comment_delta),
+                share_save_delta = VALUES(share_save_delta),
+                views_delta      = VALUES(views_delta),
+                likes_after      = VALUES(likes_after),
+                comment_after    = VALUES(comment_after),
+                share_save_after = VALUES(share_save_after),
+                views_after      = VALUES(views_after),
+                total_cost       = VALUES(total_cost),
+                last_updated     = VALUES(last_updated)
+        ";
+
+        try {
+            $this->db->query($sql);
+            $affected = $this->db->affected_rows();
+        } catch (Exception $e) {
+            if (function_exists('sentry_capture_exception')) {
+                sentry_capture_exception($e, array('controller' => 'Api_v2', 'method' => 'cronjob_endorse_rollup'));
+            }
+            $this->cron_monitor_fail($monitor, $e, array('since' => $since, 'full' => $full));
+            echo json_encode(array('status' => false, 'msg' => $e->getMessage()));
+            die;
+        }
+
+        echo json_encode(array(
+            'status'        => true,
+            'full'          => $full,
+            'since'         => $since,
+            'affected_rows' => $affected,
+        ));
+
+        $this->cron_monitor_finish($monitor, array(
+            'status'          => 'ok',
+            'processed_count' => $affected,
+            'since'           => $since,
+            'full'            => $full ? 1 : 0,
+        ));
+        die;
+    }
+
+    /**
      * FCM Phase 5 — push delivery worker. Recommend cron every 1 minute.
      *
      * Drains notification_outbox: recover stale leases -> claim a batch -> for each row,
