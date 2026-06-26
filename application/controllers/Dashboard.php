@@ -172,7 +172,7 @@ class Dashboard extends BaseController
 
         // Get net sales (biarkan sesuai gaya kamu)
         $sql_net_sales = "SELECT SUM(omset_kotor-diskon_penjual) as result FROM transaction 
-                        WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' 
+                        WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) 
                         AND type_sub = 'POS' 
                         AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') 
                         $qry";
@@ -190,26 +190,26 @@ class Dashboard extends BaseController
                 SELECT DATE(date) AS date, SUM(expense_after_tax) AS expense
                 FROM shopee_ads_data
                 INNER JOIN marketplace_config ON marketplace_config.shop_id = shopee_ads_data.shop_id
-                WHERE DATE(date) BETWEEN '$start_date' AND '$until_date' $shopee_brand
+                WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) $shopee_brand
                 GROUP BY DATE(date)
             ) AS shopee
             LEFT JOIN (
                 SELECT DATE(date) AS date, SUM(spend_after_tax) AS spend
                 FROM meta_ads_data
                 INNER JOIN ads_meta_account ON meta_ads_data.account_id = ads_meta_account.account_id
-                WHERE DATE(date) BETWEEN '$start_date' AND '$until_date' $meta_brand
+                WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) $meta_brand
                 GROUP BY DATE(date)
             ) AS meta ON shopee.date = meta.date
             LEFT JOIN (
                 SELECT DATE(date) AS date, SUM(spend_idr_after_tax) AS spend_idr
                 FROM tiktok_ads_data
-                WHERE DATE(date) BETWEEN '$start_date' AND '$until_date' $tiktok_brand
+                WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) $tiktok_brand
                 GROUP BY DATE(date)
             ) AS tiktok ON shopee.date = tiktok.date
             LEFT JOIN (
                 SELECT DATE(date) AS date, SUM(spend_idr_after_tax) AS spend_idr_after_tax
                 FROM advertiser_spend
-                WHERE DATE(date) BETWEEN '$start_date' AND '$until_date'
+                WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY)
                 AND advertiser_name LIKE '{$firstLetter}%'
                 GROUP BY DATE(date)
             ) AS gmv ON shopee.date = gmv.date;
@@ -223,7 +223,7 @@ class Dashboard extends BaseController
                 SUM(pl.nominal_dibayarkan) AS total_spend_kol
             FROM payment_logs pl
             JOIN endorse_campaign ec ON pl.id_campaign = ec.id
-            WHERE DATE(pl.created_at) >= '$start_date' AND DATE(pl.created_at) <= '$until_date' AND pl.status_payment IN ('FP', 'DP')
+            WHERE pl.created_at >= '$start_date' AND pl.created_at < DATE_ADD('$until_date', INTERVAL 1 DAY) AND pl.status_payment IN ('FP', 'DP')
             " . (!empty($firstLetter) ? "AND ec.brand LIKE '{$firstLetter}%'" : "") . "
         ";
         $data['spend_kol'] = $this->mymodel->selectWithQuery($sql_spend_kol);
@@ -238,7 +238,7 @@ class Dashboard extends BaseController
                 COALESCE(NULLIF(TRIM(e.category), ''), 'Lain-lain') AS category,
                 ABS(SUM(e.price_total)) AS total_spend
             FROM expense e
-            WHERE DATE(e.date) BETWEEN '$start_date' AND '$until_date'
+            WHERE e.date >= '$start_date' AND e.date < DATE_ADD('$until_date', INTERVAL 1 DAY)
             $expense_brand
             GROUP BY COALESCE(NULLIF(TRIM(e.category), ''), 'Lain-lain')
             ORDER BY total_spend DESC
@@ -307,26 +307,26 @@ class Dashboard extends BaseController
                 SELECT DATE(date) AS date, SUM(expense_after_tax) AS expense
                 FROM shopee_ads_data
                 INNER JOIN marketplace_config ON marketplace_config.shop_id = shopee_ads_data.shop_id
-                WHERE DATE(date) BETWEEN '$start_date' AND '$until_date' $shopee_brand
+                WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) $shopee_brand
                 GROUP BY DATE(date)
             ) AS shopee
             LEFT JOIN (
                 SELECT DATE(date) AS date, SUM(spend_after_tax) AS spend
                 FROM meta_ads_data
                 INNER JOIN ads_meta_account ON meta_ads_data.account_id = ads_meta_account.account_id
-                WHERE DATE(date) BETWEEN '$start_date' AND '$until_date' $meta_brand
+                WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) $meta_brand
                 GROUP BY DATE(date)
             ) AS meta ON shopee.date = meta.date
             LEFT JOIN (
                 SELECT DATE(date) AS date, SUM(spend_idr_after_tax) AS spend_idr
                 FROM tiktok_ads_data
-                WHERE DATE(date) BETWEEN '$start_date' AND '$until_date' $tiktok_brand
+                WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) $tiktok_brand
                 GROUP BY DATE(date)
             ) AS tiktok ON shopee.date = tiktok.date
             LEFT JOIN (
                 SELECT DATE(date) AS date, SUM(spend_idr_after_tax) AS spend_idr_after_tax
                 FROM advertiser_spend
-                WHERE DATE(date) BETWEEN '$start_date' AND '$until_date'
+                WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY)
                 " . (!empty($firstLetter) ? "AND advertiser_name LIKE '{$firstLetter}%'" : "") . "
                 GROUP BY DATE(date)
             ) AS gmv ON shopee.date = gmv.date;
@@ -353,7 +353,7 @@ class Dashboard extends BaseController
                 SUM(pl.nominal_dibayarkan) AS total_spend_kol
             FROM payment_logs pl
             JOIN endorse_campaign ec ON pl.id_campaign = ec.id
-            WHERE DATE(pl.created_at) BETWEEN '$start_date' AND '$until_date' AND pl.status_payment IN ('FP', 'DP')
+            WHERE pl.created_at >= '$start_date' AND pl.created_at < DATE_ADD('$until_date', INTERVAL 1 DAY) AND pl.status_payment IN ('FP', 'DP')
             " . (!empty($firstLetter) ? "AND ec.brand LIKE '{$firstLetter}%'" : "") . "
         ";
         $spend_kol = $this->mymodel->selectWithQuery($sql_spend_kol);
@@ -363,7 +363,7 @@ class Dashboard extends BaseController
                 COALESCE(NULLIF(TRIM(e.category), ''), 'Lain-lain') AS category,
                 ABS(SUM(e.price_total)) AS total_spend
             FROM expense e
-            WHERE DATE(e.date) BETWEEN '$start_date' AND '$until_date'
+            WHERE e.date >= '$start_date' AND e.date < DATE_ADD('$until_date', INTERVAL 1 DAY)
             $expense_brand
             GROUP BY COALESCE(NULLIF(TRIM(e.category), ''), 'Lain-lain')
             ORDER BY total_spend DESC
@@ -380,7 +380,7 @@ class Dashboard extends BaseController
             SELECT 
                 ABS(SUM(e.price_total)) AS total_spend_etc
             FROM expense e
-            WHERE DATE(e.date) BETWEEN '$start_date' AND '$until_date'
+            WHERE e.date >= '$start_date' AND e.date < DATE_ADD('$until_date', INTERVAL 1 DAY)
             AND e.category != 'Affiliate'
             " . (!empty($firstLetter) ? "AND e.brand LIKE '{$firstLetter}%'" : "") . "
         ";
@@ -390,7 +390,7 @@ class Dashboard extends BaseController
             SELECT 
                 ABS(SUM(e.price_total)) AS total_spend_marketing
             FROM expense e
-            WHERE DATE(e.date) BETWEEN '$start_date' AND '$until_date'
+            WHERE e.date >= '$start_date' AND e.date < DATE_ADD('$until_date', INTERVAL 1 DAY)
             AND e.category = 'Affiliate'
             " . (!empty($firstLetter) ? "AND e.brand LIKE '{$firstLetter}%'" : "") . "
         ";
@@ -419,7 +419,7 @@ class Dashboard extends BaseController
         $qry = !empty($firstLetter) ? "AND brand LIKE '{$firstLetter}%'" : "";
 
         $sql_net_sales = "SELECT SUM(omset_kotor-diskon_penjual) as net_sales FROM transaction 
-                        WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' 
+                        WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) 
                         AND type_sub = 'POS' 
                         AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') 
                         $qry";
@@ -470,8 +470,8 @@ class Dashboard extends BaseController
                 shop_id
             FROM transaction
             WHERE 
-                DATE(date) >= '$start_date'
-                AND DATE(date) <= '$until_date'
+                date >= '$start_date'
+                AND date < DATE_ADD('$until_date', INTERVAL 1 DAY)
                 AND order_status NOT IN (
                     'RETURN', 'REFUND', 'CANCELLED', 'IN_CANCELLED', 'UNPAID'
                 )
@@ -517,7 +517,7 @@ class Dashboard extends BaseController
             $qry_stock = " AND b.brand = '$brand' ";
         }
 
-        $sql_penjualan_bersih = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor-diskon_penjual) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND type_sub = 'POS' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') $qry");
+        $sql_penjualan_bersih = $this->mymodel->selectWithQuery("SELECT SUM(omset_kotor-diskon_penjual) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND type_sub = 'POS' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') $qry");
         $sql_penjualan_bersih = $sql_penjualan_bersih[0];
         $data['penjualan_bersih'] = $sql_penjualan_bersih['result'];
 
@@ -540,7 +540,7 @@ class Dashboard extends BaseController
                     SUM(a.qty) AS qty
                 FROM stock a
                 LEFT JOIN product p ON a.product = p.id
-                WHERE DATE(a.date) >= '$start_date' AND DATE(a.date) <= '$until_date'
+                WHERE a.date >= '$start_date' AND a.date < DATE_ADD('$until_date', INTERVAL 1 DAY)
                 AND a.type_sub = 'POS'
                 AND a.order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED')
                 GROUP BY a.product
@@ -554,7 +554,7 @@ class Dashboard extends BaseController
         endforeach;
         $data['hpp'] = $grand_total_hpp;
 
-        $sql_marketplace_fee = $this->mymodel->selectWithQuery("SELECT SUM(marketplace_fee) as result FROM transaction WHERE DATE(date) >= '$start_date' AND DATE(date) <= '$until_date' AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry");
+        $sql_marketplace_fee = $this->mymodel->selectWithQuery("SELECT SUM(marketplace_fee) as result FROM transaction WHERE date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') AND type_sub = 'POS' $qry");
         $sql_marketplace_fee = $sql_marketplace_fee[0];
         $data['marketplace_fee'] = $sql_marketplace_fee['result'];
 
@@ -589,8 +589,8 @@ class Dashboard extends BaseController
         $sql_penjualan_bersih = $this->mymodel->selectWithQuery("
             SELECT SUM(omset_kotor-diskon_penjual) as result 
             FROM transaction 
-            WHERE DATE(date) >= '$start_date' 
-            AND DATE(date) <= '$until_date' 
+            WHERE date >= '$start_date' 
+            AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) 
             AND type_sub = 'POS' 
             AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') 
             $qry
@@ -612,7 +612,7 @@ class Dashboard extends BaseController
                     SUM(a.qty) AS qty
                 FROM stock a
                 LEFT JOIN product p ON a.product = p.id
-                WHERE DATE(a.date) >= '$start_date' AND DATE(a.date) <= '$until_date'
+                WHERE a.date >= '$start_date' AND a.date < DATE_ADD('$until_date', INTERVAL 1 DAY)
                 AND a.order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED')
                 GROUP BY a.product
             ) b ON a.id = b.product
@@ -623,8 +623,8 @@ class Dashboard extends BaseController
         $sql_marketplace_fee = $this->mymodel->selectWithQuery("
             SELECT SUM(marketplace_fee) as result 
             FROM transaction 
-            WHERE DATE(date) >= '$start_date' 
-            AND DATE(date) <= '$until_date' 
+            WHERE date >= '$start_date' 
+            AND date < DATE_ADD('$until_date', INTERVAL 1 DAY) 
             AND order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID') 
             AND type_sub = 'POS' 
             $qry
@@ -668,7 +668,7 @@ class Dashboard extends BaseController
 						marketplace_config 
 						ON marketplace_config.shop_id = shopee_ads_data.shop_id
 					WHERE 
-						DATE(date) BETWEEN '$start_date' AND '$until_date'
+						date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY)
 						$shopee_brand
 					GROUP BY 
 						DATE(date)
@@ -683,7 +683,7 @@ class Dashboard extends BaseController
 						ads_meta_account 
 						ON meta_ads_data.account_id = ads_meta_account.account_id
 					WHERE 
-						DATE(date) BETWEEN '$start_date' AND '$until_date'
+						date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY)
 						$meta_brand
 					GROUP BY 
 						DATE(date)
@@ -695,7 +695,7 @@ class Dashboard extends BaseController
 					FROM 
 						tiktok_ads_data
 					WHERE 
-						DATE(date) BETWEEN '$start_date' AND '$until_date'
+						date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY)
 						$tiktok_brand
 					GROUP BY 
 						DATE(date)
@@ -707,7 +707,7 @@ class Dashboard extends BaseController
 					FROM 
 						advertiser_spend
 					WHERE 
-						DATE(date) BETWEEN '$start_date' AND '$until_date'
+						date >= '$start_date' AND date < DATE_ADD('$until_date', INTERVAL 1 DAY)
 						AND advertiser_name LIKE '{$firstLetter}%'
 					GROUP BY 
 						DATE(date)
@@ -722,7 +722,7 @@ class Dashboard extends BaseController
                 SUM(pl.nominal_dibayarkan) AS total_spend_kol
             FROM payment_logs pl
             JOIN endorse_campaign ec ON pl.id_campaign = ec.id
-            WHERE DATE(pl.created_at) >= '$start_date' AND DATE(pl.created_at) <= '$until_date' AND pl.status_payment IN ('FP', 'DP')
+            WHERE pl.created_at >= '$start_date' AND pl.created_at < DATE_ADD('$until_date', INTERVAL 1 DAY) AND pl.status_payment IN ('FP', 'DP')
             " . (!empty($firstLetter) ? "AND ec.brand LIKE '{$firstLetter}%'" : "") . "
         ";
 
@@ -733,7 +733,7 @@ class Dashboard extends BaseController
 				SELECT 
 					ABS(SUM(e.price_total)) AS total_spend_etc
 				FROM expense e
-				WHERE DATE(e.date) BETWEEN '$start_date' AND '$until_date'
+				WHERE e.date >= '$start_date' AND e.date < DATE_ADD('$until_date', INTERVAL 1 DAY)
 				AND e.brand LIKE '{$firstLetter}%';
 			";
 
@@ -779,8 +779,8 @@ class Dashboard extends BaseController
 
         // ====== Filter tanggal untuk tabel stock (alias $qry di kode pembanding) ======
         $qryStockWindow = "
-            WHERE DATE(s.date) >= " . $this->db->escape($start_date) . "
-            AND DATE(s.date) <= " . $this->db->escape($until_date) . "
+            WHERE s.date >= " . $this->db->escape($start_date) . "
+            AND s.date < DATE_ADD(" . $this->db->escape($until_date) . ", INTERVAL 1 DAY)
         ";
 
         // ====== Filter transaksi POS untuk denominator net_sales & %HPP ======
@@ -817,8 +817,8 @@ class Dashboard extends BaseController
                     / NULLIF((
                         SELECT SUM(t.omset_kotor - t.diskon_penjual)
                         FROM transaction t
-                        WHERE DATE(t.date) >= " . $this->db->escape($start_date) . "
-                        AND DATE(t.date) <= " . $this->db->escape($until_date) . "
+                        WHERE t.date >= " . $this->db->escape($start_date) . "
+                        AND t.date < DATE_ADD(" . $this->db->escape($until_date) . ", INTERVAL 1 DAY)
                         AND t.type_sub = 'POS'
                         AND t.order_status NOT IN ('CANCELLED','IN_CANCELLED','RETURN','REFUND','UNPAID')
                         $qry_transaction
@@ -880,8 +880,8 @@ class Dashboard extends BaseController
         $net_sales = $this->mymodel->selectWithQuery("
             SELECT SUM(t.omset_kotor - t.diskon_penjual) as net_sales
             FROM transaction t
-            WHERE DATE(t.date) >= " . $this->db->escape($start_date) . "
-            AND DATE(t.date) <= " . $this->db->escape($until_date) . "
+            WHERE t.date >= " . $this->db->escape($start_date) . "
+            AND t.date < DATE_ADD(" . $this->db->escape($until_date) . ", INTERVAL 1 DAY)
             AND t.order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED','UNPAID')
             AND t.type_sub = 'POS'
             $qry_transaction
@@ -951,8 +951,8 @@ class Dashboard extends BaseController
                 t.json,
                 t.is_manual
             FROM transaction t
-            WHERE DATE(t.date) >= '$start_date'
-            AND DATE(t.date) <= '$until_date'
+            WHERE t.date >= '$start_date'
+            AND t.date < DATE_ADD('$until_date', INTERVAL 1 DAY)
             AND t.order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED')
             AND $qry_transaction
         ");
@@ -972,8 +972,8 @@ class Dashboard extends BaseController
                 END AS qty_out
             FROM stock s
             JOIN product p ON p.id = s.product
-            WHERE DATE(s.date) >= '$start_date'
-            AND DATE(s.date) <= '$until_date'
+            WHERE s.date >= '$start_date'
+            AND s.date < DATE_ADD('$until_date', INTERVAL 1 DAY)
             AND s.type = 'Out'
             AND s.type_sub IN ('POS', 'Stock')
             AND s.status = 'Aktif'
@@ -1315,8 +1315,8 @@ class Dashboard extends BaseController
         $net_sales = $this->mymodel->selectWithQuery("
             SELECT SUM(t.omset_kotor - t.diskon_penjual) as net_sales
             FROM transaction t
-            WHERE DATE(t.date) >= '$start_date'
-            AND DATE(t.date) <= '$until_date'
+            WHERE t.date >= '$start_date'
+            AND t.date < DATE_ADD('$until_date', INTERVAL 1 DAY)
             AND t.order_status NOT IN ('RETURN','REFUND','CANCELLED','IN_CANCELLED', 'UNPAID')
             AND t.type_sub = 'POS'
             AND $qry_transaction
