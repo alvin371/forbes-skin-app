@@ -150,87 +150,13 @@ class Dashboard extends BaseController
             $until_date = $today;
         }
 
-        // Get brand filter from GET parameters
-        $brand_filter = $_GET['brand'] ?? '';
-        $firstLetter = !empty($brand_filter) ? strtoupper(substr($brand_filter, 0, 1)) : '';
-
-        $shopee_brand = !empty($firstLetter) ? "AND shop_name LIKE '{$firstLetter}%'" : "";
-        $tiktok_brand = !empty($firstLetter) ? "AND advertiser_name LIKE '{$firstLetter}%'" : "";
-        $meta_brand = !empty($firstLetter) ? "AND account_name LIKE '{$firstLetter}%'" : "";
-
-        $sql_spend_ads = "
-        SELECT 
-            COALESCE(SUM(shopee.expense), 0) + 
-            COALESCE(SUM(meta.spend), 0) + 
-            COALESCE(SUM(tiktok.spend_idr), 0) + 
-            COALESCE(SUM(gmv.spend_idr_after_tax), 0) AS total_spend_ads
-        FROM (
-            SELECT 
-                DATE(date) AS date,
-                SUM(expense_after_tax) AS expense
-            FROM 
-                shopee_ads_data
-            INNER JOIN 
-                marketplace_config 
-                ON marketplace_config.shop_id = shopee_ads_data.shop_id
-            WHERE 
-                DATE(date) BETWEEN '$start_date' AND '$until_date'
-                $shopee_brand
-            GROUP BY 
-                DATE(date)
-        ) AS shopee
-        LEFT JOIN (
-            SELECT 
-                DATE(date) AS date,
-                SUM(spend_after_tax) AS spend
-            FROM 
-                meta_ads_data
-            INNER JOIN 
-                ads_meta_account 
-                ON meta_ads_data.account_id = ads_meta_account.account_id
-            WHERE 
-                DATE(date) BETWEEN '$start_date' AND '$until_date'
-                $meta_brand
-            GROUP BY 
-                DATE(date)
-        ) AS meta ON shopee.date = meta.date
-        LEFT JOIN (
-            SELECT 
-                DATE(date) AS date,
-                SUM(spend_idr_after_tax) AS spend_idr
-            FROM 
-                tiktok_ads_data
-            WHERE 
-                DATE(date) BETWEEN '$start_date' AND '$until_date'
-                $tiktok_brand
-            GROUP BY 
-                DATE(date)
-        ) AS tiktok ON shopee.date = tiktok.date
-        LEFT JOIN (
-            SELECT 
-                DATE(date) AS date,
-                SUM(spend_idr_after_tax) AS spend_idr_after_tax
-            FROM 
-                advertiser_spend
-            WHERE 
-                DATE(date) BETWEEN '$start_date' AND '$until_date'
-                AND advertiser_name LIKE '{$firstLetter}%'
-            GROUP BY 
-                DATE(date)
-        ) AS gmv ON shopee.date = gmv.date;
-    ";
-
-        // Use optimized ads spending calculation with caching
-        $total_spend_ads = $this->calculate_ads_spending($start_date, $until_date, $brand_filter);
-        $data['spend_ads'] = ['total_spend_ads' => $total_spend_ads];
-
-        // Use optimized KOL spending calculation with caching
-        $total_spend_kol = $this->calculate_kol_spending($start_date, $until_date, $brand_filter);
-        $data['spend_kol'] = ['total_spend_kol' => $total_spend_kol];
-
-        // Use optimized etc spending calculation with caching  
-        $total_spend_etc = $this->calculate_etc_spending($start_date, $until_date, $brand_filter);
-        $data['spend_etc'] = ['total_spend_etc' => $total_spend_etc];
+        // B5: the Ads / KOL / Etc spend cards are loaded lazily by the dashboard view
+        // via AJAX (ajax/get_summary, dashboard/expense_data, dashboard/laba_bersih_data,
+        // ...), and the index views do not render $spend_ads/$spend_kol/$spend_etc. These
+        // heavy aggregations used to run synchronously here on every initial load even
+        // though nothing consumed their results, so they are no longer computed inline.
+        // The dedicated AJAX endpoints (which reuse the cached calculate_*_spending
+        // helpers) remain the source of truth for these numbers.
 
         if ($_GET['t'] == "kol") {
             $data['campaign'] = $this->mymodel->selectWithQuery("SELECT *
