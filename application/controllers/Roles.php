@@ -556,6 +556,12 @@ class Roles extends BaseController
         }
 
         $this->db->trans_complete();
+
+        // B3: bump the global permission version so logged-in users' session permission
+        // maps rebuild on their next request instead of waiting out the TTL.
+        if (isset($this->permission) && method_exists($this->permission, 'bump_permission_version')) {
+            $this->permission->bump_permission_version();
+        }
     }
 
     /**

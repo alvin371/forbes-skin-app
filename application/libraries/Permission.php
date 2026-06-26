@@ -32,6 +32,13 @@ class Permission
     const SESSION_PERM_KEY = 'perm_map';
     const SESSION_PERM_TTL = 900; // 15 min safety refresh
 
+    /**
+     * Request-cached global permission version (B3). Read once per request from
+     * permission_meta and reused across the many permission checks in a request.
+     */
+    protected static $perm_version_loaded = false;
+    protected static $perm_version_cache = null;
+
     public function __construct()
     {
         $this->CI =& get_instance();
@@ -81,6 +88,59 @@ class Permission
     }
 
     /**
+     * Current global permission version (B3), or null when it cannot be determined
+     * (table missing / query error) — in which case callers rely on the TTL refresh.
+     * Read once per request and cached, so repeated checks add no extra queries.
+     *
+     * @return int|null
+     */
+    public function current_permission_version()
+    {
+        if (self::$perm_version_loaded) {
+            return self::$perm_version_cache;
+        }
+        self::$perm_version_loaded = true;
+
+        try {
+            $row = $this->CI->db->query("SELECT version FROM permission_meta WHERE id = 1")->row_array();
+            self::$perm_version_cache = (!empty($row) && isset($row['version'])) ? (int) $row['version'] : null;
+        } catch (Exception $e) {
+            self::$perm_version_cache = null;
+        }
+
+        return self::$perm_version_cache;
+    }
+
+    /**
+     * Bump the global permission version so every session map rebuilds on its next use.
+     * Call after any change to roles / role_permissions / user_module_permissions.
+     */
+    public function bump_permission_version()
+    {
+        try {
+            $this->CI->db->query(
+                "UPDATE permission_meta SET version = version + 1, updated_at = NOW() WHERE id = 1"
+            );
+            // Invalidate the request cache so a rebuild in this same request sees the bump.
+            self::$perm_version_loaded = false;
+            self::$perm_version_cache = null;
+        } catch (Exception $e) {
+            log_message('error', 'bump_permission_version failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Reset the request-lifetime permission-version cache. Production resets it naturally
+     * each request (PHP process boundary); tests that run many cases in one process call
+     * this to keep request isolation.
+     */
+    public static function resetPermissionVersionCache(): void
+    {
+        self::$perm_version_loaded = false;
+        self::$perm_version_cache = null;
+    }
+
+    /**
      * Build a compact permission map from the same source the runtime checks use
      * (user_module_permissions, via get_user_permissions) plus the admin auto-grant.
      * Fail-closed by construction: only modules/controllers the user can actually
@@ -117,6 +177,7 @@ class Permission
             'is_admin'    => $this->user_is_admin($user_id),
             'modules'     => $modules,
             'controllers' => $controllers,
+            'version'     => $this->current_permission_version(),
             'built_at'    => time(),
         ];
     }
@@ -161,6 +222,14 @@ class Permission
             return null;
         }
 
+        // B3: instant invalidation — rebuild when the global permission version moved.
+        $current_version = $this->current_permission_version();
+        $stored_version = $map['version'] ?? null;
+        if ($current_version !== null && $stored_version !== null && (int) $stored_version !== (int) $current_version) {
+            return $this->bootstrap_session_permissions($user_id);
+        }
+
+        // Secondary safety: rebuild past the TTL (also covers a null/unknown version).
         if (time() - (int) ($map['built_at'] ?? 0) > self::SESSION_PERM_TTL) {
             $map = $this->bootstrap_session_permissions($user_id);
         }

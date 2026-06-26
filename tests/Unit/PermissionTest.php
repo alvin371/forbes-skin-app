@@ -47,15 +47,19 @@ final class PermissionTest extends TestCase
     /**
      * Seed a fresh session permission map for $userId.
      */
-    private function seedSessionMap(int $userId, array $modules, array $controllers, bool $isAdmin = false): void
+    private function seedSessionMap(int $userId, array $modules, array $controllers, bool $isAdmin = false, ?int $version = null): void
     {
-        $_SESSION[Permission::SESSION_PERM_KEY] = [
+        $map = [
             'user_id'     => $userId,
             'is_admin'    => $isAdmin,
             'modules'     => $modules,
             'controllers' => $controllers,
             'built_at'    => time(),
         ];
+        if ($version !== null) {
+            $map['version'] = $version;
+        }
+        $_SESSION[Permission::SESSION_PERM_KEY] = $map;
     }
 
     public function testSessionMapServesChecksWithoutDb(): void
@@ -160,6 +164,53 @@ final class PermissionTest extends TestCase
         $this->assertSame($before, $db->userModulePermissionQueries);
     }
 
+    public function testStaleVersionTriggersRebuild(): void
+    {
+        $db = new PermissionTestDb([
+            'tables'           => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles'],
+            'perm_version'     => 2,
+            'user_permissions' => [
+                ['module_name' => 'influencer', 'controller' => 'influencer', 'can_view' => 1, 'can_create' => 0, 'can_edit' => 0, 'can_delete' => 0, 'can_approve' => 0],
+            ],
+            'role_rows' => [],
+        ]);
+        $permission = $this->makePermission($db);
+
+        // Stale map: built at version 1, granting only the now-removed 'old' controller.
+        $this->seedSessionMap(7, ['old' => ['view' => 1, 'create' => 0, 'edit' => 0, 'delete' => 0, 'approve' => 0]], ['old' => true], false, 1);
+
+        // Version moved to 2 -> the map rebuilds from the DB on use.
+        $this->assertTrue($permission->has_module_access(7, 'influencer'));
+        $this->assertFalse($permission->has_module_access(7, 'old'));
+        $this->assertSame(2, $_SESSION[Permission::SESSION_PERM_KEY]['version']);
+        $this->assertGreaterThanOrEqual(1, $db->userPermissionsQueries);
+    }
+
+    public function testMatchingVersionServesFromSession(): void
+    {
+        $db = new PermissionTestDb([
+            'tables'       => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles'],
+            'perm_version' => 5,
+        ]);
+        $permission = $this->makePermission($db);
+
+        $this->seedSessionMap(7, ['dashboard' => ['view' => 1, 'create' => 0, 'edit' => 0, 'delete' => 0, 'approve' => 0]], ['dashboard' => true], false, 5);
+
+        $this->assertTrue($permission->has_module_access(7, 'dashboard'));
+        $this->assertSame(0, $db->userPermissionsQueries); // no rebuild
+        $this->assertSame(1, $db->permissionMetaReads);     // version read once, then cached
+    }
+
+    public function testBumpPermissionVersion(): void
+    {
+        $db         = new PermissionTestDb(['tables' => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles']]);
+        $permission = $this->makePermission($db);
+
+        $permission->bump_permission_version();
+
+        $this->assertSame(1, $db->permissionMetaBumps);
+    }
+
     public function testBulkLoadHydratesRequestCache(): void
     {
         $db = new PermissionTestDb([
@@ -231,9 +282,10 @@ final class PermissionTest extends TestCase
 
         require_once __DIR__ . '/../../application/libraries/Permission.php';
 
-        // Each test case is a fresh "request"; clear the request-lifetime static cache so
-        // the capability probe runs once per case (matches production per-request behaviour).
+        // Each test case is a fresh "request"; clear the request-lifetime static caches so
+        // the capability probe and version read run once per case (matches production).
         Permission::resetTableCapabilityCache();
+        Permission::resetPermissionVersionCache();
 
         return new Permission();
     }
@@ -288,6 +340,8 @@ final class PermissionTestDb
     public $userPermissionsQueries      = 0;
     public $fallbackAggregateQueries    = 0;
     public $roleQueries                 = 0;
+    public $permissionMetaReads         = 0;
+    public $permissionMetaBumps         = 0;
     private $config;
 
     public function __construct(array $config)
@@ -306,6 +360,22 @@ final class PermissionTestDb
             }
 
             return new PermissionTestResult($rows);
+        }
+
+        if (str_contains($sql, 'permission_meta') && str_contains($sql, 'SELECT version')) {
+            $this->permissionMetaReads++;
+
+            if (array_key_exists('perm_version', $this->config) && $this->config['perm_version'] !== null) {
+                return new PermissionTestResult([['version' => $this->config['perm_version']]]);
+            }
+
+            return new PermissionTestResult([]);
+        }
+
+        if (str_contains($sql, 'UPDATE permission_meta')) {
+            $this->permissionMetaBumps++;
+
+            return new PermissionTestResult([]);
         }
 
         if (str_contains($sql, 'FROM user_module_permissions') && str_contains($sql, 'ORDER BY module_name')) {
