@@ -282,6 +282,27 @@ class Permission
             'fallback_tables' => false,
         ];
 
+        // Production short-circuit: when the RBAC tables are known to exist, skip the
+        // per-request INFORMATION_SCHEMA probe entirely. The static cache only lives one
+        // PHP request, so without this the probe runs on every request (29.7s across the
+        // 2026-06-20 load test). The five RBAC tables never disappear at runtime, so once
+        // the schema is provisioned this flag is safe. Leave it unset on fresh/partial
+        // installs to keep the auto-detecting probe as the default.
+        //
+        // Read via getenv() rather than the global env() helper: env_helper.php putenv()s
+        // every .env value, while in other contexts (e.g. the test container) env() can
+        // resolve to a different framework's helper with its own dependencies.
+        $flag = strtolower(trim((string) getenv('PERMISSION_TABLES_READY')));
+        if ($flag === 'true' || $flag === '1') {
+            $capabilities = [
+                'cache_table' => true,
+                'fallback_tables' => true,
+            ];
+            $this->permission_table_capabilities = $capabilities;
+            self::$permission_table_capabilities_cache = $capabilities;
+            return $this->permission_table_capabilities;
+        }
+
         try {
             $rows = $this->CI->db->query("
                 SELECT TABLE_NAME
