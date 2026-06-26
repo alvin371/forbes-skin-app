@@ -120,52 +120,31 @@ class Overview extends CI_Controller
                             + COALESCE(tiktok.purchase_qty, 0)), 
                             0
                         ),0) AS avg_penjualan,
-                        COALESCE((
-                            SELECT SUM(omset_kotor - diskon_penjual)
-                            FROM transaction
-                            WHERE DATE(transaction.date) = dates.date
-                            AND transaction.order_status NOT IN ('RETURN', 'REFUND', 'CANCELLED', 'IN_CANCELLED', 'UNPAID')
-                            AND transaction.type_sub = 'POS'
-                            $brand_condition
-                        ), 0) AS result,
-                        CASE 
-                            WHEN COALESCE((
-                                SELECT SUM(omset_kotor - diskon_penjual)
-                                FROM transaction
-                                WHERE DATE(transaction.date) = dates.date
-                                AND transaction.order_status NOT IN ('RETURN', 'REFUND', 'CANCELLED', 'IN_CANCELLED', 'UNPAID')
-                                AND transaction.type_sub = 'POS'
-                                $brand_condition
-                            ), 0) = 0 THEN 0
+                        COALESCE(trx.net_sales, 0) AS result,
+                        CASE
+                            WHEN COALESCE(trx.net_sales, 0) = 0 THEN 0
                             ELSE ROUND(
                                 (COALESCE(shopee.expense, 0) + COALESCE(meta.spend, 0) + COALESCE(tiktok.spend_idr, 0)) /
-                                COALESCE((
-                                    SELECT SUM(omset_kotor - diskon_penjual)
-                                    FROM transaction
-                                    WHERE DATE(transaction.date) = dates.date
-                                    AND transaction.order_status NOT IN ('RETURN', 'REFUND', 'CANCELLED', 'IN_CANCELLED', 'UNPAID')
-                                    AND transaction.type_sub = 'POS'
-                                    $brand_condition
-                                ), 0) * 100, 2)
+                                trx.net_sales * 100, 2)
                         END AS ratio,
                         COALESCE(gmv.spend_idr_after_tax, 0) AS tiktok_gmv
                     FROM 
                         (
-                            SELECT DISTINCT DATE(date) AS date FROM shopee_ads_data
+                            SELECT DISTINCT DATE(date) AS date FROM shopee_ads_data WHERE date >= ? AND date < DATE_ADD(?, INTERVAL 1 DAY)
                             UNION
-                            SELECT DISTINCT DATE(date) AS date FROM meta_ads_data
+                            SELECT DISTINCT DATE(date) AS date FROM meta_ads_data WHERE date >= ? AND date < DATE_ADD(?, INTERVAL 1 DAY)
                             UNION
-                            SELECT DISTINCT DATE(date) AS date FROM tiktok_ads_data
+                            SELECT DISTINCT DATE(date) AS date FROM tiktok_ads_data WHERE date >= ? AND date < DATE_ADD(?, INTERVAL 1 DAY)
                             UNION
-                            SELECT DISTINCT DATE(date) AS date FROM transaction
+                            SELECT DISTINCT DATE(date) AS date FROM transaction WHERE date >= ? AND date < DATE_ADD(?, INTERVAL 1 DAY)
                             UNION
-                            SELECT DISTINCT DATE(date) AS date FROM advertiser_spend
+                            SELECT DISTINCT DATE(date) AS date FROM advertiser_spend WHERE date >= ? AND date < DATE_ADD(?, INTERVAL 1 DAY)
                         ) AS dates
                     LEFT JOIN (
                         SELECT DATE(date) AS date, SUM(expense_after_tax) AS expense, SUM(broad_item_sold) AS purchase_qty, SUM(broad_gmv) AS purchase_idr
                         FROM shopee_ads_data
                         INNER JOIN marketplace_config ON marketplace_config.shop_id = shopee_ads_data.shop_id
-                        WHERE DATE(date) BETWEEN ? AND ?
+                        WHERE date >= ? AND date < DATE_ADD(?, INTERVAL 1 DAY)
                         $shopee_brand
                         GROUP BY DATE(date)
                     ) AS shopee ON shopee.date = dates.date
@@ -173,29 +152,51 @@ class Overview extends CI_Controller
                         SELECT DATE(date) AS date, SUM(spend_after_tax) AS spend, SUM(purchase_qty) AS purchase_qty, SUM(purchases) AS purchase_idr
                         FROM meta_ads_data
                         INNER JOIN ads_meta_account ON meta_ads_data.account_id = ads_meta_account.account_id
-                        WHERE DATE(date) BETWEEN ? AND ?
+                        WHERE date >= ? AND date < DATE_ADD(?, INTERVAL 1 DAY)
                         $meta_brand
                         GROUP BY DATE(date)
                     ) AS meta ON meta.date = dates.date
                     LEFT JOIN (
                         SELECT DATE(date) AS date, SUM(spend_idr_after_tax) AS spend_idr, SUM(onsite_shopping) AS purchase_qty, SUM(total_onsite_shopping_value_idr) AS purchase_idr
                         FROM tiktok_ads_data
-                        WHERE DATE(date) BETWEEN ? AND ?
+                        WHERE date >= ? AND date < DATE_ADD(?, INTERVAL 1 DAY)
                         $tiktok_brand
                         GROUP BY DATE(date)
                     ) AS tiktok ON tiktok.date = dates.date
                     LEFT JOIN (
                         SELECT DATE(date) AS date, SUM(spend_idr_after_tax) AS spend_idr_after_tax
                         FROM advertiser_spend
-                        WHERE DATE(date) BETWEEN ? AND ?
+                        WHERE date >= ? AND date < DATE_ADD(?, INTERVAL 1 DAY)
                         $tiktok_brand
                         GROUP BY DATE(date)
                     ) AS gmv ON gmv.date = dates.date
-                    WHERE dates.date BETWEEN ? AND ?
+                    LEFT JOIN (
+                        SELECT DATE(date) AS date, SUM(omset_kotor - diskon_penjual) AS net_sales
+                        FROM transaction
+                        WHERE date >= ? AND date < DATE_ADD(?, INTERVAL 1 DAY)
+                        AND order_status NOT IN ('RETURN', 'REFUND', 'CANCELLED', 'IN_CANCELLED', 'UNPAID')
+                        AND type_sub = 'POS'
+                        $brand_condition
+                        GROUP BY DATE(date)
+                    ) AS trx ON trx.date = dates.date
                     ORDER BY dates.date ASC;
                 ";
 
-            $params = [$start_date, $until_date, $start_date, $until_date, $start_date, $until_date, $start_date, $until_date, $start_date, $until_date];
+            // Param order follows placeholder appearance: 5 date-spine sources,
+            // then 4 ad-spend joins (shopee, meta, tiktok, gmv), then the
+            // transaction net-sales join — every pair is (start_date, until_date).
+            $params = [
+                $start_date, $until_date,
+                $start_date, $until_date,
+                $start_date, $until_date,
+                $start_date, $until_date,
+                $start_date, $until_date,
+                $start_date, $until_date,
+                $start_date, $until_date,
+                $start_date, $until_date,
+                $start_date, $until_date,
+                $start_date, $until_date,
+            ];
 
             $data['pivot'] = $this->db->query($sql_pivot, $params)->result_array();
 
