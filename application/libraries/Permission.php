@@ -22,7 +22,16 @@ class Permission
      */
     protected static $permission_table_capabilities_cache = null;
     protected $logged_fallback_batches = [];
-    
+
+    /**
+     * Session permission map (B2). Built once at login from the same sources the DB
+     * checks use, then read on every page so normal navigation does no permission
+     * queries. Fail-closed: a map miss denies (never grants). Self-heals after
+     * SESSION_PERM_TTL seconds; B3 adds instant invalidation via a version bump.
+     */
+    const SESSION_PERM_KEY = 'perm_map';
+    const SESSION_PERM_TTL = 900; // 15 min safety refresh
+
     public function __construct()
     {
         $this->CI =& get_instance();
@@ -49,10 +58,163 @@ class Permission
 
         return true;
     }
-    
+
+    /**
+     * Build and store the session permission map for a user. Call once at login.
+     *
+     * @param int $user_id
+     * @return array the stored map
+     */
+    public function bootstrap_session_permissions($user_id)
+    {
+        $map = $this->build_permission_map((int) $user_id);
+        $_SESSION[self::SESSION_PERM_KEY] = $map;
+        return $map;
+    }
+
+    /**
+     * Drop the session permission map (e.g. on logout). Forces a rebuild on next use.
+     */
+    public function clear_session_permissions()
+    {
+        unset($_SESSION[self::SESSION_PERM_KEY]);
+    }
+
+    /**
+     * Build a compact permission map from the same source the runtime checks use
+     * (user_module_permissions, via get_user_permissions) plus the admin auto-grant.
+     * Fail-closed by construction: only modules/controllers the user can actually
+     * access are present.
+     */
+    private function build_permission_map($user_id)
+    {
+        $modules = [];
+        $controllers = [];
+
+        foreach ($this->get_user_permissions($user_id) as $perm) {
+            $name = $perm['module_name'] ?? '';
+            if ($name === '') {
+                continue;
+            }
+            $caps = [
+                'view'    => (int) ($perm['can_view'] ?? 0),
+                'create'  => (int) ($perm['can_create'] ?? 0),
+                'edit'    => (int) ($perm['can_edit'] ?? 0),
+                'delete'  => (int) ($perm['can_delete'] ?? 0),
+                'approve' => (int) ($perm['can_approve'] ?? 0),
+            ];
+            $modules[$name] = $caps;
+
+            $controller = $perm['controller'] ?? '';
+            if ($controller !== '') {
+                $any = $caps['view'] || $caps['create'] || $caps['edit'] || $caps['delete'];
+                $controllers[$controller] = !empty($controllers[$controller]) ? true : (bool) $any;
+            }
+        }
+
+        return [
+            'user_id'     => (int) $user_id,
+            'is_admin'    => $this->user_is_admin($user_id),
+            'modules'     => $modules,
+            'controllers' => $controllers,
+            'built_at'    => time(),
+        ];
+    }
+
+    /**
+     * Whether the user holds a super_admin/admin role — mirrors the admin auto-grant
+     * in fallback_permission_check() so the session map grants the same access.
+     */
+    private function user_is_admin($user_id)
+    {
+        try {
+            $roles = $this->CI->mymodel->selectWithQuery(
+                "SELECT r.name FROM user_roles ur
+                 INNER JOIN roles r ON ur.role_id = r.id
+                 WHERE ur.user_id = " . (int) $user_id . " AND r.is_active = 1"
+            );
+            foreach ((array) $roles as $role) {
+                if (in_array(strtolower($role['name'] ?? ''), ['super_admin', 'admin'], true)) {
+                    return true;
+                }
+            }
+        } catch (Exception $e) {
+            // Unknown — treat as non-admin (fail-closed).
+        }
+        return false;
+    }
+
+    /**
+     * Return the session permission map only for the currently logged-in user, or null
+     * when there is no usable map (so callers fall back to the DB path). Rebuilds the
+     * map once it passes SESSION_PERM_TTL.
+     */
+    private function session_permission_map($user_id)
+    {
+        if (empty($_SESSION[self::SESSION_PERM_KEY]) || !is_array($_SESSION[self::SESSION_PERM_KEY])) {
+            return null;
+        }
+        $map = $_SESSION[self::SESSION_PERM_KEY];
+
+        // Only trust the map for the user it was built for — never for arbitrary ids.
+        if ((int) ($map['user_id'] ?? 0) !== (int) $user_id) {
+            return null;
+        }
+
+        if (time() - (int) ($map['built_at'] ?? 0) > self::SESSION_PERM_TTL) {
+            $map = $this->bootstrap_session_permissions($user_id);
+        }
+
+        return $map;
+    }
+
+    /**
+     * Resolve check_permission() from the session map. Returns bool when the map serves
+     * the decision, or null when there is no map (caller should hit the DB).
+     */
+    private function check_permission_from_session($user_id, $module_name, $action)
+    {
+        $map = $this->session_permission_map($user_id);
+        if ($map === null) {
+            return null;
+        }
+        if (!empty($map['is_admin'])) {
+            return true;
+        }
+        if (isset($map['modules'][$module_name]) && array_key_exists($action, $map['modules'][$module_name])) {
+            return (bool) $map['modules'][$module_name][$action];
+        }
+        if ($action === 'view' && in_array($module_name, ['profile', 'home'], true)) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Resolve has_module_access() from the session map. Returns bool when served, or
+     * null when there is no map (caller should hit the DB).
+     */
+    private function has_controller_access_from_session($user_id, $controller)
+    {
+        $map = $this->session_permission_map($user_id);
+        if ($map === null) {
+            return null;
+        }
+        if (!empty($map['is_admin'])) {
+            return true;
+        }
+        if (!empty($map['controllers'][$controller])) {
+            return true;
+        }
+        if (in_array($controller, ['profile', 'home'], true)) {
+            return true;
+        }
+        return false;
+    }
+
     /**
      * Check if user has specific permission for a module
-     * 
+     *
      * @param int $user_id User ID
      * @param string $module_name Module name
      * @param string $action Permission action (view, create, edit, delete)
@@ -70,6 +232,13 @@ class Permission
         if (!$this->is_module_active($module_name)) {
             $this->user_permissions_cache[$cache_key] = false;
             return false;
+        }
+
+        // B2: serve from the session permission map (logged-in user, no DB) when available.
+        $session_value = $this->check_permission_from_session($user_id, $module_name, $action);
+        if ($session_value !== null) {
+            $this->user_permissions_cache[$cache_key] = $session_value;
+            return $session_value;
         }
 
         $permissions = $this->get_permissions_for_modules($user_id, [$module_name]);
@@ -100,6 +269,12 @@ class Permission
     {
         if (!$this->is_module_active($controller)) {
             return false;
+        }
+
+        // B2: serve from the session permission map (logged-in user, no DB) when available.
+        $session_value = $this->has_controller_access_from_session($user_id, $controller);
+        if ($session_value !== null) {
+            return $session_value;
         }
 
         try {
@@ -837,6 +1012,14 @@ class Permission
             }
         } else {
             $this->user_permissions_cache = [];
+        }
+
+        // Drop the session map for the current user so the next check rebuilds it.
+        if (
+            isset($_SESSION[self::SESSION_PERM_KEY]['user_id'])
+            && ($user_id === null || (int) $_SESSION[self::SESSION_PERM_KEY]['user_id'] === (int) $user_id)
+        ) {
+            $this->clear_session_permissions();
         }
     }
     

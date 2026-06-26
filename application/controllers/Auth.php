@@ -621,6 +621,15 @@ class Auth extends CI_Controller
                     $_SESSION['is_login'] = true;
                     $_SESSION['user'] = $user;
 
+                    // B2: build the session permission map once, so subsequent page loads
+                    // resolve permission checks from the session instead of querying the
+                    // RBAC tables on every request. Non-fatal: checks fall back to the DB.
+                    try {
+                        $this->permission->bootstrap_session_permissions($user['id']);
+                    } catch (Exception $e) {
+                        log_message('error', 'Session permission bootstrap failed: ' . $e->getMessage());
+                    }
+
                     // Get the appropriate redirect URL based on user permissions
                     $redirect_url = $this->get_user_default_page($user);
                     $_SESSION['login_redirect_url'] = $redirect_url;

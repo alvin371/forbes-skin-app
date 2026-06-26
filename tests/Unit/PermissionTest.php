@@ -28,12 +28,136 @@ final class PermissionTest extends TestCase
     {
         parent::setUp();
 
+        $_SESSION = [];
+
         if (! function_exists('get_instance')) {
             function &get_instance()
             {
                 return $GLOBALS['__permission_test_ci'];
             }
         }
+    }
+
+    protected function tearDown(): void
+    {
+        $_SESSION = [];
+        parent::tearDown();
+    }
+
+    /**
+     * Seed a fresh session permission map for $userId.
+     */
+    private function seedSessionMap(int $userId, array $modules, array $controllers, bool $isAdmin = false): void
+    {
+        $_SESSION[Permission::SESSION_PERM_KEY] = [
+            'user_id'     => $userId,
+            'is_admin'    => $isAdmin,
+            'modules'     => $modules,
+            'controllers' => $controllers,
+            'built_at'    => time(),
+        ];
+    }
+
+    public function testSessionMapServesChecksWithoutDb(): void
+    {
+        $db         = new PermissionTestDb(['tables' => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles']]);
+        $permission = $this->makePermission($db);
+
+        $this->seedSessionMap(7, [
+            'dashboard' => ['view' => 1, 'create' => 0, 'edit' => 0, 'delete' => 0, 'approve' => 0],
+        ], ['dashboard' => true]);
+
+        $this->assertTrue($permission->check_permission(7, 'dashboard', 'view'));
+        $this->assertFalse($permission->check_permission(7, 'dashboard', 'create'));
+        $this->assertTrue($permission->has_module_access(7, 'dashboard'));
+
+        // No RBAC tables were touched — served entirely from session.
+        $this->assertSame(0, $db->infoSchemaQueries);
+        $this->assertSame(0, $db->userModulePermissionQueries);
+        $this->assertSame(0, $db->fallbackAggregateQueries);
+    }
+
+    public function testSessionMapIsFailClosedForUnknownModule(): void
+    {
+        $db         = new PermissionTestDb(['tables' => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles']]);
+        $permission = $this->makePermission($db);
+
+        $this->seedSessionMap(7, [
+            'dashboard' => ['view' => 1, 'create' => 0, 'edit' => 0, 'delete' => 0, 'approve' => 0],
+        ], ['dashboard' => true]);
+
+        $this->assertFalse($permission->check_permission(7, 'report', 'view'));
+        $this->assertFalse($permission->has_module_access(7, 'report'));
+        $this->assertSame(0, $db->infoSchemaQueries);
+    }
+
+    public function testSessionMapAdminAutoGrants(): void
+    {
+        $db         = new PermissionTestDb(['tables' => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles']]);
+        $permission = $this->makePermission($db);
+
+        $this->seedSessionMap(1, [], [], true);
+
+        $this->assertTrue($permission->check_permission(1, 'anything', 'delete'));
+        $this->assertTrue($permission->has_module_access(1, 'whatever'));
+        $this->assertSame(0, $db->infoSchemaQueries);
+    }
+
+    public function testSessionMapGrantsBasicProfileView(): void
+    {
+        $db         = new PermissionTestDb(['tables' => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles']]);
+        $permission = $this->makePermission($db);
+
+        $this->seedSessionMap(7, [], []);
+
+        $this->assertTrue($permission->check_permission(7, 'profile', 'view'));
+        $this->assertTrue($permission->has_module_access(7, 'profile'));
+        $this->assertFalse($permission->check_permission(7, 'profile', 'edit'));
+    }
+
+    public function testSessionMapIsNotUsedForADifferentUser(): void
+    {
+        $db = new PermissionTestDb([
+            'tables'     => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles'],
+            'cache_rows' => [
+                ['module_name' => 'dashboard', 'can_view' => 1, 'can_create' => 0, 'can_edit' => 0, 'can_delete' => 0, 'can_approve' => 0],
+            ],
+        ]);
+        $permission = $this->makePermission($db);
+
+        // Map belongs to user 7; a check for user 9 must ignore it and hit the DB.
+        $this->seedSessionMap(7, [
+            'dashboard' => ['view' => 1, 'create' => 0, 'edit' => 0, 'delete' => 0, 'approve' => 0],
+        ], ['dashboard' => true]);
+
+        $this->assertTrue($permission->check_permission(9, 'dashboard', 'view'));
+        $this->assertSame(1, $db->userModulePermissionQueries);
+    }
+
+    public function testBootstrapBuildsSessionMapFromDb(): void
+    {
+        $db = new PermissionTestDb([
+            'tables'           => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles'],
+            'user_permissions' => [
+                ['module_name' => 'influencer', 'controller' => 'influencer', 'can_view' => 1, 'can_create' => 0, 'can_edit' => 0, 'can_delete' => 0, 'can_approve' => 0],
+                ['module_name' => 'crm', 'controller' => 'crm', 'can_view' => 1, 'can_create' => 1, 'can_edit' => 0, 'can_delete' => 0, 'can_approve' => 0],
+            ],
+            'role_rows' => [],
+        ]);
+        $permission = $this->makePermission($db);
+
+        $map = $permission->bootstrap_session_permissions(7);
+
+        $this->assertSame(7, $map['user_id']);
+        $this->assertFalse($map['is_admin']);
+        $this->assertTrue((bool) $map['controllers']['influencer']);
+        $this->assertSame(1, $map['modules']['crm']['create']);
+        $this->assertSame($map, $_SESSION[Permission::SESSION_PERM_KEY]);
+
+        // And the map now serves checks with no further DB access.
+        $before = $db->userModulePermissionQueries;
+        $this->assertTrue($permission->has_module_access(7, 'influencer'));
+        $this->assertSame($before, $db->userModulePermissionQueries);
     }
 
     public function testBulkLoadHydratesRequestCache(): void
@@ -161,6 +285,7 @@ final class PermissionTestDb
 {
     public $infoSchemaQueries           = 0;
     public $userModulePermissionQueries = 0;
+    public $userPermissionsQueries      = 0;
     public $fallbackAggregateQueries    = 0;
     public $roleQueries                 = 0;
     private $config;
@@ -181,6 +306,12 @@ final class PermissionTestDb
             }
 
             return new PermissionTestResult($rows);
+        }
+
+        if (str_contains($sql, 'FROM user_module_permissions') && str_contains($sql, 'ORDER BY module_name')) {
+            $this->userPermissionsQueries++;
+
+            return new PermissionTestResult($this->config['user_permissions'] ?? []);
         }
 
         if (str_contains($sql, 'FROM user_module_permissions') && str_contains($sql, 'module_name IN')) {
