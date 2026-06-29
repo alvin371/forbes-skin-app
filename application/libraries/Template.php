@@ -1082,6 +1082,12 @@ class Template
             return $deadlineSeconds > 0 && (microtime(true) - $startedAt) >= $deadlineSeconds;
         };
 
+        // TikTok page-scrape is unreliable; RapidAPI is the mandated primary path.
+        // When the scrape is disabled (default), skip it entirely and fan the chunk
+        // out as concurrent RapidAPI calls — the only way a run completes its whole
+        // chunk instead of grinding through them sequentially until the deadline.
+        $scrapeEnabled = env('ENDORSE_TIKTOK_SCRAPE_ENABLED', '0') == '1';
+
         $chunks = array_chunk($tasks, $maxConcurrent, true);
         foreach ($chunks as $chunk) {
             // Wall-clock guard: never overrun the worker's HTTP timeout. Out of budget →
@@ -1090,6 +1096,14 @@ class Template
             if ($overBudget()) {
                 foreach ($chunk as $idx => $task) {
                     $results[$idx] = $this->deferredBatchResult();
+                }
+                continue;
+            }
+
+            if (!$scrapeEnabled) {
+                $batch = $this->fetchRapidApiTiktokBatch($chunk);
+                foreach ($chunk as $idx => $task) {
+                    $results[$idx] = $batch[$idx] ?? ['status' => false, 'msg' => 'No response', 'data' => []];
                 }
                 continue;
             }
@@ -1196,6 +1210,104 @@ class Template
             $results[$idx] = $this->extractTiktokItemStructFromHtml($html);
             curl_multi_remove_handle($multiHandle, $curl);
             curl_close($curl);
+        }
+
+        curl_multi_close($multiHandle);
+
+        return $results;
+    }
+
+    /**
+     * Parallel RapidAPI getVideoInfo for a batch of TikTok tasks via curl_multi.
+     * Mirrors fetchTiktokDetailPagesBatch() but hits the mandated RapidAPI endpoint
+     * instead of scraping tiktok.com. Each $tasks entry: ['platform','url'].
+     * Returns array indexed identically; each element matches get_social_media().
+     * Single attempt per item — queue-level retry/defer handles transient failures.
+     */
+    protected function fetchRapidApiTiktokBatch(array $tasks): array
+    {
+        $host = env('RAPIDAPI_HOST', 'tiktok-video-no-watermark10.p.rapidapi.com');
+        $headers = $this->getRapidApiHeaders();
+        $multiHandle = curl_multi_init();
+        $handles = [];
+        $results = [];
+
+        foreach ($tasks as $idx => $task) {
+            $platform = $task['platform'] ?? '';
+            $url = trim((string) ($task['url'] ?? ''));
+
+            // Non-TikTok platforms have no working sync path — return the same
+            // placeholder get_social_media() would, without an HTTP call.
+            if ($platform !== 'Tiktok' || $url === '') {
+                $results[$idx] = $this->get_social_media($platform, $url, true, null, true);
+                continue;
+            }
+
+            $content_id = $this->extract_tiktok_content_id($url);
+            if (empty($content_id)) {
+                $results[$idx] = [
+                    'status' => false,
+                    'msg' => 'Video ID tidak ditemukan dari URL: ' . $url,
+                    'data' => [],
+                ];
+                continue;
+            }
+
+            $detailUrl = "https://{$host}/index/Tiktok/getVideoInfo?url=" . urlencode($url) . "&hd=0";
+            $curl = curl_init();
+            curl_setopt_array($curl, [
+                CURLOPT_URL => $detailUrl,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_ENCODING => '',
+                CURLOPT_MAXREDIRS => 10,
+                CURLOPT_CONNECTTIMEOUT => 5,
+                CURLOPT_TIMEOUT => 12,
+                CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+                CURLOPT_CUSTOMREQUEST => 'GET',
+                CURLOPT_HTTPHEADER => $headers,
+            ]);
+            curl_multi_add_handle($multiHandle, $curl);
+            $handles[$idx] = ['curl' => $curl, 'url' => $url];
+        }
+
+        if (!empty($handles)) {
+            do {
+                $status = curl_multi_exec($multiHandle, $active);
+                if ($active) {
+                    curl_multi_select($multiHandle, 1.0);
+                }
+            } while ($active && $status === CURLM_OK);
+
+            foreach ($handles as $idx => $h) {
+                $curl = $h['curl'];
+                $body = curl_multi_getcontent($curl);
+                $err  = curl_error($curl);
+                curl_multi_remove_handle($multiHandle, $curl);
+                curl_close($curl);
+
+                $base = [
+                    'status' => true,
+                    'msg' => '',
+                    'data' => [
+                        'like' => 0, 'share' => 0, 'comment' => 0, 'collect' => 0, 'view' => 0,
+                        'created_at' => '',
+                        'content_id' => $this->extract_tiktok_content_id($h['url']),
+                        'media_type' => $this->detect_tiktok_media_type_from_url($h['url']),
+                        'video_link' => '', 'cover' => '', 'images' => [],
+                    ],
+                ];
+
+                $apiResp = $err ? null : json_decode($body, true);
+                if (is_array($apiResp) && intval($apiResp['code'] ?? -1) === 0 && !empty($apiResp['data']['id'])) {
+                    $results[$idx] = $this->mapRapidApiTiktokDetailToResponse($base, $apiResp['data'], true);
+                } else {
+                    $results[$idx] = [
+                        'status' => false,
+                        'msg' => $err ? "cURL Error: $err" : ('Response tiktok ' . $base['data']['content_id'] . ' tidak ditemukan'),
+                        'data' => [],
+                    ];
+                }
+            }
         }
 
         curl_multi_close($multiHandle);
