@@ -332,7 +332,10 @@ class User extends BaseController
                 'assigned_by' => $user['id']
             );
             $this->db->insert('user_roles', $role_assignment);
-            
+
+            // Keep the permission cache + live session maps in sync with the new role.
+            $this->permission->rebuild_user_module_permissions($id);
+
             // Handle user profile data
             $profile_data = $_POST['profile'] ?? array();
             if (!empty($profile_data)) {
@@ -468,6 +471,9 @@ class User extends BaseController
                 'assigned_by' => $user['id']
             );
             $this->db->insert('user_roles', $role_assignment);
+
+            // Keep the permission cache + live session maps in sync with the new role.
+            $this->permission->rebuild_user_module_permissions($user_id);
 
             $this->LeaveQuotaModel->apply_defaults_for_user($user_id);
             

@@ -141,34 +141,162 @@ class Permission
     }
 
     /**
-     * Build a compact permission map from the same source the runtime checks use
-     * (user_module_permissions, via get_user_permissions) plus the admin auto-grant.
-     * Fail-closed by construction: only modules/controllers the user can actually
-     * access are present.
+     * Rebuild the user_module_permissions cache rows for a single user from their current
+     * role_permissions, then bump the global version so live session maps refresh. Call
+     * after any change to a user's role assignment (user_roles writes). This is the
+     * user-keyed counterpart to Roles::sync_user_permissions_for_role() (role-keyed),
+     * keeping the cache correct on the user side as well as the role side.
+     *
+     * Non-override rows only are replaced, matching the role-side sync so manual overrides
+     * (has_override = 1) survive. Best-effort: failures are logged, never fatal.
+     *
+     * @param int $user_id
+     * @return void
+     */
+    public function rebuild_user_module_permissions($user_id)
+    {
+        $user_id = (int) $user_id;
+        if ($user_id <= 0) {
+            return;
+        }
+
+        try {
+            if (!$this->CI->db->table_exists('user_module_permissions')) {
+                return;
+            }
+
+            $has_override = $this->CI->db->field_exists('has_override', 'user_module_permissions');
+            $has_created_at = $this->CI->db->field_exists('created_at', 'user_module_permissions');
+            $has_updated_at = $this->CI->db->field_exists('updated_at', 'user_module_permissions');
+
+            $this->CI->db->trans_start();
+
+            // Drop the cache rows we own (never the manual overrides).
+            if ($has_override) {
+                $this->CI->db->where('user_id', $user_id);
+                $this->CI->db->group_start()
+                    ->where('has_override', 0)
+                    ->or_where('has_override IS NULL', null, false)
+                    ->group_end();
+                $this->CI->db->delete('user_module_permissions');
+            } else {
+                $this->CI->db->where('user_id', $user_id);
+                $this->CI->db->delete('user_module_permissions');
+            }
+
+            $rows = $this->CI->db->query("
+                SELECT
+                    ur.user_id,
+                    m.id AS module_id,
+                    m.name AS module_name,
+                    m.display_name AS module_display_name,
+                    m.controller,
+                    m.parent_id,
+                    MAX(rp.can_view) AS can_view,
+                    MAX(rp.can_create) AS can_create,
+                    MAX(rp.can_edit) AS can_edit,
+                    MAX(rp.can_delete) AS can_delete,
+                    MAX(rp.can_approve) AS can_approve
+                FROM user_roles ur
+                INNER JOIN roles r ON r.id = ur.role_id AND r.is_active = 1
+                INNER JOIN role_permissions rp ON rp.role_id = ur.role_id
+                INNER JOIN modules m ON m.id = rp.module_id AND m.is_active = 1
+                WHERE ur.user_id = ?
+                GROUP BY ur.user_id, m.id, m.name, m.display_name, m.controller, m.parent_id
+            ", [$user_id])->result_array();
+
+            if (!empty($rows)) {
+                $columns = [
+                    'user_id', 'module_id', 'module_name', 'module_display_name',
+                    'controller', 'parent_id', 'can_view', 'can_create', 'can_edit',
+                    'can_delete', 'can_approve',
+                ];
+                if ($has_override) {
+                    $columns[] = 'has_override';
+                }
+                if ($has_created_at) {
+                    $columns[] = 'created_at';
+                }
+                if ($has_updated_at) {
+                    $columns[] = 'updated_at';
+                }
+
+                $now = date('Y-m-d H:i:s');
+                $batch = [];
+                foreach ($rows as $row) {
+                    $payload = [
+                        'user_id' => (int) $row['user_id'],
+                        'module_id' => (int) $row['module_id'],
+                        'module_name' => $row['module_name'],
+                        'module_display_name' => $row['module_display_name'],
+                        'controller' => $row['controller'],
+                        'parent_id' => $row['parent_id'],
+                        'can_view' => (int) $row['can_view'],
+                        'can_create' => (int) $row['can_create'],
+                        'can_edit' => (int) $row['can_edit'],
+                        'can_delete' => (int) $row['can_delete'],
+                        'can_approve' => (int) $row['can_approve'],
+                    ];
+                    if ($has_override) {
+                        $payload['has_override'] = 0;
+                    }
+                    if ($has_created_at) {
+                        $payload['created_at'] = $now;
+                    }
+                    if ($has_updated_at) {
+                        $payload['updated_at'] = $now;
+                    }
+                    $batch[] = $payload;
+                }
+
+                $this->CI->db->insert_batch('user_module_permissions', $batch, $columns);
+            }
+
+            $this->CI->db->trans_complete();
+
+            // Refresh live session maps that were built before this change.
+            $this->bump_permission_version();
+        } catch (Exception $e) {
+            log_message('error', 'rebuild_user_module_permissions failed for user ' . $user_id . ': ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Build a compact permission map resolved through the SAME path the runtime DB checks
+     * use — cache table (user_module_permissions) with a live role_permissions fallback for
+     * any module the cache is missing, plus the admin auto-grant — over the full set of
+     * active modules. Resolving the full module universe (not just rows present in the
+     * cache) is what keeps the session map at parity with the DB path: an empty or stale
+     * cache no longer denies access a user's role grants. Still fail-closed: a module the
+     * user has no grant for ends up all-false (deny).
      */
     private function build_permission_map($user_id)
     {
         $modules = [];
         $controllers = [];
 
-        foreach ($this->get_user_permissions($user_id) as $perm) {
-            $name = $perm['module_name'] ?? '';
-            if ($name === '') {
-                continue;
-            }
-            $caps = [
-                'view'    => (int) ($perm['can_view'] ?? 0),
-                'create'  => (int) ($perm['can_create'] ?? 0),
-                'edit'    => (int) ($perm['can_edit'] ?? 0),
-                'delete'  => (int) ($perm['can_delete'] ?? 0),
-                'approve' => (int) ($perm['can_approve'] ?? 0),
-            ];
-            $modules[$name] = $caps;
+        // Module universe + their controllers, mirroring the modules table the fallback
+        // (load_fallback_permissions_batch) joins on. is_active filtering is applied again
+        // by get_permissions_for_modules(), so inactive modules drop out of the result.
+        $module_controllers = $this->active_module_controllers();
 
-            $controller = $perm['controller'] ?? '';
-            if ($controller !== '') {
-                $any = $caps['view'] || $caps['create'] || $caps['edit'] || $caps['delete'];
-                $controllers[$controller] = !empty($controllers[$controller]) ? true : (bool) $any;
+        if (!empty($module_controllers)) {
+            $resolved = $this->get_permissions_for_modules($user_id, array_keys($module_controllers));
+            foreach ($resolved as $name => $actions) {
+                $caps = [
+                    'view'    => !empty($actions['view']) ? 1 : 0,
+                    'create'  => !empty($actions['create']) ? 1 : 0,
+                    'edit'    => !empty($actions['edit']) ? 1 : 0,
+                    'delete'  => !empty($actions['delete']) ? 1 : 0,
+                    'approve' => !empty($actions['approve']) ? 1 : 0,
+                ];
+                $modules[$name] = $caps;
+
+                $controller = $module_controllers[$name] ?? '';
+                if ($controller !== '') {
+                    $any = $caps['view'] || $caps['create'] || $caps['edit'] || $caps['delete'];
+                    $controllers[$controller] = !empty($controllers[$controller]) ? true : (bool) $any;
+                }
             }
         }
 
@@ -180,6 +308,46 @@ class Permission
             'version'     => $this->current_permission_version(),
             'built_at'    => time(),
         ];
+    }
+
+    /**
+     * Map of active module_name => controller, sourced from the modules table (the same
+     * universe the role_permissions fallback joins on) and merged with the sidebar
+     * registry so registry-only entries are not lost. Returns an empty array on failure,
+     * so build_permission_map() degrades to an empty (fail-closed) map rather than erroring
+     * at login — callers then fall back to the DB path.
+     */
+    private function active_module_controllers()
+    {
+        $map = [];
+
+        try {
+            $rows = $this->CI->db->query(
+                "SELECT name, controller FROM modules WHERE is_active = 1"
+            )->result_array();
+            foreach ($rows as $row) {
+                $name = $row['name'] ?? '';
+                if ($name !== '') {
+                    $map[$name] = $row['controller'] ?? '';
+                }
+            }
+        } catch (Exception $e) {
+            // Fall through to the registry-only view below.
+        }
+
+        if (function_exists('sidebar_registry')) {
+            foreach (sidebar_registry() as $name => $meta) {
+                if ($name === '' || isset($map[$name])) {
+                    continue;
+                }
+                if (array_key_exists('is_active', $meta) && (int) $meta['is_active'] !== 1) {
+                    continue;
+                }
+                $map[$name] = $meta['controller'] ?? '';
+            }
+        }
+
+        return $map;
     }
 
     /**
