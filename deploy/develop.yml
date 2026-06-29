@@ -26,10 +26,6 @@
  #   retries: 60
  #   delay: 10
 
-  - name: delete old image
-    community.docker.docker_prune:
-      containers: true
-      images: true
-      images_filters:
-        dangling: false
-    ignore_errors: True
+  # Image prune moved out of the deploy hot path — pruning all unused images is
+  # disk+CPU heavy and contended with the service-update pull, spiking VPS load.
+  # Now runs on a schedule via deploy/prune.yml (.github/workflows/prune.yml).
