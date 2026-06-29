@@ -7993,12 +7993,15 @@ class Api_v2 extends CI_Controller
               AND started_at < (NOW() - INTERVAL $STALE_MINUTES MINUTE)
         ");
 
-        // Step 2 — atomic claim (single UPDATE serialized by MySQL)
+        // Step 2 — atomic claim (single UPDATE serialized by MySQL).
+        // `attempts ASC` after priority drains never-tried rows before re-queued
+        // transient retries (which keep their old created_at and would otherwise
+        // jump ahead): finish the first pass over the whole backlog, then retry.
         $this->db->query("
             UPDATE endorse_refresh_queue
             SET status = 'processing', worker_id = '$worker_id', claimed_at = '$now', started_at = '$now'
             WHERE status = 'pending' AND worker_id IS NULL
-            ORDER BY priority DESC, created_at ASC
+            ORDER BY priority DESC, attempts ASC, created_at ASC
             LIMIT $BATCH_SIZE
         ");
         $claimed_count = $this->db->affected_rows();
