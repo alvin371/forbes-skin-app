@@ -7875,10 +7875,15 @@ class Api_v2 extends CI_Controller
         $BATCH_SIZE    = intval(env('ENDORSE_REFRESH_BATCH_SIZE', 10));
         if ($BATCH_SIZE <= 0) {
             $BATCH_SIZE = 10;
-        } elseif ($BATCH_SIZE > 100) {
-            $BATCH_SIZE = 100;
+        } elseif ($BATCH_SIZE > 500) {
+            $BATCH_SIZE = 500;
         }
-        $PARALLEL_HTTP = 10;
+        $PARALLEL_HTTP = intval(env('ENDORSE_REFRESH_PARALLEL_HTTP', 10));
+        if ($PARALLEL_HTTP < 1) {
+            $PARALLEL_HTTP = 1;
+        } elseif ($PARALLEL_HTTP > 20) {
+            $PARALLEL_HTTP = 20;
+        }
         $STALE_MINUTES = 5;
 
         $this->load->model('mymodel');
@@ -7923,6 +7928,45 @@ class Api_v2 extends CI_Controller
             // that slack is bounded and acceptable.)
             if ($remaining < $BATCH_SIZE) {
                 $BATCH_SIZE = $remaining;
+            }
+        }
+
+        // Per-minute rate cap — protect the shared RapidAPI pool (e.g. 250 of a
+        // 500/min limit shared across apps). Each claimed row inserts one attempt
+        // row (= one RapidAPI request), so counting attempts started in the last
+        // 60s bounds the combined rate of all staggered/overlapping worker runs.
+        // 0/unset = off. Conservative: deferred rows also insert an attempt, so the
+        // count can slightly over-estimate, which only keeps us further under cap.
+        $RATE_PER_MIN = intval(env('ENDORSE_REFRESH_RATE_PER_MIN', 0));
+        if ($RATE_PER_MIN > 0) {
+            $usedRow = $this->mymodel->selectWithQuery("
+                SELECT COUNT(*) AS c
+                FROM endorse_refresh_queue_attempts
+                WHERE started_at >= (NOW() - INTERVAL 60 SECOND)
+            ");
+            $usedMinute = intval($usedRow[0]['c'] ?? 0);
+            $remainingMinute = $RATE_PER_MIN - $usedMinute;
+
+            if ($remainingMinute <= 0) {
+                echo json_encode([
+                    'status'       => true,
+                    'processed'    => 0,
+                    'used_minute'  => $usedMinute,
+                    'rate_per_min' => $RATE_PER_MIN,
+                    'msg'          => "Per-minute rate cap reached ($usedMinute/$RATE_PER_MIN) — skipping run",
+                ]);
+                $this->cron_monitor_finish($monitor, array(
+                    'status'          => 'ok',
+                    'processed_count' => 0,
+                    'queue_count'     => 0,
+                    'note'            => 'rate_per_min_reached',
+                    'used_minute'     => $usedMinute,
+                ));
+                die;
+            }
+
+            if ($remainingMinute < $BATCH_SIZE) {
+                $BATCH_SIZE = $remainingMinute;
             }
         }
 
