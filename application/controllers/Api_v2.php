@@ -7889,6 +7889,13 @@ class Api_v2 extends CI_Controller
         $this->load->model('mymodel');
         $this->load->library('template');
         $this->load->library('endorse_sync');
+        $this->load->library('EndorseRefreshQueueService');
+
+        // Recover stale rows from crashed/killed workers FIRST — before the rate
+        // caps below can early-return. Otherwise orphaned 'processing' rows keep the
+        // per-minute counter pinned, every run skips, and recovery never runs: the
+        // stall sustains itself. Recovery is two cheap UPDATEs, safe to always run.
+        $this->endorserefreshqueueservice->resetStuck($STALE_MINUTES);
 
         // Daily request cap — protect the shared RapidAPI budget. The counter below
         // counts this brand's own attempt rows (each attempt = one RapidAPI request),
@@ -7974,24 +7981,7 @@ class Api_v2 extends CI_Controller
         $now       = date('Y-m-d H:i:s');
         $today     = date('Y-m-d');
 
-        // Step 1 — recover stale rows from crashed workers
-        $this->db->query("
-            UPDATE endorse_refresh_queue_attempts a
-            INNER JOIN endorse_refresh_queue q ON q.id = a.queue_id
-            SET a.status = 'retrying',
-                a.error_class = 'transient',
-                a.error_message = 'Worker stalled; item returned to pending queue',
-                a.finished_at = '$now'
-            WHERE a.status = 'processing'
-              AND q.status = 'processing'
-              AND q.started_at < (NOW() - INTERVAL $STALE_MINUTES MINUTE)
-        ");
-        $this->db->query("
-            UPDATE endorse_refresh_queue
-            SET status = 'pending', worker_id = NULL, started_at = NULL, claimed_at = NULL
-            WHERE status = 'processing'
-              AND started_at < (NOW() - INTERVAL $STALE_MINUTES MINUTE)
-        ");
+        // Step 1 — stale-claim recovery already ran above, before the rate caps.
 
         // Step 2 — atomic claim (single UPDATE serialized by MySQL).
         // `attempts ASC` after priority drains never-tried rows before re-queued
