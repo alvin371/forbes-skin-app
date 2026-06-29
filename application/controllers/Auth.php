@@ -568,6 +568,8 @@ class Auth extends CI_Controller
             echo $this->template->alert_danger($msg);
         } else {
             log_message('info', 'User registered successfully: ' . $username . ' (ID: ' . $user_id . ')');
+            // Populate the permission cache for the freshly assigned role (post-commit).
+            $this->permission->rebuild_user_module_permissions($user_id);
             $msg = 'Registration successful! You can now login with your credentials.';
             echo $this->template->alert_success($msg);
         }

@@ -141,6 +141,127 @@ class Permission
     }
 
     /**
+     * Rebuild the user_module_permissions cache rows for a single user from their current
+     * role_permissions, then bump the global version so live session maps refresh. Call
+     * after any change to a user's role assignment (user_roles writes). This is the
+     * user-keyed counterpart to Roles::sync_user_permissions_for_role() (role-keyed),
+     * keeping the cache correct on the user side as well as the role side.
+     *
+     * Non-override rows only are replaced, matching the role-side sync so manual overrides
+     * (has_override = 1) survive. Best-effort: failures are logged, never fatal.
+     *
+     * @param int $user_id
+     * @return void
+     */
+    public function rebuild_user_module_permissions($user_id)
+    {
+        $user_id = (int) $user_id;
+        if ($user_id <= 0) {
+            return;
+        }
+
+        try {
+            if (!$this->CI->db->table_exists('user_module_permissions')) {
+                return;
+            }
+
+            $has_override = $this->CI->db->field_exists('has_override', 'user_module_permissions');
+            $has_created_at = $this->CI->db->field_exists('created_at', 'user_module_permissions');
+            $has_updated_at = $this->CI->db->field_exists('updated_at', 'user_module_permissions');
+
+            $this->CI->db->trans_start();
+
+            // Drop the cache rows we own (never the manual overrides).
+            if ($has_override) {
+                $this->CI->db->where('user_id', $user_id);
+                $this->CI->db->group_start()
+                    ->where('has_override', 0)
+                    ->or_where('has_override IS NULL', null, false)
+                    ->group_end();
+                $this->CI->db->delete('user_module_permissions');
+            } else {
+                $this->CI->db->where('user_id', $user_id);
+                $this->CI->db->delete('user_module_permissions');
+            }
+
+            $rows = $this->CI->db->query("
+                SELECT
+                    ur.user_id,
+                    m.id AS module_id,
+                    m.name AS module_name,
+                    m.display_name AS module_display_name,
+                    m.controller,
+                    m.parent_id,
+                    MAX(rp.can_view) AS can_view,
+                    MAX(rp.can_create) AS can_create,
+                    MAX(rp.can_edit) AS can_edit,
+                    MAX(rp.can_delete) AS can_delete,
+                    MAX(rp.can_approve) AS can_approve
+                FROM user_roles ur
+                INNER JOIN roles r ON r.id = ur.role_id AND r.is_active = 1
+                INNER JOIN role_permissions rp ON rp.role_id = ur.role_id
+                INNER JOIN modules m ON m.id = rp.module_id AND m.is_active = 1
+                WHERE ur.user_id = ?
+                GROUP BY ur.user_id, m.id, m.name, m.display_name, m.controller, m.parent_id
+            ", [$user_id])->result_array();
+
+            if (!empty($rows)) {
+                $columns = [
+                    'user_id', 'module_id', 'module_name', 'module_display_name',
+                    'controller', 'parent_id', 'can_view', 'can_create', 'can_edit',
+                    'can_delete', 'can_approve',
+                ];
+                if ($has_override) {
+                    $columns[] = 'has_override';
+                }
+                if ($has_created_at) {
+                    $columns[] = 'created_at';
+                }
+                if ($has_updated_at) {
+                    $columns[] = 'updated_at';
+                }
+
+                $now = date('Y-m-d H:i:s');
+                $batch = [];
+                foreach ($rows as $row) {
+                    $payload = [
+                        'user_id' => (int) $row['user_id'],
+                        'module_id' => (int) $row['module_id'],
+                        'module_name' => $row['module_name'],
+                        'module_display_name' => $row['module_display_name'],
+                        'controller' => $row['controller'],
+                        'parent_id' => $row['parent_id'],
+                        'can_view' => (int) $row['can_view'],
+                        'can_create' => (int) $row['can_create'],
+                        'can_edit' => (int) $row['can_edit'],
+                        'can_delete' => (int) $row['can_delete'],
+                        'can_approve' => (int) $row['can_approve'],
+                    ];
+                    if ($has_override) {
+                        $payload['has_override'] = 0;
+                    }
+                    if ($has_created_at) {
+                        $payload['created_at'] = $now;
+                    }
+                    if ($has_updated_at) {
+                        $payload['updated_at'] = $now;
+                    }
+                    $batch[] = $payload;
+                }
+
+                $this->CI->db->insert_batch('user_module_permissions', $batch, $columns);
+            }
+
+            $this->CI->db->trans_complete();
+
+            // Refresh live session maps that were built before this change.
+            $this->bump_permission_version();
+        } catch (Exception $e) {
+            log_message('error', 'rebuild_user_module_permissions failed for user ' . $user_id . ': ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Build a compact permission map from the same source the runtime checks use
      * (user_module_permissions, via get_user_permissions) plus the admin auto-grant.
      * Fail-closed by construction: only modules/controllers the user can actually
