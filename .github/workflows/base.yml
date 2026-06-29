@@ -1,0 +1,48 @@
+name: Build Base Image
+
+# Builds the heavy PHP+Apache+extensions base (Dockerfile.base) and pushes it to
+# DockerHub. Runs only when the base definition changes, or manually. The app
+# pipeline (ci.yml / pr.yml) then does `FROM gilangp/forbes-base` and skips apt/pecl.
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - Dockerfile.base
+      - .github/workflows/base.yml
+  workflow_dispatch:
+
+jobs:
+  base:
+    name: Build and push base image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push base image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.base
+          push: true
+          tags: |
+            gilangp/forbes-base:latest
+            gilangp/forbes-base:${{ github.sha }}
+          cache-from: type=gha,scope=forbes-base
+          cache-to: type=gha,mode=max,scope=forbes-base

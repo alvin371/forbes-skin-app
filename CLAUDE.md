@@ -436,6 +436,16 @@ The Dashboard controller implements a sophisticated caching strategy:
 - Apache error logs: `C:\xampp\apache\logs\error.log`
 - PHP error logs: Check php.ini for error_log setting
 
+## CI/CD & Docker
+
+GitHub Actions, three workflows:
+- **`pr.yml`** (`on: pull_request`) — builds `ci` target, runs composer validate / lint:syntax / lint:style / phpunit. Gates merge. Lint+tests live here, NOT on the deploy path.
+- **`ci.yml`** (`on: push` develop/main) — builds `runtime` (one buildx pass), `/healthz` smoke test, pushes to DockerHub, then deploys via Ansible (`deploy/develop.yml`, `docker service update` on Swarm).
+- **`base.yml`** (`on: push` paths `Dockerfile.base`, or manual) — builds and pushes `gilangp/forbes-base`.
+- **`prune.yml`** (weekly cron + manual) — prunes old images on the VPS (`deploy/prune.yml`); kept out of the deploy hot path.
+
+**Prebuilt base image:** the heavy layer (apt + compiled PHP extensions + composer + php.ini/vhost) is `Dockerfile.base` → `gilangp/forbes-base`. The main `Dockerfile` does `FROM gilangp/forbes-base AS base`, so CI never recompiles extensions. **If you add/remove a PHP extension or apt package, edit `Dockerfile.base` and let `base.yml` rebuild+push it before merging the app change** (or run `base.yml` via workflow_dispatch). Local build override: `docker build --build-arg BASE_IMAGE=...`.
+
 <!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph
 

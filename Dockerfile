@@ -1,63 +1,10 @@
-FROM php:8.4-apache AS base
+# Heavy base (apt + compiled PHP extensions + composer + php.ini/vhost) is prebuilt
+# and pushed as gilangp/forbes-base by .github/workflows/base.yml. See Dockerfile.base.
+# Override the tag with --build-arg BASE_IMAGE=... if needed.
+ARG BASE_IMAGE=gilangp/forbes-base:latest
+FROM ${BASE_IMAGE} AS base
 
 WORKDIR /var/www/html
-
-# Install runtime and build dependencies once so later stages can reuse them.
-RUN apt-get update && apt-get install -y \
-    git \
-    unzip \
-    zip \
-    libpng-dev \
-    libjpeg-dev \
-    libfreetype6-dev \
-    libzip-dev \
-    libonig-dev \
-    libxml2-dev \
-    libmemcached-dev \
-    zlib1g-dev \
-    libicu-dev \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-configure intl \
-    && docker-php-ext-install -j$(nproc) \
-        gd \
-        mysqli \
-        pdo \
-        pdo_mysql \
-        zip \
-        mbstring \
-        exif \
-        pcntl \
-        bcmath \
-        intl \
-    && pecl install memcached \
-    && docker-php-ext-enable memcached \
-    && a2enmod rewrite headers expires deflate \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
-
-RUN echo "upload_max_filesize = 50M" >> /usr/local/etc/php/conf.d/custom.ini \
-    && echo "post_max_size = 50M" >> /usr/local/etc/php/conf.d/custom.ini \
-    && echo "memory_limit = 256M" >> /usr/local/etc/php/conf.d/custom.ini \
-    && echo "max_execution_time = 300" >> /usr/local/etc/php/conf.d/custom.ini \
-    && echo "date.timezone = Asia/Jakarta" >> /usr/local/etc/php/conf.d/custom.ini \
-    && echo "zend.exception_ignore_args = Off" >> /usr/local/etc/php/conf.d/custom.ini
-
-RUN echo '<VirtualHost *:80>\n\
-    ServerAdmin webmaster@localhost\n\
-    DocumentRoot /var/www/html\n\
-\n\
-    <Directory /var/www/html>\n\
-        Options Indexes FollowSymLinks\n\
-        AllowOverride All\n\
-        Require all granted\n\
-    </Directory>\n\
-\n\
-    SetEnvIf X-Forwarded-Proto "https" HTTPS=on\n\
-\n\
-    ErrorLog ${APACHE_LOG_DIR}/error.log\n\
-    CustomLog ${APACHE_LOG_DIR}/access.log combined\n\
-</VirtualHost>\n' > /etc/apache2/sites-available/000-default.conf
 
 FROM base AS vendor-prod
 
