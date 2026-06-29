@@ -262,34 +262,41 @@ class Permission
     }
 
     /**
-     * Build a compact permission map from the same source the runtime checks use
-     * (user_module_permissions, via get_user_permissions) plus the admin auto-grant.
-     * Fail-closed by construction: only modules/controllers the user can actually
-     * access are present.
+     * Build a compact permission map resolved through the SAME path the runtime DB checks
+     * use — cache table (user_module_permissions) with a live role_permissions fallback for
+     * any module the cache is missing, plus the admin auto-grant — over the full set of
+     * active modules. Resolving the full module universe (not just rows present in the
+     * cache) is what keeps the session map at parity with the DB path: an empty or stale
+     * cache no longer denies access a user's role grants. Still fail-closed: a module the
+     * user has no grant for ends up all-false (deny).
      */
     private function build_permission_map($user_id)
     {
         $modules = [];
         $controllers = [];
 
-        foreach ($this->get_user_permissions($user_id) as $perm) {
-            $name = $perm['module_name'] ?? '';
-            if ($name === '') {
-                continue;
-            }
-            $caps = [
-                'view'    => (int) ($perm['can_view'] ?? 0),
-                'create'  => (int) ($perm['can_create'] ?? 0),
-                'edit'    => (int) ($perm['can_edit'] ?? 0),
-                'delete'  => (int) ($perm['can_delete'] ?? 0),
-                'approve' => (int) ($perm['can_approve'] ?? 0),
-            ];
-            $modules[$name] = $caps;
+        // Module universe + their controllers, mirroring the modules table the fallback
+        // (load_fallback_permissions_batch) joins on. is_active filtering is applied again
+        // by get_permissions_for_modules(), so inactive modules drop out of the result.
+        $module_controllers = $this->active_module_controllers();
 
-            $controller = $perm['controller'] ?? '';
-            if ($controller !== '') {
-                $any = $caps['view'] || $caps['create'] || $caps['edit'] || $caps['delete'];
-                $controllers[$controller] = !empty($controllers[$controller]) ? true : (bool) $any;
+        if (!empty($module_controllers)) {
+            $resolved = $this->get_permissions_for_modules($user_id, array_keys($module_controllers));
+            foreach ($resolved as $name => $actions) {
+                $caps = [
+                    'view'    => !empty($actions['view']) ? 1 : 0,
+                    'create'  => !empty($actions['create']) ? 1 : 0,
+                    'edit'    => !empty($actions['edit']) ? 1 : 0,
+                    'delete'  => !empty($actions['delete']) ? 1 : 0,
+                    'approve' => !empty($actions['approve']) ? 1 : 0,
+                ];
+                $modules[$name] = $caps;
+
+                $controller = $module_controllers[$name] ?? '';
+                if ($controller !== '') {
+                    $any = $caps['view'] || $caps['create'] || $caps['edit'] || $caps['delete'];
+                    $controllers[$controller] = !empty($controllers[$controller]) ? true : (bool) $any;
+                }
             }
         }
 
@@ -301,6 +308,46 @@ class Permission
             'version'     => $this->current_permission_version(),
             'built_at'    => time(),
         ];
+    }
+
+    /**
+     * Map of active module_name => controller, sourced from the modules table (the same
+     * universe the role_permissions fallback joins on) and merged with the sidebar
+     * registry so registry-only entries are not lost. Returns an empty array on failure,
+     * so build_permission_map() degrades to an empty (fail-closed) map rather than erroring
+     * at login — callers then fall back to the DB path.
+     */
+    private function active_module_controllers()
+    {
+        $map = [];
+
+        try {
+            $rows = $this->CI->db->query(
+                "SELECT name, controller FROM modules WHERE is_active = 1"
+            )->result_array();
+            foreach ($rows as $row) {
+                $name = $row['name'] ?? '';
+                if ($name !== '') {
+                    $map[$name] = $row['controller'] ?? '';
+                }
+            }
+        } catch (Exception $e) {
+            // Fall through to the registry-only view below.
+        }
+
+        if (function_exists('sidebar_registry')) {
+            foreach (sidebar_registry() as $name => $meta) {
+                if ($name === '' || isset($map[$name])) {
+                    continue;
+                }
+                if (array_key_exists('is_active', $meta) && (int) $meta['is_active'] !== 1) {
+                    continue;
+                }
+                $map[$name] = $meta['controller'] ?? '';
+            }
+        }
+
+        return $map;
     }
 
     /**

@@ -141,10 +141,14 @@ final class PermissionTest extends TestCase
     public function testBootstrapBuildsSessionMapFromDb(): void
     {
         $db = new PermissionTestDb([
-            'tables'           => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles'],
-            'user_permissions' => [
-                ['module_name' => 'influencer', 'controller' => 'influencer', 'can_view' => 1, 'can_create' => 0, 'can_edit' => 0, 'can_delete' => 0, 'can_approve' => 0],
-                ['module_name' => 'crm', 'controller' => 'crm', 'can_view' => 1, 'can_create' => 1, 'can_edit' => 0, 'can_delete' => 0, 'can_approve' => 0],
+            'tables'          => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles'],
+            'active_modules'  => [
+                ['name' => 'influencer', 'controller' => 'influencer'],
+                ['name' => 'crm', 'controller' => 'crm'],
+            ],
+            'cache_rows' => [
+                ['module_name' => 'influencer', 'can_view' => 1, 'can_create' => 0, 'can_edit' => 0, 'can_delete' => 0, 'can_approve' => 0],
+                ['module_name' => 'crm', 'can_view' => 1, 'can_create' => 1, 'can_edit' => 0, 'can_delete' => 0, 'can_approve' => 0],
             ],
             'role_rows' => [],
         ]);
@@ -164,13 +168,52 @@ final class PermissionTest extends TestCase
         $this->assertSame($before, $db->userModulePermissionQueries);
     }
 
+    /**
+     * Regression (perf/session-permission-map): a user whose role grants a module via
+     * role_permissions but who has NO user_module_permissions cache row must still be
+     * granted by the built session map — i.e. the map resolves through the same live
+     * role_permissions fallback the DB path uses, instead of denying on a cache miss.
+     */
+    public function testBootstrapResolvesRolePermissionsWhenCacheIsEmpty(): void
+    {
+        $db = new PermissionTestDb([
+            'tables'         => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles'],
+            'active_modules' => [
+                ['name' => 'endorse_campaign', 'controller' => 'endorse_campaign'],
+            ],
+            'cache_rows'    => [], // cache table empty for this user
+            'fallback_rows' => [
+                ['module_name' => 'endorse_campaign', 'can_view' => 1, 'can_create' => 1, 'can_edit' => 1, 'can_delete' => 1, 'can_approve' => 0],
+            ],
+            'role_rows' => [],
+        ]);
+        $permission = $this->makePermission($db);
+
+        $map = $permission->bootstrap_session_permissions(53);
+
+        $this->assertSame(1, $map['modules']['endorse_campaign']['view']);
+        $this->assertSame(1, $map['modules']['endorse_campaign']['create']);
+        $this->assertSame(1, $map['modules']['endorse_campaign']['delete']);
+        $this->assertTrue((bool) $map['controllers']['endorse_campaign']);
+
+        // Served from the session map afterwards — no further fallback query.
+        $fallback_before = $db->fallbackAggregateQueries;
+        $this->assertTrue($permission->check_permission(53, 'endorse_campaign', 'view'));
+        $this->assertTrue($permission->check_permission(53, 'endorse_campaign', 'create'));
+        $this->assertTrue($permission->has_module_access(53, 'endorse_campaign'));
+        $this->assertSame($fallback_before, $db->fallbackAggregateQueries);
+    }
+
     public function testStaleVersionTriggersRebuild(): void
     {
         $db = new PermissionTestDb([
-            'tables'           => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles'],
-            'perm_version'     => 2,
-            'user_permissions' => [
-                ['module_name' => 'influencer', 'controller' => 'influencer', 'can_view' => 1, 'can_create' => 0, 'can_edit' => 0, 'can_delete' => 0, 'can_approve' => 0],
+            'tables'         => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles'],
+            'perm_version'   => 2,
+            'active_modules' => [
+                ['name' => 'influencer', 'controller' => 'influencer'],
+            ],
+            'cache_rows' => [
+                ['module_name' => 'influencer', 'can_view' => 1, 'can_create' => 0, 'can_edit' => 0, 'can_delete' => 0, 'can_approve' => 0],
             ],
             'role_rows' => [],
         ]);
@@ -183,7 +226,7 @@ final class PermissionTest extends TestCase
         $this->assertTrue($permission->has_module_access(7, 'influencer'));
         $this->assertFalse($permission->has_module_access(7, 'old'));
         $this->assertSame(2, $_SESSION[Permission::SESSION_PERM_KEY]['version']);
-        $this->assertGreaterThanOrEqual(1, $db->userPermissionsQueries);
+        $this->assertGreaterThanOrEqual(1, $db->moduleUniverseQueries);
     }
 
     public function testMatchingVersionServesFromSession(): void
@@ -342,6 +385,7 @@ final class PermissionTestDb
     public $roleQueries                 = 0;
     public $permissionMetaReads         = 0;
     public $permissionMetaBumps         = 0;
+    public $moduleUniverseQueries       = 0;
     private $config;
 
     public function __construct(array $config)
@@ -382,6 +426,12 @@ final class PermissionTestDb
             $this->userPermissionsQueries++;
 
             return new PermissionTestResult($this->config['user_permissions'] ?? []);
+        }
+
+        if (str_contains($sql, 'SELECT name, controller') && str_contains($sql, 'FROM modules') && str_contains($sql, 'is_active = 1')) {
+            $this->moduleUniverseQueries++;
+
+            return new PermissionTestResult($this->config['active_modules'] ?? []);
         }
 
         if (str_contains($sql, 'FROM user_module_permissions') && str_contains($sql, 'module_name IN')) {
