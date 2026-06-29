@@ -1,0 +1,15 @@
+---
+- name: Prune unused docker images on srv
+
+  hosts: cntbo_forbes
+  remote_user: forbes
+  gather_facts: no
+
+  tasks:
+  - name: prune old images
+    community.docker.docker_prune:
+      containers: true
+      images: true
+      images_filters:
+        dangling: false
+    ignore_errors: True
