@@ -74,6 +74,9 @@ $campaigns = isset($campaigns) ? $campaigns : [];
             <small class="text-muted">Status proses sinkronisasi data sosial media untuk endorse content.</small>
         </div>
         <div class="queue-page-actions">
+            <button class="btn btn-outline-warning btn-sm me-2" id="btnResetStuck">
+                <i class="fa fa-unlock"></i> Reset Macet
+            </button>
             <button class="btn btn-outline-secondary btn-sm me-2" id="btnClearQueue">
                 <i class="fa fa-trash"></i> Clear Semua Data
             </button>
@@ -215,6 +218,9 @@ $campaigns = isset($campaigns) ? $campaigns : [];
 
         let html = '<strong>Antrian terlihat macet.</strong> ';
         html += 'Masih ada ' + escHtml(health.pending_total || 0) + ' item menunggu tanpa proses berjalan.';
+        if (health.stall_label) {
+            html += ' <strong>Penyebab:</strong> ' + escHtml(health.stall_label) + '.';
+        }
         if (health.oldest_pending_at) {
             html += ' Pending tertua: ' + escHtml(health.oldest_pending_at) + '.';
         }
@@ -395,6 +401,32 @@ $campaigns = isset($campaigns) ? $campaigns : [];
             },
             complete: function() {
                 $btn.prop('disabled', false).text('Retry Gagal Terpilih');
+            }
+        });
+    });
+
+    $('#btnResetStuck').on('click', function() {
+        if (!confirm('Kembalikan semua item yang macet (berjalan tapi tidak selesai) ke antrian menunggu? Worker akan mencobanya lagi.')) {
+            return;
+        }
+
+        const $btn = $(this).prop('disabled', true).text('Memproses...');
+        $.ajax({
+            url: baseUrl + 'endorse/reset-stuck',
+            method: 'POST',
+            dataType: 'json',
+            success: function(resp) {
+                alert(resp.msg || 'Item macet dikembalikan ke antrian.');
+                loadData();
+            },
+            error: function(xhr) {
+                const msg = xhr.responseJSON && xhr.responseJSON.msg
+                    ? xhr.responseJSON.msg
+                    : 'Gagal mereset item macet.';
+                alert(msg);
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html('<i class="fa fa-unlock"></i> Reset Macet');
             }
         });
     });

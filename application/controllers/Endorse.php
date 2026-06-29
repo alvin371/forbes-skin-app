@@ -2302,6 +2302,20 @@ class Endorse extends BaseController
     }
 
     /**
+     * Manually release stuck rows: reset 'processing' rows whose worker stalled
+     * back to 'pending' so the cron retries them. Same recovery the worker runs.
+     */
+    public function reset_stuck()
+    {
+        $this->load->library('EndorseRefreshQueueService');
+        $result = $this->endorserefreshqueueservice->resetStuck(5);
+
+        return $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
+    /**
      * Reset selected failed queue rows back to pending so the cron retries them.
      */
     public function force_retry()
