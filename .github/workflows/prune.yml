@@ -1,0 +1,44 @@
+name: Prune Server Images
+
+# Weekly docker image prune on the VPS. Moved out of the deploy hot path
+# (deploy/develop.yml) so it no longer contends with the deploy image pull.
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: "0 18 * * 0"  # Sundays 18:00 UTC (Mon 01:00 Asia/Jakarta)
+  workflow_dispatch:
+
+jobs:
+  prune:
+    name: Prune unused images
+    runs-on: ubuntu-latest
+
+    container:
+      image: gilangp/tools:ansible.2.13.10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Write Ansible inventory from secret
+        run: echo "${{ secrets.ANSIBLE_HOSTS }}" > inventory.ini
+
+      - name: Setup SSH key
+        run: |
+          echo "${{ secrets.ANSIBLE_PRIVATE_KEY }}" > key.pem
+          chmod 600 key.pem
+
+      - name: Install required collections
+        run: ansible-galaxy collection install community.docker:==3.10.0
+
+      - name: Prune with Ansible
+        shell: bash
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: False
+        run: |
+          ansible-playbook -i inventory.ini deploy/prune.yml --private-key key.pem
