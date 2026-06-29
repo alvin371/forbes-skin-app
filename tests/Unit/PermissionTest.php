@@ -141,8 +141,8 @@ final class PermissionTest extends TestCase
     public function testBootstrapBuildsSessionMapFromDb(): void
     {
         $db = new PermissionTestDb([
-            'tables'          => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles'],
-            'active_modules'  => [
+            'tables'         => ['user_module_permissions', 'modules', 'roles', 'role_permissions', 'user_roles'],
+            'active_modules' => [
                 ['name' => 'influencer', 'controller' => 'influencer'],
                 ['name' => 'crm', 'controller' => 'crm'],
             ],
