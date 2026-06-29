@@ -568,6 +568,8 @@ class Auth extends CI_Controller
             echo $this->template->alert_danger($msg);
         } else {
             log_message('info', 'User registered successfully: ' . $username . ' (ID: ' . $user_id . ')');
+            // Populate the permission cache for the freshly assigned role (post-commit).
+            $this->permission->rebuild_user_module_permissions($user_id);
             $msg = 'Registration successful! You can now login with your credentials.';
             echo $this->template->alert_success($msg);
         }
@@ -620,25 +622,52 @@ class Auth extends CI_Controller
                 if ($user['status'] == "Aktif") {
                     $_SESSION['is_login'] = true;
                     $_SESSION['user'] = $user;
-                    
+
+                    // B2: build the session permission map once, so subsequent page loads
+                    // resolve permission checks from the session instead of querying the
+                    // RBAC tables on every request. Non-fatal: checks fall back to the DB.
+                    try {
+                        $this->permission->bootstrap_session_permissions($user['id']);
+                    } catch (Exception $e) {
+                        log_message('error', 'Session permission bootstrap failed: ' . $e->getMessage());
+                    }
+
                     // Get the appropriate redirect URL based on user permissions
                     $redirect_url = $this->get_user_default_page($user);
                     $_SESSION['login_redirect_url'] = $redirect_url;
-                    
+
                     $msg = 'Selamat datang di ' . $this->template->title();
-                    echo $this->template->alert_success($msg);
+                    // Return the redirect URL inline so the client can navigate in one
+                    // request instead of a second round-trip to get_redirect_url().
+                    return $this->login_response(true, $this->template->alert_success($msg), $redirect_url);
                 } else {
                     $msg = 'Proses login ditolak! Pastikan akun kamu aktif!';
-                    echo $this->template->alert_danger($msg);
+                    return $this->login_response(false, $this->template->alert_danger($msg));
                 }
             } else {
                 $msg = 'Pastikan username dan password kamu sudah benar!';
-                echo $this->template->alert_danger($msg);
+                return $this->login_response(false, $this->template->alert_danger($msg));
             }
         } else {
             $msg = 'Pastikan username dan password kamu sudah benar!';
-            echo $this->template->alert_danger($msg);
+            return $this->login_response(false, $this->template->alert_danger($msg));
         }
+    }
+
+    /**
+     * Emit the login_process result as JSON. `message` carries the existing alert
+     * HTML so the form can render it unchanged; `url` lets a successful login
+     * redirect immediately without a follow-up get_redirect_url() request.
+     */
+    private function login_response($success, $message_html, $url = '')
+    {
+        return $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'success' => (bool) $success,
+                'message' => $message_html,
+                'url'     => $url,
+            ]));
     }
 
     public function profile()

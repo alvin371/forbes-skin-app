@@ -22,7 +22,23 @@ class Permission
      */
     protected static $permission_table_capabilities_cache = null;
     protected $logged_fallback_batches = [];
-    
+
+    /**
+     * Session permission map (B2). Built once at login from the same sources the DB
+     * checks use, then read on every page so normal navigation does no permission
+     * queries. Fail-closed: a map miss denies (never grants). Self-heals after
+     * SESSION_PERM_TTL seconds; B3 adds instant invalidation via a version bump.
+     */
+    const SESSION_PERM_KEY = 'perm_map';
+    const SESSION_PERM_TTL = 900; // 15 min safety refresh
+
+    /**
+     * Request-cached global permission version (B3). Read once per request from
+     * permission_meta and reused across the many permission checks in a request.
+     */
+    protected static $perm_version_loaded = false;
+    protected static $perm_version_cache = null;
+
     public function __construct()
     {
         $this->CI =& get_instance();
@@ -49,10 +65,393 @@ class Permission
 
         return true;
     }
-    
+
+    /**
+     * Build and store the session permission map for a user. Call once at login.
+     *
+     * @param int $user_id
+     * @return array the stored map
+     */
+    public function bootstrap_session_permissions($user_id)
+    {
+        $map = $this->build_permission_map((int) $user_id);
+        $_SESSION[self::SESSION_PERM_KEY] = $map;
+        return $map;
+    }
+
+    /**
+     * Drop the session permission map (e.g. on logout). Forces a rebuild on next use.
+     */
+    public function clear_session_permissions()
+    {
+        unset($_SESSION[self::SESSION_PERM_KEY]);
+    }
+
+    /**
+     * Current global permission version (B3), or null when it cannot be determined
+     * (table missing / query error) — in which case callers rely on the TTL refresh.
+     * Read once per request and cached, so repeated checks add no extra queries.
+     *
+     * @return int|null
+     */
+    public function current_permission_version()
+    {
+        if (self::$perm_version_loaded) {
+            return self::$perm_version_cache;
+        }
+        self::$perm_version_loaded = true;
+
+        try {
+            $row = $this->CI->db->query("SELECT version FROM permission_meta WHERE id = 1")->row_array();
+            self::$perm_version_cache = (!empty($row) && isset($row['version'])) ? (int) $row['version'] : null;
+        } catch (Exception $e) {
+            self::$perm_version_cache = null;
+        }
+
+        return self::$perm_version_cache;
+    }
+
+    /**
+     * Bump the global permission version so every session map rebuilds on its next use.
+     * Call after any change to roles / role_permissions / user_module_permissions.
+     */
+    public function bump_permission_version()
+    {
+        try {
+            $this->CI->db->query(
+                "UPDATE permission_meta SET version = version + 1, updated_at = NOW() WHERE id = 1"
+            );
+            // Invalidate the request cache so a rebuild in this same request sees the bump.
+            self::$perm_version_loaded = false;
+            self::$perm_version_cache = null;
+        } catch (Exception $e) {
+            log_message('error', 'bump_permission_version failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Reset the request-lifetime permission-version cache. Production resets it naturally
+     * each request (PHP process boundary); tests that run many cases in one process call
+     * this to keep request isolation.
+     */
+    public static function resetPermissionVersionCache(): void
+    {
+        self::$perm_version_loaded = false;
+        self::$perm_version_cache = null;
+    }
+
+    /**
+     * Rebuild the user_module_permissions cache rows for a single user from their current
+     * role_permissions, then bump the global version so live session maps refresh. Call
+     * after any change to a user's role assignment (user_roles writes). This is the
+     * user-keyed counterpart to Roles::sync_user_permissions_for_role() (role-keyed),
+     * keeping the cache correct on the user side as well as the role side.
+     *
+     * Non-override rows only are replaced, matching the role-side sync so manual overrides
+     * (has_override = 1) survive. Best-effort: failures are logged, never fatal.
+     *
+     * @param int $user_id
+     * @return void
+     */
+    public function rebuild_user_module_permissions($user_id)
+    {
+        $user_id = (int) $user_id;
+        if ($user_id <= 0) {
+            return;
+        }
+
+        try {
+            if (!$this->CI->db->table_exists('user_module_permissions')) {
+                return;
+            }
+
+            $has_override = $this->CI->db->field_exists('has_override', 'user_module_permissions');
+            $has_created_at = $this->CI->db->field_exists('created_at', 'user_module_permissions');
+            $has_updated_at = $this->CI->db->field_exists('updated_at', 'user_module_permissions');
+
+            $this->CI->db->trans_start();
+
+            // Drop the cache rows we own (never the manual overrides).
+            if ($has_override) {
+                $this->CI->db->where('user_id', $user_id);
+                $this->CI->db->group_start()
+                    ->where('has_override', 0)
+                    ->or_where('has_override IS NULL', null, false)
+                    ->group_end();
+                $this->CI->db->delete('user_module_permissions');
+            } else {
+                $this->CI->db->where('user_id', $user_id);
+                $this->CI->db->delete('user_module_permissions');
+            }
+
+            $rows = $this->CI->db->query("
+                SELECT
+                    ur.user_id,
+                    m.id AS module_id,
+                    m.name AS module_name,
+                    m.display_name AS module_display_name,
+                    m.controller,
+                    m.parent_id,
+                    MAX(rp.can_view) AS can_view,
+                    MAX(rp.can_create) AS can_create,
+                    MAX(rp.can_edit) AS can_edit,
+                    MAX(rp.can_delete) AS can_delete,
+                    MAX(rp.can_approve) AS can_approve
+                FROM user_roles ur
+                INNER JOIN roles r ON r.id = ur.role_id AND r.is_active = 1
+                INNER JOIN role_permissions rp ON rp.role_id = ur.role_id
+                INNER JOIN modules m ON m.id = rp.module_id AND m.is_active = 1
+                WHERE ur.user_id = ?
+                GROUP BY ur.user_id, m.id, m.name, m.display_name, m.controller, m.parent_id
+            ", [$user_id])->result_array();
+
+            if (!empty($rows)) {
+                $columns = [
+                    'user_id', 'module_id', 'module_name', 'module_display_name',
+                    'controller', 'parent_id', 'can_view', 'can_create', 'can_edit',
+                    'can_delete', 'can_approve',
+                ];
+                if ($has_override) {
+                    $columns[] = 'has_override';
+                }
+                if ($has_created_at) {
+                    $columns[] = 'created_at';
+                }
+                if ($has_updated_at) {
+                    $columns[] = 'updated_at';
+                }
+
+                $now = date('Y-m-d H:i:s');
+                $batch = [];
+                foreach ($rows as $row) {
+                    $payload = [
+                        'user_id' => (int) $row['user_id'],
+                        'module_id' => (int) $row['module_id'],
+                        'module_name' => $row['module_name'],
+                        'module_display_name' => $row['module_display_name'],
+                        'controller' => $row['controller'],
+                        'parent_id' => $row['parent_id'],
+                        'can_view' => (int) $row['can_view'],
+                        'can_create' => (int) $row['can_create'],
+                        'can_edit' => (int) $row['can_edit'],
+                        'can_delete' => (int) $row['can_delete'],
+                        'can_approve' => (int) $row['can_approve'],
+                    ];
+                    if ($has_override) {
+                        $payload['has_override'] = 0;
+                    }
+                    if ($has_created_at) {
+                        $payload['created_at'] = $now;
+                    }
+                    if ($has_updated_at) {
+                        $payload['updated_at'] = $now;
+                    }
+                    $batch[] = $payload;
+                }
+
+                $this->CI->db->insert_batch('user_module_permissions', $batch, $columns);
+            }
+
+            $this->CI->db->trans_complete();
+
+            // Refresh live session maps that were built before this change.
+            $this->bump_permission_version();
+        } catch (Exception $e) {
+            log_message('error', 'rebuild_user_module_permissions failed for user ' . $user_id . ': ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Build a compact permission map resolved through the SAME path the runtime DB checks
+     * use — cache table (user_module_permissions) with a live role_permissions fallback for
+     * any module the cache is missing, plus the admin auto-grant — over the full set of
+     * active modules. Resolving the full module universe (not just rows present in the
+     * cache) is what keeps the session map at parity with the DB path: an empty or stale
+     * cache no longer denies access a user's role grants. Still fail-closed: a module the
+     * user has no grant for ends up all-false (deny).
+     */
+    private function build_permission_map($user_id)
+    {
+        $modules = [];
+        $controllers = [];
+
+        // Module universe + their controllers, mirroring the modules table the fallback
+        // (load_fallback_permissions_batch) joins on. is_active filtering is applied again
+        // by get_permissions_for_modules(), so inactive modules drop out of the result.
+        $module_controllers = $this->active_module_controllers();
+
+        if (!empty($module_controllers)) {
+            $resolved = $this->get_permissions_for_modules($user_id, array_keys($module_controllers));
+            foreach ($resolved as $name => $actions) {
+                $caps = [
+                    'view'    => !empty($actions['view']) ? 1 : 0,
+                    'create'  => !empty($actions['create']) ? 1 : 0,
+                    'edit'    => !empty($actions['edit']) ? 1 : 0,
+                    'delete'  => !empty($actions['delete']) ? 1 : 0,
+                    'approve' => !empty($actions['approve']) ? 1 : 0,
+                ];
+                $modules[$name] = $caps;
+
+                $controller = $module_controllers[$name] ?? '';
+                if ($controller !== '') {
+                    $any = $caps['view'] || $caps['create'] || $caps['edit'] || $caps['delete'];
+                    $controllers[$controller] = !empty($controllers[$controller]) ? true : (bool) $any;
+                }
+            }
+        }
+
+        return [
+            'user_id'     => (int) $user_id,
+            'is_admin'    => $this->user_is_admin($user_id),
+            'modules'     => $modules,
+            'controllers' => $controllers,
+            'version'     => $this->current_permission_version(),
+            'built_at'    => time(),
+        ];
+    }
+
+    /**
+     * Map of active module_name => controller, sourced from the modules table (the same
+     * universe the role_permissions fallback joins on) and merged with the sidebar
+     * registry so registry-only entries are not lost. Returns an empty array on failure,
+     * so build_permission_map() degrades to an empty (fail-closed) map rather than erroring
+     * at login — callers then fall back to the DB path.
+     */
+    private function active_module_controllers()
+    {
+        $map = [];
+
+        try {
+            $rows = $this->CI->db->query(
+                "SELECT name, controller FROM modules WHERE is_active = 1"
+            )->result_array();
+            foreach ($rows as $row) {
+                $name = $row['name'] ?? '';
+                if ($name !== '') {
+                    $map[$name] = $row['controller'] ?? '';
+                }
+            }
+        } catch (Exception $e) {
+            // Fall through to the registry-only view below.
+        }
+
+        if (function_exists('sidebar_registry')) {
+            foreach (sidebar_registry() as $name => $meta) {
+                if ($name === '' || isset($map[$name])) {
+                    continue;
+                }
+                if (array_key_exists('is_active', $meta) && (int) $meta['is_active'] !== 1) {
+                    continue;
+                }
+                $map[$name] = $meta['controller'] ?? '';
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * Whether the user holds a super_admin/admin role — mirrors the admin auto-grant
+     * in fallback_permission_check() so the session map grants the same access.
+     */
+    private function user_is_admin($user_id)
+    {
+        try {
+            $roles = $this->CI->mymodel->selectWithQuery(
+                "SELECT r.name FROM user_roles ur
+                 INNER JOIN roles r ON ur.role_id = r.id
+                 WHERE ur.user_id = " . (int) $user_id . " AND r.is_active = 1"
+            );
+            foreach ((array) $roles as $role) {
+                if (in_array(strtolower($role['name'] ?? ''), ['super_admin', 'admin'], true)) {
+                    return true;
+                }
+            }
+        } catch (Exception $e) {
+            // Unknown — treat as non-admin (fail-closed).
+        }
+        return false;
+    }
+
+    /**
+     * Return the session permission map only for the currently logged-in user, or null
+     * when there is no usable map (so callers fall back to the DB path). Rebuilds the
+     * map once it passes SESSION_PERM_TTL.
+     */
+    private function session_permission_map($user_id)
+    {
+        if (empty($_SESSION[self::SESSION_PERM_KEY]) || !is_array($_SESSION[self::SESSION_PERM_KEY])) {
+            return null;
+        }
+        $map = $_SESSION[self::SESSION_PERM_KEY];
+
+        // Only trust the map for the user it was built for — never for arbitrary ids.
+        if ((int) ($map['user_id'] ?? 0) !== (int) $user_id) {
+            return null;
+        }
+
+        // B3: instant invalidation — rebuild when the global permission version moved.
+        $current_version = $this->current_permission_version();
+        $stored_version = $map['version'] ?? null;
+        if ($current_version !== null && $stored_version !== null && (int) $stored_version !== (int) $current_version) {
+            return $this->bootstrap_session_permissions($user_id);
+        }
+
+        // Secondary safety: rebuild past the TTL (also covers a null/unknown version).
+        if (time() - (int) ($map['built_at'] ?? 0) > self::SESSION_PERM_TTL) {
+            $map = $this->bootstrap_session_permissions($user_id);
+        }
+
+        return $map;
+    }
+
+    /**
+     * Resolve check_permission() from the session map. Returns bool when the map serves
+     * the decision, or null when there is no map (caller should hit the DB).
+     */
+    private function check_permission_from_session($user_id, $module_name, $action)
+    {
+        $map = $this->session_permission_map($user_id);
+        if ($map === null) {
+            return null;
+        }
+        if (!empty($map['is_admin'])) {
+            return true;
+        }
+        if (isset($map['modules'][$module_name]) && array_key_exists($action, $map['modules'][$module_name])) {
+            return (bool) $map['modules'][$module_name][$action];
+        }
+        if ($action === 'view' && in_array($module_name, ['profile', 'home'], true)) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Resolve has_module_access() from the session map. Returns bool when served, or
+     * null when there is no map (caller should hit the DB).
+     */
+    private function has_controller_access_from_session($user_id, $controller)
+    {
+        $map = $this->session_permission_map($user_id);
+        if ($map === null) {
+            return null;
+        }
+        if (!empty($map['is_admin'])) {
+            return true;
+        }
+        if (!empty($map['controllers'][$controller])) {
+            return true;
+        }
+        if (in_array($controller, ['profile', 'home'], true)) {
+            return true;
+        }
+        return false;
+    }
+
     /**
      * Check if user has specific permission for a module
-     * 
+     *
      * @param int $user_id User ID
      * @param string $module_name Module name
      * @param string $action Permission action (view, create, edit, delete)
@@ -70,6 +469,13 @@ class Permission
         if (!$this->is_module_active($module_name)) {
             $this->user_permissions_cache[$cache_key] = false;
             return false;
+        }
+
+        // B2: serve from the session permission map (logged-in user, no DB) when available.
+        $session_value = $this->check_permission_from_session($user_id, $module_name, $action);
+        if ($session_value !== null) {
+            $this->user_permissions_cache[$cache_key] = $session_value;
+            return $session_value;
         }
 
         $permissions = $this->get_permissions_for_modules($user_id, [$module_name]);
@@ -100,6 +506,12 @@ class Permission
     {
         if (!$this->is_module_active($controller)) {
             return false;
+        }
+
+        // B2: serve from the session permission map (logged-in user, no DB) when available.
+        $session_value = $this->has_controller_access_from_session($user_id, $controller);
+        if ($session_value !== null) {
+            return $session_value;
         }
 
         try {
@@ -281,6 +693,28 @@ class Permission
             'cache_table' => false,
             'fallback_tables' => false,
         ];
+
+        // Production short-circuit: when the RBAC tables are known to exist, skip the
+        // per-request INFORMATION_SCHEMA probe entirely. The static cache only lives one
+        // PHP request, so without this the probe runs on every request (29.7s across the
+        // 2026-06-20 load test). The five RBAC tables never disappear at runtime, so once
+        // the schema is provisioned this flag is safe. Leave it unset on fresh/partial
+        // installs to keep the auto-detecting probe as the default.
+        //
+        // Read via getenv() rather than the global env() helper: env_helper.php putenv()s
+        // every .env value, while in other contexts (e.g. the test container) env() can
+        // resolve to a different framework's helper (illuminate/support) whose own
+        // dependencies are not installed, throwing during the probe.
+        $flag = strtolower(trim((string) getenv('PERMISSION_TABLES_READY')));
+        if ($flag === 'true' || $flag === '1') {
+            $capabilities = [
+                'cache_table' => true,
+                'fallback_tables' => true,
+            ];
+            $this->permission_table_capabilities = $capabilities;
+            self::$permission_table_capabilities_cache = $capabilities;
+            return $this->permission_table_capabilities;
+        }
 
         try {
             $rows = $this->CI->db->query("
@@ -815,6 +1249,14 @@ class Permission
             }
         } else {
             $this->user_permissions_cache = [];
+        }
+
+        // Drop the session map for the current user so the next check rebuilds it.
+        if (
+            isset($_SESSION[self::SESSION_PERM_KEY]['user_id'])
+            && ($user_id === null || (int) $_SESSION[self::SESSION_PERM_KEY]['user_id'] === (int) $user_id)
+        ) {
+            $this->clear_session_permissions();
         }
     }
     

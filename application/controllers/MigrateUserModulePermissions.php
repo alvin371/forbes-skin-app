@@ -137,6 +137,13 @@ class MigrateUserModulePermissions extends CI_Controller
             return $this->respond_error('Migration failed.');
         }
 
+        // Bump the global permission version so live session permission maps rebuild
+        // against the freshly populated cache instead of waiting out the TTL.
+        $this->load->library('permission');
+        if (method_exists($this->permission, 'bump_permission_version')) {
+            $this->permission->bump_permission_version();
+        }
+
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode(array(

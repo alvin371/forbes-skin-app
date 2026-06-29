@@ -93,39 +93,21 @@
         form.find(".form-message").slideUp().html("");
       },
       success: function(response, textStatus, xhr) {
-        var str = response;
-        console.log(str);
-        if (str.indexOf("success") != -1) {
-          $(".form-message").hide().html(response).slideDown("fast");
-          setTimeout(function() {
-            // Get redirect URL from server
-            $.ajax({
-              url: "<?= base_url() ?>auth/get_redirect_url",
-              type: "GET",
-              dataType: "json",
-              success: function(redirectResponse) {
-                console.log("Redirect response:", redirectResponse);
-                console.log("Redirecting to:", redirectResponse.url);
+        // login_process returns JSON { success, message (alert HTML), url }.
+        var res = response;
+        if (typeof res === "string") {
+          try { res = JSON.parse(res); } catch (e) { res = null; }
+        }
 
-                // Ensure we have a valid URL
-                if (redirectResponse.url && redirectResponse.url !== '') {
-                  window.location.href = redirectResponse.url;
-                } else {
-                  console.error("Empty redirect URL, using base URL");
-                  window.location.href = "<?= base_url() ?>";
-                }
-              },
-              error: function(xhr, status, error) {
-                console.error("Redirect URL fetch failed:", error);
-                console.log("Falling back to base URL");
-                // Fallback to homepage if redirect URL fetch fails
-                window.location.href = "<?= base_url() ?>";
-              }
-            });
-            $(".btn-send").removeClass("disabled").html('Masuk Sekarang').attr('disabled', false);
-          }, 2500);
+        if (res && res.success) {
+          // Show the welcome alert, then navigate immediately using the URL the
+          // server already resolved (no second get_redirect_url round-trip).
+          $(".form-message").hide().html(res.message).slideDown("fast");
+          var target = (res.url && res.url !== '') ? res.url : "<?= base_url() ?>";
+          window.location.href = target;
         } else {
-          $(".form-message").hide().html(response).slideDown("fast");
+          var message = res ? res.message : response;
+          $(".form-message").hide().html(message).slideDown("fast");
           $(".btn-send").removeClass("disabled").html('Masuk Sekarang').attr('disabled', false);
         }
       },
