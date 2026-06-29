@@ -299,6 +299,46 @@ class EndorseRefreshQueueService
         ];
     }
 
+    /**
+     * Release rows whose worker claimed them but never finished: reset stale
+     * `processing` rows back to `pending` (and mark their open attempt rows as
+     * `retrying`) so the cron picks them up again. Shared by the worker (run on
+     * every invocation, before the rate caps) and the manual "Reset Macet" button.
+     */
+    public function resetStuck(int $staleMinutes = 5): array
+    {
+        $staleMinutes = max(1, intval($staleMinutes));
+        $now = date('Y-m-d H:i:s');
+
+        $this->db->query("
+            UPDATE endorse_refresh_queue_attempts a
+            INNER JOIN endorse_refresh_queue q ON q.id = a.queue_id
+            SET a.status = 'retrying',
+                a.error_class = 'transient',
+                a.error_message = 'Worker stalled; item returned to pending queue',
+                a.finished_at = '$now'
+            WHERE a.status = 'processing'
+              AND q.status = 'processing'
+              AND q.started_at < (NOW() - INTERVAL $staleMinutes MINUTE)
+        ");
+
+        $this->db->query("
+            UPDATE endorse_refresh_queue
+            SET status = 'pending', worker_id = NULL, started_at = NULL, claimed_at = NULL
+            WHERE status = 'processing'
+              AND started_at < (NOW() - INTERVAL $staleMinutes MINUTE)
+        ");
+        $reset = $this->db->affected_rows();
+
+        return [
+            'status'      => true,
+            'reset_count' => $reset,
+            'msg'         => $reset > 0
+                ? "$reset item macet dikembalikan ke antrian (menunggu)."
+                : 'Tidak ada item macet untuk direset.',
+        ];
+    }
+
     public function computeHealth(int $id_campaign = 0, int $staleMinutes = 10): array
     {
         $where = '';
@@ -348,6 +388,8 @@ class EndorseRefreshQueueService
             }
         }
 
+        $stall = $isStalled ? $this->diagnoseStall() : null;
+
         return [
             'active_total' => $pending + $processing,
             'pending_total' => $pending,
@@ -356,7 +398,60 @@ class EndorseRefreshQueueService
             'last_completed_at' => $lastCompletedAt,
             'last_started_at' => $lastStartedAt,
             'is_stalled' => $isStalled,
+            'stall_reason' => $stall['reason'] ?? null,
+            'stall_label' => $stall['label'] ?? null,
         ];
+    }
+
+    /**
+     * Explain WHY the queue is stalled, using the same DB signals the worker
+     * (Api_v2::cronjob_endorse_refresh) checks — so the banner is accurate
+     * without reading server logs. Mirrors the worker's daily/per-minute cap
+     * queries and falls back to the most recent attempt error.
+     */
+    protected function diagnoseStall(): array
+    {
+        $dailyCap = intval(env('ENDORSE_REFRESH_DAILY_CAP', 0));
+        $ratePerMin = intval(env('ENDORSE_REFRESH_RATE_PER_MIN', 0));
+
+        if ($dailyCap > 0) {
+            $startOfDay = date('Y-m-d') . ' 00:00:00';
+            $row = $this->CI->mymodel->selectWithQuery("
+                SELECT COUNT(*) AS c FROM endorse_refresh_queue_attempts
+                WHERE started_at >= '$startOfDay'
+            ");
+            $usedToday = intval($row[0]['c'] ?? 0);
+            if ($usedToday >= $dailyCap) {
+                return ['reason' => 'daily_cap', 'label' => "batas harian tercapai ($usedToday/$dailyCap)"];
+            }
+        }
+
+        if ($ratePerMin > 0) {
+            $row = $this->CI->mymodel->selectWithQuery("
+                SELECT COUNT(*) AS c FROM endorse_refresh_queue_attempts
+                WHERE started_at >= (NOW() - INTERVAL 60 SECOND)
+            ");
+            $usedMinute = intval($row[0]['c'] ?? 0);
+            if ($usedMinute >= $ratePerMin) {
+                return ['reason' => 'rate_cap', 'label' => "batas per-menit tercapai ($usedMinute/$ratePerMin)"];
+            }
+        }
+
+        $row = $this->CI->mymodel->selectWithQuery("
+            SELECT error_class, COUNT(*) AS c
+            FROM endorse_refresh_queue_attempts
+            WHERE status IN ('failed','retrying')
+              AND started_at >= (NOW() - INTERVAL 15 MINUTE)
+            GROUP BY error_class
+            ORDER BY c DESC
+            LIMIT 1
+        ");
+        if (!empty($row)) {
+            $cls = $row[0]['error_class'] ?: 'unknown';
+            return ['reason' => 'upstream_error', 'label' => "error upstream: $cls"];
+        }
+
+        return ['reason' => 'idle_worker', 'label' => 'worker tidak berjalan (cek cron)'];
     }
 
     protected function loadActiveEndorseIds(array $endorseIds, string $purpose = 'daily'): array
