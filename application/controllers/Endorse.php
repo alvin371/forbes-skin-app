@@ -2302,6 +2302,42 @@ class Endorse extends BaseController
     }
 
     /**
+     * Manually run the refresh worker once, bypassing the daily/per-minute caps,
+     * for when the queue is throttled by a cap. Loopback call to the cron endpoint
+     * (same path cron uses); processes one batch and relays its JSON result.
+     */
+    public function run_worker()
+    {
+        $url = base_url('api/cronjob/endorse-refresh?force=1');
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 60,
+            CURLOPT_SSL_VERIFYPEER => false,
+        ]);
+        $resp = curl_exec($ch);
+        $err = curl_error($ch);
+        curl_close($ch);
+
+        $data = json_decode($resp, true);
+        if (!is_array($data)) {
+            $data = [
+                'status' => false,
+                'msg'    => $err
+                    ? ('Gagal menjalankan worker: ' . $err)
+                    : 'Worker tidak mengembalikan hasil (kemungkinan timeout).',
+            ];
+        } elseif (!isset($data['msg'])) {
+            $processed = intval($data['processed'] ?? 0);
+            $data['msg'] = "Worker dijalankan: $processed item diproses.";
+        }
+
+        return $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($data));
+    }
+
+    /**
      * Manually release stuck rows: reset 'processing' rows whose worker stalled
      * back to 'pending' so the cron retries them. Same recovery the worker runs.
      */

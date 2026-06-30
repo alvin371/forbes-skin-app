@@ -74,6 +74,9 @@ $campaigns = isset($campaigns) ? $campaigns : [];
             <small class="text-muted">Status proses sinkronisasi data sosial media untuk endorse content.</small>
         </div>
         <div class="queue-page-actions">
+            <button class="btn btn-primary btn-sm me-2" id="btnRunWorker">
+                <i class="fa fa-play"></i> Proses Sekarang
+            </button>
             <button class="btn btn-outline-warning btn-sm me-2" id="btnResetStuck">
                 <i class="fa fa-unlock"></i> Reset Macet
             </button>
@@ -401,6 +404,34 @@ $campaigns = isset($campaigns) ? $campaigns : [];
             },
             complete: function() {
                 $btn.prop('disabled', false).text('Retry Gagal Terpilih');
+            }
+        });
+    });
+
+    $('#btnRunWorker').on('click', function() {
+        if (!confirm('Jalankan worker sekarang (mengabaikan batas harian / per-menit)? Memproses hingga ~250 item per klik dan tetap memakai kuota RapidAPI.')) {
+            return;
+        }
+
+        const $btn = $(this).prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Memproses...');
+        $.ajax({
+            url: baseUrl + 'endorse/run-worker',
+            method: 'POST',
+            dataType: 'json',
+            timeout: 65000,
+            success: function(resp) {
+                alert(resp.msg || 'Worker dijalankan.');
+                loadData();
+            },
+            error: function(xhr) {
+                const msg = xhr.responseJSON && xhr.responseJSON.msg
+                    ? xhr.responseJSON.msg
+                    : 'Gagal menjalankan worker (kemungkinan timeout). Coba lagi.';
+                alert(msg);
+                loadData();
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html('<i class="fa fa-play"></i> Proses Sekarang');
             }
         });
     });

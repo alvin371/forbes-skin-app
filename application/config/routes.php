@@ -323,6 +323,7 @@ $route['endorse/queue-count'] = 'Endorse/queue_count';
 $route['endorse/clear-queue'] = 'Endorse/clear_queue';
 $route['endorse/force-retry'] = 'Endorse/force_retry';
 $route['endorse/reset-stuck'] = 'Endorse/reset_stuck';
+$route['endorse/run-worker'] = 'Endorse/run_worker';
 $route['cronjob/update-customer'] = 'Api/cronjob_update_customer';
 
 $route['api/webhook'] = 'Api_v2/webhook';
