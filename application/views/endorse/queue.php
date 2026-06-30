@@ -409,7 +409,7 @@ $campaigns = isset($campaigns) ? $campaigns : [];
     });
 
     $('#btnRunWorker').on('click', function() {
-        if (!confirm('Jalankan worker sekarang (mengabaikan batas harian / per-menit)? Memproses satu batch dan tetap memakai kuota RapidAPI.')) {
+        if (!confirm('Jalankan worker sekarang (mengabaikan batas harian / per-menit)? Memproses hingga ~250 item per klik dan tetap memakai kuota RapidAPI.')) {
             return;
         }
 

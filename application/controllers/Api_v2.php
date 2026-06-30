@@ -7897,10 +7897,20 @@ class Api_v2 extends CI_Controller
         // stall sustains itself. Recovery is two cheap UPDATEs, safe to always run.
         $this->endorserefreshqueueservice->resetStuck($STALE_MINUTES);
 
-        // Manual force run (from the "Proses Sekarang" button): process one batch
-        // now, bypassing the daily + per-minute caps. Bounded to one BATCH_SIZE per
-        // call, so it cannot run away. Cron runs never set this.
+        // Manual force run (from the "Proses Sekarang" button): claim a larger batch
+        // now, bypassing the daily + per-minute caps. The wall-clock deadline below
+        // (ENDORSE_REFRESH_DEADLINE_SEC) still bounds the run, so whatever doesn't fit
+        // in ~45s is deferred back to pending and returned before the nginx timeout —
+        // the click safely pushes up to FORCE_BATCH items per press. Cron never sets this.
         $force = ($this->input->get_post('force') === '1');
+        if ($force) {
+            $BATCH_SIZE = intval(env('ENDORSE_REFRESH_FORCE_BATCH', 250));
+            if ($BATCH_SIZE < 1) {
+                $BATCH_SIZE = 250;
+            } elseif ($BATCH_SIZE > 500) {
+                $BATCH_SIZE = 500;
+            }
+        }
 
         // Daily request cap — protect the shared RapidAPI budget. The counter below
         // counts this brand's own attempt rows (each attempt = one RapidAPI request),
