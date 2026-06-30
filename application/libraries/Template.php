@@ -1282,6 +1282,7 @@ class Template
                 $curl = $h['curl'];
                 $body = curl_multi_getcontent($curl);
                 $err  = curl_error($curl);
+                $httpCode = intval(curl_getinfo($curl, CURLINFO_HTTP_CODE));
                 curl_multi_remove_handle($multiHandle, $curl);
                 curl_close($curl);
 
@@ -1301,9 +1302,31 @@ class Template
                 if (is_array($apiResp) && intval($apiResp['code'] ?? -1) === 0 && !empty($apiResp['data']['id'])) {
                     $results[$idx] = $this->mapRapidApiTiktokDetailToResponse($base, $apiResp['data'], true);
                 } else {
+                    // Diagnostics: record WHY the success gate failed so deleted vs
+                    // rate-limit (429) vs timeout (http=0/cURL) vs parse mismatch
+                    // (apicode=0 dataid=0) are distinguishable in the queue Riwayat.
+                    // Stays a transient failure (still retried) — no permanent-trigger
+                    // phrases embedded (see Endorse_sync::classify).
+                    $apicode = is_array($apiResp) ? strval($apiResp['code'] ?? 'n/a') : 'n/a';
+                    $apimsg  = is_array($apiResp) ? strval($apiResp['msg'] ?? 'n/a') : 'n/a';
+                    $dataid  = (is_array($apiResp) && !empty($apiResp['data']['id'])) ? 1 : 0;
+                    $apimsg  = trim(preg_replace('/\s+/', ' ', $apimsg));
+                    if (strlen($apimsg) > 80) {
+                        $apimsg = substr($apimsg, 0, 80) . '…';
+                    }
+                    $detail = "tiktok {$base['data']['content_id']} gagal: http={$httpCode} apicode={$apicode} apimsg={$apimsg} dataid={$dataid}";
+                    if ($err) {
+                        $detail .= " cURL={$err}";
+                    } elseif (!is_array($apiResp) || $dataid === 0) {
+                        $snippet = trim(preg_replace('/\s+/', ' ', (string) $body));
+                        if (strlen($snippet) > 180) {
+                            $snippet = substr($snippet, 0, 180) . '…';
+                        }
+                        $detail .= " body={$snippet}";
+                    }
                     $results[$idx] = [
                         'status' => false,
-                        'msg' => $err ? "cURL Error: $err" : ('Response tiktok ' . $base['data']['content_id'] . ' tidak ditemukan'),
+                        'msg' => $detail,
                         'data' => [],
                     ];
                 }
