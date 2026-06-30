@@ -8072,7 +8072,7 @@ class Api_v2 extends CI_Controller
         $responses = $this->template->get_social_media_batch($tasks, $PARALLEL_HTTP, $DEADLINE_SEC);
 
         // Step 5 — apply results
-        $completed = 0; $failed = 0; $retrying = 0;
+        $completed = 0; $failed = 0; $retrying = 0; $deferred = 0;
         $touched_campaigns = [];
 
         foreach ($items as $i => $item) {
@@ -8087,6 +8087,14 @@ class Api_v2 extends CI_Controller
             // Return it to the queue untouched (no attempt charged, attempts column not
             // bumped) so a later staggered run handles it. This is what lets a deep queue
             // drain across many short, always-completing runs instead of timing out.
+            //
+            // DELETE the attempt row inserted up front (step 2) instead of finalizing it:
+            // a deferral is not a real RapidAPI request, so it must NOT be recorded as an
+            // attempt — otherwise a row that keeps missing the deadline accrues one
+            // "Deferred" attempt per run (all attempt_no=1, since attempts isn't bumped),
+            // spamming history AND burning the daily/per-minute cap (which count attempt
+            // rows) on zero work. worker_id is unique per run, so this removes exactly the
+            // row this run inserted for this item.
             if (!empty($response['deferred'])) {
                 $this->db->update('endorse_refresh_queue', [
                     'status'     => 'pending',
@@ -8094,8 +8102,12 @@ class Api_v2 extends CI_Controller
                     'started_at' => null,
                     'claimed_at' => null,
                 ], ['id' => $queue_id]);
-                $this->finalize_queue_attempt($queue_id, $attempts, $worker_id, 'retrying', Endorse_sync::ERR_TRANSIENT, 'Deferred: batch wall-clock budget', date('Y-m-d H:i:s'));
-                $retrying++;
+                $this->db->delete('endorse_refresh_queue_attempts', [
+                    'queue_id'   => $queue_id,
+                    'attempt_no' => $attempts,
+                    'worker_id'  => $worker_id,
+                ]);
+                $deferred++;
                 continue;
             }
 
@@ -8179,7 +8191,8 @@ class Api_v2 extends CI_Controller
             'completed' => $completed,
             'failed'    => $failed,
             'retrying'  => $retrying,
-            'msg'       => count($items) . " items: $completed ok, $failed failed, $retrying retrying",
+            'deferred'  => $deferred,
+            'msg'       => count($items) . " items: $completed ok, $failed failed, $retrying retrying, $deferred deferred",
         ]);
         $this->cron_monitor_finish($monitor, array(
             'status' => 'ok',
@@ -8188,6 +8201,7 @@ class Api_v2 extends CI_Controller
             'completed_count' => $completed,
             'failed_count' => $failed,
             'retrying_count' => $retrying,
+            'deferred_count' => $deferred,
             'worker' => $worker_id,
         ));
         die;
