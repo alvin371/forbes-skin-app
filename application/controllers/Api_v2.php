@@ -7897,12 +7897,17 @@ class Api_v2 extends CI_Controller
         // stall sustains itself. Recovery is two cheap UPDATEs, safe to always run.
         $this->endorserefreshqueueservice->resetStuck($STALE_MINUTES);
 
+        // Manual force run (from the "Proses Sekarang" button): process one batch
+        // now, bypassing the daily + per-minute caps. Bounded to one BATCH_SIZE per
+        // call, so it cannot run away. Cron runs never set this.
+        $force = ($this->input->get_post('force') === '1');
+
         // Daily request cap — protect the shared RapidAPI budget. The counter below
         // counts this brand's own attempt rows (each attempt = one RapidAPI request),
         // and each brand has its own DB, so when one key is shared across brands set
         // each brand's cap to its share (e.g. 7500 + 7500 = 15000/day). 0/unset = off.
         $DAILY_CAP = intval(env('ENDORSE_REFRESH_DAILY_CAP', 0));
-        if ($DAILY_CAP > 0) {
+        if (!$force && $DAILY_CAP > 0) {
             $startOfDay = date('Y-m-d') . ' 00:00:00';
             $usedRow = $this->mymodel->selectWithQuery("
                 SELECT COUNT(*) AS c
@@ -7945,7 +7950,7 @@ class Api_v2 extends CI_Controller
         // 0/unset = off. Conservative: deferred rows also insert an attempt, so the
         // count can slightly over-estimate, which only keeps us further under cap.
         $RATE_PER_MIN = intval(env('ENDORSE_REFRESH_RATE_PER_MIN', 0));
-        if ($RATE_PER_MIN > 0) {
+        if (!$force && $RATE_PER_MIN > 0) {
             $usedRow = $this->mymodel->selectWithQuery("
                 SELECT COUNT(*) AS c
                 FROM endorse_refresh_queue_attempts
