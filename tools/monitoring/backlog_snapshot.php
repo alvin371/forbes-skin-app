@@ -89,6 +89,31 @@ foreach ($queries as $metricName => $sql) {
     $lines[] = metricLine($metricName, $value);
 }
 
+// Endorse refresh queue — the 06:00/23:00 sync drain. Per-status depth tells us
+// whether a window finished; oldest-pending age flags a stall; completed-today is a
+// throughput proxy to compare against the ~250/min/app target.
+$statusCounts = array('pending' => 0, 'processing' => 0, 'completed' => 0, 'failed' => 0);
+$res = $mysqli->query("SELECT status, COUNT(*) AS c FROM endorse_refresh_queue GROUP BY status");
+if ($res) {
+    while ($row = $res->fetch_assoc()) {
+        $statusCounts[(string) $row['status']] = (int) $row['c'];
+    }
+}
+$lines[] = '# TYPE forbes_endorse_refresh_queue_total gauge';
+foreach ($statusCounts as $status => $count) {
+    $lines[] = metricLine('forbes_endorse_refresh_queue_total', $count, array('status' => $status));
+}
+
+$res = $mysqli->query("SELECT TIMESTAMPDIFF(SECOND, MIN(created_at), NOW()) AS age FROM endorse_refresh_queue WHERE status = 'pending'");
+$oldestAge = ($res && ($row = $res->fetch_assoc()) && $row['age'] !== null) ? (int) $row['age'] : 0;
+$lines[] = '# TYPE forbes_endorse_refresh_oldest_pending_age_seconds gauge';
+$lines[] = metricLine('forbes_endorse_refresh_oldest_pending_age_seconds', $oldestAge);
+
+$res = $mysqli->query("SELECT COUNT(*) AS c FROM endorse_refresh_queue_attempts WHERE status = 'completed' AND finished_at >= CURDATE()");
+$completedToday = ($res && ($row = $res->fetch_assoc())) ? (int) $row['c'] : 0;
+$lines[] = '# TYPE forbes_endorse_refresh_completed_today_total gauge';
+$lines[] = metricLine('forbes_endorse_refresh_completed_today_total', $completedToday);
+
 $metrics = implode(PHP_EOL, $lines) . PHP_EOL;
 
 $outputPath = $argv[1] ?? '';
