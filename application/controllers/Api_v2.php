@@ -8081,6 +8081,14 @@ class Api_v2 extends CI_Controller
         $prevStatsMap = $this->endorse_sync->load_prev_stats_batch($endorse_ids, $today);
 
         // Step 4 — parallel HTTP fetch
+        // Base per-request timeout must exceed real RapidAPI latency. The upstream
+        // (tiktok-video-no-watermark10) routinely takes ~13s; a 12s timeout made nearly
+        // every call error out (http=0, empty body) — the true cause of the stall. Default
+        // 30s, env-tunable. Rescue lane gets more headroom.
+        $HTTP_TIMEOUT = intval(env('ENDORSE_REFRESH_HTTP_TIMEOUT', 30));
+        if ($HTTP_TIMEOUT < 1) {
+            $HTTP_TIMEOUT = 30;
+        }
         $tasks = [];
         foreach ($items as $i => $item) {
             $priorErrorClass = strval($priorAttemptMap[intval($item['id'])] ?? '');
@@ -8090,7 +8098,7 @@ class Api_v2 extends CI_Controller
                 'platform' => $item['platform'],
                 'url' => $url,
                 'rescue_lane' => $isRescueLane,
-                'timeout_sec' => $isRescueLane ? 30 : 12,
+                'timeout_sec' => $isRescueLane ? max(45, $HTTP_TIMEOUT + 15) : $HTTP_TIMEOUT,
                 'hd' => ($isRescueLane && $this->template->detect_tiktok_media_type_from_url($url) === 'photo') ? 1 : 0,
             ];
         }
@@ -8183,13 +8191,13 @@ class Api_v2 extends CI_Controller
             $errorClass = $result['error_class'] ?? Endorse_sync::ERR_TRANSIENT;
             $msg = $result['msg'] ?: 'Gagal';
 
-            if ($errorClass === Endorse_sync::ERR_PERMANENT
-                || $errorClass === Endorse_sync::ERR_EMPTY
-                || $errorClass === Endorse_sync::ERR_INFRA
-                || $errorClass === Endorse_sync::ERR_INFRA_DNS
-                || $errorClass === Endorse_sync::ERR_INFRA_CONNECT
-                || $errorClass === Endorse_sync::ERR_INFRA_TLS
-                || $errorClass === Endorse_sync::ERR_CONFIG) {
+            // Only genuinely unrecoverable classes fail immediately. Transport/infra
+            // classes (infra*, config) are recoverable — a slow or briefly-unhealthy
+            // RapidAPI upstream must NOT permanently kill the row, or one outage drains
+            // the whole queue into 'failed' (the 3-day stall). They fall through to the
+            // transient path below and retry up to max_attempts. Policy lives in
+            // Endorse_sync::is_terminal_class so worker and tests share one definition.
+            if (Endorse_sync::is_terminal_class($errorClass)) {
                 $this->mark_queue_failed($queue_id, $attempts, $msg, $errorClass, $worker_id);
                 $failed++;
                 continue;
