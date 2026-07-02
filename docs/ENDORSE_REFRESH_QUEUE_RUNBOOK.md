@@ -80,13 +80,19 @@ Current operator signals:
 4. Inspect failed rows via `Riwayat` to see `error_class` and `error_message`.
 5. Verify TikTok fetch credentials such as `RAPIDAPI_HOST` and `RAPIDAPI_KEY`.
 
+Common TikTok failure classes:
+
+- `transient`: upstream 429/5xx or malformed-but-retryable RapidAPI responses
+- `infra`: transport-level host failures such as DNS/connect timeout; now fails fast on the first attempt
+- `config`: missing/invalid RapidAPI host or key; now fails fast on the first attempt
+
 ## Retry behavior
 
 - `Retry Gagal Terpilih` creates a new pending queue row.
 - The original failed queue row stays intact for audit/history.
 - Attempt-level history is stored in `endorse_refresh_queue_attempts`.
 
-Use retry when the failure looks transient, such as timeout or upstream fetch instability.
+Use retry when the failure looks transient. Do not bulk-retry rows already marked `infra` or `config` until host connectivity or credentials are fixed.
 
 ## Clear queue behavior
 

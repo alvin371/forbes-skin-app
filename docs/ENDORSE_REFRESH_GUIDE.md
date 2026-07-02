@@ -424,13 +424,14 @@ The refresh system depends on:
 
 For TikTok detail fetches the code uses:
 
-- direct TikTok page scrape first
-- RapidAPI fallback second
+- RapidAPI as the default path
+- direct TikTok page scrape only when `ENDORSE_TIKTOK_SCRAPE_ENABLED=1`
 
 Required env vars:
 
 - `RAPIDAPI_HOST`
 - `RAPIDAPI_KEY`
+- `ENDORSE_TIKTOK_SCRAPE_ENABLED` (`0` by default; opt-in legacy fallback)
 
 Defaults currently assume:
 
