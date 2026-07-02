@@ -294,6 +294,11 @@ class Template
 
     function curlRequest($url, $headers = [])
     {
+        $configError = $this->rapidApiConfigError();
+        if ($configError !== null) {
+            return $configError;
+        }
+
         $curl = curl_init();
         curl_setopt_array($curl, [
             CURLOPT_URL => $url,
@@ -304,22 +309,22 @@ class Template
             CURLOPT_TIMEOUT => 12,
             CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
             CURLOPT_CUSTOMREQUEST => "GET",
-            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_HTTPHEADER => !empty($headers) ? $headers : $this->getRapidApiHeaders(),
         ]);
 
         $response = curl_exec($curl);
+        $httpCode = intval(curl_getinfo($curl, CURLINFO_HTTP_CODE));
+        $curlErrno = intval(curl_errno($curl));
         $err = curl_error($curl);
+        $totalTime = doubleval(curl_getinfo($curl, CURLINFO_TOTAL_TIME));
         curl_close($curl);
 
-        if ($err) {
-            return [
-                "status" => false,
-                "msg" => "cURL Error: $err",
-                "data" => []
-            ];
-        }
-
-        return json_decode($response, true);
+        return $this->finalizeRapidApiJsonResponse((string) $response, [
+            'http_code' => $httpCode,
+            'curl_errno' => $curlErrno,
+            'curl_error' => $err,
+            'total_time' => $totalTime,
+        ]);
     }
 
     /**
@@ -333,6 +338,12 @@ class Template
             if (is_callable($isValidResponse) && $isValidResponse($lastResponse)) {
                 return $lastResponse;
             }
+            if ($this->isRapidApiFailureResponse($lastResponse)) {
+                $errorClass = strval($lastResponse['error_class'] ?? '');
+                if (in_array($errorClass, ['config', 'infra', 'permanent'], true)) {
+                    return $lastResponse;
+                }
+            }
             if ($attempt < $maxRetry) {
                 usleep($delayMs * 1000);
             }
@@ -345,10 +356,311 @@ class Template
      */
     function getRapidApiHeaders()
     {
+        $cfg = $this->getRapidApiConfig();
         return [
-            "Content-Type: application/json",
-            "x-rapidapi-host: " . env('RAPIDAPI_HOST', 'tiktok-video-no-watermark10.p.rapidapi.com'),
-            "x-rapidapi-key: " . env('RAPIDAPI_KEY', ''),
+            "Accept: application/json",
+            "x-rapidapi-host: " . $cfg['host'],
+            "x-rapidapi-key: " . $cfg['key'],
+        ];
+    }
+
+    protected function getRapidApiConfig(): array
+    {
+        return [
+            'host' => trim((string) env('RAPIDAPI_HOST', 'tiktok-video-no-watermark10.p.rapidapi.com')),
+            'key' => trim((string) env('RAPIDAPI_KEY', '')),
+        ];
+    }
+
+    protected function rapidApiConfigError(): ?array
+    {
+        $cfg = $this->getRapidApiConfig();
+        if ($cfg['host'] !== '' && $cfg['key'] !== '') {
+            return null;
+        }
+
+        return [
+            'status' => false,
+            'msg' => 'Konfigurasi RapidAPI tidak lengkap (RAPIDAPI_HOST/RAPIDAPI_KEY).',
+            'data' => [],
+            'error_class' => 'config',
+            'error_meta' => [
+                'http_code' => 0,
+                'curl_errno' => 0,
+                'curl_error' => '',
+                'rapidapi_code' => 'n/a',
+                'rapidapi_msg' => 'n/a',
+                'json_error' => '',
+                'body_snippet' => '',
+                'total_time' => 0.0,
+                'multi_result' => 0,
+            ],
+        ];
+    }
+
+    protected function finalizeRapidApiJsonResponse(string $body, array $meta = []): array
+    {
+        $meta = array_merge([
+            'http_code' => 0,
+            'curl_errno' => 0,
+            'curl_error' => '',
+            'rapidapi_code' => 'n/a',
+            'rapidapi_msg' => 'n/a',
+            'json_error' => '',
+            'body_snippet' => '',
+            'total_time' => 0.0,
+            'multi_result' => 0,
+        ], $meta);
+
+        $meta['http_code'] = intval($meta['http_code']);
+        $meta['curl_errno'] = intval($meta['curl_errno']);
+        $meta['curl_error'] = strval($meta['curl_error']);
+        $meta['total_time'] = doubleval($meta['total_time']);
+        $meta['multi_result'] = intval($meta['multi_result']);
+        $meta['body_snippet'] = $this->summarizeBodySnippet($body);
+
+        if ($meta['curl_errno'] !== 0 || $meta['http_code'] === 0) {
+            if ($meta['curl_error'] === '' && function_exists('curl_strerror') && $meta['curl_errno'] !== 0) {
+                $meta['curl_error'] = curl_strerror($meta['curl_errno']);
+            }
+            return $this->rapidApiFailureResponse(
+                'infra',
+                $this->buildGenericRapidApiFailureMessage('RapidAPI host tidak dapat dijangkau', $meta),
+                $meta
+            );
+        }
+
+        $decoded = json_decode($body, true);
+        if (!is_array($decoded)) {
+            $meta['json_error'] = json_last_error_msg();
+            $errorClass = ($meta['http_code'] === 401 || $meta['http_code'] === 403) ? 'config' : 'transient';
+            $prefix = ($errorClass === 'config')
+                ? 'RapidAPI menolak request'
+                : 'RapidAPI mengembalikan body yang tidak valid';
+            return $this->rapidApiFailureResponse(
+                $errorClass,
+                $this->buildGenericRapidApiFailureMessage($prefix, $meta),
+                $meta
+            );
+        }
+
+        $meta['rapidapi_code'] = strval($decoded['code'] ?? 'n/a');
+        $meta['rapidapi_msg'] = $this->normalizeRapidApiMessage($decoded['msg'] ?? 'n/a');
+
+        if ($meta['http_code'] === 401 || $meta['http_code'] === 403 || $this->isRapidApiAuthFailure($decoded)) {
+            return $this->rapidApiFailureResponse(
+                'config',
+                $this->buildGenericRapidApiFailureMessage('RapidAPI credentials ditolak', $meta),
+                $meta
+            );
+        }
+
+        if ($meta['http_code'] === 429 || $meta['http_code'] >= 500) {
+            return $this->rapidApiFailureResponse(
+                'transient',
+                $this->buildGenericRapidApiFailureMessage('RapidAPI sementara tidak sehat', $meta),
+                $meta
+            );
+        }
+
+        if ($meta['http_code'] >= 400) {
+            return $this->rapidApiFailureResponse(
+                'permanent',
+                $this->buildGenericRapidApiFailureMessage('RapidAPI menolak request', $meta),
+                $meta
+            );
+        }
+
+        $decoded['_transport'] = $meta;
+        return $decoded;
+    }
+
+    protected function rapidApiFailureResponse(string $errorClass, string $msg, array $meta): array
+    {
+        return [
+            'status' => false,
+            'msg' => $msg,
+            'data' => [],
+            'error_class' => $errorClass,
+            'error_meta' => $meta,
+        ];
+    }
+
+    protected function buildGenericRapidApiFailureMessage(string $prefix, array $meta): string
+    {
+        $msg = $prefix . ': http=' . intval($meta['http_code']);
+
+        if (intval($meta['curl_errno']) !== 0) {
+            $msg .= ' cURL#' . intval($meta['curl_errno']) . '=' . strval($meta['curl_error']);
+        } elseif ($meta['rapidapi_code'] !== 'n/a' || $meta['rapidapi_msg'] !== 'n/a') {
+            $msg .= ' apicode=' . strval($meta['rapidapi_code']) . ' apimsg=' . strval($meta['rapidapi_msg']);
+        } elseif (strval($meta['json_error']) !== '') {
+            $msg .= ' json=' . strval($meta['json_error']);
+        }
+
+        if (strval($meta['body_snippet']) !== '') {
+            $msg .= ' body=' . strval($meta['body_snippet']);
+        }
+
+        return $msg;
+    }
+
+    protected function normalizeRapidApiMessage($msg): string
+    {
+        $msg = trim(preg_replace('/\s+/', ' ', strval($msg)));
+        if (strlen($msg) > 80) {
+            $msg = substr($msg, 0, 80) . '…';
+        }
+        return $msg === '' ? 'n/a' : $msg;
+    }
+
+    protected function summarizeBodySnippet(string $body): string
+    {
+        $snippet = trim(preg_replace('/\s+/', ' ', $body));
+        if (strlen($snippet) > 180) {
+            $snippet = substr($snippet, 0, 180) . '…';
+        }
+        return $snippet;
+    }
+
+    protected function isRapidApiAuthFailure(array $decoded): bool
+    {
+        $message = strtolower(trim(strval($decoded['msg'] ?? '')));
+        if ($message === '') {
+            return false;
+        }
+
+        foreach (['invalid api key', 'invalid key', 'access denied', 'unauthorized', 'forbidden', 'not subscribed'] as $needle) {
+            if (strpos($message, $needle) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    protected function isRapidApiFailureResponse($response): bool
+    {
+        return is_array($response)
+            && (array_key_exists('status', $response) ? !$response['status'] : true)
+            && array_key_exists('error_class', $response)
+            && array_key_exists('error_meta', $response);
+    }
+
+    protected function buildRapidApiUrl(string $path, array $query): string
+    {
+        $cfg = $this->getRapidApiConfig();
+        return 'https://' . $cfg['host'] . $path . '?' . http_build_query($query);
+    }
+
+    protected function buildTiktokDetailUrl(string $url): string
+    {
+        return $this->buildRapidApiUrl('/index/Tiktok/getVideoInfo', [
+            'url' => $url,
+            'hd' => 0,
+        ]);
+    }
+
+    protected function isTiktokScrapeEnabled(): bool
+    {
+        return env('ENDORSE_TIKTOK_SCRAPE_ENABLED', '0') == '1';
+    }
+
+    protected function preferRapidApiForTiktok(bool $preferRapidApi): bool
+    {
+        return $preferRapidApi || env('TIKTOK_METRICS_PREFER_RAPIDAPI', '0') == '1';
+    }
+
+    protected function isValidRapidApiTiktokDetailResponse($response): bool
+    {
+        if (!is_array($response) || intval($response['code'] ?? -1) !== 0 || !is_array($response['data'] ?? null)) {
+            return false;
+        }
+
+        $item = $response['data'];
+        foreach (['id', 'digg_count', 'share_count', 'comment_count', 'collect_count', 'play_count', 'images', 'play', 'cover', 'origin_cover', 'create_time'] as $key) {
+            if (array_key_exists($key, $item)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    protected function buildTiktokRapidApiFailureResponse(string $contentId, $response): array
+    {
+        $meta = [
+            'http_code' => 0,
+            'curl_errno' => 0,
+            'curl_error' => '',
+            'rapidapi_code' => 'n/a',
+            'rapidapi_msg' => 'n/a',
+            'json_error' => '',
+            'body_snippet' => '',
+            'total_time' => 0.0,
+            'multi_result' => 0,
+        ];
+        $errorClass = 'transient';
+        $msg = '';
+
+        if ($this->isRapidApiFailureResponse($response)) {
+            $meta = array_merge($meta, $response['error_meta'] ?? []);
+            $errorClass = strval($response['error_class'] ?? 'transient');
+            $msg = strval($response['msg'] ?? '');
+        } elseif (is_array($response)) {
+            $transport = is_array($response['_transport'] ?? null) ? $response['_transport'] : [];
+            $meta = array_merge($meta, $transport);
+            $meta['rapidapi_code'] = strval($response['code'] ?? $meta['rapidapi_code']);
+            $meta['rapidapi_msg'] = $this->normalizeRapidApiMessage($response['msg'] ?? $meta['rapidapi_msg']);
+            $msg = 'RapidAPI returned an unusable TikTok detail payload';
+        } else {
+            $msg = 'RapidAPI returned an unusable TikTok detail payload';
+        }
+
+        $detail = 'tiktok ' . $contentId
+            . ' gagal: http=' . intval($meta['http_code'])
+            . ' apicode=' . strval($meta['rapidapi_code'])
+            . ' apimsg=' . strval($meta['rapidapi_msg'])
+            . ' dataid=' . ((is_array($response) && !empty($response['data']['id'])) ? 1 : 0);
+
+        if (intval($meta['curl_errno']) !== 0) {
+            $detail .= ' cURL#' . intval($meta['curl_errno']) . '=' . strval($meta['curl_error']);
+        } elseif (strval($meta['json_error']) !== '') {
+            $detail .= ' json=' . strval($meta['json_error']);
+        }
+
+        if (strval($meta['body_snippet']) !== '') {
+            $detail .= ' body=' . strval($meta['body_snippet']);
+        }
+
+        return [
+            'status' => false,
+            'msg' => $detail,
+            'data' => [],
+            'error_class' => $errorClass,
+            'error_meta' => $meta,
+            'upstream_msg' => $msg,
+        ];
+    }
+
+    protected function buildTiktokBaseResponse(string $url): array
+    {
+        return [
+            'status' => true,
+            'msg' => '',
+            'data' => [
+                'like' => 0,
+                'share' => 0,
+                'comment' => 0,
+                'collect' => 0,
+                'view' => 0,
+                'created_at' => '',
+                'content_id' => $this->extract_tiktok_content_id($url),
+                'media_type' => $this->detect_tiktok_media_type_from_url($url),
+                'video_link' => '',
+                'cover' => '',
+                'images' => [],
+            ],
         ];
     }
 
@@ -357,12 +669,18 @@ class Template
      */
     function getDataFromFirstEndpoint($username)
     {
-        $url = "https://" . env('RAPIDAPI_HOST', 'tiktok-video-no-watermark10.p.rapidapi.com') . "/index/Tiktok/getUserInfo?unique_id=" . urlencode($username);
-        $headers = $this->getRapidApiHeaders();
+        $url = $this->buildRapidApiUrl('/index/Tiktok/getUserInfo', [
+            'unique_id' => $username,
+        ]);
 
-        $response = $this->curlRequestWithRetry($url, $headers, function ($resp) {
+        $response = $this->curlRequestWithRetry($url, [], function ($resp) {
             return intval($resp['code'] ?? -1) === 0 && !empty($resp['data']['user']['uniqueId']);
         });
+
+        if ($this->isRapidApiFailureResponse($response)) {
+            $response['source'] = 'first_endpoint';
+            return $response;
+        }
 
         if (empty($response['data']['user']['uniqueId'])) {
             return [
@@ -912,13 +1230,19 @@ class Template
             $username = trim((string) $account_id);
             $username = ltrim($username, '@');
             $uniqueId = '@' . $username;
-            $host = env('RAPIDAPI_HOST', 'tiktok-video-no-watermark10.p.rapidapi.com');
-            $url = "https://$host/index/Tiktok/getUserVideos?unique_id=" . urlencode($uniqueId) . "&count=10&cursor=0";
-            $headers = $this->getRapidApiHeaders();
+            $url = $this->buildRapidApiUrl('/index/Tiktok/getUserVideos', [
+                'unique_id' => $uniqueId,
+                'count' => 10,
+                'cursor' => 0,
+            ]);
 
-            $response = $this->curlRequestWithRetry($url, $headers, function ($resp) {
+            $response = $this->curlRequestWithRetry($url, [], function ($resp) {
                 return intval($resp['code'] ?? -1) === 0 && !empty($resp['data']['videos']);
             });
+
+            if ($this->isRapidApiFailureResponse($response)) {
+                return $response;
+            }
 
             $videos = $response['data']['videos'] ?? [];
             if (empty($videos)) {
@@ -1007,43 +1331,36 @@ class Template
                 $response["data"]["media_type"] = $this->detect_tiktok_media_type_from_url($url);
 
                 // ScrapingBot/direct-HTML scrape is unreliable; RapidAPI is the mandated path.
-                // When preferred (param or TIKTOK_METRICS_PREFER_RAPIDAPI env), try RapidAPI
-                // first and only fall back to the page scrape.
-                $prefer = $preferRapidApi || env('TIKTOK_METRICS_PREFER_RAPIDAPI', '0') == '1';
+                $prefer = $this->preferRapidApiForTiktok($preferRapidApi);
+                $scrapeEnabled = $this->isTiktokScrapeEnabled();
+                $detailUrl = $this->buildTiktokDetailUrl($url);
+                $apiResp = null;
 
-                $host = env('RAPIDAPI_HOST', 'tiktok-video-no-watermark10.p.rapidapi.com');
-                $detailUrl = "https://{$host}/index/Tiktok/getVideoInfo?url=" . urlencode($url) . "&hd=0";
-
-                if ($prefer) {
-                    $apiResp = $this->curlRequestWithRetry($detailUrl, $this->getRapidApiHeaders(), function ($resp) {
-                        return intval($resp['code'] ?? -1) === 0 && !empty($resp['data']['id']);
+                if (!$scrapeEnabled || $prefer) {
+                    $apiResp = $this->curlRequestWithRetry($detailUrl, [], function ($resp) {
+                        return $this->isValidRapidApiTiktokDetailResponse($resp);
                     });
-                    if (intval($apiResp['code'] ?? -1) === 0 && !empty($apiResp['data']['id'])) {
+                    if ($this->isValidRapidApiTiktokDetailResponse($apiResp)) {
                         return $this->mapRapidApiTiktokDetailToResponse($response, $apiResp['data'] ?? [], $fetch_media_assets);
                     }
-                    // RapidAPI failed — fall back to page scrape below.
                 }
 
-                $itemStruct = $this->scrapeTiktokDetailFromPage($url);
-                if ($this->isValidTiktokScrapeItem($itemStruct)) {
-                    $response = $this->mapDirectTiktokItemToResponse($response, $itemStruct, $fetch_media_assets);
-                    return $response;
+                if ($scrapeEnabled) {
+                    $itemStruct = $this->scrapeTiktokDetailFromPage($url);
+                    if ($this->isValidTiktokScrapeItem($itemStruct)) {
+                        $response = $this->mapDirectTiktokItemToResponse($response, $itemStruct, $fetch_media_assets);
+                        return $response;
+                    }
                 }
 
-                if (!$prefer) {
-                    $apiResp = $this->curlRequestWithRetry($detailUrl, $this->getRapidApiHeaders(), function ($resp) {
-                        return intval($resp['code'] ?? -1) === 0 && !empty($resp['data']['id']);
+                if ($apiResp === null) {
+                    $apiResp = $this->curlRequestWithRetry($detailUrl, [], function ($resp) {
+                        return $this->isValidRapidApiTiktokDetailResponse($resp);
                     });
-                } else {
-                    // Prefer mode already attempted RapidAPI; reuse that failed result shape.
-                    $apiResp = $apiResp ?? ['code' => -1, 'data' => []];
                 }
 
-                if (intval($apiResp['code'] ?? -1) !== 0 || empty($apiResp['data']['id'])) {
-                    $response["status"] = false;
-                    $response["msg"] = "Response tiktok " . $content_id . " tidak ditemukan";
-                    $response["data"] = [];
-                    return $response;
+                if (!$this->isValidRapidApiTiktokDetailResponse($apiResp)) {
+                    return $this->buildTiktokRapidApiFailureResponse($content_id, $apiResp);
                 }
 
                 $response = $this->mapRapidApiTiktokDetailToResponse($response, $apiResp['data'] ?? [], $fetch_media_assets);
@@ -1086,7 +1403,7 @@ class Template
         // When the scrape is disabled (default), skip it entirely and fan the chunk
         // out as concurrent RapidAPI calls — the only way a run completes its whole
         // chunk instead of grinding through them sequentially until the deadline.
-        $scrapeEnabled = env('ENDORSE_TIKTOK_SCRAPE_ENABLED', '0') == '1';
+        $scrapeEnabled = $this->isTiktokScrapeEnabled();
 
         $chunks = array_chunk($tasks, $maxConcurrent, true);
         foreach ($chunks as $chunk) {
@@ -1226,11 +1543,36 @@ class Template
      */
     protected function fetchRapidApiTiktokBatch(array $tasks): array
     {
-        $host = env('RAPIDAPI_HOST', 'tiktok-video-no-watermark10.p.rapidapi.com');
+        $configError = $this->rapidApiConfigError();
         $headers = $this->getRapidApiHeaders();
         $multiHandle = curl_multi_init();
         $handles = [];
         $results = [];
+        $multiInfo = [];
+        $shareHandle = null;
+
+        if ($configError !== null) {
+            foreach ($tasks as $idx => $task) {
+                $platform = $task['platform'] ?? '';
+                $url = trim((string) ($task['url'] ?? ''));
+                if ($platform !== 'Tiktok' || $url === '') {
+                    $results[$idx] = $this->get_social_media($platform, $url, true, null, true);
+                    continue;
+                }
+                $results[$idx] = $this->buildTiktokRapidApiFailureResponse($this->extract_tiktok_content_id($url), $configError);
+            }
+            return $results;
+        }
+
+        if (function_exists('curl_share_init')) {
+            $shareHandle = curl_share_init();
+            if (defined('CURL_LOCK_DATA_DNS')) {
+                curl_share_setopt($shareHandle, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
+            }
+            if (defined('CURL_LOCK_DATA_SSL_SESSION')) {
+                curl_share_setopt($shareHandle, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
+            }
+        }
 
         foreach ($tasks as $idx => $task) {
             $platform = $task['platform'] ?? '';
@@ -1253,9 +1595,9 @@ class Template
                 continue;
             }
 
-            $detailUrl = "https://{$host}/index/Tiktok/getVideoInfo?url=" . urlencode($url) . "&hd=0";
+            $detailUrl = $this->buildTiktokDetailUrl($url);
             $curl = curl_init();
-            curl_setopt_array($curl, [
+            $curlOptions = [
                 CURLOPT_URL => $detailUrl,
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_ENCODING => '',
@@ -1265,9 +1607,13 @@ class Template
                 CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
                 CURLOPT_CUSTOMREQUEST => 'GET',
                 CURLOPT_HTTPHEADER => $headers,
-            ]);
+            ];
+            if ($shareHandle !== null && defined('CURLOPT_SHARE')) {
+                $curlOptions[CURLOPT_SHARE] = $shareHandle;
+            }
+            curl_setopt_array($curl, $curlOptions);
             curl_multi_add_handle($multiHandle, $curl);
-            $handles[$idx] = ['curl' => $curl, 'url' => $url];
+            $handles[$idx] = ['curl' => $curl, 'url' => $url, 'content_id' => $content_id];
         }
 
         if (!empty($handles)) {
@@ -1278,62 +1624,48 @@ class Template
                 }
             } while ($active && $status === CURLM_OK);
 
+            while (($info = curl_multi_info_read($multiHandle)) !== false) {
+                $multiInfo[spl_object_id($info['handle'])] = $info;
+            }
+
             foreach ($handles as $idx => $h) {
                 $curl = $h['curl'];
                 $body = curl_multi_getcontent($curl);
                 $err  = curl_error($curl);
+                $errno = intval(curl_errno($curl));
+                $info = $multiInfo[spl_object_id($curl)] ?? null;
+                $multiResult = intval($info['result'] ?? 0);
+                if ($errno === 0 && $multiResult !== 0) {
+                    $errno = $multiResult;
+                }
+                if ($err === '' && $errno !== 0 && function_exists('curl_strerror')) {
+                    $err = curl_strerror($errno);
+                }
                 $httpCode = intval(curl_getinfo($curl, CURLINFO_HTTP_CODE));
+                $totalTime = doubleval(curl_getinfo($curl, CURLINFO_TOTAL_TIME));
                 curl_multi_remove_handle($multiHandle, $curl);
                 curl_close($curl);
 
-                $base = [
-                    'status' => true,
-                    'msg' => '',
-                    'data' => [
-                        'like' => 0, 'share' => 0, 'comment' => 0, 'collect' => 0, 'view' => 0,
-                        'created_at' => '',
-                        'content_id' => $this->extract_tiktok_content_id($h['url']),
-                        'media_type' => $this->detect_tiktok_media_type_from_url($h['url']),
-                        'video_link' => '', 'cover' => '', 'images' => [],
-                    ],
-                ];
-
-                $apiResp = $err ? null : json_decode($body, true);
-                if (is_array($apiResp) && intval($apiResp['code'] ?? -1) === 0 && !empty($apiResp['data']['id'])) {
+                $base = $this->buildTiktokBaseResponse($h['url']);
+                $apiResp = $this->finalizeRapidApiJsonResponse((string) $body, [
+                    'http_code' => $httpCode,
+                    'curl_errno' => $errno,
+                    'curl_error' => $err,
+                    'total_time' => $totalTime,
+                    'multi_result' => $multiResult,
+                ]);
+                if ($this->isValidRapidApiTiktokDetailResponse($apiResp)) {
                     $results[$idx] = $this->mapRapidApiTiktokDetailToResponse($base, $apiResp['data'], true);
                 } else {
-                    // Diagnostics: record WHY the success gate failed so deleted vs
-                    // rate-limit (429) vs timeout (http=0/cURL) vs parse mismatch
-                    // (apicode=0 dataid=0) are distinguishable in the queue Riwayat.
-                    // Stays a transient failure (still retried) — no permanent-trigger
-                    // phrases embedded (see Endorse_sync::classify).
-                    $apicode = is_array($apiResp) ? strval($apiResp['code'] ?? 'n/a') : 'n/a';
-                    $apimsg  = is_array($apiResp) ? strval($apiResp['msg'] ?? 'n/a') : 'n/a';
-                    $dataid  = (is_array($apiResp) && !empty($apiResp['data']['id'])) ? 1 : 0;
-                    $apimsg  = trim(preg_replace('/\s+/', ' ', $apimsg));
-                    if (strlen($apimsg) > 80) {
-                        $apimsg = substr($apimsg, 0, 80) . '…';
-                    }
-                    $detail = "tiktok {$base['data']['content_id']} gagal: http={$httpCode} apicode={$apicode} apimsg={$apimsg} dataid={$dataid}";
-                    if ($err) {
-                        $detail .= " cURL={$err}";
-                    } elseif (!is_array($apiResp) || $dataid === 0) {
-                        $snippet = trim(preg_replace('/\s+/', ' ', (string) $body));
-                        if (strlen($snippet) > 180) {
-                            $snippet = substr($snippet, 0, 180) . '…';
-                        }
-                        $detail .= " body={$snippet}";
-                    }
-                    $results[$idx] = [
-                        'status' => false,
-                        'msg' => $detail,
-                        'data' => [],
-                    ];
+                    $results[$idx] = $this->buildTiktokRapidApiFailureResponse($h['content_id'], $apiResp);
                 }
             }
         }
 
         curl_multi_close($multiHandle);
+        if ($shareHandle !== null) {
+            curl_share_close($shareHandle);
+        }
 
         return $results;
     }

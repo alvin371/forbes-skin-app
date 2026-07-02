@@ -8154,7 +8154,10 @@ class Api_v2 extends CI_Controller
             $errorClass = $result['error_class'] ?? Endorse_sync::ERR_TRANSIENT;
             $msg = $result['msg'] ?: 'Gagal';
 
-            if ($errorClass === Endorse_sync::ERR_PERMANENT || $errorClass === Endorse_sync::ERR_EMPTY) {
+            if ($errorClass === Endorse_sync::ERR_PERMANENT
+                || $errorClass === Endorse_sync::ERR_EMPTY
+                || $errorClass === Endorse_sync::ERR_INFRA
+                || $errorClass === Endorse_sync::ERR_CONFIG) {
                 $this->mark_queue_failed($queue_id, $attempts, $msg, $errorClass, $worker_id);
                 $failed++;
                 continue;

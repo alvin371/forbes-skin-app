@@ -14,6 +14,8 @@ class Endorse_sync
     const ERR_PERMANENT = 'permanent';
     const ERR_TRANSIENT = 'transient';
     const ERR_EMPTY     = 'empty';
+    const ERR_INFRA     = 'infra';
+    const ERR_CONFIG    = 'config';
 
     /** @var CI_Controller */
     protected $CI;
@@ -46,6 +48,11 @@ class Endorse_sync
         }
 
         $msg = strval($response['msg'] ?? '');
+        $machineClass = strval($response['error_class'] ?? '');
+
+        if (in_array($machineClass, [self::ERR_INFRA, self::ERR_CONFIG, self::ERR_PERMANENT, self::ERR_EMPTY, self::ERR_TRANSIENT], true)) {
+            return ['class' => $machineClass, 'msg' => $msg ?: 'Gagal mengambil data sosial media'];
+        }
 
         if ($platform === 'Instagram') {
             return ['class' => self::ERR_PERMANENT, 'msg' => $msg ?: 'Individual Instagram post scraping belum tersedia'];
