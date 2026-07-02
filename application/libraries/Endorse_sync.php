@@ -15,6 +15,10 @@ class Endorse_sync
     const ERR_TRANSIENT = 'transient';
     const ERR_EMPTY     = 'empty';
     const ERR_INFRA     = 'infra';
+    const ERR_INFRA_DNS = 'infra_dns';
+    const ERR_INFRA_CONNECT = 'infra_connect';
+    const ERR_INFRA_TLS = 'infra_tls';
+    const ERR_INFRA_STALL = 'infra_stall';
     const ERR_CONFIG    = 'config';
 
     /** @var CI_Controller */
@@ -50,7 +54,17 @@ class Endorse_sync
         $msg = strval($response['msg'] ?? '');
         $machineClass = strval($response['error_class'] ?? '');
 
-        if (in_array($machineClass, [self::ERR_INFRA, self::ERR_CONFIG, self::ERR_PERMANENT, self::ERR_EMPTY, self::ERR_TRANSIENT], true)) {
+        if (in_array($machineClass, [
+            self::ERR_INFRA,
+            self::ERR_INFRA_DNS,
+            self::ERR_INFRA_CONNECT,
+            self::ERR_INFRA_TLS,
+            self::ERR_INFRA_STALL,
+            self::ERR_CONFIG,
+            self::ERR_PERMANENT,
+            self::ERR_EMPTY,
+            self::ERR_TRANSIENT,
+        ], true)) {
             return ['class' => $machineClass, 'msg' => $msg ?: 'Gagal mengambil data sosial media'];
         }
 
