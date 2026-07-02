@@ -8195,9 +8195,9 @@ class Api_v2 extends CI_Controller
             // classes (infra*, config) are recoverable — a slow or briefly-unhealthy
             // RapidAPI upstream must NOT permanently kill the row, or one outage drains
             // the whole queue into 'failed' (the 3-day stall). They fall through to the
-            // transient path below and retry up to max_attempts.
-            if ($errorClass === Endorse_sync::ERR_PERMANENT
-                || $errorClass === Endorse_sync::ERR_EMPTY) {
+            // transient path below and retry up to max_attempts. Policy lives in
+            // Endorse_sync::is_terminal_class so worker and tests share one definition.
+            if (Endorse_sync::is_terminal_class($errorClass)) {
                 $this->mark_queue_failed($queue_id, $attempts, $msg, $errorClass, $worker_id);
                 $failed++;
                 continue;

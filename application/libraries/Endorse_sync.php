@@ -21,6 +21,19 @@ class Endorse_sync
     const ERR_INFRA_STALL = 'infra_stall';
     const ERR_CONFIG    = 'config';
 
+    /**
+     * Retry policy, single source of truth. Only genuinely unrecoverable classes
+     * terminate a queue row. Everything else — transport/infra/config/transient — is
+     * retried until max_attempts. A slow or briefly-unhealthy RapidAPI upstream must
+     * never permanently fail the queue (that caused the 3-day stall). The infra and
+     * config labels remain useful for diagnostics (diagnoseStall, monitoring), never routing.
+     */
+    public static function is_terminal_class(string $errorClass): bool
+    {
+        return $errorClass === self::ERR_PERMANENT
+            || $errorClass === self::ERR_EMPTY;
+    }
+
     /** @var CI_Controller */
     protected $CI;
 
