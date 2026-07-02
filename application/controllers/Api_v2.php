@@ -8031,6 +8031,26 @@ class Api_v2 extends CI_Controller
             SELECT * FROM endorse_refresh_queue
             WHERE worker_id = '$worker_id' AND status = 'processing'
         ");
+        $priorAttemptMap = [];
+        if (!empty($items)) {
+            $queueIds = array_map(static function ($item) {
+                return intval($item['id']);
+            }, $items);
+            $queueIdList = implode(',', $queueIds);
+            $priorAttempts = $this->mymodel->selectWithQuery("
+                SELECT queue_id, error_class
+                FROM endorse_refresh_queue_attempts
+                WHERE queue_id IN ($queueIdList)
+                  AND status IN ('retrying', 'failed')
+                ORDER BY id DESC
+            ");
+            foreach ($priorAttempts as $priorAttempt) {
+                $queueId = intval($priorAttempt['queue_id'] ?? 0);
+                if ($queueId > 0 && !array_key_exists($queueId, $priorAttemptMap)) {
+                    $priorAttemptMap[$queueId] = strval($priorAttempt['error_class'] ?? '');
+                }
+            }
+        }
         $attemptRows = [];
         foreach ($items as $item) {
             $attemptRows[] = [
@@ -8063,7 +8083,16 @@ class Api_v2 extends CI_Controller
         // Step 4 — parallel HTTP fetch
         $tasks = [];
         foreach ($items as $i => $item) {
-            $tasks[$i] = ['platform' => $item['platform'], 'url' => $item['link_upload']];
+            $priorErrorClass = strval($priorAttemptMap[intval($item['id'])] ?? '');
+            $isRescueLane = $priorErrorClass === Endorse_sync::ERR_INFRA_STALL;
+            $url = strval($item['link_upload']);
+            $tasks[$i] = [
+                'platform' => $item['platform'],
+                'url' => $url,
+                'rescue_lane' => $isRescueLane,
+                'timeout_sec' => $isRescueLane ? 30 : 12,
+                'hd' => ($isRescueLane && $this->template->detect_tiktok_media_type_from_url($url) === 'photo') ? 1 : 0,
+            ];
         }
         // Wall-clock budget for the whole fetch so the run always returns before the
         // cron curl --max-time / nginx 60s timeout. Leftover items are deferred back to
@@ -8157,6 +8186,9 @@ class Api_v2 extends CI_Controller
             if ($errorClass === Endorse_sync::ERR_PERMANENT
                 || $errorClass === Endorse_sync::ERR_EMPTY
                 || $errorClass === Endorse_sync::ERR_INFRA
+                || $errorClass === Endorse_sync::ERR_INFRA_DNS
+                || $errorClass === Endorse_sync::ERR_INFRA_CONNECT
+                || $errorClass === Endorse_sync::ERR_INFRA_TLS
                 || $errorClass === Endorse_sync::ERR_CONFIG) {
                 $this->mark_queue_failed($queue_id, $attempts, $msg, $errorClass, $worker_id);
                 $failed++;

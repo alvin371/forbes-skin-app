@@ -294,37 +294,7 @@ class Template
 
     function curlRequest($url, $headers = [])
     {
-        $configError = $this->rapidApiConfigError();
-        if ($configError !== null) {
-            return $configError;
-        }
-
-        $curl = curl_init();
-        curl_setopt_array($curl, [
-            CURLOPT_URL => $url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_ENCODING => "",
-            CURLOPT_MAXREDIRS => 10,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 12,
-            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-            CURLOPT_CUSTOMREQUEST => "GET",
-            CURLOPT_HTTPHEADER => !empty($headers) ? $headers : $this->getRapidApiHeaders(),
-        ]);
-
-        $response = curl_exec($curl);
-        $httpCode = intval(curl_getinfo($curl, CURLINFO_HTTP_CODE));
-        $curlErrno = intval(curl_errno($curl));
-        $err = curl_error($curl);
-        $totalTime = doubleval(curl_getinfo($curl, CURLINFO_TOTAL_TIME));
-        curl_close($curl);
-
-        return $this->finalizeRapidApiJsonResponse((string) $response, [
-            'http_code' => $httpCode,
-            'curl_errno' => $curlErrno,
-            'curl_error' => $err,
-            'total_time' => $totalTime,
-        ]);
+        return $this->executeRapidApiGet($url, $headers, 12);
     }
 
     /**
@@ -340,7 +310,7 @@ class Template
             }
             if ($this->isRapidApiFailureResponse($lastResponse)) {
                 $errorClass = strval($lastResponse['error_class'] ?? '');
-                if (in_array($errorClass, ['config', 'infra', 'permanent'], true)) {
+                if (in_array($errorClass, ['config', 'infra', 'infra_dns', 'infra_connect', 'infra_tls', 'permanent'], true)) {
                     return $lastResponse;
                 }
             }
@@ -393,7 +363,15 @@ class Template
                 'json_error' => '',
                 'body_snippet' => '',
                 'total_time' => 0.0,
+                'time_namelookup' => 0.0,
+                'time_connect' => 0.0,
+                'time_appconnect' => 0.0,
+                'time_starttransfer' => 0.0,
                 'multi_result' => 0,
+                'request_id' => '',
+                'region' => '',
+                'rate_remaining' => '',
+                'cf_ray' => '',
             ],
         ];
     }
@@ -409,22 +387,39 @@ class Template
             'json_error' => '',
             'body_snippet' => '',
             'total_time' => 0.0,
+            'time_namelookup' => 0.0,
+            'time_connect' => 0.0,
+            'time_appconnect' => 0.0,
+            'time_starttransfer' => 0.0,
             'multi_result' => 0,
+            'request_id' => '',
+            'region' => '',
+            'rate_remaining' => '',
+            'cf_ray' => '',
         ], $meta);
 
         $meta['http_code'] = intval($meta['http_code']);
         $meta['curl_errno'] = intval($meta['curl_errno']);
         $meta['curl_error'] = strval($meta['curl_error']);
         $meta['total_time'] = doubleval($meta['total_time']);
+        $meta['time_namelookup'] = doubleval($meta['time_namelookup']);
+        $meta['time_connect'] = doubleval($meta['time_connect']);
+        $meta['time_appconnect'] = doubleval($meta['time_appconnect']);
+        $meta['time_starttransfer'] = doubleval($meta['time_starttransfer']);
         $meta['multi_result'] = intval($meta['multi_result']);
+        $meta['request_id'] = strval($meta['request_id']);
+        $meta['region'] = strval($meta['region']);
+        $meta['rate_remaining'] = strval($meta['rate_remaining']);
+        $meta['cf_ray'] = strval($meta['cf_ray']);
         $meta['body_snippet'] = $this->summarizeBodySnippet($body);
 
         if ($meta['curl_errno'] !== 0 || $meta['http_code'] === 0) {
             if ($meta['curl_error'] === '' && function_exists('curl_strerror') && $meta['curl_errno'] !== 0) {
                 $meta['curl_error'] = curl_strerror($meta['curl_errno']);
             }
+            $errorClass = $this->classifyRapidApiTransportFailure($meta);
             return $this->rapidApiFailureResponse(
-                'infra',
+                $errorClass,
                 $this->buildGenericRapidApiFailureMessage('RapidAPI host tidak dapat dijangkau', $meta),
                 $meta
             );
@@ -502,6 +497,13 @@ class Template
             $msg .= ' body=' . strval($meta['body_snippet']);
         }
 
+        if (strval($meta['request_id']) !== '') {
+            $msg .= ' reqid=' . strval($meta['request_id']);
+        }
+        if (strval($meta['region']) !== '') {
+            $msg .= ' region=' . strval($meta['region']);
+        }
+
         return $msg;
     }
 
@@ -553,11 +555,11 @@ class Template
         return 'https://' . $cfg['host'] . $path . '?' . http_build_query($query);
     }
 
-    protected function buildTiktokDetailUrl(string $url): string
+    protected function buildTiktokDetailUrl(string $url, int $hd = 0): string
     {
         return $this->buildRapidApiUrl('/index/Tiktok/getVideoInfo', [
             'url' => $url,
-            'hd' => 0,
+            'hd' => $hd,
         ]);
     }
 
@@ -569,6 +571,105 @@ class Template
     protected function preferRapidApiForTiktok(bool $preferRapidApi): bool
     {
         return $preferRapidApi || env('TIKTOK_METRICS_PREFER_RAPIDAPI', '0') == '1';
+    }
+
+    protected function buildRapidApiHeaderCollector(array &$headers): callable
+    {
+        return function ($curl, string $headerLine) use (&$headers) {
+            $trimmed = trim($headerLine);
+            if ($trimmed === '' || strpos($trimmed, ':') === false) {
+                return strlen($headerLine);
+            }
+
+            list($name, $value) = explode(':', $trimmed, 2);
+            $headers[strtolower(trim($name))] = trim($value);
+
+            return strlen($headerLine);
+        };
+    }
+
+    protected function captureRapidApiHeaderMeta(array $headers): array
+    {
+        return [
+            'request_id' => strval($headers['x-rapidapi-request-id'] ?? ''),
+            'region' => strval($headers['x-rapidapi-region'] ?? ''),
+            'rate_remaining' => strval($headers['x-ratelimit-request-remaining'] ?? ''),
+            'cf_ray' => strval($headers['cf-ray'] ?? ''),
+        ];
+    }
+
+    protected function classifyRapidApiTransportFailure(array $meta): string
+    {
+        $errno = intval($meta['curl_errno'] ?? 0);
+        $nameLookup = doubleval($meta['time_namelookup'] ?? 0);
+        $connect = doubleval($meta['time_connect'] ?? 0);
+        $appConnect = doubleval($meta['time_appconnect'] ?? 0);
+        $startTransfer = doubleval($meta['time_starttransfer'] ?? 0);
+        $total = doubleval($meta['total_time'] ?? 0);
+        $threshold = max(0.25, min(1.0, $total * 0.1));
+
+        if ($errno === 6 || $nameLookup <= 0 || ($total > 0 && $nameLookup >= ($total - $threshold))) {
+            return 'infra_dns';
+        }
+
+        if ($errno === 7 || $connect <= 0 || ($total > 0 && $connect >= ($total - $threshold))) {
+            return 'infra_connect';
+        }
+
+        if ($errno === 35 || $appConnect <= 0 || ($total > 0 && $appConnect >= ($total - $threshold))) {
+            return 'infra_tls';
+        }
+
+        if ($errno === 28 && $startTransfer <= 0) {
+            return 'infra_stall';
+        }
+
+        return 'infra';
+    }
+
+    protected function executeRapidApiGet(string $url, array $headers = [], int $timeoutSec = 12): array
+    {
+        $configError = $this->rapidApiConfigError();
+        if ($configError !== null) {
+            return $configError;
+        }
+
+        $responseHeaders = [];
+        $curl = curl_init();
+        curl_setopt_array($curl, [
+            CURLOPT_URL => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_ENCODING => "",
+            CURLOPT_MAXREDIRS => 10,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => $timeoutSec,
+            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST => "GET",
+            CURLOPT_HTTPHEADER => !empty($headers) ? $headers : $this->getRapidApiHeaders(),
+            CURLOPT_HEADERFUNCTION => $this->buildRapidApiHeaderCollector($responseHeaders),
+        ]);
+
+        $response = curl_exec($curl);
+        $httpCode = intval(curl_getinfo($curl, CURLINFO_HTTP_CODE));
+        $curlErrno = intval(curl_errno($curl));
+        $err = curl_error($curl);
+        $totalTime = doubleval(curl_getinfo($curl, CURLINFO_TOTAL_TIME));
+        $nameLookup = doubleval(curl_getinfo($curl, CURLINFO_NAMELOOKUP_TIME));
+        $connect = doubleval(curl_getinfo($curl, CURLINFO_CONNECT_TIME));
+        $appConnect = doubleval(curl_getinfo($curl, CURLINFO_APPCONNECT_TIME));
+        $startTransfer = doubleval(curl_getinfo($curl, CURLINFO_STARTTRANSFER_TIME));
+        curl_close($curl);
+
+        return $this->finalizeRapidApiJsonResponse((string) $response, array_merge([
+            'http_code' => $httpCode,
+            'curl_errno' => $curlErrno,
+            'curl_error' => $err,
+            'total_time' => $totalTime,
+            'time_namelookup' => $nameLookup,
+            'time_connect' => $connect,
+            'time_appconnect' => $appConnect,
+            'time_starttransfer' => $startTransfer,
+        ], $this->captureRapidApiHeaderMeta($responseHeaders)));
     }
 
     protected function isValidRapidApiTiktokDetailResponse($response): bool
@@ -598,7 +699,15 @@ class Template
             'json_error' => '',
             'body_snippet' => '',
             'total_time' => 0.0,
+            'time_namelookup' => 0.0,
+            'time_connect' => 0.0,
+            'time_appconnect' => 0.0,
+            'time_starttransfer' => 0.0,
             'multi_result' => 0,
+            'request_id' => '',
+            'region' => '',
+            'rate_remaining' => '',
+            'cf_ray' => '',
         ];
         $errorClass = 'transient';
         $msg = '';
@@ -631,6 +740,12 @@ class Template
 
         if (strval($meta['body_snippet']) !== '') {
             $detail .= ' body=' . strval($meta['body_snippet']);
+        }
+        if (strval($meta['request_id']) !== '') {
+            $detail .= ' reqid=' . strval($meta['request_id']);
+        }
+        if (strval($meta['region']) !== '') {
+            $detail .= ' region=' . strval($meta['region']);
         }
 
         return [
@@ -1404,9 +1519,19 @@ class Template
         // out as concurrent RapidAPI calls — the only way a run completes its whole
         // chunk instead of grinding through them sequentially until the deadline.
         $scrapeEnabled = $this->isTiktokScrapeEnabled();
+        $effectiveConcurrency = $maxConcurrent;
+        $batchOptions = [
+            'inline_retry_limit' => 2,
+            'inline_retry_delay_ms' => 500,
+            'min_retry_budget_seconds' => 15.0,
+        ];
 
-        $chunks = array_chunk($tasks, $maxConcurrent, true);
-        foreach ($chunks as $chunk) {
+        $taskCount = count($tasks);
+        for ($offset = 0; $offset < $taskCount;) {
+            $firstTask = $tasks[$offset] ?? [];
+            $chunkSize = !empty($firstTask['rescue_lane']) ? 1 : $effectiveConcurrency;
+            $chunk = array_slice($tasks, $offset, $chunkSize, true);
+            $offset += $chunkSize;
             // Wall-clock guard: never overrun the worker's HTTP timeout. Out of budget →
             // defer this chunk (and every later one) so the caller returns those rows to
             // the queue instead of the run timing out mid-batch (504 + stuck rows).
@@ -1418,9 +1543,16 @@ class Template
             }
 
             if (!$scrapeEnabled) {
-                $batch = $this->fetchRapidApiTiktokBatch($chunk);
+                $batchOptions['remaining_budget_seconds'] = $deadlineSeconds > 0
+                    ? max(0, $deadlineSeconds - (microtime(true) - $startedAt))
+                    : 0.0;
+                $batch = $this->fetchRapidApiTiktokBatch($chunk, $batchOptions);
                 foreach ($chunk as $idx => $task) {
                     $results[$idx] = $batch[$idx] ?? ['status' => false, 'msg' => 'No response', 'data' => []];
+                }
+                if (!empty($batch['_meta']['brownout'])) {
+                    $effectiveConcurrency = min($effectiveConcurrency, 2);
+                    $batchOptions['inline_retry_limit'] = 0;
                 }
                 continue;
             }
@@ -1541,7 +1673,7 @@ class Template
      * Returns array indexed identically; each element matches get_social_media().
      * Single attempt per item — queue-level retry/defer handles transient failures.
      */
-    protected function fetchRapidApiTiktokBatch(array $tasks): array
+    protected function fetchRapidApiTiktokBatch(array $tasks, array $options = []): array
     {
         $configError = $this->rapidApiConfigError();
         $headers = $this->getRapidApiHeaders();
@@ -1550,6 +1682,10 @@ class Template
         $results = [];
         $multiInfo = [];
         $shareHandle = null;
+        $inlineRetryLimit = max(0, intval($options['inline_retry_limit'] ?? 0));
+        $inlineRetryDelayMs = max(0, intval($options['inline_retry_delay_ms'] ?? 0));
+        $remainingBudgetSeconds = doubleval($options['remaining_budget_seconds'] ?? 0.0);
+        $minRetryBudgetSeconds = doubleval($options['min_retry_budget_seconds'] ?? 0.0);
 
         if ($configError !== null) {
             foreach ($tasks as $idx => $task) {
@@ -1595,25 +1731,36 @@ class Template
                 continue;
             }
 
-            $detailUrl = $this->buildTiktokDetailUrl($url);
+            $detailUrl = $this->buildTiktokDetailUrl($url, intval($task['hd'] ?? 0));
             $curl = curl_init();
+            $responseHeaders = [];
+            $timeoutSec = max(1, intval($task['timeout_sec'] ?? 12));
             $curlOptions = [
                 CURLOPT_URL => $detailUrl,
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_ENCODING => '',
                 CURLOPT_MAXREDIRS => 10,
                 CURLOPT_CONNECTTIMEOUT => 5,
-                CURLOPT_TIMEOUT => 12,
+                CURLOPT_TIMEOUT => $timeoutSec,
                 CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
                 CURLOPT_CUSTOMREQUEST => 'GET',
                 CURLOPT_HTTPHEADER => $headers,
+                CURLOPT_HEADERFUNCTION => $this->buildRapidApiHeaderCollector($responseHeaders),
             ];
             if ($shareHandle !== null && defined('CURLOPT_SHARE')) {
                 $curlOptions[CURLOPT_SHARE] = $shareHandle;
             }
             curl_setopt_array($curl, $curlOptions);
             curl_multi_add_handle($multiHandle, $curl);
-            $handles[$idx] = ['curl' => $curl, 'url' => $url, 'content_id' => $content_id];
+            $handles[$idx] = [
+                'curl' => $curl,
+                'url' => $url,
+                'content_id' => $content_id,
+                'timeout_sec' => $timeoutSec,
+                'hd' => intval($task['hd'] ?? 0),
+                'rescue_lane' => !empty($task['rescue_lane']),
+                'headers' => &$responseHeaders,
+            ];
         }
 
         if (!empty($handles)) {
@@ -1643,6 +1790,10 @@ class Template
                 }
                 $httpCode = intval(curl_getinfo($curl, CURLINFO_HTTP_CODE));
                 $totalTime = doubleval(curl_getinfo($curl, CURLINFO_TOTAL_TIME));
+                $nameLookup = doubleval(curl_getinfo($curl, CURLINFO_NAMELOOKUP_TIME));
+                $connectTime = doubleval(curl_getinfo($curl, CURLINFO_CONNECT_TIME));
+                $appConnect = doubleval(curl_getinfo($curl, CURLINFO_APPCONNECT_TIME));
+                $startTransfer = doubleval(curl_getinfo($curl, CURLINFO_STARTTRANSFER_TIME));
                 curl_multi_remove_handle($multiHandle, $curl);
                 curl_close($curl);
 
@@ -1652,12 +1803,41 @@ class Template
                     'curl_errno' => $errno,
                     'curl_error' => $err,
                     'total_time' => $totalTime,
+                    'time_namelookup' => $nameLookup,
+                    'time_connect' => $connectTime,
+                    'time_appconnect' => $appConnect,
+                    'time_starttransfer' => $startTransfer,
                     'multi_result' => $multiResult,
-                ]);
+                ] + $this->captureRapidApiHeaderMeta($h['headers'] ?? []));
                 if ($this->isValidRapidApiTiktokDetailResponse($apiResp)) {
                     $results[$idx] = $this->mapRapidApiTiktokDetailToResponse($base, $apiResp['data'], true);
                 } else {
-                    $results[$idx] = $this->buildTiktokRapidApiFailureResponse($h['content_id'], $apiResp);
+                    $failure = $this->buildTiktokRapidApiFailureResponse($h['content_id'], $apiResp);
+                    $canInlineRetry = $inlineRetryLimit > 0
+                        && !$h['rescue_lane']
+                        && $remainingBudgetSeconds >= $minRetryBudgetSeconds
+                        && strval($failure['error_class'] ?? '') === 'infra_stall';
+
+                    if ($canInlineRetry) {
+                        $inlineRetryLimit--;
+                        if ($inlineRetryDelayMs > 0) {
+                            usleep($inlineRetryDelayMs * 1000);
+                        }
+
+                        $retryResp = $this->executeRapidApiGet(
+                            $this->buildTiktokDetailUrl($h['url'], $h['hd']),
+                            $headers,
+                            $h['timeout_sec']
+                        );
+
+                        if ($this->isValidRapidApiTiktokDetailResponse($retryResp)) {
+                            $results[$idx] = $this->mapRapidApiTiktokDetailToResponse($base, $retryResp['data'], true);
+                        } else {
+                            $results[$idx] = $this->buildTiktokRapidApiFailureResponse($h['content_id'], $retryResp);
+                        }
+                    } else {
+                        $results[$idx] = $failure;
+                    }
                 }
             }
         }
@@ -1666,6 +1846,23 @@ class Template
         if ($shareHandle !== null) {
             curl_share_close($shareHandle);
         }
+
+        $completedTikTok = 0;
+        $stallFailures = 0;
+        foreach ($results as $result) {
+            if (!is_array($result) || array_key_exists('deferred', $result)) {
+                continue;
+            }
+            $completedTikTok++;
+            if (strval($result['error_class'] ?? '') === 'infra_stall') {
+                $stallFailures++;
+            }
+        }
+        $results['_meta'] = [
+            'brownout' => $completedTikTok >= 3
+                && $stallFailures >= 3
+                && ($stallFailures / max(1, $completedTikTok)) >= 0.5,
+        ];
 
         return $results;
     }
