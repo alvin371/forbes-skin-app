@@ -12,6 +12,7 @@ if (! function_exists('env')) {
     function env($key, $default = null)
     {
         $value = getenv($key);
+
         return $value !== false ? $value : $default;
     }
 }
@@ -19,6 +20,9 @@ if (! function_exists('env')) {
 require_once __DIR__ . '/../../application/libraries/Template.php';
 require_once __DIR__ . '/../../application/libraries/Endorse_sync.php';
 
+/**
+ * @internal
+ */
 final class TiktokRapidApiTransportTest extends TestCase
 {
     protected function setUp(): void
@@ -32,14 +36,14 @@ final class TiktokRapidApiTransportTest extends TestCase
 
     public function testCurlRequestWithRetryStopsOnConfigFailure(): void
     {
-        $template = new TemplateTransportProbe();
+        $template                  = new TemplateTransportProbe();
         $template->queuedResponses = [
             [
-                'status' => false,
-                'msg' => 'Konfigurasi RapidAPI tidak lengkap.',
-                'data' => [],
+                'status'      => false,
+                'msg'         => 'Konfigurasi RapidAPI tidak lengkap.',
+                'data'        => [],
                 'error_class' => 'config',
-                'error_meta' => [],
+                'error_meta'  => [],
             ],
             [
                 'code' => 0,
@@ -47,9 +51,7 @@ final class TiktokRapidApiTransportTest extends TestCase
             ],
         ];
 
-        $result = $template->curlRequestWithRetry('https://example.test', [], function ($resp) {
-            return false;
-        }, 3, 0);
+        $result = $template->curlRequestWithRetry('https://example.test', [], static fn ($resp) => false, 3, 0);
 
         $this->assertSame(1, $template->curlRequestCalls);
         $this->assertSame('config', $result['error_class']);
@@ -57,18 +59,18 @@ final class TiktokRapidApiTransportTest extends TestCase
 
     public function testGetSocialMediaAcceptsTikTokDetailPayloadWithoutDataId(): void
     {
-        $template = new TemplateTransportProbe();
+        $template                  = new TemplateTransportProbe();
         $template->queuedResponses = [[
             'code' => 0,
-            'msg' => 'ok',
+            'msg'  => 'ok',
             'data' => [
-                'digg_count' => 11,
-                'share_count' => 2,
+                'digg_count'    => 11,
+                'share_count'   => 2,
                 'comment_count' => 3,
                 'collect_count' => 4,
-                'play_count' => 25,
-                'images' => ['https://cdn.example/image-1.jpg'],
-                'cover' => 'https://cdn.example/cover.jpg',
+                'play_count'    => 25,
+                'images'        => ['https://cdn.example/image-1.jpg'],
+                'cover'         => 'https://cdn.example/cover.jpg',
             ],
         ]];
 
@@ -77,7 +79,7 @@ final class TiktokRapidApiTransportTest extends TestCase
             'https://www.tiktok.com/@espresso/photo/7653084884126272785?lang=en',
             true,
             null,
-            true
+            true,
         );
 
         $this->assertTrue($result['status']);
@@ -89,22 +91,22 @@ final class TiktokRapidApiTransportTest extends TestCase
 
     public function testGetSocialMediaReturnsInfraFailureDetails(): void
     {
-        $template = new TemplateTransportProbe();
+        $template                  = new TemplateTransportProbe();
         $template->queuedResponses = [[
-            'status' => false,
-            'msg' => 'RapidAPI host tidak dapat dijangkau: http=0 cURL#28=Resolving timed out after 5001 milliseconds',
-            'data' => [],
+            'status'      => false,
+            'msg'         => 'RapidAPI host tidak dapat dijangkau: http=0 cURL#28=Resolving timed out after 5001 milliseconds',
+            'data'        => [],
             'error_class' => 'infra',
-            'error_meta' => [
-                'http_code' => 0,
-                'curl_errno' => 28,
-                'curl_error' => 'Resolving timed out after 5001 milliseconds',
+            'error_meta'  => [
+                'http_code'     => 0,
+                'curl_errno'    => 28,
+                'curl_error'    => 'Resolving timed out after 5001 milliseconds',
                 'rapidapi_code' => 'n/a',
-                'rapidapi_msg' => 'n/a',
-                'json_error' => '',
-                'body_snippet' => '',
-                'total_time' => 5.001,
-                'multi_result' => 28,
+                'rapidapi_msg'  => 'n/a',
+                'json_error'    => '',
+                'body_snippet'  => '',
+                'total_time'    => 5.001,
+                'multi_result'  => 28,
             ],
         ]];
 
@@ -113,7 +115,7 @@ final class TiktokRapidApiTransportTest extends TestCase
             'https://www.tiktok.com/@espresso/photo/7653084884126272785?lang=en',
             true,
             null,
-            true
+            true,
         );
 
         $this->assertFalse($result['status']);
@@ -124,22 +126,22 @@ final class TiktokRapidApiTransportTest extends TestCase
 
     public function testGetDataFromFirstEndpointPreservesTransportFailure(): void
     {
-        $template = new TemplateTransportProbe();
+        $template                  = new TemplateTransportProbe();
         $template->queuedResponses = [[
-            'status' => false,
-            'msg' => 'RapidAPI credentials ditolak: http=403',
-            'data' => [],
+            'status'      => false,
+            'msg'         => 'RapidAPI credentials ditolak: http=403',
+            'data'        => [],
             'error_class' => 'config',
-            'error_meta' => [
-                'http_code' => 403,
-                'curl_errno' => 0,
-                'curl_error' => '',
+            'error_meta'  => [
+                'http_code'     => 403,
+                'curl_errno'    => 0,
+                'curl_error'    => '',
                 'rapidapi_code' => '403',
-                'rapidapi_msg' => 'Forbidden',
-                'json_error' => '',
-                'body_snippet' => '',
-                'total_time' => 0.2,
-                'multi_result' => 0,
+                'rapidapi_msg'  => 'Forbidden',
+                'json_error'    => '',
+                'body_snippet'  => '',
+                'total_time'    => 0.2,
+                'multi_result'  => 0,
             ],
         ]];
 
@@ -156,9 +158,9 @@ final class TiktokRapidApiTransportTest extends TestCase
         $sync = new EndorseSyncProbe();
 
         $result = $sync->classify_response([
-            'status' => false,
-            'msg' => 'RapidAPI host tidak dapat dijangkau: http=0 cURL#28=Resolving timed out after 5001 milliseconds',
-            'data' => [],
+            'status'      => false,
+            'msg'         => 'RapidAPI host tidak dapat dijangkau: http=0 cURL#28=Resolving timed out after 5001 milliseconds',
+            'data'        => [],
             'error_class' => 'infra',
         ], 'Tiktok', 'https://www.tiktok.com/@espresso/photo/7653084884126272785?lang=en');
 
@@ -168,12 +170,13 @@ final class TiktokRapidApiTransportTest extends TestCase
 
 final class TemplateTransportProbe extends Template
 {
-    public $queuedResponses = [];
+    public $queuedResponses  = [];
     public $curlRequestCalls = 0;
 
     public function curlRequest($url, $headers = [])
     {
         $this->curlRequestCalls++;
+
         return array_shift($this->queuedResponses);
     }
 
@@ -181,7 +184,7 @@ final class TemplateTransportProbe extends Template
     {
         return [
             'host' => 'test-rapidapi.example',
-            'key' => 'test-key',
+            'key'  => 'test-key',
         ];
     }
 
