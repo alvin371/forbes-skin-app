@@ -21,47 +21,39 @@ require_once __DIR__ . '/../../application/libraries/Endorse_sync.php';
  */
 final class EndorseRetryPolicyTest extends TestCase
 {
-    public function terminalClassProvider(): array
+    public function testOnlyPermanentAndEmptyTerminate(): void
     {
-        return [
-            'permanent' => [Endorse_sync::ERR_PERMANENT],
-            'empty'     => [Endorse_sync::ERR_EMPTY],
+        $terminal = [
+            Endorse_sync::ERR_PERMANENT,
+            Endorse_sync::ERR_EMPTY,
         ];
+
+        foreach ($terminal as $class) {
+            $this->assertTrue(
+                Endorse_sync::is_terminal_class($class),
+                "{$class} must terminate the queue row",
+            );
+        }
     }
 
-    public function recoverableClassProvider(): array
+    public function testTransportAndTransientClassesAreRetried(): void
     {
-        return [
-            'transient'     => [Endorse_sync::ERR_TRANSIENT],
-            'infra'         => [Endorse_sync::ERR_INFRA],
-            'infra_dns'     => [Endorse_sync::ERR_INFRA_DNS],
-            'infra_connect' => [Endorse_sync::ERR_INFRA_CONNECT],
-            'infra_tls'     => [Endorse_sync::ERR_INFRA_TLS],
-            'infra_stall'   => [Endorse_sync::ERR_INFRA_STALL],
-            'config'        => [Endorse_sync::ERR_CONFIG],
-            'unknown'       => ['something_new'],
+        $recoverable = [
+            Endorse_sync::ERR_TRANSIENT,
+            Endorse_sync::ERR_INFRA,
+            Endorse_sync::ERR_INFRA_DNS,
+            Endorse_sync::ERR_INFRA_CONNECT,
+            Endorse_sync::ERR_INFRA_TLS,
+            Endorse_sync::ERR_INFRA_STALL,
+            Endorse_sync::ERR_CONFIG,
+            'something_new',
         ];
-    }
 
-    /**
-     * @dataProvider terminalClassProvider
-     */
-    public function testTerminalClassesFailImmediately(string $class): void
-    {
-        $this->assertTrue(
-            Endorse_sync::is_terminal_class($class),
-            "$class must terminate the queue row"
-        );
-    }
-
-    /**
-     * @dataProvider recoverableClassProvider
-     */
-    public function testRecoverableClassesAreRetried(string $class): void
-    {
-        $this->assertFalse(
-            Endorse_sync::is_terminal_class($class),
-            "$class must be retried, not terminal-failed (queue-stall regression)"
-        );
+        foreach ($recoverable as $class) {
+            $this->assertFalse(
+                Endorse_sync::is_terminal_class($class),
+                "{$class} must be retried, not terminal-failed (queue-stall regression)",
+            );
+        }
     }
 }
