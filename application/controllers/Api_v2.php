@@ -7872,12 +7872,21 @@ class Api_v2 extends CI_Controller
         header('Content-Type: application/json; charset=utf-8');
         @set_time_limit(55);
 
-        $BATCH_SIZE    = intval(env('ENDORSE_REFRESH_BATCH_SIZE', 10));
+        // Batch must stay matched to what one run can actually finish, or the surplus is
+        // just claimed-then-deferred every tick (churn). Invariant:
+        //   BATCH ≈ PARALLEL_HTTP × ceil(DEADLINE_SEC / typical_latency)
+        // Upstream RapidAPI latency is ~15s and DEADLINE is 45s, so ~3 waves × PARALLEL.
+        // Default 40 ≈ 10 parallel × ~3-4 waves. Oversized batches (e.g. 250) do NOT go
+        // faster — the wall-clock deadline caps the run regardless; they only churn.
+        $BATCH_SIZE    = intval(env('ENDORSE_REFRESH_BATCH_SIZE', 40));
         if ($BATCH_SIZE <= 0) {
-            $BATCH_SIZE = 10;
+            $BATCH_SIZE = 40;
         } elseif ($BATCH_SIZE > 500) {
             $BATCH_SIZE = 500;
         }
+        // Concurrent RapidAPI calls per run. High upstream TTFB (~15s) is idle I/O, so
+        // fanning out N-wide is the only throughput lever (N calls wait the same ~15s,
+        // not N × 15s). PARALLEL_HTTP=1 serialises the run → ~4 items/run. Keep ≥ ~8.
         $PARALLEL_HTTP = intval(env('ENDORSE_REFRESH_PARALLEL_HTTP', 10));
         if ($PARALLEL_HTTP < 1) {
             $PARALLEL_HTTP = 1;

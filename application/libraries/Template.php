@@ -1520,8 +1520,10 @@ class Template
         // chunk instead of grinding through them sequentially until the deadline.
         $scrapeEnabled = $this->isTiktokScrapeEnabled();
         $effectiveConcurrency = $maxConcurrent;
+        $brownoutFloor = min($maxConcurrent, 4); // never serialise below this on backoff
+        $baseInlineRetryLimit = 2;
         $batchOptions = [
-            'inline_retry_limit' => 2,
+            'inline_retry_limit' => $baseInlineRetryLimit,
             'inline_retry_delay_ms' => 500,
             'min_retry_budget_seconds' => 15.0,
         ];
@@ -1551,8 +1553,16 @@ class Template
                     $results[$idx] = $batch[$idx] ?? ['status' => false, 'msg' => 'No response', 'data' => []];
                 }
                 if (!empty($batch['_meta']['brownout'])) {
-                    $effectiveConcurrency = min($effectiveConcurrency, 2);
+                    // Upstream degraded: back off, but don't latch at the floor — one slow
+                    // chunk must not serialise the whole run. Halve toward a floor of ~4
+                    // and pause inline retries while degraded.
+                    $effectiveConcurrency = max($brownoutFloor, intdiv($effectiveConcurrency, 2));
                     $batchOptions['inline_retry_limit'] = 0;
+                } elseif ($effectiveConcurrency < $maxConcurrent) {
+                    // Clean chunk after a brownout: ramp concurrency back toward the cap and
+                    // restore inline retries. Additive recovery avoids hard oscillation.
+                    $effectiveConcurrency = min($maxConcurrent, $effectiveConcurrency + 2);
+                    $batchOptions['inline_retry_limit'] = $baseInlineRetryLimit;
                 }
                 continue;
             }
@@ -1678,6 +1688,15 @@ class Template
         $configError = $this->rapidApiConfigError();
         $headers = $this->getRapidApiHeaders();
         $multiHandle = curl_multi_init();
+        // Let concurrent calls in this chunk share HTTP/2 connections (many streams over
+        // few sockets) rather than opening a fresh TCP+TLS per request. Guarded so the CI
+        // image / older libcurl without these constants degrades to plain parallel 1.1.
+        if (defined('CURLMOPT_PIPELINING') && defined('CURLPIPE_MULTIPLEX')) {
+            curl_multi_setopt($multiHandle, CURLMOPT_PIPELINING, CURLPIPE_MULTIPLEX);
+        }
+        if (defined('CURLMOPT_MAX_HOST_CONNECTIONS')) {
+            curl_multi_setopt($multiHandle, CURLMOPT_MAX_HOST_CONNECTIONS, max(1, count($tasks)));
+        }
         $handles = [];
         $results = [];
         $multiInfo = [];
@@ -1742,7 +1761,11 @@ class Template
                 CURLOPT_MAXREDIRS => 10,
                 CURLOPT_CONNECTTIMEOUT => 5,
                 CURLOPT_TIMEOUT => $timeoutSec,
-                CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+                // RapidAPI serves HTTP/2 — let a whole fan-out chunk multiplex over one
+                // connection (see CURLMOPT_PIPELINING on the multi handle) instead of one
+                // TCP+TLS handshake per concurrent call. Falls back to 1.1 automatically
+                // if libcurl was built without h2.
+                CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_2TLS,
                 CURLOPT_CUSTOMREQUEST => 'GET',
                 CURLOPT_HTTPHEADER => $headers,
                 CURLOPT_HEADERFUNCTION => $this->buildRapidApiHeaderCollector($responseHeaders),
