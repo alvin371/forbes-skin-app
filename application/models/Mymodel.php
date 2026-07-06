@@ -394,4 +394,81 @@ class Mymodel extends CI_Model {
 			}
 		}
 
+		/**
+		 * Canonical endorsement totals — the single number every surface
+		 * (overview KOL chart, endorse chart/tiles, endorse logs) reconciles to.
+		 *
+		 * Prod harness (2026-07-06) proved SUM(endorse.views) === SUM(latest
+		 * endorse_logs.views_after) across all endorses (diff 0), i.e. the
+		 * `endorse` row already holds each endorse's current snapshot. So the
+		 * current-total is a plain SUM over `endorse` — no endorse_logs scan.
+		 *
+		 * @param string $where  endorse-set predicate from endorse_filter_where()
+		 * @param string $join   optional join (endorse_campaign) from the helper
+		 * @return array  keys: views likes comment share_save cost endorse influencer fyp
+		 */
+		public function endorseCanonicalTotals($where, $join = '')
+		{
+			$sql = "SELECT
+					COALESCE(SUM(endorse.views), 0)        AS views,
+					COALESCE(SUM(endorse.likes), 0)        AS likes,
+					COALESCE(SUM(endorse.comment), 0)      AS comment,
+					COALESCE(SUM(endorse.share_save), 0)   AS share_save,
+					COALESCE(SUM(endorse.total_cost), 0)   AS cost,
+					COUNT(endorse.id)                      AS endorse,
+					COUNT(DISTINCT NULLIF(endorse.influencer, '')) AS influencer,
+					COALESCE(SUM(endorse.is_fyp = 1), 0)   AS fyp
+				FROM endorse
+				$join
+				WHERE 1=1 $where";
+			$row = $this->db->query($sql)->row_array();
+			return $row ?: array(
+				'views' => 0, 'likes' => 0, 'comment' => 0, 'share_save' => 0,
+				'cost' => 0, 'endorse' => 0, 'influencer' => 0, 'fyp' => 0,
+			);
+		}
+
+		/**
+		 * As-of-past-date twin of endorseCanonicalTotals(): sums each qualifying
+		 * endorse's latest endorse_logs snapshot with log_date <= $as_of. Used
+		 * when the viewer scopes to a historical date; for today/future the
+		 * cheaper endorseCanonicalTotals() over `endorse` gives the same numbers.
+		 * Tiebreak on the latest row is MAX(id) (matches the refresh write order).
+		 *
+		 * @param string $where  endorse-set predicate (endorse_filter_where())
+		 * @param string $as_of  'Y-m-d'
+		 * @param string $join   optional endorse_campaign join
+		 */
+		public function endorseCanonicalTotalsAsOf($where, $as_of, $join = '')
+		{
+			$as_of = $this->db->escape($as_of);
+			$sql = "SELECT
+					COALESCE(SUM(el.views_after), 0)      AS views,
+					COALESCE(SUM(el.likes_after), 0)      AS likes,
+					COALESCE(SUM(el.comment_after), 0)    AS comment,
+					COALESCE(SUM(el.share_save_after), 0) AS share_save,
+					COALESCE(SUM(e.total_cost), 0)        AS cost,
+					COUNT(*)                              AS endorse,
+					COUNT(DISTINCT NULLIF(e.influencer, '')) AS influencer,
+					COALESCE(SUM(e.is_fyp = 1), 0)        AS fyp
+				FROM (
+					SELECT endorse.id, endorse.total_cost, endorse.influencer, endorse.is_fyp
+					FROM endorse
+					$join
+					WHERE 1=1 $where
+				) e
+				INNER JOIN (
+					SELECT id_endorse, MAX(id) AS mid
+					FROM endorse_logs
+					WHERE log_date <= $as_of
+					GROUP BY id_endorse
+				) last ON last.id_endorse = e.id
+				INNER JOIN endorse_logs el ON el.id = last.mid";
+			$row = $this->db->query($sql)->row_array();
+			return $row ?: array(
+				'views' => 0, 'likes' => 0, 'comment' => 0, 'share_save' => 0,
+				'cost' => 0, 'endorse' => 0, 'influencer' => 0, 'fyp' => 0,
+			);
+		}
+
 }

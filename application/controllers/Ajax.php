@@ -181,55 +181,18 @@ class Ajax extends CI_Controller
         $keyword_category = $_GET['keyword_category'] ? $_GET['keyword_category'] : "Nama Creator";
         $keyword = $_GET['keyword'];
 
-        $filters_common = "";
-        $need_join_campaign = false; // whether we must join endorse_campaign
+		// Unified endorse-set predicate — shared with get_summary_campaign (tiles)
+		// and Endorse::logs so the same PIC/brand/status yields the same population
+		// on every surface. On the dashboard overview a single id_campaign must NOT
+		// narrow the set (it aggregates across campaigns via ids_campaign), so drop it.
+		$this->load->helper('endorse_filter');
+		$filter_get = $_GET;
+		if ($is_dashboard == 'true') { unset($filter_get['id_campaign']); }
+		$ef = endorse_filter_where($filter_get, $this->db);
+		$filters_common = $ef['where'];
+		$need_join_campaign = ($ef['join'] !== '');
 
-		if ($brand) {
-			$filters_common .= " AND endorse.brand = '$brand' ";
-		}
-
-		// Status upload/FYP
-		$status = $_GET['status'];
-		if ($status) {
-			if ($status == 'Ada Link Upload') {
-				$filters_common .= " AND endorse.link_upload != '' ";
-			} else if ($status == 'Tidak Ada Link Upload') {
-				$filters_common .= " AND endorse.link_upload = '' ";
-			} else if ($status == 'FYP') {
-				$filters_common .= " AND endorse.is_fyp = 1 ";
-			}
-		}
-
-		$status_data = $_GET['status_data'];
-		if ($status_data) {
-			$filters_common .= " AND endorse.status = '$status_data' ";
-		}
-
-		$endorse_status = $_GET['endorse_status'];
-		if ($endorse_status) {
-			$statusArray = explode(',', $endorse_status);
-			$text = '';
-			foreach ($statusArray as $v) $text .= "'" . $v . "',";
-			$text = rtrim($text, ',');
-			if ($text) $filters_common .= " AND endorse.status_endorse IN ($text) ";
-		}
-
-		// Status payment (multi)
-		$status_payment = $_GET['status_payment'];
-		if ($status_payment) {
-			$statusPaymentArray = explode(',', $status_payment);
-			$text = '';
-			foreach ($statusPaymentArray as $v) $text .= "'" . $v . "',";
-			$text = rtrim($text, ',');
-			if ($text) $filters_common .= " AND endorse.status_payment IN ($text) ";
-		}
-
-		// Platform
-        $platform = $_GET['platform'];
-        if ($platform) {
-            $filters_common .= " AND endorse.platform = '$platform' ";
-        }
-
+		// Chart-only narrowing (single influencer / username) — not a cross-surface filter.
 		if ($chart_influencer !== '') {
 			$chart_influencer = (int)$chart_influencer;
 			if ($chart_influencer > 0) {
@@ -238,70 +201,6 @@ class Ajax extends CI_Controller
 		} else if ($chart_username !== '') {
 			$chart_username = $this->db->escape_like_str($chart_username);
 			$filters_common .= " AND endorse.nama_creator LIKE '%$chart_username%' ";
-		}
-
-        // PIC per content (multi)
-        $pic = $this->input->get('pic');
-        if (!empty($pic)) {
-            if (!is_array($pic)) { $pic = [$pic]; }
-            $pic = array_filter($pic, function($v){ return $v !== '' && $v !== null; });
-            if (!empty($pic)) {
-                $pic_list = "'" . implode("','", array_map(function($v){ return str_replace("'", "''", $v); }, $pic)) . "'";
-                $filters_common .= " AND endorse.pic IN ($pic_list) ";
-            }
-        }
-
-        // Product (multi)
-        $product = $this->input->get('product');
-        if (!empty($product)) {
-            if (!is_array($product)) { $product = [$product]; }
-            $product = array_filter($product, function($v){ return $v !== '' && $v !== null; });
-            if (!empty($product)) {
-                $product_list = "'" . implode("','", array_map(function($v){ return str_replace("'", "''", $v); }, $product)) . "'";
-                $filters_common .= " AND endorse.product IN ($product_list) ";
-            }
-        }
-
-        // Endorsement category (internal/external)
-        $endorse_category = $this->input->get('endorse_category');
-        if ($endorse_category === 'internal') {
-            $filters_common .= " AND endorse_campaign.is_internal = 1 ";
-            $need_join_campaign = true;
-        } else if ($endorse_category === 'external') {
-            $filters_common .= " AND endorse_campaign.is_internal = 0 ";
-            $need_join_campaign = true;
-        }
-
-		// Keyword
-		if ($keyword) {
-			if ($keyword_category == "Nama Creator") {
-				$filters_common .= " AND endorse.nama_creator LIKE '%$keyword%' ";
-			} else if ($keyword_category == "Link Upload") {
-				$filters_common .= " AND endorse.link_upload LIKE '%$keyword%' ";
-			} else if ($keyword_category == "PIC") {
-				$filters_common .= " AND endorse.pic LIKE '%$keyword%' ";
-			} else if ($keyword_category == "Platform") {
-				$filters_common .= " AND endorse.platform LIKE '%$keyword%' ";
-			} else if ($keyword_category == "Task") {
-				$filters_common .= " AND endorse.task LIKE '%$keyword%' ";
-			} else if ($keyword_category == "Keterangan") {
-				$filters_common .= " AND endorse.`desc` LIKE '%$keyword%' ";
-			}
-		}
-
-		// Multi campaign
-		$ids_campaign = $_GET['ids_campaign'];
-		$ids_campaign_list = '';
-		if ($ids_campaign && is_array($ids_campaign)) {
-			foreach ($ids_campaign as $v) $ids_campaign_list .= "'" . $v . "',";
-			$ids_campaign_list = rtrim($ids_campaign_list, ',');
-		}
-		if ($ids_campaign_list) {
-			$filters_common .= " AND endorse.id_campaign IN ($ids_campaign_list) ";
-		} else {
-			if ($is_dashboard != 'true' && $id_campaign) {
-				$filters_common .= " AND endorse.id_campaign = '$id_campaign' ";
-			}
 		}
 
 		$filters_date_on_endorse = "";
@@ -712,6 +611,28 @@ class Ajax extends CI_Controller
 			}
 		}
 
+
+		// ===== Canonical headline: reconcile every surface to ONE number =====
+		// The curve above is for shape only. The summary tiles a PIC is graded on
+		// come from the same SUM(endorse.*) that get_summary_campaign (tiles) and
+		// the logs footer use. Prod harness (2026-07-06) proved endorse.* equals
+		// each endorse's latest endorse_logs snapshot, so for today/future this is
+		// exact and cheap; for a past until_date use the as-of snapshot instead.
+		$canonical_where = $filters_common . $filters_date_on_endorse;
+		$canonical = ($until_date >= date('Y-m-d'))
+			? $this->mymodel->endorseCanonicalTotals($canonical_where, $ef['join'])
+			: $this->mymodel->endorseCanonicalTotalsAsOf($canonical_where, $until_date, $ef['join']);
+		$views       = (float)$canonical['views'];
+		$likes       = (float)$canonical['likes'];
+		$comment     = (float)$canonical['comment'];
+		$share_save  = (float)$canonical['share_save'];
+		$engagement  = $likes + $comment + $share_save;
+		$cost        = (float)$canonical['cost'];
+		$cpm         = ($views > 0) ? ($cost / $views) * 1000 : 0;
+		$endorse_cnt = (int)$canonical['endorse'];
+		$endorse     = (int)$canonical['endorse'];
+		$endorse_fyp = (int)$canonical['fyp'];
+		$influencer  = (int)$canonical['influencer'];
 
 		$html['summary']['query']        = $this->db->last_query();
 		$html['summary']['views']        = $this->template->separator_only($views);
@@ -1148,10 +1069,14 @@ class Ajax extends CI_Controller
 			SELECT
 				el.id_endorse,
 				el.log_date AS log_date,
-				GREATEST(COALESCE(el.likes, 0), 0) AS likes_delta,
-				GREATEST(COALESCE(el.comment, 0), 0) AS comment_delta,
-				GREATEST(COALESCE(el.share_save, 0), 0) AS share_save_delta,
-				GREATEST(COALESCE(el.views, 0), 0) AS views_delta,
+				-- Signed per-run deltas (no GREATEST clamp): metric drops (deleted
+				-- videos / count corrections) must subtract so the cumulative curve
+				-- telescopes to the true latest *_after snapshot, matching the
+				-- canonical headline. Clamping to 0 was the Q4 upward drift.
+				COALESCE(el.likes, 0) AS likes_delta,
+				COALESCE(el.comment, 0) AS comment_delta,
+				COALESCE(el.share_save, 0) AS share_save_delta,
+				COALESCE(el.views, 0) AS views_delta,
 				COALESCE(el.total_cost, 0) AS total_cost,
 				COALESCE(el.updated_at, el.created_at, CONCAT(el.date, ' 00:00:00')) AS last_updated
 			FROM endorse_logs el
@@ -4600,16 +4525,16 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 		}
 		$data['start_date'] = $start_date;
 		$data['until_date'] = $until_date;
-		$qry = "";
+		// Unified endorse-set predicate — same builder the chart headline and the
+		// logs footer use, so the same PIC/brand/status yields the same totals.
+		$this->load->helper('endorse_filter');
+		$ef  = endorse_filter_where($_GET, $this->db);
+		$qry = $ef['where'];
 
 		$ids = $_GET['ids'];
 		$data['ids'] = $ids;
 		if ($ids) {
-			$qry .= " AND id  IN ($ids) ";
-		}
-
-		if ($brand) {
-			$qry .= " AND brand = '$brand' ";
+			$qry .= " AND endorse.id IN ($ids) ";
 		}
 
 		$cat = $_GET['cat'];
@@ -4623,69 +4548,9 @@ gradient_6.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 			// $qry .= " AND created_at >= '$start_date' AND created_at < DATE_ADD('$until_date', INTERVAL 1 DAY) ";
 		}
 
-		$status = $_GET['status'];
-		if ($status) {
-			if ($status == 'Ada Link Upload') {
-				$qry .= " AND link_upload != '' ";
-			} else if ($status == 'Tidak Ada Link Upload') {
-				$qry .= " AND link_upload = '' ";
-			} else if ($status == 'FYP') {
-				$qry .= " AND is_fyp = 1 ";
-			}
-		}
+		// status / status_payment / endorse_status / platform / keyword / status_data
+		// are all built by endorse_filter_where() above — no per-tile copy needed.
 
-		$status_payment = $_GET['status_payment'];
-		$statusPaymentArray = $status_payment ? explode(',', $status_payment) : [];
-		$text = '';
-		foreach ($statusPaymentArray as $k => $v) {
-			$text .= "'" . $v . "',";
-		}
-		$text = substr($text, 0, -1);
-
-		if ($text) {
-			$qry .= " AND status_payment IN ($text) ";
-		}
-
-		$status = $_GET['endorse_status'];
-		$statusArray = $status ? explode(',', $status) : [];
-		$text = '';
-		foreach ($statusArray as $k => $v) {
-			$text .= "'" . $v . "',";
-		}
-		$text = substr($text, 0, -1);
-
-		if ($text) {
-			$qry .= " AND status_endorse IN ($text) ";
-		}
-
-		$platform = $_GET['platform'];
-		if ($platform) {
-			$qry .= " AND platform = '$platform' ";
-		}
-
-		if ($keyword) {
-			if ($keyword_category == "Nama Creator") {
-				$qry .= " AND nama_creator LIKE '%$keyword%' ";
-			} else if ($keyword_category == "Link Upload") {
-				$qry .= " AND link_upload LIKE '%$keyword%' ";
-			} else if ($keyword_category == "PIC") {
-				$qry .= " AND pic LIKE '%$keyword%' ";
-			} else if ($keyword_category == "Platform") {
-				$qry .= " AND platform LIKE '%$keyword%' ";
-			} else if ($keyword_category == "Task") {
-				$qry .= " AND task LIKE '%$keyword%' ";
-			} else if ($keyword_category == "Keterangan") {
-				$qry .= " AND endorse.desc LIKE '%$keyword%' ";
-			}
-		}
-
-		$status_data = $_GET['status_data'];
-
-		if ($status_data) {
-			$qry .= " AND endorse.status = '$status_data' ";
-		}
-
-		// echo $qry;die;
 
 		$query = $this->mymodel->selectWithQuery("SELECT id
         FROM endorse

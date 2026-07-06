@@ -411,10 +411,22 @@ $top_5_data = array_slice($data_with_diff, 0, 5);
     <!-- Complete Data Table -->
     <div class="col-lg-12">
         <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap">
                 <h5 class="mb-0">
                     Endorse Logs <?= date('d-m-Y', strtotime($_GET['date'])) ?>
                 </h5>
+                <?php if (!empty($summary)) { ?>
+                <div class="text-end small">
+                    <span class="me-3"><b>Total per <?= date('d-m-Y', strtotime($date)) ?></b></span>
+                    <span class="me-3">Konten: <?= $this->template->separator_only($summary['endorse']) ?></span>
+                    <span class="me-3">Influencer: <?= $this->template->separator_only($summary['influencer']) ?></span>
+                    <span class="me-3">Views: <?= $this->template->separator_only($summary['views']) ?></span>
+                    <span class="me-3">Likes: <?= $this->template->separator_only($summary['likes']) ?></span>
+                    <span class="me-3">Komentar: <?= $this->template->separator_only($summary['comment']) ?></span>
+                    <span class="me-3">Share/Save: <?= $this->template->separator_only($summary['share_save']) ?></span>
+                    <span>Cost: <?= $this->template->separator_only($summary['cost']) ?></span>
+                </div>
+                <?php } ?>
             </div>
             <div class="card-body">
                 <div class="col-lg-12 mb-3">
