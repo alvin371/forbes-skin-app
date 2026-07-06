@@ -3444,33 +3444,6 @@ class Endorse extends BaseController
             $qry_endorse .= " AND endorse.id_campaign = '$id_campaign' ";
         }
 
-        $ids_campaign = $this->input->get('ids_campaign');
-        $text = '';
-        if (is_array($ids_campaign)) {
-            foreach ($ids_campaign as $k => $v) {
-                $text .= "'" . $v . "',";
-            }
-        }
-        $text = substr($text, 0, -1);
-
-        if ($text) {
-            $qry_endorse .= " AND endorse.id_campaign IN ($text) ";
-        }
-
-
-        $endorse_status = $_GET['endorse_status'];
-
-        $statusArray = $endorse_status ? explode(',', $endorse_status) : [];
-        $text = '';
-        foreach ($statusArray as $k => $v) {
-            $text .= "'" . $v . "',";
-        }
-        $text = substr($text, 0, -1);
-
-        if ($text) {
-            $qry_endorse .= " AND status_endorse IN ($text) ";
-        }
-
         if ($_GET['keyword_category']) {
             $keyword_category = $_GET['keyword_category'];
         } else {
@@ -3479,36 +3452,31 @@ class Endorse extends BaseController
         $data['keyword_category'] = $keyword_category;
         $keyword = $_GET['keyword'];
 
-        if ($keyword) {
-            if ($keyword_category == "Nama Creator") {
-                $qry .= " AND endorse.nama_creator LIKE '%$keyword%' ";
-            } else if ($keyword_category == "Link Upload") {
-                $qry .= " AND endorse.link_upload LIKE '%$keyword%' ";
-            } else if ($keyword_category == "PIC") {
-                $qry .= " AND endorse.pic LIKE '%$keyword%' ";
-            } else if ($keyword_category == "Platform") {
-                $qry .= " AND endorse.platform LIKE '%$keyword%' ";
-            } else if ($keyword_category == "Task") {
-                $qry .= " AND endorse.task LIKE '%$keyword%' ";
-            } else if ($keyword_category == "Keterangan") {
-                $qry .= " AND endorse.desc LIKE '%$keyword%' ";
-            }
-        }
+        // Unified endorse-set predicate — the SAME builder the chart headline and
+        // the summary tiles use, so the same PIC/brand/status shows the same
+        // population here, and the footer total below agrees with the chart.
+        $this->load->helper('endorse_filter');
+        $ef = endorse_filter_where($_GET, $this->db);
+        $qry_endorse = $ef['where'];
 
-        $query = $this->mymodel->selectWithQuery("SELECT id,total_cost
-			FROM endorse
-			WHERE 1=1 $qry_endorse
-			");
-
-        $list_ids = '';
+        // Restrict the raw log rows (drilldown) to that endorse set.
+        $query = $this->mymodel->selectWithQuery("SELECT endorse.id
+            FROM endorse {$ef['join']}
+            WHERE 1=1 $qry_endorse");
+        $text = '';
         foreach ($query as $k => $v) {
             $text .= "'" . $v['id'] . "',";
         }
         $text = substr($text, 0, -1);
-
         if ($text) {
-            $qry .= " AND id_endorse IN ($text) ";
+            $qry .= " AND endorse_logs.id_endorse IN ($text) ";
+        } else {
+            $qry .= " AND 1=0 ";
         }
+
+        // Canonical as-of total for this day (deduped latest snapshot) — the number
+        // a PIC is graded on, identical to the chart/overview headline.
+        $data['summary'] = $this->mymodel->endorseCanonicalTotalsAsOf($ef['where'], $date, $ef['join']);
 
         $data['data'] = $this->mymodel->selectWithQuery("SELECT *
         FROM endorse_logs
