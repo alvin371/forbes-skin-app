@@ -3478,13 +3478,39 @@ class Endorse extends BaseController
         // a PIC is graded on, identical to the chart/overview headline.
         $data['summary'] = $this->mymodel->endorseCanonicalTotalsAsOf($ef['where'], $date, $ef['join']);
 
+        // Server-side pagination — without it the view rendered EVERY row for the day
+        // into the DOM (DataTables paging:false), OOM-crashing the tab ("Aw Snap") on
+        // busy campaigns. Mirrors the limit/offset pattern in Endorse::item().
+        $per_page_options = [10, 20, 50, 100];
+        $limit = (int)($this->input->get('limit') ?: 10);
+        if (!in_array($limit, $per_page_options)) { $limit = 10; }
+        $current_page = max(1, (int)($this->input->get('page') ?: 1));
+        $offset = ($current_page - 1) * $limit;
+
+        $count = $this->mymodel->selectWithQuery("SELECT COUNT(*) AS total
+        FROM endorse_logs
+        INNER JOIN endorse ON endorse.id = endorse_logs.id_endorse
+        WHERE $qry");
+        $total = (int)($count[0]['total'] ?? 0);
+
         $data['data'] = $this->mymodel->selectWithQuery("SELECT *
         FROM endorse_logs
         INNER JOIN endorse ON endorse.id = endorse_logs.id_endorse
         WHERE $qry
-        ORDER BY endorse_logs.id DESC");
+        ORDER BY (endorse_logs.views_after - endorse_logs.views_before) DESC, endorse_logs.id DESC
+        LIMIT $offset, $limit");
 
-        $data['notif'] = '<p class="mb-1"><label class="text-notif">' . $this->template->separator_only(count($data['data'])) . ' data ditemukan!</label></p>';
+        $data['limit']            = $limit;
+        $data['per_page_options'] = $per_page_options;
+        $data['total_data']       = $total;
+        $data['page']             = (int)ceil($total / $limit); // total pages
+        $data['current_page']     = $current_page;
+        $data['start']            = $total ? $offset + 1 : 0;
+        $data['end']              = min($offset + $limit, $total);
+        $data['param_pagination'] = $this->template->get_param_without('page');
+        $data['pagination']       = $this->template->pagination($data['page'], $current_page, $data['param_pagination']);
+
+        $data['notif'] = '<p class="mb-1"><label class="text-notif">' . $this->template->separator_only($total) . ' data ditemukan!</label></p>';
         $data['url'] = base_url() . '/endorse/logs?date=' . $date . '&id_campaign=' . $id_campaign . '&keyword_category=' . $keyword_category . '&keyword=' . $keyword;
         $data['content'] = $this->load->view("endorse/logs", $data, true);
         $this->load->view("TemplateDashboard", $data);
