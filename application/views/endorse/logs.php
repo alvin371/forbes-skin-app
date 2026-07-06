@@ -97,13 +97,8 @@ if ($inf_ids) {
     }
 }
 
-// Sort berdasarkan selisih views tertinggi
-usort($data_with_diff, function($a, $b) {
-    return $b['views_diff'] - $a['views_diff'];
-});
-
-// Ambil 5 tertinggi
-$top_5_data = array_slice($data_with_diff, 0, 5);
+// Ordering + pagination are done server-side (Endorse::logs) now, so the page
+// slice arrives already sorted by views growth. No client-side usort here.
 ?>
 <style>
     /* Select2 Styling */
@@ -473,7 +468,7 @@ $top_5_data = array_slice($data_with_diff, 0, 5);
                 
                 <div id="customInfo" class="alert alert-info d-flex align-items-center mb-3">
                     <i class="bi bi-info-circle me-2"></i>
-                    <span>Menampilkan semua data</span>
+                    <span>Menampilkan <?= $start ?>&ndash;<?= $end ?> dari <?= $total_data ?> data</span>
                 </div>
 
                 <div id="tbody">
@@ -545,6 +540,27 @@ $top_5_data = array_slice($data_with_diff, 0, 5);
 
                     </div>
                 </div>
+
+                <div class="d-flex justify-content-between align-items-center flex-wrap mt-3">
+                    <div>
+                        <?= $pagination ?>
+                    </div>
+                    <div>
+                        <?php $lp = $_GET; unset($lp['limit'], $lp['page']); ?>
+                        <form method="GET" action="" class="d-flex align-items-center">
+                            <?php foreach ($lp as $lk => $lv) {
+                                foreach ((is_array($lv) ? $lv : [$lv]) as $lv1) {
+                                    $ln = is_array($lv) ? $lk . '[]' : $lk; ?>
+                                    <input type="hidden" name="<?= htmlspecialchars($ln) ?>" value="<?= htmlspecialchars($lv1) ?>">
+                            <?php } } ?>
+                            <select class="form-control form-control-sm" name="limit" onchange="this.form.submit()" style="width:140px">
+                                <?php foreach ($per_page_options as $option) { ?>
+                                    <option value="<?= $option ?>" <?= ($limit == $option) ? 'selected' : '' ?>><?= $option ?> / Halaman</option>
+                                <?php } ?>
+                            </select>
+                        </form>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -586,23 +602,8 @@ $top_5_data = array_slice($data_with_diff, 0, 5);
         $('#searchInput').on('keyup', function () {
             table.search(this.value).draw();
         });
-
-        // ✅ Update custom info
-        function updateInfo() {
-            var info = table.page.info();
-            var total = info.recordsDisplay; // jumlah setelah filter
-            var total_all = info.recordsTotal; // total semua
-            var notifText = "Menampilkan " + total + " dari " + total_all + " data";
-            $("#customInfo span").text(notifText);
-        }
-
-        // update pertama kali load
-        updateInfo();
-
-        // update setiap kali datatable di-draw
-        table.on('draw.dt', function () {
-            updateInfo();
-        });
+        // Row count / paging are server-side now (see #customInfo + pager below);
+        // DataTables only provides in-page column sorting.
     });
 
 
