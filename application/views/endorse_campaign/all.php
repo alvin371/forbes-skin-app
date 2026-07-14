@@ -181,24 +181,25 @@
     }
 
     function refreshAllCampaigns() {
-        var buttons = document.querySelectorAll('[id^="refresh-btn-"]');
-        if (!buttons.length) return;
-        if (!confirm('Antrikan refresh untuk ' + buttons.length + ' campaign? Proses asinkron, pantau di icon antrian.')) return;
-        var totalEnqueued = 0, totalSkipped = 0, done = 0;
-        buttons.forEach(function(btn) {
-            var id = btn.id.replace('refresh-btn-', '');
-            $.get('<?= base_url() ?>ajax/refresh-campaign-endorses', { id_campaign: id }, function(res) {
-                if (res && res.status) {
-                    totalEnqueued += parseInt(res.enqueued || 0);
-                    totalSkipped  += parseInt(res.skipped_duplicates || 0);
-                }
-                done++;
-                if (done === buttons.length) {
-                    var msg = 'Antrian dibuat: ' + totalEnqueued + ' baru, ' + totalSkipped + ' sudah ada. ' +
-                        '<a href="<?= base_url() ?>endorse/queue"><b>Lihat antrian →</b></a>';
-                    showCampaignToast(msg, 'success');
-                }
-            }, 'json');
+        if (!confirm('Antrikan refresh untuk SEMUA campaign aktif (internal & eksternal) beserta konten aktifnya? Proses asinkron, pantau di icon antrian.')) return;
+        var link = document.querySelector('[onclick="refreshAllCampaigns()"]');
+        var original = link ? link.innerHTML : null;
+        if (link) { link.innerHTML = '<i class="bi bi-hourglass-split fs-16"></i> Mengantrikan...'; link.style.pointerEvents = 'none'; }
+        function restore() { if (link) { link.innerHTML = original; link.style.pointerEvents = ''; } }
+        $.get('<?= base_url() ?>ajax/refresh-all-active-endorses', {}, function(res) {
+            if (res && res.status) {
+                var msg = 'Antrian dibuat: ' + parseInt(res.enqueued || 0) + ' baru, ' +
+                    parseInt(res.skipped_duplicates || 0) + ' sudah ada (' +
+                    parseInt(res.campaign_count || 0) + ' campaign). ' +
+                    '<a href="<?= base_url() ?>endorse/queue"><b>Lihat antrian →</b></a>';
+                showCampaignToast(msg, 'success');
+            } else {
+                showCampaignToast((res && res.msg) ? res.msg : 'Gagal membuat antrian.', 'error');
+            }
+            restore();
+        }, 'json').fail(function() {
+            showCampaignToast('Gagal menghubungi server.', 'error');
+            restore();
         });
     }
 

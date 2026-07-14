@@ -563,9 +563,30 @@ class Template
         ]);
     }
 
+    protected function endorseRefreshFetchMode(): string
+    {
+        // Selects the endorse-refresh TikTok fetch strategy:
+        //   'rapidapi_batch' — Method 1: parallel RapidAPI over one multiplexed HTTP/2
+        //                      socket (fetchRapidApiTiktokBatch). Legacy production path;
+        //                      stalls when the shared HTTP/2 connection hangs.
+        //   'bhskin_scrape'  — Method 2: scrape tiktok.com directly over plain HTTP/1.1
+        //                      + cookie (fetchTiktokDetailPagesBatch), with a single
+        //                      HTTP/1.1 RapidAPI fallback. Mirrors bhskin's proven path.
+        return strtolower(trim((string) env('ENDORSE_REFRESH_FETCH_MODE', 'rapidapi_batch')));
+    }
+
+    protected function useBhskinScrapeFetch(): bool
+    {
+        return $this->endorseRefreshFetchMode() === 'bhskin_scrape';
+    }
+
     protected function isTiktokScrapeEnabled(): bool
     {
-        return env('ENDORSE_TIKTOK_SCRAPE_ENABLED', '0') == '1';
+        // The bhskin_scrape fetch mode makes the direct page scrape the primary path,
+        // so honour it here alongside the standalone legacy flag. This flips both the
+        // batch worker (get_social_media_batch) and single-fetch (get_social_media)
+        // onto the scrape-first, HTTP/1.1 path in one switch.
+        return env('ENDORSE_TIKTOK_SCRAPE_ENABLED', '0') == '1' || $this->useBhskinScrapeFetch();
     }
 
     protected function preferRapidApiForTiktok(bool $preferRapidApi): bool
@@ -1514,10 +1535,14 @@ class Template
             return $deadlineSeconds > 0 && (microtime(true) - $startedAt) >= $deadlineSeconds;
         };
 
-        // TikTok page-scrape is unreliable; RapidAPI is the mandated primary path.
-        // When the scrape is disabled (default), skip it entirely and fan the chunk
-        // out as concurrent RapidAPI calls — the only way a run completes its whole
-        // chunk instead of grinding through them sequentially until the deadline.
+        // Fetch strategy is chosen by ENDORSE_REFRESH_FETCH_MODE (see
+        // endorseRefreshFetchMode()):
+        //   rapidapi_batch (scrapeEnabled=false) — Method 1: fan the chunk out as
+        //     concurrent RapidAPI calls multiplexed over one HTTP/2 socket. Fast when
+        //     the upstream is healthy, but stalls entirely if that socket hangs.
+        //   bhskin_scrape (scrapeEnabled=true) — Method 2: scrape tiktok.com pages in
+        //     parallel over separate plain HTTP/1.1 connections (no multiplexing), with
+        //     a single-call RapidAPI fallback per row. Mirrors bhskin's proven path.
         $scrapeEnabled = $this->isTiktokScrapeEnabled();
         $effectiveConcurrency = $maxConcurrent;
         $brownoutFloor = min($maxConcurrent, 4); // never serialise below this on backoff
@@ -1644,7 +1669,7 @@ class Template
                 CURLOPT_ENCODING => '',
                 CURLOPT_MAXREDIRS => 10,
                 CURLOPT_CONNECTTIMEOUT => 5,
-                CURLOPT_TIMEOUT => 8,
+                CURLOPT_TIMEOUT => 20,
                 CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:100.0) Gecko/20100101 Firefox/100.0',
                 CURLOPT_FOLLOWLOCATION => true,
                 CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
@@ -1959,7 +1984,7 @@ class Template
             CURLOPT_ENCODING => '',
             CURLOPT_MAXREDIRS => 10,
             CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 8,
+            CURLOPT_TIMEOUT => 20,
             CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:100.0) Gecko/20100101 Firefox/100.0',
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,

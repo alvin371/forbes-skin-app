@@ -7575,4 +7575,18 @@ gradient_5.addColorStop(0.75, "rgba(225, 225, 225, 0)")
 		echo json_encode($result);
 	}
 
+	/**
+	 * "Refresh Semua": enqueue every active endorse across ALL active campaigns
+	 * (internal and external), active posts only. One call instead of one-per-campaign.
+	 */
+	public function refresh_all_active_endorses()
+	{
+		$user_id = intval($_SESSION['user']['id'] ?? 0);
+		$this->load->library('EndorseRefreshQueueService');
+		$result = $this->endorserefreshqueueservice->enqueueAllActive($user_id);
+
+		header('Content-Type: application/json; charset=utf-8');
+		echo json_encode($result);
+	}
+
 }
