@@ -71,11 +71,18 @@ class EndorseRefreshQueueService
 
     public function enqueueAllActive(int $user_id): array
     {
+        // Refresh Semua rule: sync only ACTIVE campaigns and, within them, only ACTIVE
+        // posts. Never enqueue anything under a "Tidak Aktif" campaign.
+        //   c.status = 'Aktif'          — the campaign's own status (source of truth)
+        //   e.status = 'Aktif'          — the post's status
+        //   e.status_campaign = 'Aktif' — denormalized campaign flag on the row (guards
+        //                                 against any drift vs c.status)
         $rows = $this->CI->mymodel->selectWithQuery("
             SELECT e.id, e.id_campaign, e.platform, e.link_upload
             FROM endorse e
             INNER JOIN endorse_campaign c ON c.id = e.id_campaign
-            WHERE e.status = 'Aktif'
+            WHERE c.status = 'Aktif'
+              AND e.status = 'Aktif'
               AND e.status_campaign = 'Aktif'
               AND e.link_upload != ''
             ORDER BY e.id_campaign ASC, e.id ASC
