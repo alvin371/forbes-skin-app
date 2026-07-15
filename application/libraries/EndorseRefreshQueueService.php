@@ -587,4 +587,346 @@ class EndorseRefreshQueueService
 
         return $blocked;
     }
+
+    /**
+     * Atomically claim a batch of pending rows and return them ready to fetch.
+     *
+     * Extracted from Api_v2::cronjob_endorse_refresh so the per-minute cron AND the
+     * long-lived Rust consumer (POST /api/endorse-refresh/claim) share ONE hardened
+     * claim path: stale recovery, daily + per-minute rate caps, atomic single-UPDATE
+     * claim, and one 'processing' attempt row per claimed item (= one upstream request,
+     * which is what the rate caps count).
+     *
+     * Returns:
+     *   ['status'=>true, 'claimed'=>N, 'worker_id'=>.., 'items'=>[ {fetch-ready item}.. ]]
+     *   or, when a cap blocks the run:
+     *   ['status'=>true, 'claimed'=>0, 'items'=>[], 'skipped'=>['reason'=>.., 'msg'=>..]]
+     *
+     * Each item carries everything both the fetch step and applyResults() need, plus the
+     * per-item fetch hints (rescue_lane widens the timeout and forces hd for photo posts).
+     *
+     * @param array $opts limit, force, daily_cap, rate_per_min, stale_minutes
+     */
+    public function claimBatch(array $opts = []): array
+    {
+        $this->CI->load->library('template');
+        $this->CI->load->library('endorse_sync');
+
+        $limit = intval($opts['limit'] ?? env('ENDORSE_REFRESH_BATCH_SIZE', 40));
+        if ($limit <= 0) {
+            $limit = 40;
+        } elseif ($limit > 500) {
+            $limit = 500;
+        }
+        $force = !empty($opts['force']);
+        $staleMinutes = intval($opts['stale_minutes'] ?? 5);
+        if ($staleMinutes < 1) {
+            $staleMinutes = 5;
+        }
+
+        // Recover stale rows from crashed/killed workers FIRST — before the caps below
+        // can early-return. Otherwise orphaned 'processing' rows keep the per-minute
+        // counter pinned, every run skips, and recovery never runs: the stall sustains
+        // itself. Recovery is two cheap UPDATEs, safe to always run.
+        $this->resetStuck($staleMinutes);
+
+        $worker_id = uniqid('w_', true);
+
+        // Daily request cap — protect the shared upstream budget. Counts this brand's own
+        // attempt rows (each attempt = one request); each brand has its own DB. 0 = off.
+        $dailyCap = intval($opts['daily_cap'] ?? env('ENDORSE_REFRESH_DAILY_CAP', 0));
+        if (!$force && $dailyCap > 0) {
+            $startOfDay = date('Y-m-d') . ' 00:00:00';
+            $usedRow = $this->CI->mymodel->selectWithQuery("
+                SELECT COUNT(*) AS c FROM endorse_refresh_queue_attempts
+                WHERE started_at >= '$startOfDay'
+            ");
+            $usedToday = intval($usedRow[0]['c'] ?? 0);
+            $remaining = $dailyCap - $usedToday;
+            if ($remaining <= 0) {
+                return [
+                    'status' => true, 'claimed' => 0, 'items' => [], 'worker_id' => $worker_id,
+                    'skipped' => [
+                        'reason' => 'daily_cap', 'used' => $usedToday, 'cap' => $dailyCap,
+                        'msg' => "Daily cap reached ($usedToday/$dailyCap) — skipping run",
+                    ],
+                ];
+            }
+            if ($remaining < $limit) {
+                $limit = $remaining;
+            }
+        }
+
+        // Per-minute rate cap — protect the shared upstream pool (e.g. 250 of a 500/min
+        // limit). Counting attempts started in the last 60s bounds the combined rate of
+        // all overlapping worker runs (cron ticks OR Rust claim calls). 0 = off.
+        $ratePerMin = intval($opts['rate_per_min'] ?? env('ENDORSE_REFRESH_RATE_PER_MIN', 0));
+        if (!$force && $ratePerMin > 0) {
+            $usedRow = $this->CI->mymodel->selectWithQuery("
+                SELECT COUNT(*) AS c FROM endorse_refresh_queue_attempts
+                WHERE started_at >= (NOW() - INTERVAL 60 SECOND)
+            ");
+            $usedMinute = intval($usedRow[0]['c'] ?? 0);
+            $remainingMinute = $ratePerMin - $usedMinute;
+            if ($remainingMinute <= 0) {
+                return [
+                    'status' => true, 'claimed' => 0, 'items' => [], 'worker_id' => $worker_id,
+                    'skipped' => [
+                        'reason' => 'rate_per_min', 'used' => $usedMinute, 'cap' => $ratePerMin,
+                        'msg' => "Per-minute rate cap reached ($usedMinute/$ratePerMin) — skipping run",
+                    ],
+                ];
+            }
+            if ($remainingMinute < $limit) {
+                $limit = $remainingMinute;
+            }
+        }
+
+        if ($limit <= 0) {
+            return ['status' => true, 'claimed' => 0, 'items' => [], 'worker_id' => $worker_id];
+        }
+
+        $now = date('Y-m-d H:i:s');
+
+        // Atomic claim (single UPDATE serialized by MySQL). `attempts ASC` after priority
+        // drains never-tried rows before re-queued transient retries.
+        $this->db->query("
+            UPDATE endorse_refresh_queue
+            SET status = 'processing', worker_id = '$worker_id', claimed_at = '$now', started_at = '$now'
+            WHERE status = 'pending' AND worker_id IS NULL
+            ORDER BY priority DESC, attempts ASC, created_at ASC
+            LIMIT $limit
+        ");
+        $claimed = $this->db->affected_rows();
+        if ($claimed <= 0) {
+            return ['status' => true, 'claimed' => 0, 'items' => [], 'worker_id' => $worker_id];
+        }
+
+        $rows = $this->CI->mymodel->selectWithQuery("
+            SELECT * FROM endorse_refresh_queue
+            WHERE worker_id = '$worker_id' AND status = 'processing'
+        ");
+
+        // Prior attempt classes → rescue-lane detection (infra-stall rows get more headroom).
+        $priorAttemptMap = [];
+        $queueIds = array_map(function ($r) { return intval($r['id']); }, $rows);
+        if (!empty($queueIds)) {
+            $queueIdList = implode(',', $queueIds);
+            $priorAttempts = $this->CI->mymodel->selectWithQuery("
+                SELECT queue_id, error_class
+                FROM endorse_refresh_queue_attempts
+                WHERE queue_id IN ($queueIdList)
+                  AND status IN ('retrying', 'failed')
+                ORDER BY id DESC
+            ");
+            foreach ($priorAttempts as $pa) {
+                $qid = intval($pa['queue_id'] ?? 0);
+                if ($qid > 0 && !array_key_exists($qid, $priorAttemptMap)) {
+                    $priorAttemptMap[$qid] = strval($pa['error_class'] ?? '');
+                }
+            }
+        }
+
+        // One 'processing' attempt row per claimed item, inserted up front so the rate
+        // caps above see it immediately. finalize on outcome (applyResults); resetStuck
+        // is the safety-net if the worker dies before finalizing.
+        $attemptRows = [];
+        foreach ($rows as $r) {
+            $attemptRows[] = [
+                'queue_id' => intval($r['id']),
+                'attempt_no' => intval($r['attempts']) + 1,
+                'worker_id' => $worker_id,
+                'status' => 'processing',
+                'started_at' => $now,
+                'created_at' => $now,
+            ];
+        }
+        if (!empty($attemptRows)) {
+            $this->db->insert_batch('endorse_refresh_queue_attempts', $attemptRows);
+        }
+
+        $httpTimeout = intval(env('ENDORSE_REFRESH_HTTP_TIMEOUT', 30));
+        if ($httpTimeout < 1) {
+            $httpTimeout = 30;
+        }
+
+        $items = [];
+        foreach ($rows as $r) {
+            $qid = intval($r['id']);
+            $priorClass = strval($priorAttemptMap[$qid] ?? '');
+            $isRescue = ($priorClass === Endorse_sync::ERR_INFRA_STALL);
+            $url = strval($r['link_upload']);
+            $hd = ($isRescue && $this->CI->template->detect_tiktok_media_type_from_url($url) === 'photo') ? 1 : 0;
+            $items[] = [
+                'queue_id'     => $qid,
+                'id_endorse'   => intval($r['id_endorse']),
+                'platform'     => $r['platform'],
+                'url'          => $url,
+                'purpose'      => strval($r['purpose'] ?? 'daily'),
+                'enqueued_by'  => intval($r['enqueued_by'] ?: 0),
+                'attempts'     => intval($r['attempts']),
+                'attempt_no'   => intval($r['attempts']) + 1,
+                'max_attempts' => intval($r['max_attempts']),
+                'worker_id'    => $worker_id,
+                'rescue_lane'  => $isRescue,
+                'timeout_sec'  => $isRescue ? max(45, $httpTimeout + 15) : $httpTimeout,
+                'hd'           => $hd,
+            ];
+        }
+
+        return ['status' => true, 'claimed' => $claimed, 'items' => $items, 'worker_id' => $worker_id];
+    }
+
+    /**
+     * Apply fetch outcomes to claimed items: mark completed/retrying/failed/deferred,
+     * finalize the attempt row with the item's REAL error, and roll up touched campaigns.
+     *
+     * Extracted from Api_v2::cronjob_endorse_refresh (step 5+6). Shared by the cron and by
+     * POST /api/endorse-refresh/result. `$responses` is indexed identically to `$items`;
+     * each element is a Template::get_social_media-shaped array (or {deferred:true}).
+     *
+     * Committing per item here (not at end of a batch) is what fixes the "retry never
+     * logged" bug: the true error is recorded as it happens, never masked by resetStuck's
+     * generic stall label after a 60s guillotine.
+     */
+    public function applyResults(array $items, array $responses): array
+    {
+        if (empty($items)) {
+            return ['completed' => 0, 'failed' => 0, 'retrying' => 0, 'deferred' => 0, 'processed' => 0];
+        }
+
+        $this->CI->load->library('endorse_sync');
+
+        $today = date('Y-m-d');
+        $endorseIds = array_map(function ($it) { return intval($it['id_endorse']); }, $items);
+        $endorseIdList = implode(',', array_map('intval', $endorseIds));
+        $endorseRows = $this->CI->mymodel->selectWithQuery("
+            SELECT * FROM endorse WHERE id IN ($endorseIdList)
+        ");
+        $endorseMap = [];
+        foreach ($endorseRows as $er) {
+            $endorseMap[intval($er['id'])] = $er;
+        }
+        $prevStatsMap = $this->CI->endorse_sync->load_prev_stats_batch($endorseIds, $today);
+
+        $completed = 0; $failed = 0; $retrying = 0; $deferred = 0;
+        $touched = [];
+
+        foreach ($items as $i => $item) {
+            $queue_id    = intval($item['queue_id']);
+            $id_endorse  = intval($item['id_endorse']);
+            $endorse     = $endorseMap[$id_endorse] ?? null;
+            $attempts    = intval($item['attempts']) + 1;
+            $maxAttempts = intval($item['max_attempts']);
+            $worker_id   = strval($item['worker_id'] ?? '');
+            $response    = $responses[$i] ?? ['status' => false, 'msg' => 'No response', 'data' => []];
+
+            // Wall-clock deferral (cron only): return untouched, DELETE the up-front attempt
+            // (a deferral is not a real request, so it must not burn the caps or spam history).
+            if (!empty($response['deferred'])) {
+                $this->db->update('endorse_refresh_queue', [
+                    'status' => 'pending', 'worker_id' => null, 'started_at' => null, 'claimed_at' => null,
+                ], ['id' => $queue_id]);
+                $this->db->delete('endorse_refresh_queue_attempts', [
+                    'queue_id' => $queue_id, 'attempt_no' => $attempts, 'worker_id' => $worker_id,
+                ]);
+                $deferred++;
+                continue;
+            }
+
+            if (!$endorse) {
+                $this->markQueueFailed($queue_id, $attempts, 'Endorse row no longer exists', Endorse_sync::ERR_PERMANENT, $worker_id);
+                $failed++;
+                continue;
+            }
+
+            $purpose = strval($item['purpose'] ?? 'daily');
+            if ($purpose === 'daily') {
+                $result = $this->CI->endorse_sync->apply(
+                    $endorse, $response, intval($item['enqueued_by'] ?: 0), $prevStatsMap[$id_endorse] ?? null
+                );
+            } else {
+                $result = $this->CI->endorse_sync->apply_snapshot(
+                    $endorse, $response, $purpose, intval($item['enqueued_by'] ?: 0)
+                );
+            }
+
+            if ($result['status']) {
+                $completedAt = date('Y-m-d H:i:s');
+                $this->db->update('endorse_refresh_queue', [
+                    'status' => 'completed', 'attempts' => $attempts, 'error_message' => null,
+                    'worker_id' => null, 'completed_at' => $completedAt,
+                ], ['id' => $queue_id]);
+                $this->finalizeQueueAttempt($queue_id, $attempts, $worker_id, 'completed', null, null, $completedAt);
+                if ($purpose === 'daily') {
+                    $touched[intval($endorse['id_campaign'])] = true;
+                }
+                $completed++;
+                continue;
+            }
+
+            $errorClass = $result['error_class'] ?? Endorse_sync::ERR_TRANSIENT;
+            $msg = $result['msg'] ?: 'Gagal';
+
+            // Only genuinely unrecoverable classes fail immediately; transport/infra classes
+            // retry up to max_attempts (one upstream outage must not drain the queue to failed).
+            if (Endorse_sync::is_terminal_class($errorClass)) {
+                $this->markQueueFailed($queue_id, $attempts, $msg, $errorClass, $worker_id);
+                $failed++;
+                continue;
+            }
+
+            if ($attempts >= $maxAttempts) {
+                $this->markQueueFailed($queue_id, $attempts, "$msg (after $attempts attempts)", $errorClass, $worker_id);
+                $failed++;
+            } else {
+                $finishedAt = date('Y-m-d H:i:s');
+                $this->db->update('endorse_refresh_queue', [
+                    'status' => 'pending', 'attempts' => $attempts, 'error_message' => $msg,
+                    'worker_id' => null, 'started_at' => null, 'claimed_at' => null,
+                ], ['id' => $queue_id]);
+                $this->finalizeQueueAttempt($queue_id, $attempts, $worker_id, 'retrying', $errorClass, $msg, $finishedAt);
+                $retrying++;
+            }
+        }
+
+        foreach (array_keys($touched) as $cid) {
+            $this->CI->endorse_sync->update_campaign_parent($cid, 0);
+        }
+
+        return [
+            'completed' => $completed, 'failed' => $failed, 'retrying' => $retrying,
+            'deferred' => $deferred, 'processed' => count($items),
+        ];
+    }
+
+    protected function markQueueFailed(int $queue_id, int $attempts, string $msg, ?string $errorClass = null, ?string $worker_id = null): void
+    {
+        $completedAt = date('Y-m-d H:i:s');
+        $this->db->update('endorse_refresh_queue', [
+            'status'        => 'failed',
+            'attempts'      => $attempts,
+            'error_message' => $msg,
+            'worker_id'     => null,
+            'completed_at'  => $completedAt,
+        ], ['id' => $queue_id]);
+        $this->finalizeQueueAttempt($queue_id, $attempts, $worker_id, 'failed', $errorClass, $msg, $completedAt);
+    }
+
+    protected function finalizeQueueAttempt(int $queue_id, int $attemptNo, ?string $worker_id, string $status, ?string $errorClass, ?string $msg, string $finishedAt): void
+    {
+        $where = [
+            'queue_id' => $queue_id,
+            'attempt_no' => $attemptNo,
+        ];
+        if (!empty($worker_id)) {
+            $where['worker_id'] = $worker_id;
+        }
+        $this->db->update('endorse_refresh_queue_attempts', [
+            'status' => $status,
+            'error_class' => $errorClass,
+            'error_message' => $msg,
+            'finished_at' => $finishedAt,
+        ], $where);
+    }
 }
