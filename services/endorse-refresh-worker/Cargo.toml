@@ -1,0 +1,18 @@
+[package]
+name = "endorse-refresh-worker"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# rustls-tls + http1_only: no HTTP/2 multiplexing — the single-shared-socket stall that
+# broke the old PHP curl_multi fan-out (one hung socket killed the whole batch) cannot
+# happen here. Each request rides its own isolated HTTP/1.1 connection + timeout.
+reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls", "gzip", "brotli", "deflate"] }
+chrono = { version = "0.4", features = ["clock"] }
+regex = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }

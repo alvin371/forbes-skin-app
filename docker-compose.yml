@@ -43,6 +43,29 @@ services:
     networks:
       - hrms-network
 
+  # Long-lived endorse-refresh consumer. Drains endorse_refresh_queue continuously via
+  # POST /api/endorse-refresh/{claim,result}. Set ENDORSE_REFRESH_DRIVER=rust so the PHP
+  # cron stands down; flip back to 'cron' for instant rollback. Tiny footprint (Rust).
+  endorse-refresh-worker:
+    build:
+      context: ./services/endorse-refresh-worker
+      dockerfile: Dockerfile
+    container_name: endorse-refresh-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - APP_API_BASE=http://app
+      - WORKER_PORT=8082
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - hrms-network
+
 networks:
   hrms-network:
     driver: bridge
