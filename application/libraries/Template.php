@@ -776,6 +776,9 @@ class Template
             'error_class' => $errorClass,
             'error_meta' => $meta,
             'upstream_msg' => $msg,
+            'stats_found' => false,
+            'stats_complete' => false,
+            'stats_fields' => [],
         ];
     }
 
@@ -797,7 +800,20 @@ class Template
                 'cover' => '',
                 'images' => [],
             ],
+            'stats_found' => false,
+            'stats_complete' => false,
+            'stats_fields' => [],
         ];
+    }
+
+    protected function finalizeStatFieldMetadata(array $response, array $fields): array
+    {
+        $fields = array_values(array_unique(array_filter(array_map('strval', $fields))));
+        $response['stats_fields'] = $fields;
+        $response['stats_found'] = !empty($fields);
+        $response['stats_complete'] = count(array_intersect($fields, ['like', 'share', 'comment', 'collect', 'view'])) === 5;
+
+        return $response;
     }
 
     /**
@@ -1436,23 +1452,7 @@ class Template
 
     function get_social_media($type, $url, $fetch_media_assets = true, $influencer_id = null, $preferRapidApi = false)
     {
-        $response = [
-            "status" => true,
-            "msg" => "",
-            "data" => [
-                "like" => 0,
-                "share" => 0,
-                "comment" => 0,
-                "collect" => 0,
-                "view" => 0,
-                "created_at" => "",
-                "content_id" => "",
-                "media_type" => "",
-                "video_link" => "",
-                "cover" => "",
-                "images" => [],
-            ],
-        ];
+        $response = $this->buildTiktokBaseResponse((string) $url);
         if ($type == "Tiktok") {
             if ($url) {
                 $content_id = $this->extract_tiktok_content_id($url);
@@ -2006,21 +2006,39 @@ class Template
             return false;
         }
         $stats = $item['stats'];
-        return intval($stats['diggCount'] ?? 0) > 0
-            || intval($stats['shareCount'] ?? 0) > 0
-            || intval($stats['commentCount'] ?? 0) > 0
-            || intval($stats['collectCount'] ?? 0) > 0
-            || intval($stats['playCount'] ?? 0) > 0;
+        foreach (['diggCount', 'shareCount', 'commentCount', 'collectCount', 'playCount'] as $key) {
+            if (array_key_exists($key, $stats)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     protected function mapDirectTiktokItemToResponse(array $response, array $item, bool $fetch_media_assets): array
     {
         $stats = $item['stats'] ?? [];
-        $response['data']['like'] = intval($stats['diggCount'] ?? 0);
-        $response['data']['share'] = intval($stats['shareCount'] ?? 0);
-        $response['data']['comment'] = intval($stats['commentCount'] ?? 0);
-        $response['data']['collect'] = intval($stats['collectCount'] ?? 0);
-        $response['data']['view'] = intval($stats['playCount'] ?? 0);
+        $fields = [];
+        if (array_key_exists('diggCount', $stats)) {
+            $response['data']['like'] = intval($stats['diggCount']);
+            $fields[] = 'like';
+        }
+        if (array_key_exists('shareCount', $stats)) {
+            $response['data']['share'] = intval($stats['shareCount']);
+            $fields[] = 'share';
+        }
+        if (array_key_exists('commentCount', $stats)) {
+            $response['data']['comment'] = intval($stats['commentCount']);
+            $fields[] = 'comment';
+        }
+        if (array_key_exists('collectCount', $stats)) {
+            $response['data']['collect'] = intval($stats['collectCount']);
+            $fields[] = 'collect';
+        }
+        if (array_key_exists('playCount', $stats)) {
+            $response['data']['view'] = intval($stats['playCount']);
+            $fields[] = 'view';
+        }
         $response['data']['content_id'] = strval($item['id'] ?? $response['data']['content_id']);
         $response['data']['cover'] = $this->extract_tiktok_cover_from_item($item);
         if (!empty($item['createTime'])) {
@@ -2049,16 +2067,32 @@ class Template
             }
         }
 
-        return $response;
+        return $this->finalizeStatFieldMetadata($response, $fields);
     }
 
     protected function mapRapidApiTiktokDetailToResponse(array $response, array $item, bool $fetch_media_assets): array
     {
-        $response['data']['like'] = intval($item['digg_count'] ?? 0);
-        $response['data']['share'] = intval($item['share_count'] ?? 0);
-        $response['data']['comment'] = intval($item['comment_count'] ?? 0);
-        $response['data']['collect'] = intval($item['collect_count'] ?? 0);
-        $response['data']['view'] = intval($item['play_count'] ?? 0);
+        $fields = [];
+        if (array_key_exists('digg_count', $item)) {
+            $response['data']['like'] = intval($item['digg_count']);
+            $fields[] = 'like';
+        }
+        if (array_key_exists('share_count', $item)) {
+            $response['data']['share'] = intval($item['share_count']);
+            $fields[] = 'share';
+        }
+        if (array_key_exists('comment_count', $item)) {
+            $response['data']['comment'] = intval($item['comment_count']);
+            $fields[] = 'comment';
+        }
+        if (array_key_exists('collect_count', $item)) {
+            $response['data']['collect'] = intval($item['collect_count']);
+            $fields[] = 'collect';
+        }
+        if (array_key_exists('play_count', $item)) {
+            $response['data']['view'] = intval($item['play_count']);
+            $fields[] = 'view';
+        }
         $response['data']['content_id'] = strval($item['id'] ?? $response['data']['content_id']);
         $response['data']['cover'] = strval($item['cover'] ?? ($item['origin_cover'] ?? ($item['ai_dynamic_cover'] ?? '')));
         if (!empty($item['create_time'])) {
@@ -2090,7 +2124,7 @@ class Template
             }
         }
 
-        return $response;
+        return $this->finalizeStatFieldMetadata($response, $fields);
     }
 
     protected function hasEndorseTiktokColumns($CI)

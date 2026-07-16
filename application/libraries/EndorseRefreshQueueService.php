@@ -7,6 +7,51 @@ class EndorseRefreshQueueService
     const DEFAULT_MAX_ATTEMPTS = 3;
     const INSERT_CHUNK_SIZE = 250;
 
+    /**
+     * The HTTP claim endpoint is allowed to drain only when the Rust driver is
+     * explicitly selected. Keep this pure so the ownership rule cannot drift
+     * from its regression test.
+     */
+    public static function allowsRustClaims(string $driver): bool
+    {
+        return strtolower(trim($driver)) === 'rust';
+    }
+
+    /**
+     * Queue-level exponential retry delay. Clamp the exponent because
+     * max_attempts is configurable and malformed rows must not overflow it.
+     */
+    public static function retryDelaySeconds(int $attempts, int $baseSeconds = 60): int
+    {
+        $baseSeconds = max(1, min(3600, $baseSeconds));
+        $exponent = max(0, min(10, $attempts - 1));
+
+        return $baseSeconds * (2 ** $exponent);
+    }
+
+    /**
+     * Normalize TikTok links stored without a scheme. Other absolute URLs stay
+     * untouched so existing response classification remains authoritative.
+     */
+    public static function normalizeTiktokUrl(string $url): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return '';
+        }
+        if (strpos($url, '//') === 0) {
+            return 'https:' . $url;
+        }
+        if (preg_match('#^https?://#i', $url)) {
+            return $url;
+        }
+        if (preg_match('#^(?:[a-z0-9-]+\.)?tiktok\.com/#i', $url)) {
+            return 'https://' . $url;
+        }
+
+        return $url;
+    }
+
     protected $CI;
     protected $db;
 
@@ -16,6 +61,9 @@ class EndorseRefreshQueueService
         $this->CI->load->database();
         $this->CI->load->model('mymodel');
         $this->db = $this->CI->db;
+        if (is_file(APPPATH . 'libraries/EndorseRefreshV2Coordinator.php')) {
+            $this->CI->load->library('EndorseRefreshV2Coordinator');
+        }
     }
 
     public function enqueueCampaign(int $id_campaign, int $user_id, array $ids = []): array
@@ -331,7 +379,7 @@ class EndorseRefreshQueueService
 
         $this->db->query("
             UPDATE endorse_refresh_queue
-            SET status = 'pending', worker_id = NULL, started_at = NULL, claimed_at = NULL
+            SET status = 'pending', worker_id = NULL, started_at = NULL, claimed_at = '$now'
             WHERE status = 'processing'
               AND started_at < (NOW() - INTERVAL $staleMinutes MINUTE)
         ");
@@ -517,6 +565,16 @@ class EndorseRefreshQueueService
                 continue;
             }
 
+            if (!empty($this->CI->endorserefreshv2coordinator)
+                && $this->CI->endorserefreshv2coordinator->isQuarantinedContent(
+                    $id_endorse,
+                    strval($row['platform']),
+                    strval($row['link_upload'])
+                )) {
+                $excludedKnownUrl++;
+                continue;
+            }
+
             $batch[] = [
                 'id_endorse' => $id_endorse,
                 'id_campaign' => intval($row['id_campaign']),
@@ -590,6 +648,27 @@ class EndorseRefreshQueueService
         $blocked = [];
         foreach ($rows as $row) {
             $blocked[intval($row['id_endorse'])] = true;
+        }
+
+        if (!empty($this->CI->endorserefreshv2coordinator)) {
+            $endorseRows = $this->CI->mymodel->selectWithQuery("
+                SELECT id, platform, link_upload
+                FROM endorse
+                WHERE id IN ($idList)
+            ");
+            foreach ($endorseRows as $endorseRow) {
+                $endorseId = intval($endorseRow['id'] ?? 0);
+                if ($endorseId <= 0) {
+                    continue;
+                }
+                if ($this->CI->endorserefreshv2coordinator->isQuarantinedContent(
+                    $endorseId,
+                    strval($endorseRow['platform'] ?? ''),
+                    strval($endorseRow['link_upload'] ?? '')
+                )) {
+                    $blocked[$endorseId] = true;
+                }
+            }
         }
 
         return $blocked;
@@ -695,12 +774,23 @@ class EndorseRefreshQueueService
 
         $now = date('Y-m-d H:i:s');
 
+        // `claimed_at` stays NULL for never-attempted rows and deferrals. Failed and
+        // stale attempts keep their finish time there so a brief upstream brownout
+        // cannot burn every max_attempts slot in a few seconds.
+        $retryBaseSeconds = intval($opts['retry_base_seconds'] ?? env('ENDORSE_REFRESH_RETRY_BASE_SEC', 60));
+        $retryBaseSeconds = max(1, min(3600, $retryBaseSeconds));
+
         // Atomic claim (single UPDATE serialized by MySQL). `attempts ASC` after priority
         // drains never-tried rows before re-queued transient retries.
         $this->db->query("
             UPDATE endorse_refresh_queue
             SET status = 'processing', worker_id = '$worker_id', claimed_at = '$now', started_at = '$now'
             WHERE status = 'pending' AND worker_id IS NULL
+              AND (
+                    claimed_at IS NULL
+                    OR TIMESTAMPDIFF(SECOND, claimed_at, NOW()) >=
+                       ($retryBaseSeconds * POW(2, LEAST(10, GREATEST(attempts - 1, 0))))
+              )
             ORDER BY priority DESC, attempts ASC, created_at ASC
             LIMIT $limit
         ");
@@ -762,7 +852,7 @@ class EndorseRefreshQueueService
             $qid = intval($r['id']);
             $priorClass = strval($priorAttemptMap[$qid] ?? '');
             $isRescue = ($priorClass === Endorse_sync::ERR_INFRA_STALL);
-            $url = strval($r['link_upload']);
+            $url = self::normalizeTiktokUrl(strval($r['link_upload']));
             $hd = ($isRescue && $this->CI->template->detect_tiktok_media_type_from_url($url) === 'photo') ? 1 : 0;
             $items[] = [
                 'queue_id'     => $qid,
@@ -890,7 +980,7 @@ class EndorseRefreshQueueService
                 $finishedAt = date('Y-m-d H:i:s');
                 $this->db->update('endorse_refresh_queue', [
                     'status' => 'pending', 'attempts' => $attempts, 'error_message' => $msg,
-                    'worker_id' => null, 'started_at' => null, 'claimed_at' => null,
+                    'worker_id' => null, 'started_at' => null, 'claimed_at' => $finishedAt,
                 ], ['id' => $queue_id]);
                 $this->finalizeQueueAttempt($queue_id, $attempts, $worker_id, 'retrying', $errorClass, $msg, $finishedAt);
                 $retrying++;
@@ -905,6 +995,54 @@ class EndorseRefreshQueueService
             'completed' => $completed, 'failed' => $failed, 'retrying' => $retrying,
             'deferred' => $deferred, 'processed' => count($items),
         ];
+    }
+
+    /**
+     * Fetch one authoritative processing row through PHP's proven isolated
+     * HTTP/1.1 RapidAPI path. The worker supplies only queue_id; URL, platform
+     * and credentials stay server-owned.
+     */
+    public function fetchFallback(int $queueId): array
+    {
+        $this->CI->load->library('endorse_sync');
+
+        if ($queueId <= 0) {
+            return [
+                'status' => false,
+                'msg' => 'Queue ID tidak valid.',
+                'error_class' => Endorse_sync::ERR_PERMANENT,
+                'data' => [],
+            ];
+        }
+
+        $rows = $this->CI->mymodel->selectWithQuery("
+            SELECT id, platform, link_upload
+            FROM endorse_refresh_queue
+            WHERE id = '$queueId' AND status = 'processing'
+            LIMIT 1
+        ");
+        if (empty($rows)) {
+            return [
+                'status' => false,
+                'msg' => 'Queue item tidak lagi diproses.',
+                'error_class' => Endorse_sync::ERR_TRANSIENT,
+                'data' => [],
+            ];
+        }
+
+        $this->CI->load->library('template');
+        $row = $rows[0];
+        $url = self::normalizeTiktokUrl(strval($row['link_upload'] ?? ''));
+
+        // preferRapidApi=true makes this a single-item isolated HTTP/1.1
+        // RapidAPI request first, reusing existing validation and mapping.
+        return $this->CI->template->get_social_media(
+            strval($row['platform'] ?? ''),
+            $url,
+            true,
+            null,
+            true
+        );
     }
 
     protected function markQueueFailed(int $queue_id, int $attempts, string $msg, ?string $errorClass = null, ?string $worker_id = null): void

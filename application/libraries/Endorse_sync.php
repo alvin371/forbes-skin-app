@@ -44,23 +44,137 @@ class Endorse_sync
         $this->CI->load->model('mymodel');
     }
 
+    public function normalize_response(array $response, string $platform, string $url, string $source = 'unknown'): array
+    {
+        $response['status'] = !empty($response['status']);
+        $response['msg'] = strval($response['msg'] ?? '');
+        $response['error_class'] = strval($response['error_class'] ?? '');
+        $response['reason_code'] = strval($response['reason_code'] ?? '');
+        $response['stats_source'] = $source;
+        $response['observed_at'] = strval($response['observed_at'] ?? gmdate('Y-m-d H:i:s') . '.000000');
+        $response['data'] = is_array($response['data'] ?? null) ? $response['data'] : [];
+
+        $response['data']['content_id'] = strval($response['data']['content_id'] ?? '');
+        if ($response['data']['content_id'] === '' && strtolower($platform) === 'tiktok') {
+            $response['data']['content_id'] = strval($this->CI->template->extract_tiktok_content_id($url));
+        }
+        $response['data']['media_type'] = strval($response['data']['media_type'] ?? '');
+        if ($response['data']['media_type'] === '' && strtolower($platform) === 'tiktok') {
+            $response['data']['media_type'] = strval($this->CI->template->detect_tiktok_media_type_from_url($url));
+        }
+        $response['data']['created_at'] = strval($response['data']['created_at'] ?? '');
+        $response['data']['video_link'] = strval($response['data']['video_link'] ?? '');
+        $response['data']['cover'] = strval($response['data']['cover'] ?? '');
+        $response['data']['images'] = array_values(is_array($response['data']['images'] ?? null) ? $response['data']['images'] : []);
+
+        $statsFields = [];
+        if (is_array($response['stats_fields'] ?? null)) {
+            foreach ($response['stats_fields'] as $field) {
+                $field = strval($field);
+                if (in_array($field, ['like', 'share', 'comment', 'collect', 'view'], true)) {
+                    $statsFields[$field] = true;
+                }
+            }
+        }
+
+        foreach (['like', 'share', 'comment', 'collect', 'view'] as $field) {
+            if (array_key_exists($field, $response['data'])) {
+                $value = $response['data'][$field];
+                if ($value === '' || $value === null) {
+                    $response['data'][$field] = null;
+                } else {
+                    $response['data'][$field] = is_float($value + 0) ? (float) $value : intval($value);
+                    $statsFields[$field] = true;
+                }
+            } else {
+                $response['data'][$field] = null;
+            }
+        }
+
+        $response['stats_fields'] = array_values(array_keys($statsFields));
+        $response['stats_found'] = !empty($response['stats_fields']) || !empty($response['data']['content_id']);
+        $response['stats_complete'] = count(array_intersect($response['stats_fields'], ['like', 'share', 'comment', 'collect', 'view'])) === 5;
+
+        return $response;
+    }
+
+    protected function buildMetricSet(array $response, array $endorse, array $prevStats): array
+    {
+        $fields = array_values(array_map('strval', is_array($response['stats_fields'] ?? null) ? $response['stats_fields'] : []));
+        $present = array_fill_keys($fields, true);
+
+        $current = [
+            'like' => intval($endorse['likes'] ?? ($prevStats['likes_after'] ?? 0)),
+            'comment' => intval($endorse['comment'] ?? ($prevStats['comment_after'] ?? 0)),
+            'share_save' => floatval($endorse['share_save'] ?? ($prevStats['share_save_after'] ?? 0)),
+            'view' => intval($endorse['views'] ?? ($prevStats['views_after'] ?? 0)),
+        ];
+        $previous = [
+            'like' => intval($prevStats['likes_after'] ?? 0),
+            'comment' => intval($prevStats['comment_after'] ?? 0),
+            'share_save' => floatval($prevStats['share_save_after'] ?? 0),
+            'view' => intval($prevStats['views_after'] ?? 0),
+        ];
+
+        $incomingShareSave = null;
+        if (isset($present['share']) || isset($present['collect'])) {
+            $incomingShareSave = floatval($response['data']['share'] ?? 0) + floatval($response['data']['collect'] ?? 0);
+            $current['share_save'] = $incomingShareSave;
+        }
+        if (isset($present['like'])) {
+            $current['like'] = intval($response['data']['like']);
+        }
+        if (isset($present['comment'])) {
+            $current['comment'] = intval($response['data']['comment']);
+        }
+        if (isset($present['view'])) {
+            $current['view'] = max($previous['view'], intval($response['data']['view']));
+        }
+
+        return [
+            'current' => $current,
+            'previous' => $previous,
+            'present' => $present,
+            'completeness' => !empty($response['stats_complete']) ? 'complete' : 'partial',
+        ];
+    }
+
+    protected function businessDateFromObservedAt(string $observedAt): string
+    {
+        $utc = new DateTimeZone('UTC');
+        $businessTz = new DateTimeZone(strval(env('ENDORSE_REFRESH_BUSINESS_TIMEZONE', 'Asia/Jakarta')));
+        $dt = DateTimeImmutable::createFromFormat('Y-m-d H:i:s.u', $observedAt, $utc);
+        if (!$dt) {
+            $dt = new DateTimeImmutable('now', $utc);
+        }
+
+        return $dt->setTimezone($businessTz)->format('Y-m-d');
+    }
+
+    protected function applyObservationMetadata(string $table, array &$row, array $response): void
+    {
+        if ($this->CI->db->field_exists('stats_completeness', $table)) {
+            $row['stats_completeness'] = !empty($response['stats_complete']) ? 'complete' : 'partial';
+        }
+        if ($this->CI->db->field_exists('stats_fields', $table)) {
+            $row['stats_fields'] = json_encode(array_values($response['stats_fields'] ?? []));
+        }
+        if ($this->CI->db->field_exists('stats_source', $table)) {
+            $row['stats_source'] = strval($response['stats_source'] ?? '');
+        }
+        if ($this->CI->db->field_exists('stats_observed_at', $table)) {
+            $row['stats_observed_at'] = strval($response['observed_at'] ?? '');
+        }
+    }
+
     /**
      * Classify a Template::get_social_media response for retry decisions.
      */
     public function classify_response(array $response, string $platform, string $url): array
     {
-        if (!empty($response['status']) && !empty($response['data'])) {
-            $hasMetrics = intval($response['data']['view'] ?? 0) > 0
-                || intval($response['data']['like'] ?? 0) > 0
-                || intval($response['data']['share'] ?? 0) > 0
-                || intval($response['data']['comment'] ?? 0) > 0
-                || intval($response['data']['collect'] ?? 0) > 0;
-            if ($hasMetrics || !empty($response['data']['content_id'])) {
-                return ['class' => self::ERR_OK, 'msg' => ''];
-            }
-        }
+        $response = $this->normalize_response($response, $platform, $url);
 
-        if (!empty($response['status']) && !empty($response['data']['content_id'])) {
+        if (!empty($response['status']) && !empty($response['stats_found'])) {
             return ['class' => self::ERR_OK, 'msg' => ''];
         }
 
@@ -115,6 +229,7 @@ class Endorse_sync
     {
         $platform = strval($endorse['platform']);
         $url = strval($endorse['link_upload']);
+        $response = $this->normalize_response($response, $platform, $url, strval($response['stats_source'] ?? 'queue'));
 
         $classification = $this->classify_response($response, $platform, $url);
 
@@ -127,29 +242,24 @@ class Endorse_sync
         }
 
         $db = $this->CI->db;
-        $today = date('Y-m-d');
+        $today = $this->businessDateFromObservedAt(strval($response['observed_at']));
         $id_endorse = intval($endorse['id']);
 
         if ($prev_stats === null) {
             $prev_stats = $this->load_prev_stats($id_endorse, $today);
         }
 
-        $prev_likes      = intval($prev_stats['likes_after'] ?? 0);
-        $prev_comment    = intval($prev_stats['comment_after'] ?? 0);
-        $prev_share_save = intval($prev_stats['share_save_after'] ?? 0);
-        $prev_views      = intval($prev_stats['views_after'] ?? 0);
-
+        $metrics = $this->buildMetricSet($response, $endorse, $prev_stats);
         $stats = [
-            'likes'      => intval($response['data']['like'] ?? 0),
-            'comment'    => intval($response['data']['comment'] ?? 0),
-            'share_save' => doubleval($response['data']['share'] ?? 0) + doubleval($response['data']['collect'] ?? 0),
-            'views'      => intval($response['data']['view'] ?? 0),
+            'likes' => $metrics['current']['like'],
+            'comment' => $metrics['current']['comment'],
+            'share_save' => $metrics['current']['share_save'],
+            'views' => $metrics['current']['view'],
         ];
-
-        // Keep views non-decreasing per content (TikTok occasionally returns transient lower values).
-        if ($stats['views'] < $prev_views) {
-            $stats['views'] = $prev_views;
-        }
+        $prev_likes      = $metrics['previous']['like'];
+        $prev_comment    = $metrics['previous']['comment'];
+        $prev_share_save = $metrics['previous']['share_save'];
+        $prev_views      = $metrics['previous']['view'];
 
         $is_fyp = null;
         if ($stats['views'] >= 50000) {
@@ -181,6 +291,7 @@ class Endorse_sync
             'updated_at'       => date('Y-m-d H:i:s'),
             'updated_by'       => strval($user_id),
         ];
+        $this->applyObservationMetadata('endorse', $endorseUpdate, $response);
         if (!empty($response['data']['created_at'])) {
             $endorseUpdate['posting_at'] = $response['data']['created_at'];
         }
@@ -253,6 +364,7 @@ class Endorse_sync
             'views_before'      => strval($prev_views),
             'cpm_before'        => strval($cpm_before),
         ];
+        $this->applyObservationMetadata('endorse_logs', $logRow, $response);
 
         if ($existing_log_id) {
             $logRow['updated_at'] = date('Y-m-d H:i:s');
@@ -294,6 +406,7 @@ class Endorse_sync
         $platform = strval($endorse['platform']);
         $url = strval($endorse['link_upload']);
         $purpose = ($purpose === 'final') ? 'final' : 'initial';
+        $response = $this->normalize_response($response, $platform, $url, strval($response['stats_source'] ?? 'queue'));
 
         $classification = $this->classify_response($response, $platform, $url);
         if ($classification['class'] !== self::ERR_OK) {
@@ -307,20 +420,22 @@ class Endorse_sync
         $db = $this->CI->db;
         $id_endorse = intval($endorse['id']);
         $now = date('Y-m-d H:i:s');
+        $present = array_fill_keys(array_values($response['stats_fields'] ?? []), true);
 
         // NOTE: the API exposes "save" under the key `collect`.
         $metrics = [
-            'like'    => intval($response['data']['like'] ?? 0),
-            'comment' => intval($response['data']['comment'] ?? 0),
-            'share'   => intval($response['data']['share'] ?? 0),
-            'save'    => intval($response['data']['collect'] ?? 0),
-            'view'    => intval($response['data']['view'] ?? 0),
+            'like'    => isset($present['like']) ? intval($response['data']['like']) : ($endorse['like_' . $purpose] ?? null),
+            'comment' => isset($present['comment']) ? intval($response['data']['comment']) : ($endorse['comment_' . $purpose] ?? null),
+            'share'   => isset($present['share']) ? intval($response['data']['share']) : ($endorse['share_' . $purpose] ?? null),
+            'save'    => isset($present['collect']) ? intval($response['data']['collect']) : ($endorse['save_' . $purpose] ?? null),
+            'view'    => isset($present['view']) ? intval($response['data']['view']) : ($endorse['view_' . $purpose] ?? null),
         ];
 
         $update = [
             'updated_at' => $now,
             'updated_by' => strval($user_id),
         ];
+        $this->applyObservationMetadata('endorse', $update, $response);
 
         if ($purpose === 'initial') {
             // Baseline must stay frozen — never overwrite once captured.
