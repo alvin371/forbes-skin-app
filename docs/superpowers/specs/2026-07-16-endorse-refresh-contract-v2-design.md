@@ -1,7 +1,7 @@
 # Endorse Refresh Contract v2 — Atomic Ownership and Safe Finalization
 
 **Date:** 2026-07-16  
-**Status:** Revised design pending P0 review
+**Status:** P0 design approved — implementation authorized; not production-ready
 
 ## Problem and evidence
 
@@ -58,8 +58,10 @@ preconditions rather than assumptions.
 
 ## Required schema and indexes
 
-Schema changes are additive and run while the Rust service is `0/0`. The sole data-repair exception
-is the reviewed, archived campaign-log duplicate reconciliation described below.
+The initial bridge migration is additive and runs while the Rust service is `0/0`. It may create
+the duplicate archive/report structures, but it must not reconcile `endorse_campaign_logs` or
+create the campaign/day unique index while `contract_state=legacy`. Those operations run only in
+the paused `activating_v2` phase described below.
 
 ### Central runtime control
 
@@ -69,21 +71,28 @@ Create singleton table `endorse_refresh_runtime_control`:
 - `contract_state`: `legacy`, `activating_v2`, or `v2`;
 - `owner_state`: `cron`, `rust`, `draining_to_cron`, `draining_to_rust`, or `paused`;
 - `generation` unsigned bigint incremented on every state transition;
-- `circuit_state`: `closed`, `open`, or `half_open`;
-- `circuit_reason`, `circuit_open_until`, `circuit_failure_count`;
-- `probe_worker_id` nullable UUID for the single half-open probe;
 - `updated_at`, `updated_by`.
 
-Create singleton `endorse_refresh_provider_health` rows keyed by provider. Each row stores the
-current consecutive failure class/count plus a bounded rolling-window start, total sample count,
-and per-class failure counts. Provider outcomes update this row and, when necessary, the runtime
-circuit in a short transaction that locks runtime first. This makes systemic thresholds global
-across PHP and Rust replicas rather than process-local.
+Create `endorse_refresh_provider_health` with one row per provider. Each row stores the provider
+circuit state (`closed`, `open`, or `half_open`), generation, reason, open-until time, cooldown
+level, probe worker/attempt identity, current consecutive failure class/count, and a bounded
+rolling-window start, total sample count, and per-class failure counts.
 
-The seed state is contract `legacy`, owner `cron`, circuit closed. The new application keeps the
-existing PHP lifecycle only while the centrally stored contract state is `legacy`; it rejects Rust
-claims in that mode. `ENDORSE_REFRESH_DRIVER` becomes a deployment bootstrap check only and is
-never consulted after contract v2 activation.
+Create `endorse_refresh_worker_health` with one row per claim owner (`cron` or `rust`). Each row
+stores an independent worker-health circuit state, generation, reason, open-until time, cooldown
+level, failure count, and optional probe worker/attempt identity. Rust stalls update only the Rust
+worker-health row; they never write provider state. Provider outcomes update only provider health;
+they never replace worker-health state.
+
+Every circuit transition is an independent compare-and-swap update under the global lock order.
+Resetting or expiring one circuit cannot clear, shorten, or overwrite another. Health responses and
+metrics return all simultaneously active circuit reasons. This makes systemic thresholds global
+across PHP and Rust replicas without collapsing unrelated failures into one last-written reason.
+
+The seed state is contract `legacy`, owner `cron`, with provider and worker-health circuits closed.
+The new application keeps the existing PHP lifecycle only while the centrally stored contract
+state is `legacy`; it rejects Rust claims in that mode. `ENDORSE_REFRESH_DRIVER` becomes a
+deployment bootstrap check only and is never consulted after contract v2 activation.
 
 ### Queue and attempts
 
@@ -143,20 +152,31 @@ Keep `uniq_endorse_logs_endorse_date (id_endorse, date)`. Add
 `uq_endorse_campaign_logs_campaign_date (id_campaign, date)` before v2 activation so concurrent
 first writes for a campaign/day cannot create duplicate rollup rows.
 
-Production currently has 11 duplicate campaign/day groups. The migration does not silently discard
-them: it creates an archive table containing the full duplicate rows plus `canonical_id`,
-`archived_at`, and reason `v2_unique_key_reconciliation`. For each group, a dry-run report selects
-the newest row by `COALESCE(updated_at, created_at)` then ID as the proposed canonical row. An
-operator reviews the 11 groups; the migration archives and removes only approved non-canonical
-rows, verifies source/archive counts, and then creates the unique key. If review, archival, count
-verification, deletion, or index creation fails, activation stops.
+Production currently has 11 duplicate campaign/day groups. The initial migration only creates an
+archive table capable of storing the full duplicate rows plus `canonical_id`, `archived_at`, and
+reason `v2_unique_key_reconciliation`. It does not select, archive, delete, or index live campaign
+logs. After all old application tasks have stopped, `contract_state=activating_v2`, and legacy
+processing queues/audits are zero, the activation workflow performs these ordered steps:
+
+1. Generate a fresh dry-run report, proposing the newest row by
+   `COALESCE(updated_at, created_at)` then ID as canonical for each group.
+2. Require explicit operator approval of every proposed canonical/non-canonical row.
+3. Archive the complete approved non-canonical source rows.
+4. Remove only the approved archived non-canonical rows.
+5. Verify pre-repair source count, archive insert count, deletion count, remaining group count, and
+   canonical IDs.
+6. Create and verify `uq_endorse_campaign_logs_campaign_date (id_campaign, date)`.
+
+The contract remains `activating_v2`, so no cron, Rust, or manual claim can create work throughout
+review and repair. Any report drift, review rejection, archival error, count mismatch, deletion
+error, duplicate remainder, index error, or index verification failure aborts activation closed.
 
 The v2 writer locks the campaign row before its campaign/day log and uses the unique key for
 insert-or-update safety. It does not rely on an unlocked select-then-insert check.
 
-### Migration preconditions
+### Activation preconditions
 
-The migration refuses to activate v2 if:
+The activation operation refuses to set contract v2 if:
 
 - any critical table is not InnoDB;
 - duplicate queue/attempt identities would prevent the unique keys;
@@ -171,8 +191,10 @@ The migration refuses to activate v2 if:
 When `contract_state=v2`, every mutation-capable claim transaction locks runtime row `id=1` first
 with `FOR UPDATE`.
 
-- PHP cron may claim only when `owner_state=cron` and the circuit permits work.
-- Rust may claim only when `owner_state=rust` and the circuit permits work.
+- PHP cron may claim only when `owner_state=cron`, every required provider circuit permits work,
+  and the cron worker-health circuit permits work.
+- Rust may claim only when `owner_state=rust`, every required provider circuit permits work, and
+  the Rust worker-health circuit permits work.
 - Manual processing uses the cron claim path and is rejected unless cron owns the queue.
 - `draining_*` and `paused` deny all new claims from both consumers.
 - Fallback, result, and release endpoints do not reject an already active claim merely because
@@ -210,12 +232,14 @@ bridge:
 - deployment automation refuses activation until `docker service ps` proves every running app task
   uses the bridge/v2 image digest and all old tasks are stopped;
 - it then atomically changes state to `activating_v2`, which makes every bridge replica deny new
-  claims, drains all legacy processing queues/audits to zero, and activates `contract_state=v2`
-  with owner `cron` in one locked transition;
+  claims; drains all legacy processing queues/audits to zero; performs the reviewed duplicate
+  archive/reconciliation and unique-index workflow; verifies every activation precondition; and
+  only then changes to `contract_state=v2` with owner `cron` in a final locked transition;
 - a failed or incomplete rollout never leaves legacy state and keeps Rust `0/0`.
 
 The activation command requires the expected runtime generation, the expected image digest, zero
-old tasks, and zero legacy processing rows; otherwise it fails closed. After activation, the
+old tasks, zero legacy processing rows/audits, verified reconciliation counts, and the verified
+campaign/day unique index; otherwise it fails closed in `activating_v2`. After activation, the
 database state machine is the sole authority for all future rolling deployments, and local driver
 values are ignored. CI includes mixed-replica tests for both the legacy bridge phase and v2 owner
 switches.
@@ -233,10 +257,14 @@ Every Rust process calls the UUID v4 generator once before starting its request 
 that value as `worker_id` on every request for that process lifetime. The value cannot come from
 configuration, a service name, a hostname, or a Swarm task name. A new process boot necessarily
 executes the generator again; tests launch two processes and require different IDs. PHP cron
-generates a UUID v4 per PHP worker process/request. The server requires canonical RFC 4122 UUID v4
-syntax and version bits, rejecting non-UUID or non-v4 identifiers with HTTP 422
-`invalid_worker_id`; logs record first-seen time and application version so accidental reuse is
-alertable.
+generates one UUID v4 at the entry point of each cron process or HTTP-triggered cron invocation,
+before it claims a batch. That invocation stores the UUID in an immutable execution context and
+uses the same value for every audit row and every claim, fetch/scrape/fallback, result, release, and
+finalization operation in that lifecycle. Libraries and finalizers receive the context; they never
+generate or replace the UUID. A different UUID is generated only when a new cron process or cron
+invocation starts. The server requires canonical RFC 4122 UUID v4 syntax and version bits,
+rejecting non-UUID or non-v4 identifiers with HTTP 422 `invalid_worker_id`; logs record first-seen
+time and application version so accidental reuse is alertable.
 
 A successful claim returns contract v2, the boot UUID, and per-item `queue_id`, `attempt_no`, and
 `active_attempt_id`. The worker verifies all echoed identities before fetching.
@@ -284,11 +312,11 @@ Worker endpoints return JSON with stable reasons:
 | 503 | `contract_not_active` | Deployment standby; do not claim or create attempts |
 | 409 | `driver_not_owner` | Stand by; poll central ownership with bounded interval |
 | 409 | `driver_draining` | Stand by; do not claim; allow active results to finish |
-| 503 | `circuit_open` | Honor retry time; do not claim or charge attempts |
+| 503 | `circuit_open` | Inspect `active_circuits`; honor each retry/indefinite state and do not claim |
 
 Authentication and contract checks happen before database mutation. Driver/circuit rejections occur
-while holding only the runtime control lock and create no queue/audit rows. Health output exposes
-the stable pause reason without secrets.
+while holding only runtime and the required health rows and create no queue/audit rows. Health output
+exposes every stable pause reason without secrets.
 
 ## Fetch and fallback behavior
 
@@ -371,14 +399,15 @@ IDs, and batch limit. Duplicate IDs return 422 `duplicate_queue_id`; oversized b
 The authoritative transaction uses this global lock order for every mutation path:
 
 1. runtime control singleton;
-2. provider-health row when the path records an outcome or evaluates a provider threshold;
-3. fallback dedup rows when the path verifies a provider outcome;
-4. queue rows ordered by queue ID;
-5. attempt audit rows ordered by queue ID then audit ID;
-6. endorse rows ordered by endorse ID;
-7. existing daily endorse-log rows ordered by endorse ID;
-8. campaign rows ordered by campaign ID;
-9. existing campaign-log rows ordered by campaign ID/date.
+2. provider-health rows ordered by provider key when the path records or evaluates provider state;
+3. worker-health rows ordered by claim-owner key when the path records or evaluates worker state;
+4. fallback dedup rows when the path verifies a provider outcome;
+5. queue rows ordered by queue ID;
+6. attempt audit rows ordered by queue ID then audit ID;
+7. endorse rows ordered by endorse ID;
+8. existing daily endorse-log rows ordered by endorse ID;
+9. campaign rows ordered by campaign ID;
+10. existing campaign-log rows ordered by campaign ID/date.
 
 The initial fallback lease acquisition touches only its dedup row and commits. No path acquires
 runtime/provider locks after a held dedup lock. Provider completion and release use the order above;
@@ -391,9 +420,9 @@ row. Any missing/stale/completed/mismatched identity rolls back the full batch a
 `claim_conflict` with per-queue stable reasons: `queue_not_found`, `queue_completed`,
 `queue_not_processing`, `worker_mismatch`, `attempt_mismatch`, and `attempt_not_active`.
 
-An ownership drain or open circuit blocks new claims only. It does not invalidate an otherwise
-matching active result; active identities remain authoritative until normal finalization, release,
-stale recovery, or explicit force recovery.
+An ownership drain or any open required circuit blocks new claims only. It does not invalidate an
+otherwise matching active result; active identities remain authoritative until normal
+finalization, release, stale recovery, or explicit force recovery.
 
 Only after every item validates does PHP apply business rows, audit rows, queue state, and campaign
 rollups. All are committed together. No external request, event dispatch, queue dispatch, or
@@ -439,52 +468,103 @@ delay = base * deterministic_jitter(queue_id, attempt_no, 0.80..1.20)
 Thus typical retries are approximately 48-72 seconds after failure one and 96-144 seconds after
 failure two. Eligibility uses `next_attempt_at`, not elapsed time from the original claim.
 
-### Systemic policy
+### Independent systemic circuits
 
 If an item has no acceptable observation because of a systemic failure, that failure does not
-charge its attempt. It opens a central circuit and releases the active claim as `cancelled` through
-an authenticated v2 release transaction. A daily item that already has an acceptable direct
-partial observation may instead finalize as a charged partial success while the provider circuit
-still pauses new claims.
+charge its attempt. The applicable circuit opens and the active claim is released as `cancelled`
+through an authenticated v2 release transaction. A daily item that already has an acceptable
+direct partial observation may instead finalize as a charged partial success while the provider
+circuit still pauses new claims.
 
-- Worker authentication 401/403: local fatal circuit immediately; no further requests; stale
-  recovery cancels any in-flight claims if the worker can no longer authenticate.
-- Contract 426: incompatible worker exits claim loop; no claim exists because version is checked
-  before claim.
-- RapidAPI missing/invalid credentials or provider 401/403: central circuit opens indefinitely
-  until operator correction and explicit reset.
-- Provider 429: central circuit opens for `Retry-After`, or 60 seconds if absent.
-- Repeated timeout/connect/5xx: open when five same-class failures occur consecutively or when at
-  least 10 samples have >=50% same-class failures.
-- Timed transient circuit durations use 60, 120, 240, 480, then 900 seconds, each with 20% jitter.
+Provider and worker-health circuits have independent state, reason, cooldown level, timestamps,
+probe identity, reset operation, and audit history:
 
-After a timed circuit expires, the runtime row enters `half_open`. Exactly one worker UUID may claim
-one probe item. Probe success closes and resets the circuit; systemic probe failure reopens it at the next
-duration. Other replicas receive `circuit_open` while the probe is active.
+- RapidAPI missing/invalid credentials or provider 401/403 opens only the RapidAPI provider circuit
+  indefinitely until operator correction and an explicit provider-circuit reset.
+- Provider 429 opens only the provider circuit for `Retry-After`, or 60 seconds if absent.
+- Repeated provider timeout/connect/5xx opens only the provider circuit when five same-class
+  failures occur consecutively or at least 10 five-minute-window samples contain 50% same-class
+  failures.
+- Timed provider cooldowns use 60, 120, 240, 480, then 900 seconds, each with 20% jitter and a
+  provider-specific cooldown level.
+- Three stale cancellations for one worker boot UUID, or three batch-wide stale recoveries within
+  10 minutes, opens only that claim owner's worker-health circuit for 60 seconds and alerts.
+- Worker authentication 401/403 opens a local fatal worker circuit immediately; no further
+  requests are made. Server stale recovery cancels in-flight claims and may independently open the
+  applicable worker-health circuit, but never changes provider state.
+- Contract 426 opens a local incompatible-worker circuit and exits the claim loop. No claim exists
+  because version validation occurs before mutation.
+
+New work is claimable only when the relevant provider circuit and current owner's worker-health
+circuit are each closed, or when that exact claim owns every required half-open probe reservation.
+An open provider-auth circuit remains indefinite even if a worker-stall timer expires. A provider
+timeout expiry cannot close worker health. Reset APIs name exactly one circuit key and require its
+generation; they cannot issue a global clear. Health output exposes an `active_circuits` array, so
+simultaneous reasons remain observable.
 
 The provider-health rolling window is five minutes and is updated for every fallback provider
 success or failure. A success resets the consecutive counter but remains a sample in the window;
 window counters reset when the window expires. Immediate auth/429 rules bypass the sample minimum.
-Threshold evaluation and circuit transition lock the runtime and provider-health rows atomically.
+Threshold evaluation and provider-circuit transition lock runtime then the provider-health row.
+
+The worker-health circuit uses its own half-open reservation after a timed stall pause. One boot
+UUID may claim one item. Any authoritative result or validated systemic release proves that the
+worker completed the protocol and closes only the worker-health circuit; another stale lease
+reopens only worker health. If a provider circuit is also open, it continues to block claims and is
+unchanged.
+
+### Provider half-open probe outcomes
+
+When a timed provider circuit expires—or an operator resets an indefinite provider-auth
+circuit—the provider row enters `half_open`. Exactly one queue attempt is bound to its probe worker
+UUID and active attempt ID. A provider probe must call the PHP fallback even if direct scraping
+already returned complete statistics, because the probe evaluates provider reachability rather
+than the selected item's business outcome. Other replicas receive `circuit_open` while the probe
+reservation is active.
+
+Every provider probe follows one of these terminal paths:
+
+- Provider returns a valid response showing the post is deleted, private, or not found: close and
+  reset only the provider circuit, then finalize the queue as a permanent item failure.
+- Provider returns a valid response with partial statistics: close and reset only the provider
+  circuit, then apply the normal partial-observation policy.
+- Provider returns a valid complete response: close and reset only the provider circuit, then
+  finalize the item normally.
+- Provider returns authentication, rate-limit, timeout, connection, or 5xx failure: reopen only the
+  provider circuit. Authentication remains indefinite; rate limit honors `Retry-After` or the next
+  cooldown, and timeout/connection/5xx uses the next provider cooldown level.
+- Provider returns a malformed or provider-level invalid envelope: reopen the provider circuit as
+  `provider_probe_invalid_response` at the next cooldown; it cannot remain half-open indefinitely.
+- The item is locally invalid before any provider request can be made: finalize the item under the
+  permanent-item policy, clear that probe reservation without declaring provider success, and
+  allow the next eligible item to acquire the still-half-open probe.
+- The probe worker/lease disappears: lease expiry reopens the provider circuit as
+  `provider_probe_timeout` at the next cooldown.
+
+Thus item validity never determines provider reachability, and every acquired probe either closes
+the provider circuit, reopens it, or releases the reservation for another probe.
 
 `POST /api/endorse-refresh/release` validates active identities with the standard lock order,
-atomically opens/extends the central circuit for an allowlisted systemic reason, marks audits
-cancelled, clears active claims, and returns rows to pending without incrementing attempts. PHP
-accepts an immediate release only for server-observed auth/429 failures or when the central
-provider-health threshold is already satisfied; it does not trust a worker-supplied classification
-alone. A worker cannot label permanent item errors systemic.
+updates only the server-verified provider circuit key, marks audits cancelled, clears active
+claims, and returns rows to pending without incrementing attempts. PHP accepts an immediate
+provider release only for a deduplicated server-observed auth/429 failure or when the provider
+threshold is already satisfied; it does not trust a worker-supplied classification alone. If the
+same claim holds a worker-health half-open reservation, successful authenticated release handling
+may independently close that worker-health probe because the full protocol completed. A worker
+cannot label permanent item errors systemic, open worker health, or reset an unrelated circuit
+through this endpoint.
 
-Stale recovery also cancels/no-charges abandoned active audits. It records a separate operational
-failure metric. Three stale cancellations for one worker boot UUID or three batch-wide stale
-recoveries within 10 minutes open the central `worker_stall` circuit for 60 seconds and alert, so
-no-charge recovery cannot silently recycle forever.
+Stale recovery cancels and no-charges abandoned active audits, records a distinct operational
+failure, and updates only the applicable worker-health row when its threshold is reached. This
+prevents a no-charge recovery loop without modifying any provider circuit.
 
 ## Metrics and alerts
 
 Required metrics:
 
 - runtime owner state/generation and transition age;
-- circuit state/reason/open duration/probe state;
+- provider and worker-health circuit states/reasons/generations/open durations/probe states, plus
+  the full simultaneously active reason set;
 - pending/processing by `claim_owner`, oldest pending age, and next-attempt delay;
 - charged attempts and cancelled claims by outcome/reason;
 - scrape success plus transport/HTTP/parse/stats-missing categories;
@@ -498,7 +578,8 @@ Alerts:
 - any contract/auth failure: immediate critical;
 - owner transition older than 180 seconds: critical;
 - processing rows owned by both cron and Rust outside a drain test: critical;
-- circuit open longer than 5 minutes or indefinite auth circuit: critical;
+- any provider or worker-health circuit open longer than 5 minutes, or an indefinite provider-auth
+  circuit: critical;
 - queue oldest pending over 10 minutes while owner is active: warning, over 30 minutes critical;
 - fallback failure ratio over 20% for 5 minutes: warning; over 50% critical;
 - transaction deadlock ratio over 1% or any retry exhaustion: warning;
@@ -508,7 +589,7 @@ Alerts:
 
 ## Multi-replica and load verification
 
-Before production canary, automated/integration tests cover:
+Before any production ownership canary, automated/integration tests cover:
 
 - two PHP replicas with intentionally conflicting local driver env values still obeying one DB
   owner;
@@ -516,6 +597,8 @@ Before production canary, automated/integration tests cover:
 - initial bridge rollout with pre-v2 and v2 app replicas, legacy lifecycle only, activation blocked
   until the old replica and processing counts are zero, and Rust remaining `0/0`;
 - two Rust replicas with distinct boot UUIDs and disjoint claims;
+- one PHP cron invocation retaining one UUID through claim, provider work, and result/release, with a
+  different UUID on the next invocation;
 - pre-v2 `/claim` rejection before mutation;
 - active audit identity after reset/reclaim without attempt-number reuse;
 - fallback dedup concurrency, cached response, expired-lease takeover, and no network-under-lock;
@@ -525,8 +608,9 @@ Before production canary, automated/integration tests cover:
 - campaign-log duplicate dry-run/archive/count verification and concurrent first-write uniqueness;
 - all-zero complete stats, direct partial fallback, final partial daily metadata, missing-view merge,
   and snapshot partial rejection;
-- systemic auth/429/timeout circuit transitions, single half-open probe, no-charge release, and
-  per-item jittered cooldown;
+- independent provider/worker-health transitions and resets, simultaneous active reasons,
+  auth/429/timeout provider probes, invalid-item and partial-stat probe outcomes, worker-stall
+  probes, no-charge release, and per-item jittered cooldown;
 - driver drain timeout and forced recovery rejecting late results.
 
 Load testing begins at result batches of 10 with at least two app replicas and two simulated workers.
@@ -534,23 +618,82 @@ Record p50/p95/p99 transaction time, lock wait, deadlock rate, and rows/minute. 
 limit requires zero retry exhaustion, deadlocks below 1%, p95 result transaction below one second,
 and a documented canary step.
 
+## Delivery status and release gates
+
+The P0 design is approved by this revision. Implementation is the next engineering phase, but the
+system is not production-ready. No design approval, passing unit test, or completed migration alone
+authorizes production Rust ownership.
+
+### P0 — design approved, implementation required
+
+- [x] Atomic contract/driver ownership and bridge activation are specified.
+- [x] Active audit identity, strict v2 endpoints, nullable statistics, partial semantics, retry
+  policy, fallback deduplication, deterministic finalization, and rollback behavior are specified.
+- [x] PHP cron and Rust boot UUID lifecycles are explicit.
+- [x] Provider and worker-health circuits and provider-probe item semantics are separated.
+- [x] Campaign-log reconciliation is confined to paused activation.
+- [ ] Implement the schema, activation workflow, strict endpoints, PHP cron path, Rust worker,
+  fallback path, transactional writer, independent circuits, operational commands, and tests.
+- [ ] Verify the P0 implementation against this contract with production ownership still `cron`
+  and Rust desired and observed `0/0`.
+
+### P1 — mandatory release gates before production Rust ownership
+
+- [ ] Rehearse migration, legacy bridge, paused activation, reconciliation, and rollback on a
+  production-like database copy.
+- [ ] Verify every required index and critical claim/result/rollup query with schema inspection and
+  `EXPLAIN`; record query plans and lock behavior.
+- [ ] Pass multi-replica bridge, driver-switch, stale-result, and mixed-local-configuration tests.
+- [ ] Pass fallback dedup concurrency, cache, lease takeover, and no-network-under-lock tests.
+- [ ] Pass independent provider/worker-health circuit, simultaneous-reason, reset, half-open probe,
+  and failure-precedence tests.
+- [ ] Pass result batch load, contention, lock-timeout, deadlock, retry, and rollback testing at the
+  initial limit of 10.
+- [ ] Implement and verify all required operational metrics.
+- [ ] Configure and exercise all required alerts and escalation routes.
+- [ ] Complete a production-like staging/shadow canary with the exact immutable app/worker images;
+  the production worker remains `0/0` throughout this gate.
+- [ ] Rehearse normal drain within the configured timeout.
+- [ ] Rehearse drain timeout, force recovery, late-result rejection, and full PHP rollback.
+- [ ] Record release sign-off confirming every P1 gate passed.
+
+### P2 — non-blocking technical-debt backlog
+
+- [ ] Add a separate random claim token in addition to active audit identity.
+- [ ] Split legacy `share_save` storage into separate share and collect columns.
+- [ ] Add per-field observation timestamps/freshness metadata.
+
+P2 does not block the first contract v2 release. Production remains on PHP cron with the Rust worker
+desired and observed `0/0` until the P0 implementation is complete and every P1 gate is signed off.
+
 ## Coordinated deployment
 
 1. Confirm every old app task is cron-only and Rust is desired and observed `0/0`.
-2. Apply additive migrations and verify contract `legacy`, owner `cron`, circuit closed, indexes,
-   engines, and uniqueness preconditions.
+2. Apply additive bridge migrations and verify contract `legacy`, owner `cron`, both circuit types
+   closed, engines, queue/audit indexes, and archive/report structures. Do not alter campaign-log
+   duplicates or create the campaign/day unique index yet.
 3. Roll the bridge/v2 PHP application while contract state remains legacy and Rust remains `0/0`.
    Both old and new app tasks use only the legacy PHP lifecycle.
 4. Verify every running app task uses the v2 image digest. Abort safely in legacy cron-only mode on
    any mixed or failed rollout.
 5. Change contract state to `activating_v2`; bridge replicas stop new claims. Drain legacy processing
-   queues and audits to zero, then atomically activate contract v2 with owner `cron`.
-6. Exercise one PHP cron batch through the v2 finalizer and verify the v2 audit invariants.
-7. Deploy the immutable v2 worker image while preserving `0/0`.
-8. Scale one v2 worker in standby. Its v2 claim receives `driver_not_owner` and creates no attempts.
-9. Transition central state to `draining_to_rust`; wait for cron-owned processing rows to reach zero.
-10. Atomically set owner `rust`, canary batch 10, and verify identity, dedup, transaction, partial,
-    circuit, and metrics behavior before bulk draining.
+   queues and attempts/audits to zero.
+6. Generate and review the duplicate dry-run report, archive full approved duplicate rows, remove
+   only approved non-canonical rows, and verify source/archive/deletion/canonical counts.
+7. Create and verify `uq_endorse_campaign_logs_campaign_date`. Any failure in steps 5-7 leaves the
+   contract paused in `activating_v2` and aborts activation.
+8. Verify every activation precondition, then atomically activate contract v2 with owner `cron`.
+9. Exercise one PHP cron batch through the v2 finalizer and verify its single UUID and v2 audit
+   invariants.
+10. Complete every P0 implementation check and every P1 release gate listed below while Rust remains
+    `0/0` in production.
+11. Only after the release gates are signed off, update the production worker service to the
+    immutable v2 image while preserving `0/0` and verify its digest.
+12. Scale one v2 worker in non-owning standby. Its v2 claim receives `driver_not_owner` and creates
+    no attempts.
+13. Transition central state to `draining_to_rust`, drain cron-owned processing rows to zero, then
+    set owner `rust` for the controlled production batch-10 canary. Bulk draining requires canary
+    sign-off.
 
 ## Coordinated rollback and forced recovery
 
