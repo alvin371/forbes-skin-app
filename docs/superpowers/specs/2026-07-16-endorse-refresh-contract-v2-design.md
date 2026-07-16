@@ -47,6 +47,8 @@ preconditions rather than assumptions.
 7. Circuit-break systemic failures without consuming per-item attempts.
 8. Keep all queue, audit, business, and rollup writes inside one deterministic transaction.
 9. Provide operational metrics, alerts, multi-replica tests, and forced rollback recovery.
+10. Permanently quarantine a confirmed unavailable content URL without changing the endorsement's
+    business-active state, while allowing a replacement content URL to sync automatically.
 
 ## Non-goals
 
@@ -55,6 +57,8 @@ preconditions rather than assumptions.
 - Supporting pre-v2 result/fallback payloads.
 - Using Redis. This repository has no Redis dependency; MySQL is already shared by all replicas.
 - Treating partial daily data as a complete snapshot.
+- Continuing Rust claims in a direct-scrape-only degraded mode while the required RapidAPI circuit
+  is open. The first v2 release pauses new claims instead; degraded mode remains P2.
 
 ## Required schema and indexes
 
@@ -80,9 +84,10 @@ rolling-window start, total sample count, and per-class failure counts.
 
 Create `endorse_refresh_worker_health` with one row per claim owner (`cron` or `rust`). Each row
 stores an independent worker-health circuit state, generation, reason, open-until time, cooldown
-level, failure count, and optional probe worker/attempt identity. Rust stalls update only the Rust
-worker-health row; they never write provider state. Provider outcomes update only provider health;
-they never replace worker-health state.
+level, failure count, optional probe worker/attempt identity, and the trigger's worker boot UUID,
+task identity, application version, stale queue count, stale audit count, first-triggered time, and
+last-triggered time. Rust stalls update only the Rust worker-health row; they never write provider
+state. Provider outcomes update only provider health; they never replace worker-health state.
 
 Every circuit transition is an independent compare-and-swap update under the global lock order.
 Resetting or expiring one circuit cannot clear, shorten, or overwrite another. Health responses and
@@ -93,6 +98,14 @@ The seed state is contract `legacy`, owner `cron`, with provider and worker-heal
 The new application keeps the existing PHP lifecycle only while the centrally stored contract
 state is `legacy`; it rejects Rust claims in that mode. `ENDORSE_REFRESH_DRIVER` becomes a
 deployment bootstrap check only and is never consulted after contract v2 activation.
+
+All v2 coordinator timestamps and expiries are UTC `DATETIME(6)` values produced by an injected UTC
+clock or `UTC_TIMESTAMP(6)`. This includes claim/start/finalization times, `next_attempt_at`, fallback
+lease expiry, circuit/probe expiry, observation times, quarantine times, and runtime-control times.
+Every v2 database connection sets and verifies `time_zone='+00:00'`; activation fails closed if the
+UTC clock/session check fails. Existing legacy technical timestamps are converted from the declared
+legacy application timezone during paused activation using a reviewed dry-run/count/hash process.
+The conversion marker is idempotent, so it cannot be applied twice.
 
 ### Queue and attempts
 
@@ -129,11 +142,68 @@ Create `endorse_refresh_fallback_calls` with:
 - unique key `(queue_id, attempt_no, worker_id)`;
 - `status`: `in_progress`, `completed`, or `failed`;
 - `lease_token` UUID and `lease_expires_at`;
-- `http_status`, `reason`, and `response_json`;
+- `http_status`, `reason`, and bounded normalized `response_json`;
 - `created_at`, `updated_at`, `completed_at`.
 
 Add cleanup index `(status, updated_at)`. Retain terminal cache rows for seven days, then prune them
 outside the request path.
+
+`response_json` is UTF-8 JSON limited to 16 KiB after encoding. Its allow-list is `outcome`,
+`failure_scope`, stable `reason`, `http_status`, bounded `provider_code`, `stats_found`,
+`stats_complete`, the five nullable normalized metrics, normalized TikTok `content_id`, UTC
+`observed_at`, bounded `retry_after_seconds`, and a sanitized `request_id`/`error_summary` of at most
+128/512 characters. Raw provider bodies, headers, cookies, credentials, endpoint URLs, stack traces,
+media payloads, and unknown envelope fields are never cached. An oversized normalized response is
+stored as terminal reason `fallback_cache_payload_too_large` without its body and alerts. Daily
+cleanup deletes only terminal rows older than seven days, never an active lease; P1 verifies both
+deletion and active-lease preservation.
+
+Configuration defines `fallback_lease_seconds`, `provider_timeout_seconds`, and
+`completion_margin_seconds` and enforces:
+
+```text
+fallback_lease_seconds >= provider_timeout_seconds + completion_margin_seconds
+```
+
+The initial values are 90, 60, and 15 seconds. A shared configuration validator runs at application
+startup, worker-endpoint readiness, and activation. Any violation makes readiness unhealthy, denies
+new claims with 503 `fallback_config_invalid`, and prevents activation. It never silently clamps a
+bad value.
+
+### Content-specific sync quarantine
+
+Create `endorse_refresh_quarantine` with one durable row per endorsement/content key:
+
+- `id`, `id_endorse`, `platform`, and stable `content_key`;
+- canonical URL hash and a bounded URL snapshot for operator diagnosis;
+- stable `reason_code`, bounded sanitized detail, and source `operator|provider_permanent_item`;
+- optional source queue/audit identity;
+- `confirmed_at`, `confirmed_by`, `cleared_at`, `cleared_by`, and bounded clear reason.
+
+Add unique key `(id_endorse, content_key)` and eligibility index
+`(id_endorse, cleared_at, content_key)`. For TikTok, `content_key` is `tiktok:<numeric-content-id>`;
+query parameters, username changes, and `/photo/` versus `/video/` aliases do not change it. If no
+valid content ID can be extracted, the key is a SHA-256 hash of the normalized URL. A different
+TikTok content ID does not match the quarantine and is immediately sync-eligible. Returning to the
+old content ID remains blocked until an explicit authenticated clear operation.
+
+The quarantine is sync-specific and never changes `endorse.status`, campaign status, visibility, or
+workflow state. Global/campaign/snapshot enqueue, force retry, queue claim, PHP cron, legacy cron
+bridge, manual sync, stale recovery, and recovery commands all consult the same eligibility
+coordinator before any external request. A frozen queued URL is checked by its own content key, not
+only against the endorsement's current URL, so changing the business row cannot revive an old
+pending request. A quarantined pending row is finalized as `permanent_item/item_quarantined`
+without creating or charging an attempt; a late in-flight result loses authoritative validation
+after an operator cancellation and receives the normal stable conflict.
+
+Automatic quarantine requires a normalized, authoritative permanent-item outcome such as an
+explicit provider reachable/deleted/private/not-found response. Zero metrics, missing metrics, a
+parser miss, or RapidAPI's ambiguous `code=-1 / Url parsing is failed` response alone never creates
+a quarantine. Operator confirmation records the evidence category without unrestricted raw
+provider data. The independently verified production item `endorse.id=18535`,
+`tiktok:7656625135230651669`, is applied through the authenticated quarantine coordinator with an
+expected endorsement ID/current-content-key compare-and-swap; a mismatch aborts rather than
+quarantining another link.
 
 ### Observation completeness
 
@@ -146,6 +216,12 @@ Add latest-observation metadata to `endorse` and daily observation metadata to `
 
 These columns describe the observation, not the merged cumulative row.
 
+`stats_observed_at` is always UTC. The daily business-log `date` is derived from that observation
+instant in the centrally configured business timezone, initially `Asia/Jakarta`; it is not derived
+from the database/session timezone or result-arrival time. The activation manifest pins
+`ENDORSE_REFRESH_BUSINESS_TIMEZONE=Asia/Jakarta`, and changing it is a reviewed business migration,
+not an ordinary deploy-time environment edit.
+
 ### Business-writer uniqueness
 
 Keep `uniq_endorse_logs_endorse_date (id_endorse, date)`. Add
@@ -154,13 +230,19 @@ first writes for a campaign/day cannot create duplicate rollup rows.
 
 Production currently has 11 duplicate campaign/day groups. The initial migration only creates an
 archive table capable of storing the full duplicate rows plus `canonical_id`, `archived_at`, and
-reason `v2_unique_key_reconciliation`. It does not select, archive, delete, or index live campaign
-logs. After all old application tasks have stopped, `contract_state=activating_v2`, and legacy
-processing queues/audits are zero, the activation workflow performs these ordered steps:
+reason `v2_unique_key_reconciliation`. It does not archive, delete, or index live campaign logs.
+While contract state is still `legacy`, an optional preliminary read-only report proposes the newest
+row by `COALESCE(updated_at, created_at)` then ID as canonical. Operator review records the complete
+ordered source IDs, canonical/non-canonical IDs, counts, normalized row-data SHA-256, query version,
+and reviewer identity. This shortens the later pause but never authorizes mutation while legacy
+writers run.
 
-1. Generate a fresh dry-run report, proposing the newest row by
-   `COALESCE(updated_at, created_at)` then ID as canonical for each group.
-2. Require explicit operator approval of every proposed canonical/non-canonical row.
+After all old application tasks have stopped, `contract_state=activating_v2`, and legacy processing
+queues/audits are zero, the activation workflow performs these ordered steps:
+
+1. Regenerate the dry-run report from the paused database with the same query version.
+2. Require exact equality with the reviewed proposal's ordered IDs, canonical choices, counts, and
+   normalized row-data hash. Any drift aborts closed and requires a new review.
 3. Archive the complete approved non-canonical source rows.
 4. Remove only the approved archived non-canonical rows.
 5. Verify pre-repair source count, archive insert count, deletion count, remaining group count, and
@@ -184,7 +266,12 @@ The activation operation refuses to set contract v2 if:
 - the required `endorse_logs (id_endorse,date)` unique key is absent;
 - campaign-log duplicate reconciliation is incomplete or the required
   `endorse_campaign_logs (id_campaign,date)` unique key is absent;
-- the runtime singleton cannot be created and locked.
+- the runtime singleton or required provider-health rows cannot be created and locked;
+- the fallback lease/timeout/margin invariant is invalid;
+- the UTC database-session/clock check, legacy timestamp conversion marker, or pinned business
+  timezone check fails;
+- architectural boundary tests find a queue, attempt, circuit, fallback-lease, quarantine,
+  business, or rollup writer outside an approved coordinator.
 
 ## Globally atomic ownership
 
@@ -199,6 +286,13 @@ with `FOR UPDATE`.
 - `draining_*` and `paused` deny all new claims from both consumers.
 - Fallback, result, and release endpoints do not reject an already active claim merely because
   ownership entered a draining state.
+
+RapidAPI is a required provider in the first v2 release. When its circuit is open, both owner paths
+pause new claims; Rust must not continue in direct-scrape-only mode. Active valid claims may still
+finalize or release under the normal rules. This deliberately trades queue availability for
+consistent provider verification and prevents a systemic fallback failure from turning into a wave
+of lower-confidence direct-only results. A bounded degraded mode requires a separate future design
+and remains P2.
 
 A row is claim-eligible only when `status='pending'`, `worker_id IS NULL`,
 `attempts < max_attempts`, and `next_attempt_at IS NULL OR next_attempt_at <= NOW()`. Both
@@ -227,7 +321,8 @@ bridge:
 - preflight proves every old app task is configured cron-only and the Rust service is desired and
   observed `0/0`;
 - additive migrations seed `contract_state=legacy`, so both old PHP and the new bridge image use
-  the existing PHP lifecycle throughout the rolling update;
+  the existing PHP lifecycle throughout the rolling update; the bridge routes that lifecycle
+  through the shared quarantine eligibility coordinator without changing attempt semantics;
 - the bridge image rejects Rust `/claim` with 503 `contract_not_active` while state is legacy;
 - deployment automation refuses activation until `docker service ps` proves every running app task
   uses the bridge/v2 image digest and all old tasks are stopped;
@@ -318,6 +413,20 @@ Authentication and contract checks happen before database mutation. Driver/circu
 while holding only runtime and the required health rows and create no queue/audit rows. Health output
 exposes every stable pause reason without secrets.
 
+Worker authentication uses a versioned key ID plus secret. Rotation is an overlap rollout:
+
+1. Deploy PHP accepting the current and next key IDs/secrets, with one designated for new workers.
+2. Roll Rust tasks to the next key and verify successful authenticated standby/health traffic from
+   every new boot UUID while the old key remains accepted.
+3. Drain or replace every task using the old key; verify zero old-key requests for at least the
+   configured overlap window, initially 15 minutes.
+4. Remove the old key from PHP and alert on any subsequent use.
+
+An instantaneous secret replacement is forbidden. Key IDs, never secret material, appear in audit
+logs. A rollback restores/extends dual acceptance before rolling workers back. P1 rehearsal includes
+mixed-key workers, a failed new-key rollout, overlap extension, old-key removal, and proof that 401
+responses do not cascade across every worker into an owner-wide outage.
+
 ## Fetch and fallback behavior
 
 Rust first performs a direct TikTok HTTP/1.1 fetch. A direct response is authoritative only when all
@@ -333,7 +442,8 @@ Fallback reasons are exact: 404 `queue_not_found`; 409 `queue_completed`,
 `queue_not_processing`, `worker_mismatch`, `attempt_mismatch`, or `attempt_not_active`; 422
 `invalid_tiktok_url`; 409 `fallback_in_progress`; 503 `provider_auth_failed`; 503
 `provider_rate_limited` with `Retry-After`; 504 `provider_timeout`; 502 `provider_unavailable`; and
-502 `provider_invalid_response`. Provider reasons include no credentials or response body.
+502 `provider_invalid_response`. Stable reasons distinguish missing credentials from a missing or
+invalid response body; unrestricted provider bodies are never returned or logged.
 
 ### Deduplicated external call
 
@@ -345,13 +455,13 @@ transaction and commits before any network call:
 - a missing row is inserted with a random lease token;
 - an expired lease may be taken over with a compare-and-swap update.
 
-The lease is 90 seconds, longer than the bounded PHP provider timeout plus response-write margin.
-PHP then calls RapidAPI with no transaction and no row lock held. Its completion transaction locks
-runtime, provider health, then the dedup lease row; it records the provider outcome/circuit decision
-and writes the cached response only if it still owns the lease. It never changes queue status,
-attempts, active identity, business rows, or rollups. Calling fallback twice for the same claim
-therefore produces at most one provider call during a valid lease and one cached result for that
-attempt.
+The lease uses the validated configuration invariant above (initially 90 seconds versus a 60-second
+timeout and 15-second completion margin). PHP then calls RapidAPI with no transaction and no row
+lock held. Its completion transaction locks runtime, provider health, then the dedup lease row; it
+records the provider outcome/circuit decision and writes only the allow-listed normalized cached
+response if it still owns the lease. It never changes queue status, attempts, active identity,
+business rows, or rollups. Calling fallback twice for the same claim therefore produces at most one
+provider call during a valid lease and one bounded cached result for that attempt.
 
 If the claim changes while the network call runs, the dedup response may still be cached, but
 `/result` performs authoritative locked validation and rejects the stale identity.
@@ -387,6 +497,16 @@ time. Merged values are never labelled complete unless all five came from the sa
 Campaign rollups continue using merged cumulative business values, while completeness metrics make
 the mixed observation visible to operators and downstream consumers.
 
+Every campaign aggregate, ratio, CPM/FYP calculation, API serializer, dashboard card/table/export,
+sheet/report integration, and downstream consumer must carry or derive the observation completeness
+instead of presenting merged values as one same-time complete snapshot. When view is absent, view
+delta and all view-dependent ratios remain unchanged and are labelled stale/partial for that
+business date; non-view fields that were actually observed may update, but the combined row remains
+partial. A consumer that cannot represent partiality must retain the prior complete snapshot or
+exclude the partial record—never silently label it complete. P1 fixtures trace complete, partial
+with view, partial without view, and later complete observations end to end through stored rows,
+rollups, API responses, dashboards, CPM/FYP, and exports.
+
 ## Result endpoint and all-or-nothing transaction
 
 `POST /api/endorse-refresh/result` accepts contract v2 plus results containing
@@ -405,9 +525,10 @@ The authoritative transaction uses this global lock order for every mutation pat
 5. queue rows ordered by queue ID;
 6. attempt audit rows ordered by queue ID then audit ID;
 7. endorse rows ordered by endorse ID;
-8. existing daily endorse-log rows ordered by endorse ID;
-9. campaign rows ordered by campaign ID;
-10. existing campaign-log rows ordered by campaign ID/date.
+8. quarantine rows ordered by endorse ID then content key;
+9. existing daily endorse-log rows ordered by endorse ID;
+10. campaign rows ordered by campaign ID;
+11. existing campaign-log rows ordered by campaign ID/date.
 
 The initial fallback lease acquisition touches only its dedup row and commits. No path acquires
 runtime/provider locks after a held dedup lock. Provider completion and release use the order above;
@@ -443,6 +564,27 @@ On a well-formed 409, Rust removes the listed conflicting IDs from its in-memory
 resubmits only remaining results. Each pass must remove at least one ID, so the loop is finite. A
 malformed/no-progress conflict response stops resubmission and emits a protocol alert.
 
+### Coordinator-only mutation boundary
+
+All mutations of runtime control, queue, attempt audit, provider/worker circuit, fallback lease,
+quarantine, endorsement observation, daily log, campaign, campaign log, and rollup state are private
+to explicit coordinator services. The intended boundaries are:
+
+- runtime/ownership and circuit coordinators for central state transitions;
+- queue coordinator for enqueue, claim, result, release, stale/force recovery, and retry;
+- fallback coordinator for lease acquisition/completion/cleanup and sanitized cache writes;
+- quarantine coordinator for content-key eligibility, confirm, and clear;
+- observation writer for endorsement/daily-log/campaign/rollup mutations.
+
+Controllers, cron handlers, worker endpoints, admin commands, and recovery commands validate/auth
+and delegate; they do not issue independent INSERT/UPDATE/DELETE statements for these tables.
+Network adapters are read-only external-call components and cannot receive a database mutation
+handle. Architectural tests scan production PHP mutation call sites and maintain an explicit
+allow-list of coordinator files/tables; CI fails on a direct mutation outside that boundary. Runtime
+guards require a coordinator-owned transaction context before writer methods execute. Legacy direct
+cron/manual paths are either routed through the coordinator or fail closed before v2 activation;
+they cannot remain as hidden alternate writers.
+
 ## Complete retry and circuit-breaker policy
 
 ### Item-level policy
@@ -452,6 +594,9 @@ malformed/no-progress conflict response stops resubmission and emits a protocol 
 - A complete or accepted partial daily success charges one attempt and completes the queue.
 - Confirmed permanent item failures (invalid TikTok URL/content ID, deleted/private/not-found post,
   unsupported platform) charge one attempt and fail immediately.
+- A confirmed deleted/private/not-found outcome inserts or reactivates the matching content-key
+  quarantine in the same authoritative transaction. An ambiguous parser/provider URL error remains
+  transient and cannot set the hardened flag.
 - Per-item transient failures (provider timeout/5xx below systemic threshold, missing statistics
   after fallback, malformed item response) charge one attempt. If below max, return to pending.
 - An unclassified item error defaults to charged transient failure; a malformed contract or
@@ -488,7 +633,9 @@ probe identity, reset operation, and audit history:
 - Timed provider cooldowns use 60, 120, 240, 480, then 900 seconds, each with 20% jitter and a
   provider-specific cooldown level.
 - Three stale cancellations for one worker boot UUID, or three batch-wide stale recoveries within
-  10 minutes, opens only that claim owner's worker-health circuit for 60 seconds and alerts.
+  10 minutes, opens only that claim owner's worker-health circuit for 60 seconds and alerts. The
+  transition stores the triggering boot UUID, owner, stale queue/audit counts, application version,
+  and orchestrator task identity.
 - Worker authentication 401/403 opens a local fatal worker circuit immediately; no further
   requests are made. Server stale recovery cancels in-flight claims and may independently open the
   applicable worker-health circuit, but never changes provider state.
@@ -512,6 +659,13 @@ UUID may claim one item. Any authoritative result or validated systemic release 
 worker completed the protocol and closes only the worker-health circuit; another stale lease
 reopens only worker health. If a provider circuit is also open, it continues to block claims and is
 unchanged.
+
+Because worker health is owner-wide, its alert/runbook first identifies and isolates the triggering
+task/boot UUID while leaving the circuit open. Operators compare sibling-task progress, remove or
+restart only the unhealthy task, verify its active claims drained or force-recovered, and reset the
+named owner-health circuit with expected generation. A reset is forbidden until trigger identity
+and stale counts are acknowledged; isolating one task must not reset any provider circuit or hide
+other simultaneously active worker-health reasons.
 
 ### Provider half-open probe outcomes
 
@@ -570,8 +724,12 @@ Required metrics:
 - scrape success plus transport/HTTP/parse/stats-missing categories;
 - fallback success, dedup hit/in-progress/takeover, auth/timeout/transport/API/invalid categories;
 - result conflicts by stable reason, transaction duration, deadlocks, and retry exhaustion;
+- runtime-control lock wait for claims and provider-health row lock wait for fallback completion,
+  each as p50/p95/p99 plus lock timeout/deadlock count;
 - complete/partial observations by source and missing-field set;
-- worker health, boot UUID, contract version, and last successful claim/result timestamps.
+- worker health, boot UUID, owner, stale queue/audit counts, application version, task identity,
+  contract version, and last successful claim/result timestamps. High-cardinality UUID/task values
+  belong in structured events and alert annotations rather than unbounded metric labels.
 
 Alerts:
 
@@ -583,9 +741,12 @@ Alerts:
 - queue oldest pending over 10 minutes while owner is active: warning, over 30 minutes critical;
 - fallback failure ratio over 20% for 5 minutes: warning; over 50% critical;
 - transaction deadlock ratio over 1% or any retry exhaustion: warning;
+- claim runtime-row or provider-health-row lock wait breaching the signed load-test budgets below,
+  any lock timeout, or deadlock ratio above 0.1% during the gate: canary blocker;
 - result claim conflicts above the expected rollback/stale baseline: warning;
 - partial daily observations over 20% for 10 minutes or missing-view partials: warning;
-- stale recovery cancellations above three in 10 minutes: warning.
+- stale recovery cancellations above three in 10 minutes: warning with triggering boot UUID, owner,
+  stale counts, application version, and task identity attached.
 
 ## Multi-replica and load verification
 
@@ -601,22 +762,38 @@ Before any production ownership canary, automated/integration tests cover:
   different UUID on the next invocation;
 - pre-v2 `/claim` rejection before mutation;
 - active audit identity after reset/reclaim without attempt-number reuse;
-- fallback dedup concurrency, cached response, expired-lease takeover, and no network-under-lock;
+- fallback dedup concurrency, bounded/allow-listed cache, seven-day cleanup, active-lease
+  preservation, expired-lease takeover, lease/timeout/margin fail-closed validation, and no
+  network-under-lock;
 - ordered result locking, duplicate IDs, limit 10, one-conflict full rollback, conflict filtering,
   deadlock retry, and no-progress stop;
 - transaction rollback across queue, audit, endorse, logs, campaign, and campaign logs;
-- campaign-log duplicate dry-run/archive/count verification and concurrent first-write uniqueness;
+- preliminary campaign-log report review followed by paused IDs/count/hash equality, drift abort,
+  archive/count verification, and concurrent first-write uniqueness;
 - all-zero complete stats, direct partial fallback, final partial daily metadata, missing-view merge,
-  and snapshot partial rejection;
+  snapshot partial rejection, and end-to-end rollup/API/dashboard/ratio/CPM/FYP/export partiality;
 - independent provider/worker-health transitions and resets, simultaneous active reasons,
   auth/429/timeout provider probes, invalid-item and partial-stat probe outcomes, worker-stall
-  probes, no-charge release, and per-item jittered cooldown;
+  probes, unhealthy-task isolation metadata/runbook, no-charge release, and per-item jittered
+  cooldown;
+- content quarantine for the same ID across query/username/photo-video aliases, automatic
+  eligibility for a replacement ID, pending-row no-fetch finalization, explicit clear, and proof
+  that ambiguous parser errors/zero values cannot quarantine;
+- versioned worker-secret overlap, failed rotation rollback, and old-key removal;
+- UTC technical timestamp/session verification plus `Asia/Jakarta` business-date boundary cases;
+- architectural guards proving controllers, cron/admin/recovery handlers, and network adapters
+  cannot bypass coordinator writers;
 - driver drain timeout and forced recovery rejecting late results.
 
 Load testing begins at result batches of 10 with at least two app replicas and two simulated workers.
-Record p50/p95/p99 transaction time, lock wait, deadlock rate, and rows/minute. Raising the batch
-limit requires zero retry exhaustion, deadlocks below 1%, p95 result transaction below one second,
-and a documented canary step.
+Record p50/p95/p99 result transaction time, claim runtime-control-row lock wait, provider-health-row
+lock wait, overall lock wait, deadlock/timeout rate, and rows/minute. For both named hot rows, the
+initial signed budget is p95 below 100 ms and p99 below 500 ms, with zero lock timeouts and deadlocks
+below 0.1%. Any breach is a canary blocker and requires query/transaction redesign or a reviewed
+budget supported by production-capacity evidence; it cannot be waived as ordinary noise. Raising
+the batch limit requires zero retry exhaustion, deadlocks below 0.1%, p95 result transaction below
+one second, both hot-row budgets passing, and a documented canary step. Future sharding or leasing
+of these rows remains P2 unless this P1 test proves it immediately necessary.
 
 ## Delivery status and release gates
 
@@ -632,8 +809,14 @@ authorizes production Rust ownership.
 - [x] PHP cron and Rust boot UUID lifecycles are explicit.
 - [x] Provider and worker-health circuits and provider-probe item semantics are separated.
 - [x] Campaign-log reconciliation is confined to paused activation.
+- [x] URL/content-specific quarantine preserves business-active state and automatically permits a
+  replacement content ID.
+- [x] RapidAPI circuit-open behavior pauses new claims; direct-only degraded mode is excluded.
+- [x] UTC technical timestamps, coordinator-only writers, fallback configuration/cache bounds, and
+  versioned secret rotation are specified.
 - [ ] Implement the schema, activation workflow, strict endpoints, PHP cron path, Rust worker,
-  fallback path, transactional writer, independent circuits, operational commands, and tests.
+  fallback path, transactional writer, independent circuits, quarantine, coordinator boundaries,
+  operational commands, and tests.
 - [ ] Verify the P0 implementation against this contract with production ownership still `cron`
   and Rust desired and observed `0/0`.
 
@@ -645,10 +828,19 @@ authorizes production Rust ownership.
   `EXPLAIN`; record query plans and lock behavior.
 - [ ] Pass multi-replica bridge, driver-switch, stale-result, and mixed-local-configuration tests.
 - [ ] Pass fallback dedup concurrency, cache, lease takeover, and no-network-under-lock tests.
+- [ ] Verify the fallback lease/timeout/margin invariant fails startup and activation closed, and
+  verify cache field/size bounds, retention cleanup, and active-lease preservation.
 - [ ] Pass independent provider/worker-health circuit, simultaneous-reason, reset, half-open probe,
-  and failure-precedence tests.
+  failure-precedence, trigger-identity, unhealthy-task isolation, and owner-wide alert tests.
 - [ ] Pass result batch load, contention, lock-timeout, deadlock, retry, and rollback testing at the
-  initial limit of 10.
+  initial limit of 10, including runtime-control/provider-health p50/p95/p99 with at least two app
+  replicas and two workers.
+- [ ] Pass end-to-end partial-observation behavior through business rows, rollups, ratios, CPM/FYP,
+  APIs, dashboards, exports, and downstream consumers, especially when view is absent.
+- [ ] Pass preliminary/final duplicate-report IDs/count/hash equality and drift-abort tests.
+- [ ] Pass versioned worker-secret overlap/rollback/removal rehearsal without a fleet-wide 401.
+- [ ] Verify UTC technical timestamps and `Asia/Jakarta` business-date boundary behavior.
+- [ ] Pass content-quarantine and coordinator-only mutation-boundary tests.
 - [ ] Implement and verify all required operational metrics.
 - [ ] Configure and exercise all required alerts and escalation routes.
 - [ ] Complete a production-like staging/shadow canary with the exact immutable app/worker images;
@@ -662,6 +854,9 @@ authorizes production Rust ownership.
 - [ ] Add a separate random claim token in addition to active audit identity.
 - [ ] Split legacy `share_save` storage into separate share and collect columns.
 - [ ] Add per-field observation timestamps/freshness metadata.
+- [ ] Design a direct-scrape-only degraded mode for an open required-provider circuit.
+- [ ] Scale runtime-control/provider-health hot rows through sharding, advisory leases, or another
+  reviewed design if first-release load grows beyond the signed budgets.
 
 P2 does not block the first contract v2 release. Production remains on PHP cron with the Rust worker
 desired and observed `0/0` until the P0 implementation is complete and every P1 gate is signed off.
@@ -674,24 +869,32 @@ desired and observed `0/0` until the P0 implementation is complete and every P1 
    duplicates or create the campaign/day unique index yet.
 3. Roll the bridge/v2 PHP application while contract state remains legacy and Rust remains `0/0`.
    Both old and new app tasks use only the legacy PHP lifecycle.
-4. Verify every running app task uses the v2 image digest. Abort safely in legacy cron-only mode on
-   any mixed or failed rollout.
-5. Change contract state to `activating_v2`; bridge replicas stop new claims. Drain legacy processing
-   queues and attempts/audits to zero.
-6. Generate and review the duplicate dry-run report, archive full approved duplicate rows, remove
-   only approved non-canonical rows, and verify source/archive/deletion/canonical counts.
-7. Create and verify `uq_endorse_campaign_logs_campaign_date`. Any failure in steps 5-7 leaves the
+4. Optionally generate and approve the preliminary read-only duplicate proposal with its complete
+   IDs/counts/hash while legacy continues; this performs no mutation.
+5. Verify every running app task uses the v2 image digest. Abort safely in legacy cron-only mode on
+   any mixed or failed rollout. Verify UTC session/clock, the fallback lease invariant, coordinator
+   architectural guards, and dual-secret configuration. With every old task stopped, apply the
+   expected-content-key operator quarantine for `endorse.id=18535` through the coordinator; abort on
+   an endorsement/link mismatch. Bridge cron/manual paths now skip it while contract state is still
+   `legacy`.
+6. Change contract state to `activating_v2`; bridge replicas stop new claims. Drain legacy processing
+   queues and attempts/audits to zero, then execute the reviewed legacy-to-UTC conversion once.
+7. Regenerate the duplicate dry-run report and require exact IDs/counts/hash equality with the
+   preliminary approval. On equality, archive full approved duplicate rows, remove only approved
+   non-canonical rows, and verify source/archive/deletion/canonical counts. On drift, abort for a new
+   review.
+8. Create and verify `uq_endorse_campaign_logs_campaign_date`. Any failure in steps 6-8 leaves the
    contract paused in `activating_v2` and aborts activation.
-8. Verify every activation precondition, then atomically activate contract v2 with owner `cron`.
-9. Exercise one PHP cron batch through the v2 finalizer and verify its single UUID and v2 audit
-   invariants.
-10. Complete every P0 implementation check and every P1 release gate listed below while Rust remains
+9. Verify every activation precondition, then atomically activate contract v2 with owner `cron`.
+10. Exercise one PHP cron batch through the v2 finalizer and verify its single UUID and v2 audit
+    invariants.
+11. Complete every P0 implementation check and every P1 release gate listed below while Rust remains
     `0/0` in production.
-11. Only after the release gates are signed off, update the production worker service to the
+12. Only after the release gates are signed off, update the production worker service to the
     immutable v2 image while preserving `0/0` and verify its digest.
-12. Scale one v2 worker in non-owning standby. Its v2 claim receives `driver_not_owner` and creates
+13. Scale one v2 worker in non-owning standby. Its v2 claim receives `driver_not_owner` and creates
     no attempts.
-13. Transition central state to `draining_to_rust`, drain cron-owned processing rows to zero, then
+14. Transition central state to `draining_to_rust`, drain cron-owned processing rows to zero, then
     set owner `rust` for the controlled production batch-10 canary. Bulk draining requires canary
     sign-off.
 
