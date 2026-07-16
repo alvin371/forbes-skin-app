@@ -107,6 +107,13 @@ class Api_v2 extends CI_Controller
         return null;
     }
 
+    private function json_response(int $httpStatus, array $body)
+    {
+        http_response_code($httpStatus);
+        echo json_encode($body);
+        die;
+    }
+
     private function worker_auth_guard()
     {
         $ip_allowlist = env('WORKER_IP_ALLOWLIST', '');
@@ -114,17 +121,18 @@ class Api_v2 extends CI_Controller
             $allowed = array_map('trim', explode(',', $ip_allowlist));
             $remote = $_SERVER['REMOTE_ADDR'] ?? '';
             if ($remote === '' || !in_array($remote, $allowed, true)) {
-                echo json_encode(array('status' => false, 'msg' => 'Unauthorized'), true);
-                die;
+                $this->json_response(403, array('status' => false, 'reason' => 'worker_ip_denied', 'msg' => 'Unauthorized'));
             }
         }
 
         $secret = env('WORKER_SHARED_SECRET', '');
         if ($secret) {
             $header = $_SERVER['HTTP_X_WORKER_SECRET'] ?? '';
-            if ($header === '' || !hash_equals($secret, $header)) {
-                echo json_encode(array('status' => false, 'msg' => 'Unauthorized'), true);
-                die;
+            if ($header === '') {
+                $this->json_response(401, array('status' => false, 'reason' => 'worker_auth_missing', 'msg' => 'Unauthorized'));
+            }
+            if (!hash_equals($secret, $header)) {
+                $this->json_response(401, array('status' => false, 'reason' => 'worker_auth_invalid', 'msg' => 'Unauthorized'));
             }
         }
 
@@ -8018,29 +8026,60 @@ class Api_v2 extends CI_Controller
     {
         header('Content-Type: application/json; charset=utf-8');
         $this->worker_auth_guard();
-        $this->load->library('EndorseRefreshQueueService');
+        $this->load->library('EndorseRefreshV2Coordinator');
 
         $payload = json_decode(file_get_contents('php://input'), true);
         if (!is_array($payload)) {
             $payload = [];
         }
-        $limit = intval($payload['limit'] ?? env('ENDORSE_REFRESH_BATCH_SIZE', 40));
+        $error = $this->endorserefreshv2coordinator->validateV2Request($payload, true);
+        if ($error !== null) {
+            $this->json_response($error['http_status'], $error['body']);
+        }
 
-        // force is never honoured here — the worker path always respects the caps.
-        $claim = $this->endorserefreshqueueservice->claimBatch([
-            'limit'         => $limit,
-            'force'         => false,
-            'stale_minutes' => 5,
-        ]);
+        $claim = $this->endorserefreshv2coordinator->claimBatchV2(
+            EndorseRefreshV2Coordinator::OWNER_RUST,
+            trim((string) $payload['worker_id']),
+            intval($payload['limit'] ?? env('ENDORSE_REFRESH_BATCH_SIZE', 40)),
+            strval($payload['task_identity'] ?? '')
+        );
 
-        echo json_encode([
-            'status'    => true,
-            'worker_id' => $claim['worker_id'] ?? null,
-            'claimed'   => $claim['claimed'] ?? 0,
-            'skipped'   => $claim['skipped'] ?? null,
-            'items'     => $claim['items'] ?? [],
-        ]);
-        die;
+        $this->json_response($claim['http_status'], $claim['body']);
+    }
+
+    /**
+     * Authenticated per-item fallback for the Rust consumer. Only queue_id is
+     * accepted; PHP reloads the authoritative row and owns URL, credentials,
+     * RapidAPI validation and response mapping.
+     */
+    function endorse_refresh_fetch_fallback()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        $this->worker_auth_guard();
+        $this->load->library('EndorseRefreshV2Coordinator');
+
+        $payload = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($payload)) {
+            $payload = [];
+        }
+        $response = $this->endorserefreshv2coordinator->fetchFallbackV2($payload);
+
+        $this->json_response($response['http_status'], $response['body']);
+    }
+
+    function endorse_refresh_release()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        $this->worker_auth_guard();
+        $this->load->library('EndorseRefreshV2Coordinator');
+
+        $payload = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($payload)) {
+            $payload = [];
+        }
+        $response = $this->endorserefreshv2coordinator->releaseClaimsV2($payload, EndorseRefreshV2Coordinator::OWNER_RUST);
+
+        $this->json_response($response['http_status'], $response['body']);
     }
 
     /**
@@ -8058,73 +8097,15 @@ class Api_v2 extends CI_Controller
     {
         header('Content-Type: application/json; charset=utf-8');
         $this->worker_auth_guard();
-        $this->load->library('EndorseRefreshQueueService');
+        $this->load->library('EndorseRefreshV2Coordinator');
 
         $payload = json_decode(file_get_contents('php://input'), true);
-        $results = is_array($payload) ? ($payload['results'] ?? null) : null;
-        if (!is_array($results) || empty($results)) {
-            echo json_encode(['status' => true, 'processed' => 0, 'msg' => 'No results to apply']);
-            die;
+        if (!is_array($payload)) {
+            $payload = [];
         }
+        $response = $this->endorserefreshv2coordinator->applyResultsV2($payload);
 
-        // Map posted responses by queue_id (last write wins on duplicates).
-        $responseByQueue = [];
-        foreach ($results as $r) {
-            if (!is_array($r)) {
-                continue;
-            }
-            $qid = intval($r['queue_id'] ?? 0);
-            if ($qid <= 0) {
-                continue;
-            }
-            $resp = $r['response'] ?? null;
-            $responseByQueue[$qid] = is_array($resp)
-                ? $resp
-                : ['status' => false, 'msg' => 'No response', 'data' => []];
-        }
-        if (empty($responseByQueue)) {
-            echo json_encode(['status' => true, 'processed' => 0, 'msg' => 'No valid results']);
-            die;
-        }
-
-        // Re-read authoritative rows still owned by a worker (status='processing'). Rows
-        // that already timed out and were reset by resetStuck are simply skipped here.
-        $queueIdList = implode(',', array_map('intval', array_keys($responseByQueue)));
-        $rows = $this->mymodel->selectWithQuery("
-            SELECT * FROM endorse_refresh_queue
-            WHERE id IN ($queueIdList) AND status = 'processing'
-        ");
-
-        $items = [];
-        $responses = [];
-        foreach ($rows as $row) {
-            $qid = intval($row['id']);
-            if (!isset($responseByQueue[$qid])) {
-                continue;
-            }
-            $items[] = [
-                'queue_id'     => $qid,
-                'id_endorse'   => intval($row['id_endorse']),
-                'purpose'      => strval($row['purpose'] ?? 'daily'),
-                'enqueued_by'  => intval($row['enqueued_by'] ?: 0),
-                'attempts'     => intval($row['attempts']),
-                'max_attempts' => intval($row['max_attempts']),
-                'worker_id'    => strval($row['worker_id']),
-            ];
-            $responses[] = $responseByQueue[$qid];
-        }
-
-        $summary = $this->endorserefreshqueueservice->applyResults($items, $responses);
-
-        echo json_encode([
-            'status'    => true,
-            'processed' => $summary['processed'],
-            'completed' => $summary['completed'],
-            'failed'    => $summary['failed'],
-            'retrying'  => $summary['retrying'],
-            'msg'       => $summary['processed'] . " applied: {$summary['completed']} ok, {$summary['failed']} failed, {$summary['retrying']} retrying",
-        ]);
-        die;
+        $this->json_response($response['http_status'], $response['body']);
     }
 
     /**
