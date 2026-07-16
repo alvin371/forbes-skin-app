@@ -15,6 +15,21 @@ The refresh feature has two execution modes:
 - Queue-based refresh for campaign-level and bulk refresh actions
 - Direct synchronous refresh for single-row `Refresh`
 
+Queue draining now has two layers:
+
+- bridge mode: PHP cron keeps draining while the central runtime row stays `contract_state=legacy`
+- contract v2: all new claims are controlled by `endorse_refresh_runtime_control`
+
+`ENDORSE_REFRESH_DRIVER` is now only a bootstrap/deploy sanity check. After v2 activation,
+claim ownership comes from the database runtime row, not from per-replica env state.
+
+The Rust worker always speaks contract v2:
+
+- `contract_version: 2` is required on every claim, fallback, release, and result call
+- `worker_id` must be one UUID v4 per worker boot
+- every claimed item carries `queue_id`, `attempt_no`, and `active_attempt_id`
+- PHP rejects stale or mismatched fallback/result payloads with `409 Conflict`
+
 The queue-backed flow is used by:
 
 - `/endorse-campaign` card `Refresh`
@@ -134,6 +149,7 @@ Backend:
 Behavior:
 
 - Loads one `endorse` row
+- Refuses sync when the current TikTok content key is quarantined as unavailable
 - Calls `Template::get_social_media()` immediately
 - Applies stats immediately
 - Updates campaign rollup immediately
@@ -146,12 +162,16 @@ Behavior:
 1. UI button sends enqueue request.
 2. Controller calls `EndorseRefreshQueueService::enqueueCampaign(...)`.
 3. Service inserts rows into `endorse_refresh_queue`.
-4. Cron hits `GET /api/cronjob/endorse-refresh`.
-5. [Api_v2::cronjob_endorse_refresh()](/Users/alvin/Documents/WorkingSpace/acneno-hrms/htdocs/forbes-skin-app/application/controllers/Api_v2.php:7699) claims pending rows.
-6. Worker fetches social metrics through `Template::get_social_media_batch()`.
-7. Worker persists endorse + endorse_logs changes through [Endorse_sync::apply()](/Users/alvin/Documents/WorkingSpace/acneno-hrms/htdocs/forbes-skin-app/application/libraries/Endorse_sync.php:64).
-8. Worker rolls up touched campaigns through `Endorse_sync::update_campaign_parent()`.
-9. Queue UI and header badge read queue state from `Endorse::queue_data()` and `Endorse::queue_count()`.
+4. Enqueue and direct-sync paths both consult the content quarantine keyed by TikTok content ID.
+5. In legacy mode, PHP cron still uses the legacy queue claim/apply path.
+6. In v2 mode, every claim creates an active audit identity independent of charged attempts.
+7. Rust uses direct HTTP/1.1 scrape first, then `POST /api/endorse-refresh/fetch-fallback`
+   with the full active claim identity on scrape misses.
+8. Systemic provider failures release claims as `cancelled` without charging an attempt.
+9. `/result` finalizes a batch transactionally only if every row still matches the active
+   claim identity; stale batches roll back fully.
+10. Nullable stats preserve old stored values when a field is absent; a present `0` remains valid.
+11. Queue UI and header badge read queue state from `Endorse::queue_data()` and `Endorse::queue_count()`.
 
 ### Direct row refresh flow
 
@@ -181,9 +201,13 @@ Behavior:
 - `POST /endorse/force-retry` -> clone failed rows back into pending queue
 - `POST /endorse/clear-queue` -> clear queue and attempt history
 
-### Worker route
+### Worker routes
 
-- `GET /api/cronjob/endorse-refresh`
+- `GET /api/cronjob/endorse-refresh` -> PHP cron driver
+- `POST /api/endorse-refresh/claim` -> strict v2 claim, requires `{contract_version, worker_id}`
+- `POST /api/endorse-refresh/fetch-fallback` -> strict v2 PHP fallback, requires active claim identity
+- `POST /api/endorse-refresh/release` -> strict v2 no-charge cancellation for systemic failures
+- `POST /api/endorse-refresh/result` -> strict v2 authoritative batch finalization
 
 ### Legacy compatibility route
 
