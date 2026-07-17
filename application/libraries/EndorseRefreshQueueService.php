@@ -803,6 +803,17 @@ class EndorseRefreshQueueService
             SELECT * FROM endorse_refresh_queue
             WHERE worker_id = '$worker_id' AND status = 'processing'
         ");
+        $endorseMeta = [];
+        $endorseIds = array_values(array_unique(array_map(function ($row) {
+            return intval($row['id_endorse'] ?? 0);
+        }, $rows)));
+        if (!empty($endorseIds)) {
+            $threadsColumn = $this->db->field_exists('threads_media_id', 'endorse') ? ', threads_media_id' : '';
+            $metaRows = $this->CI->mymodel->selectWithQuery(
+                "SELECT id, influencer{$threadsColumn} FROM endorse WHERE id IN (" . implode(',', $endorseIds) . ")"
+            );
+            foreach ($metaRows as $meta) $endorseMeta[intval($meta['id'])] = $meta;
+        }
 
         // Prior attempt classes → rescue-lane detection (infra-stall rows get more headroom).
         $priorAttemptMap = [];
@@ -850,6 +861,7 @@ class EndorseRefreshQueueService
         $items = [];
         foreach ($rows as $r) {
             $qid = intval($r['id']);
+            $meta = $endorseMeta[intval($r['id_endorse'])] ?? [];
             $priorClass = strval($priorAttemptMap[$qid] ?? '');
             $isRescue = ($priorClass === Endorse_sync::ERR_INFRA_STALL);
             $url = self::normalizeTiktokUrl(strval($r['link_upload']));
@@ -868,6 +880,8 @@ class EndorseRefreshQueueService
                 'rescue_lane'  => $isRescue,
                 'timeout_sec'  => $isRescue ? max(45, $httpTimeout + 15) : $httpTimeout,
                 'hd'           => $hd,
+                'influencer_id' => intval($meta['influencer'] ?? 0),
+                'content_id'    => strval($meta['threads_media_id'] ?? ''),
             ];
         }
 
@@ -1015,10 +1029,12 @@ class EndorseRefreshQueueService
             ];
         }
 
+        $threadsColumn = $this->db->field_exists('threads_media_id', 'endorse') ? ', e.threads_media_id' : '';
         $rows = $this->CI->mymodel->selectWithQuery("
-            SELECT id, platform, link_upload
-            FROM endorse_refresh_queue
-            WHERE id = '$queueId' AND status = 'processing'
+            SELECT q.id, q.platform, q.link_upload, e.influencer{$threadsColumn}
+            FROM endorse_refresh_queue q
+            INNER JOIN endorse e ON e.id = q.id_endorse
+            WHERE q.id = '$queueId' AND q.status = 'processing'
             LIMIT 1
         ");
         if (empty($rows)) {
@@ -1040,8 +1056,9 @@ class EndorseRefreshQueueService
             strval($row['platform'] ?? ''),
             $url,
             true,
-            null,
-            true
+            intval($row['influencer'] ?? 0) ?: null,
+            true,
+            strval($row['threads_media_id'] ?? '')
         );
     }
 

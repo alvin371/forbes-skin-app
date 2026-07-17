@@ -56,11 +56,19 @@ class Endorse_sync
 
         $response['data']['content_id'] = strval($response['data']['content_id'] ?? '');
         if ($response['data']['content_id'] === '' && strtolower($platform) === 'tiktok') {
-            $response['data']['content_id'] = strval($this->CI->template->extract_tiktok_content_id($url));
+            if (!empty($this->CI) && !empty($this->CI->template)) {
+                $response['data']['content_id'] = strval($this->CI->template->extract_tiktok_content_id($url));
+            } elseif (preg_match('#/(?:video|photo)/(\d+)#', $url, $match)) {
+                $response['data']['content_id'] = strval($match[1]);
+            }
         }
         $response['data']['media_type'] = strval($response['data']['media_type'] ?? '');
         if ($response['data']['media_type'] === '' && strtolower($platform) === 'tiktok') {
-            $response['data']['media_type'] = strval($this->CI->template->detect_tiktok_media_type_from_url($url));
+            if (!empty($this->CI) && !empty($this->CI->template)) {
+                $response['data']['media_type'] = strval($this->CI->template->detect_tiktok_media_type_from_url($url));
+            } else {
+                $response['data']['media_type'] = stripos($url, '/photo/') !== false ? 'photo' : 'video';
+            }
         }
         $response['data']['created_at'] = strval($response['data']['created_at'] ?? '');
         $response['data']['video_link'] = strval($response['data']['video_link'] ?? '');
@@ -195,10 +203,6 @@ class Endorse_sync
             return ['class' => $machineClass, 'msg' => $msg ?: 'Gagal mengambil data sosial media'];
         }
 
-        if ($platform === 'Instagram') {
-            return ['class' => self::ERR_PERMANENT, 'msg' => $msg ?: 'Individual Instagram post scraping belum tersedia'];
-        }
-
         if (stripos($msg, 'video id tidak ditemukan') !== false
             || stripos($msg, 'url tidak ditemukan') !== false
             || stripos($msg, 'platform belum tersedia') !== false) {
@@ -310,6 +314,9 @@ class Endorse_sync
             $endorseUpdate['tiktok_cover'] = $normalizedCover;
             $endorseUpdate['tiktok_content_link'] = strval($response['data']['video_link'] ?? '');
             $endorseUpdate['tiktok_fetched_at'] = date('Y-m-d H:i:s');
+        }
+        if ($platform === 'Threads' && $db->field_exists('threads_media_id', 'endorse') && !empty($response['data']['content_id'])) {
+            $endorseUpdate['threads_media_id'] = strval($response['data']['content_id']);
         }
 
         $db->update('endorse', $endorseUpdate, ['id' => $id_endorse]);
@@ -482,6 +489,9 @@ class Endorse_sync
             if (!empty($response['data']['cover'])) {
                 $update['tiktok_cover'] = strval($response['data']['cover']);
             }
+        }
+        if ($platform === 'Threads' && $db->field_exists('threads_media_id', 'endorse') && !empty($response['data']['content_id'])) {
+            $update['threads_media_id'] = strval($response['data']['content_id']);
         }
 
         $db->update('endorse', $update, ['id' => $id_endorse]);

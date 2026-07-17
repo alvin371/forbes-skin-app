@@ -8189,6 +8189,8 @@ class Api_v2 extends CI_Controller
                 'rescue_lane' => !empty($item['rescue_lane']),
                 'timeout_sec' => intval($item['timeout_sec']),
                 'hd'          => intval($item['hd']),
+                'influencer_id' => intval($item['influencer_id'] ?? 0),
+                'content_id'  => strval($item['content_id'] ?? ''),
             ];
         }
         $responses = $this->template->get_social_media_batch($tasks, $PARALLEL_HTTP, $DEADLINE_SEC);

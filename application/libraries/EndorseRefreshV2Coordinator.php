@@ -5,6 +5,8 @@ class EndorseRefreshV2Coordinator
 {
     const CONTRACT_VERSION = 2;
     const PROVIDER_KEY_RAPIDAPI = 'rapidapi';
+    const PROVIDER_KEY_INSTAGRAM = 'instagram_rapidapi';
+    const PROVIDER_KEY_THREADS = 'threads_graph';
     const OWNER_CRON = 'cron';
     const OWNER_RUST = 'rust';
     const MAX_RESULT_BATCH = 100;
@@ -146,7 +148,7 @@ class EndorseRefreshV2Coordinator
         }
 
         foreach ($this->activeCircuitReasons($lock) as $circuit) {
-            if ($circuit['owner'] === $owner || $circuit['owner'] === self::PROVIDER_KEY_RAPIDAPI) {
+            if ($circuit['owner'] === $owner) {
                 return [
                     'http_status' => 503,
                     'body' => [
@@ -285,7 +287,9 @@ class EndorseRefreshV2Coordinator
             return $this->errorEnvelope($identity['http_status'], $identity['reason'], $identity['msg']);
         }
 
-        $providerError = $this->providerCircuitOpenEnvelope();
+        $platform = strval($identity['queue']['platform'] ?? '');
+        $providerKey = $this->providerKeyForPlatform($platform);
+        $providerError = $this->providerCircuitOpenEnvelope($providerKey);
         if ($providerError !== null) {
             return $providerError;
         }
@@ -295,22 +299,26 @@ class EndorseRefreshV2Coordinator
             return $lease['response'];
         }
 
+        $threadsColumn = $this->db->field_exists('threads_media_id', 'endorse') ? ', threads_media_id' : '';
+        $endorse = $this->singleRow("SELECT influencer{$threadsColumn} FROM endorse WHERE id = " . intval($identity['queue']['id_endorse'] ?? 0) . " LIMIT 1");
+        $knownContentId = strval($endorse['threads_media_id'] ?? '');
         $response = $this->CI->template->get_social_media(
-            strval($identity['queue']['platform'] ?? ''),
+            $platform,
             EndorseRefreshQueueService::normalizeTiktokUrl(strval($identity['queue']['link_upload'] ?? '')),
             true,
-            null,
-            true
+            intval($endorse['influencer'] ?? 0) ?: null,
+            true,
+            $knownContentId
         );
         $normalized = $this->CI->endorse_sync->normalize_response(
             $response,
             strval($identity['queue']['platform'] ?? ''),
             strval($identity['queue']['link_upload'] ?? ''),
-            'rapidapi_fallback'
+            $providerKey . '_fallback'
         );
 
-        $providerTransition = $this->providerTransitionForResponse($normalized);
-        $this->completeFallbackLease($lease, $normalized, $providerTransition);
+        $providerTransition = $this->providerTransitionForResponse($normalized, $providerKey);
+        $this->completeFallbackLease($lease, $normalized, $providerTransition, $providerKey);
 
         if ($providerTransition['systemic']) {
             return [
@@ -645,7 +653,9 @@ class EndorseRefreshV2Coordinator
                 INSERT IGNORE INTO `endorse_refresh_provider_health`
                     (`provider_key`, `state`, `generation`, `updated_at`)
                 VALUES
-                    ('rapidapi', 'closed', 1, UTC_TIMESTAMP(6))
+                    ('rapidapi', 'closed', 1, UTC_TIMESTAMP(6)),
+                    ('instagram_rapidapi', 'closed', 1, UTC_TIMESTAMP(6)),
+                    ('threads_graph', 'closed', 1, UTC_TIMESTAMP(6))
             ");
         }
         if ($this->tableExists('endorse_refresh_worker_health')) {
@@ -659,16 +669,23 @@ class EndorseRefreshV2Coordinator
         }
     }
 
-    protected function providerCircuitOpenEnvelope(): ?array
+    protected function providerKeyForPlatform(string $platform): string
+    {
+        if (strcasecmp($platform, 'Instagram') === 0) return self::PROVIDER_KEY_INSTAGRAM;
+        if (strcasecmp($platform, 'Threads') === 0) return self::PROVIDER_KEY_THREADS;
+        return self::PROVIDER_KEY_RAPIDAPI;
+    }
+
+    protected function providerCircuitOpenEnvelope(string $providerKey): ?array
     {
         foreach ($this->activeCircuitReasons(false) as $circuit) {
-            if ($circuit['owner'] === self::PROVIDER_KEY_RAPIDAPI) {
+            if ($circuit['owner'] === $providerKey) {
                 return [
                     'http_status' => 503,
                     'body' => [
                         'status' => false,
                         'reason' => 'circuit_open',
-                        'msg' => 'RapidAPI provider circuit is open.',
+                        'msg' => $providerKey . ' provider circuit is open.',
                         'active_circuits' => $this->activeCircuitReasons(false),
                     ],
                 ];
@@ -678,13 +695,22 @@ class EndorseRefreshV2Coordinator
         return null;
     }
 
-    protected function providerTransitionForResponse(array $response): array
+    protected function providerTransitionForResponse(array $response, string $providerKey = self::PROVIDER_KEY_RAPIDAPI): array
     {
         $reason = trim((string) ($response['reason_code'] ?? ''));
         $errorClass = trim((string) ($response['error_class'] ?? ''));
         $msg = strtolower(trim((string) ($response['msg'] ?? '')));
 
-        if (in_array($reason, ['fallback_auth_failed', 'worker_auth_invalid'], true)
+        if ($providerKey === self::PROVIDER_KEY_THREADS && $errorClass === Endorse_sync::ERR_CONFIG) {
+            return ['systemic' => false, 'reason_code' => 'threads_token_invalid', 'state' => 'closed', 'open_seconds' => 0];
+        }
+        // Instagram RapidAPI auths per-key, so 401/403 means the shared key is dead.
+        // TikTok RapidAPI can return item-level 403s (private/region-locked video);
+        // those must not open the whole provider circuit.
+        if (($providerKey === self::PROVIDER_KEY_INSTAGRAM
+                && ($errorClass === Endorse_sync::ERR_CONFIG
+                    || in_array(intval($response['http_status'] ?? 0), [401, 403], true)))
+            || in_array($reason, ['fallback_auth_failed', 'worker_auth_invalid'], true)
             || strpos($msg, 'unauthorized') !== false
             || strpos($msg, 'forbidden') !== false) {
             return ['systemic' => true, 'reason_code' => 'provider_auth_failed', 'state' => 'open', 'open_seconds' => null];
@@ -702,7 +728,7 @@ class EndorseRefreshV2Coordinator
         return ['systemic' => false, 'reason_code' => $reason ?: 'fallback_api_failed', 'state' => 'closed', 'open_seconds' => 0];
     }
 
-    protected function completeFallbackLease(array $lease, array $response, array $providerTransition): void
+    protected function completeFallbackLease(array $lease, array $response, array $providerTransition, string $providerKey): void
     {
         if (!$this->tableExists('endorse_refresh_fallback_calls')) {
             return;
@@ -724,7 +750,7 @@ class EndorseRefreshV2Coordinator
                 $provider = $this->singleRow("
                     SELECT `provider_key`, `generation`
                     FROM `endorse_refresh_provider_health`
-                    WHERE `provider_key` = 'rapidapi'
+                    WHERE `provider_key` = " . $this->db->escape($providerKey) . "
                     FOR UPDATE
                 ");
                 if (!empty($provider)) {
@@ -739,7 +765,7 @@ class EndorseRefreshV2Coordinator
                     if ($providerTransition['state'] === 'closed') {
                         $update['open_until'] = null;
                     }
-                    $this->db->update('endorse_refresh_provider_health', $update, ['provider_key' => 'rapidapi']);
+                    $this->db->update('endorse_refresh_provider_health', $update, ['provider_key' => $providerKey]);
                 }
             }
 
