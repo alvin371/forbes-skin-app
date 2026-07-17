@@ -21,7 +21,7 @@ final class EndorseRefreshProviderTransitionTest extends TestCase
     {
         $transition = $this->transition(
             ['status' => false, 'msg' => 'Video is private', 'http_status' => 403, 'error_class' => Endorse_sync::ERR_PERMANENT],
-            EndorseRefreshV2Coordinator::PROVIDER_KEY_RAPIDAPI
+            EndorseRefreshV2Coordinator::PROVIDER_KEY_RAPIDAPI,
         );
 
         $this->assertFalse($transition['systemic']);
@@ -32,7 +32,7 @@ final class EndorseRefreshProviderTransitionTest extends TestCase
     {
         $transition = $this->transition(
             ['status' => false, 'msg' => 'Bad key', 'http_status' => 403, 'error_class' => Endorse_sync::ERR_TRANSIENT],
-            EndorseRefreshV2Coordinator::PROVIDER_KEY_INSTAGRAM
+            EndorseRefreshV2Coordinator::PROVIDER_KEY_INSTAGRAM,
         );
 
         $this->assertTrue($transition['systemic']);
@@ -43,7 +43,7 @@ final class EndorseRefreshProviderTransitionTest extends TestCase
     {
         $transition = $this->transition(
             ['status' => false, 'msg' => 'Konfigurasi Instagram RapidAPI belum lengkap.', 'error_class' => Endorse_sync::ERR_CONFIG],
-            EndorseRefreshV2Coordinator::PROVIDER_KEY_INSTAGRAM
+            EndorseRefreshV2Coordinator::PROVIDER_KEY_INSTAGRAM,
         );
 
         $this->assertTrue($transition['systemic']);
@@ -53,7 +53,7 @@ final class EndorseRefreshProviderTransitionTest extends TestCase
     {
         $transition = $this->transition(
             ['status' => false, 'msg' => 'Akun Threads belum terhubung.', 'http_status' => 401, 'error_class' => Endorse_sync::ERR_CONFIG],
-            EndorseRefreshV2Coordinator::PROVIDER_KEY_THREADS
+            EndorseRefreshV2Coordinator::PROVIDER_KEY_THREADS,
         );
 
         $this->assertFalse($transition['systemic']);
@@ -64,7 +64,7 @@ final class EndorseRefreshProviderTransitionTest extends TestCase
     {
         $transition = $this->transition(
             ['status' => false, 'msg' => 'Unauthorized', 'reason_code' => 'worker_auth_invalid'],
-            EndorseRefreshV2Coordinator::PROVIDER_KEY_RAPIDAPI
+            EndorseRefreshV2Coordinator::PROVIDER_KEY_RAPIDAPI,
         );
 
         $this->assertTrue($transition['systemic']);
