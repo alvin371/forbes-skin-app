@@ -782,6 +782,8 @@ function build_url($base_url, $params = [])
                             platformLogo = '<img src="<?= base_url() ?>assets/img/marketplace/3.png" alt="Tiktok Logo" class="rounded-circle mb-1" style="width: 30px;">';
                         } else if (event.extendedProps.platform === 'Instagram') {
                             platformLogo = '<img src="<?= base_url() ?>assets/img/marketplace/7.png" alt="Instagram Logo" class="rounded-circle mb-1" style="width: 30px;">';
+                        } else if (event.extendedProps.platform === 'Threads') {
+                            platformLogo = '<img src="<?= base_url() ?>assets/img/icon/icon-threads.svg" alt="Threads Logo" class="rounded-circle mb-1" style="width: 30px;">';
                         }
 
                         const status = (event.extendedProps.type === 'RENCANA UPLOAD') ?

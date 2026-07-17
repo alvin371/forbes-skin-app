@@ -155,7 +155,7 @@
 			<label for="">Platform</label>
 			<select type="text" class="form-control" name="dt[platform]">
 				<?php
-				$arr = array("Tiktok", "Instagram", "Twitter", "Youtube");
+				$arr = array("Tiktok", "Instagram", "Threads", "Twitter", "Youtube");
 				foreach ($arr as $v2) {
 					$text = $data['platform'] == $v2 ? 'selected' : '';
 					echo "<option $text value='$v2'>$v2</option>";
@@ -503,12 +503,13 @@
 
 	// ===== Content optimization: platform auto-detect + metric-mode toggling =====
 	(function() {
-		var AUTO = { 'Tiktok': true, 'Instagram': false, 'Youtube': false, 'Twitter': false, 'Facebook': false };
+		var AUTO = { 'Tiktok': true, 'Instagram': true, 'Threads': true, 'Youtube': false, 'Twitter': false, 'Facebook': false };
 
 		function detectPlatform(url) {
 			url = (url || '').toLowerCase();
 			if (/tiktok\.com/.test(url)) return 'Tiktok';
 			if (/instagram\.com/.test(url)) return 'Instagram';
+			if (/threads\.(com|net)/.test(url)) return 'Threads';
 			if (/youtube\.com|youtu\.be/.test(url)) return 'Youtube';
 			if (/twitter\.com|x\.com/.test(url)) return 'Twitter';
 			if (/facebook\.com|fb\.watch|fb\.com/.test(url)) return 'Facebook';

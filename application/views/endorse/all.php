@@ -271,6 +271,7 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                                         <?php
                                         $arr = array();
                                         $arr[] = "Instagram";
+                                        $arr[] = "Threads";
                                         $arr[] = "Tiktok";
                                         $arr[] = "Twitter";
                                         $arr[] = "Youtube";
@@ -1919,6 +1920,7 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                                     <option value="">Semua Platform</option>
                                     <option value="Tiktok">Tiktok</option>
                                     <option value="Instagram">Instagram</option>
+                                    <option value="Threads">Threads</option>
                                     <option value="Youtube">Youtube</option>
                                     <option value="Shopee">Shopee</option>
                                     <option value="Tokopedia">Tokopedia</option>
