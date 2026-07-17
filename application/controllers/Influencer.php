@@ -476,7 +476,13 @@ class Influencer extends BaseController
             $qry = " id IN ($ids) ";
         }
 
-        $list = $this->mymodel->selectWithQuery("SELECT id, type, url FROM influencer WHERE $qry AND status = 'Aktif' ");
+        // Sync is now synchronous (2-13 provider calls per row), so cap each request
+        // and let the user re-run: syncSocialProfile advances sync_at, so ordering by
+        // stalest-first makes repeated runs walk through the whole selection.
+        $batchLimit = 20;
+        $totalRow = $this->mymodel->selectWithQuery("SELECT COUNT(id) AS total FROM influencer WHERE $qry AND status = 'Aktif' ");
+        $total = intval($totalRow[0]['total'] ?? 0);
+        $list = $this->mymodel->selectWithQuery("SELECT id, type, url FROM influencer WHERE $qry AND status = 'Aktif' ORDER BY (sync_at IS NULL) DESC, sync_at ASC LIMIT $batchLimit ");
 
         $enqueued = 0;
         foreach ($list as $vl) {
@@ -501,13 +507,15 @@ class Influencer extends BaseController
             }
             $this->db->update('influencer', $dt_update, array('id' => $id));
 
-            // Enqueue for async processing with high priority (manual bulk refresh)
-            $result = $this->template->enqueue_scrape('influencer', $vl['id'], $vl['type'], $vl['url'], 10);
+            $result = $this->template->syncSocialProfile('influencer', $vl['id'], $vl['type'], $vl['url']);
             if ($result['status']) $enqueued++;
         }
 
         if ($list) {
-            $msg = "Refresh data sedang diproses untuk $enqueued influencer. Data akan diperbarui dalam beberapa menit.";
+            $msg = "$enqueued dari " . count($list) . " influencer berhasil disinkronkan.";
+            if ($total > count($list)) {
+                $msg .= " Masih ada " . ($total - count($list)) . " data lagi — jalankan refresh sekali lagi untuk melanjutkan.";
+            }
             echo $this->template->alert_success($msg);
             die;
         } else {
@@ -569,26 +577,13 @@ class Influencer extends BaseController
         }
         $this->db->update('influencer', $dt, array('id' => $id));
 
-        if ($query['type'] == 'Tiktok') {
-            // Synchronous via RapidAPI
-            $result = $this->template->syncTiktokProfile('influencer', $id, $query['type'], $query['url']);
-            if ($result['status']) {
-                $msg = "Data berhasil disinkronkan.";
-                echo $this->template->alert_success($msg);
-            } else {
-                $msg = $result['msg'];
-                echo $this->template->alert_danger($msg);
-            }
+        if (in_array($query['type'], ['Tiktok', 'Instagram', 'Threads'], true)) {
+            $result = $this->template->syncSocialProfile('influencer', $id, $query['type'], $query['url']);
+            echo $result['status']
+                ? $this->template->alert_success("Data berhasil disinkronkan.")
+                : $this->template->alert_danger($result['msg']);
         } else {
-            // Instagram: async via ScrapingBot
-            $result = $this->template->enqueue_scrape('influencer', $id, $query['type'], $query['url'], 10);
-            if ($result['status']) {
-                $msg = "Data internal berhasil diperbarui. Data eksternal sedang diproses, akan diperbarui dalam beberapa menit.";
-                echo $this->template->alert_success($msg);
-            } else {
-                $msg = $result['msg'];
-                echo $this->template->alert_danger($msg);
-            }
+            echo $this->template->alert_danger('Platform belum mendukung sinkronisasi otomatis.');
         }
         die;
     }
@@ -765,7 +760,8 @@ class Influencer extends BaseController
     {
         header('Content-Type: application/json');
 
-        $list = $this->mymodel->selectWithQuery("SELECT id, type, url FROM influencer WHERE avg_interaksi_2 = 0 AND status = 'Aktif' AND url != '' ");
+        // Same synchronous-sync cap as the bulk refresh path; re-run to continue.
+        $list = $this->mymodel->selectWithQuery("SELECT id, type, url FROM influencer WHERE avg_interaksi_2 = 0 AND status = 'Aktif' AND url != '' ORDER BY (sync_at IS NULL) DESC, sync_at ASC LIMIT 20 ");
 
         $enqueued = 0;
         foreach ($list as $vl) {
@@ -797,19 +793,14 @@ class Influencer extends BaseController
             }
             $this->db->update('influencer', $dt, array('id' => $id));
 
-            // TikTok: sync via RapidAPI, Instagram: async via ScrapingBot
-            if ($vl['type'] == 'Tiktok') {
-                $result = $this->template->syncTiktokProfile('influencer', $vl['id'], $vl['type'], $vl['url']);
-            } else {
-                $result = $this->template->enqueue_scrape('influencer', $vl['id'], $vl['type'], $vl['url'], 5);
-            }
+            $result = $this->template->syncSocialProfile('influencer', $vl['id'], $vl['type'], $vl['url']);
             if ($result['status']) $enqueued++;
         }
 
         if ($list) {
             echo json_encode([
                 'status' => 'success',
-                'message' => "$enqueued influencer records enqueued for sync."
+                'message' => "$enqueued dari " . count($list) . " influencer berhasil disinkronkan (maksimal 20 per proses)."
             ]);
         } else {
             echo json_encode([

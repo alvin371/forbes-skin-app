@@ -4897,7 +4897,7 @@ class Api_v2 extends CI_Controller
             }
         }
 
-        // Now uses queue-based approach: enqueue influencers needing sync
+        // Synchronously refresh supported social profiles through their adapters.
         $today = DATE("Y-m-d");
         $sync_date = DATE('Y-m-d', strtotime($today . " -7 days"));
 
@@ -4936,8 +4936,9 @@ class Api_v2 extends CI_Controller
             }
             $this->db->update('influencer', $dt, array('id' => $id));
 
-            // Enqueue for ScrapingBot async processing
-            $result = $this->template->enqueue_scrape('influencer', $vl['id'], $vl['type'], $vl['url'], 5);
+            $result = in_array($vl['type'], ['Tiktok', 'Instagram', 'Threads'], true)
+                ? $this->template->syncSocialProfile('influencer', $vl['id'], $vl['type'], $vl['url'])
+                : ['status' => false];
             if ($result['status']) $enqueued++;
         }
 
@@ -4945,7 +4946,7 @@ class Api_v2 extends CI_Controller
         echo json_encode([
             'status' => true,
             'data' => [],
-            'msg' => $enqueued . " of " . count($list) . " influencer records enqueued for sync (sync_at <= $sync_date)"
+            'msg' => $enqueued . " of " . count($list) . " influencer records synced (sync_at <= $sync_date)"
         ]);
         $this->cron_monitor_finish($monitor, array(
             'status' => 'ok',
@@ -4988,7 +4989,7 @@ class Api_v2 extends CI_Controller
         $today = DATE("Y-m-d");
         $sync_date = DATE('Y-m-d', strtotime($today . " -7 days"));
 
-        // Now uses queue-based approach: enqueue dummy influencers needing sync
+        // Dummy profiles support direct TikTok and Instagram refresh.
         $list = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer_dummy
             WHERE status = 'Aktif'
@@ -5000,7 +5001,9 @@ class Api_v2 extends CI_Controller
         $enqueued = 0;
         foreach ($list as $vl) {
             $type = $vl['type'] ? $vl['type'] : 'Tiktok';
-            $result = $this->template->enqueue_scrape('influencer_dummy', $vl['id'], $type, $vl['url'], 5);
+            $result = in_array($type, ['Tiktok', 'Instagram'], true)
+                ? $this->template->syncSocialProfile('influencer_dummy', $vl['id'], $type, $vl['url'])
+                : ['status' => false];
             if ($result['status']) $enqueued++;
         }
 
@@ -5008,7 +5011,7 @@ class Api_v2 extends CI_Controller
         echo json_encode([
             'status' => true,
             'data' => [],
-            'msg' => $enqueued . " of " . count($list) . " influencer dummy records enqueued for sync (sync_at <= $sync_date)"
+            'msg' => $enqueued . " of " . count($list) . " influencer dummy records synced (sync_at <= $sync_date)"
         ]);
         $this->cron_monitor_finish($monitor, array(
             'status' => 'ok',
@@ -7624,7 +7627,7 @@ class Api_v2 extends CI_Controller
         $tier1_influencer = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer
             WHERE status = 'Aktif' AND url != ''
-            AND type != 'Tiktok'
+            AND type NOT IN ('Tiktok', 'Instagram', 'Threads')
             AND sync_at IS NULL
             LIMIT 20
         ");
@@ -7636,7 +7639,7 @@ class Api_v2 extends CI_Controller
         $tier1_dummy = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer_dummy
             WHERE status = 'Aktif' AND url != ''
-            AND type != 'Tiktok'
+            AND type NOT IN ('Tiktok', 'Instagram', 'Threads')
             AND sync_at IS NULL
             LIMIT 20
         ");
@@ -7652,7 +7655,7 @@ class Api_v2 extends CI_Controller
             INNER JOIN endorse e ON e.influencer = i.id
             INNER JOIN endorse_campaign ec ON e.id_campaign = ec.id
             WHERE i.status = 'Aktif' AND i.url != ''
-            AND i.type != 'Tiktok'
+            AND i.type NOT IN ('Tiktok', 'Instagram', 'Threads')
             AND ec.status = 'Aktif'
             AND (i.sync_at < ('$three_days_ago' + INTERVAL 1 DAY) OR i.sync_at IS NULL)
             LIMIT 20
@@ -7667,7 +7670,7 @@ class Api_v2 extends CI_Controller
         $tier3_influencer = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer
             WHERE status = 'Aktif' AND url != ''
-            AND type != 'Tiktok'
+            AND type NOT IN ('Tiktok', 'Instagram', 'Threads')
             AND sync_at < ('$seven_days_ago' + INTERVAL 1 DAY)
             LIMIT 10
         ");
@@ -7679,7 +7682,7 @@ class Api_v2 extends CI_Controller
         $tier3_dummy = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer_dummy
             WHERE status = 'Aktif' AND url != ''
-            AND type != 'Tiktok'
+            AND type NOT IN ('Tiktok', 'Instagram', 'Threads')
             AND sync_at < ('$seven_days_ago' + INTERVAL 1 DAY)
             LIMIT 10
         ");
@@ -7693,7 +7696,7 @@ class Api_v2 extends CI_Controller
         $tier4 = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer
             WHERE status = 'Aktif' AND url != ''
-            AND type != 'Tiktok'
+            AND type NOT IN ('Tiktok', 'Instagram', 'Threads')
             AND sync_at < ('$fourteen_days_ago' + INTERVAL 1 DAY)
             LIMIT 5
         ");
@@ -7712,8 +7715,8 @@ class Api_v2 extends CI_Controller
     }
 
     /**
-     * Cronjob: Synchronous TikTok profile sync via RapidAPI
-     * Replaces ScrapingBot queue for TikTok records
+     * Compatibility cron route for synchronous supported social-profile sync.
+     * Replaces ScrapingBot for TikTok and Instagram; Threads uses its stored token.
      * Same 4-tier priority logic, processes max 20 per run with 300ms delay
      */
     function cronjob_tiktok_sync()
@@ -7731,13 +7734,13 @@ class Api_v2 extends CI_Controller
         // Tier 1 (Hot): sync_at IS NULL or new records
         $tier1_influencer = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer
-            WHERE status = 'Aktif' AND url != '' AND type = 'Tiktok'
+            WHERE status = 'Aktif' AND url != '' AND type IN ('Tiktok', 'Instagram', 'Threads')
             AND sync_at IS NULL
             LIMIT 10
         ");
         foreach ($tier1_influencer as $row) {
             if ($processed >= $maxPerRun) break;
-            $result = $this->template->syncTiktokProfile('influencer', $row['id'], $row['type'], $row['url']);
+            $result = $this->template->syncSocialProfile('influencer', $row['id'], $row['type'], $row['url']);
             if ($result['status']) $synced++; else $failed++;
             $processed++;
             usleep(300000);
@@ -7745,13 +7748,13 @@ class Api_v2 extends CI_Controller
 
         $tier1_dummy = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer_dummy
-            WHERE status = 'Aktif' AND url != '' AND type = 'Tiktok'
+            WHERE status = 'Aktif' AND url != '' AND type IN ('Tiktok', 'Instagram')
             AND sync_at IS NULL
             LIMIT 10
         ");
         foreach ($tier1_dummy as $row) {
             if ($processed >= $maxPerRun) break;
-            $result = $this->template->syncTiktokProfile('influencer_dummy', $row['id'], $row['type'], $row['url']);
+            $result = $this->template->syncSocialProfile('influencer_dummy', $row['id'], $row['type'], $row['url']);
             if ($result['status']) $synced++; else $failed++;
             $processed++;
             usleep(300000);
@@ -7764,14 +7767,14 @@ class Api_v2 extends CI_Controller
                 SELECT DISTINCT i.id, i.type, i.url FROM influencer i
                 INNER JOIN endorse e ON e.influencer = i.id
                 INNER JOIN endorse_campaign ec ON e.id_campaign = ec.id
-                WHERE i.status = 'Aktif' AND i.url != '' AND i.type = 'Tiktok'
+                WHERE i.status = 'Aktif' AND i.url != '' AND i.type IN ('Tiktok', 'Instagram', 'Threads')
                 AND ec.status = 'Aktif'
                 AND (i.sync_at < ('$three_days_ago' + INTERVAL 1 DAY) OR i.sync_at IS NULL)
                 LIMIT 10
             ");
             foreach ($tier2 as $row) {
                 if ($processed >= $maxPerRun) break;
-                $result = $this->template->syncTiktokProfile('influencer', $row['id'], $row['type'], $row['url']);
+                $result = $this->template->syncSocialProfile('influencer', $row['id'], $row['type'], $row['url']);
                 if ($result['status']) $synced++; else $failed++;
                 $processed++;
                 usleep(300000);
@@ -7783,13 +7786,13 @@ class Api_v2 extends CI_Controller
             $seven_days_ago = date('Y-m-d', strtotime('-7 days'));
             $tier3_influencer = $this->mymodel->selectWithQuery("
                 SELECT id, type, url FROM influencer
-                WHERE status = 'Aktif' AND url != '' AND type = 'Tiktok'
+                WHERE status = 'Aktif' AND url != '' AND type IN ('Tiktok', 'Instagram', 'Threads')
                 AND sync_at < ('$seven_days_ago' + INTERVAL 1 DAY)
                 LIMIT 5
             ");
             foreach ($tier3_influencer as $row) {
                 if ($processed >= $maxPerRun) break;
-                $result = $this->template->syncTiktokProfile('influencer', $row['id'], $row['type'], $row['url']);
+                $result = $this->template->syncSocialProfile('influencer', $row['id'], $row['type'], $row['url']);
                 if ($result['status']) $synced++; else $failed++;
                 $processed++;
                 usleep(300000);
@@ -7797,13 +7800,13 @@ class Api_v2 extends CI_Controller
 
             $tier3_dummy = $this->mymodel->selectWithQuery("
                 SELECT id, type, url FROM influencer_dummy
-                WHERE status = 'Aktif' AND url != '' AND type = 'Tiktok'
+                WHERE status = 'Aktif' AND url != '' AND type IN ('Tiktok', 'Instagram')
                 AND sync_at < ('$seven_days_ago' + INTERVAL 1 DAY)
                 LIMIT 5
             ");
             foreach ($tier3_dummy as $row) {
                 if ($processed >= $maxPerRun) break;
-                $result = $this->template->syncTiktokProfile('influencer_dummy', $row['id'], $row['type'], $row['url']);
+                $result = $this->template->syncSocialProfile('influencer_dummy', $row['id'], $row['type'], $row['url']);
                 if ($result['status']) $synced++; else $failed++;
                 $processed++;
                 usleep(300000);
@@ -7815,13 +7818,13 @@ class Api_v2 extends CI_Controller
             $fourteen_days_ago = date('Y-m-d', strtotime('-14 days'));
             $tier4 = $this->mymodel->selectWithQuery("
                 SELECT id, type, url FROM influencer
-                WHERE status = 'Aktif' AND url != '' AND type = 'Tiktok'
+                WHERE status = 'Aktif' AND url != '' AND type IN ('Tiktok', 'Instagram', 'Threads')
                 AND sync_at < ('$fourteen_days_ago' + INTERVAL 1 DAY)
                 LIMIT 5
             ");
             foreach ($tier4 as $row) {
                 if ($processed >= $maxPerRun) break;
-                $result = $this->template->syncTiktokProfile('influencer', $row['id'], $row['type'], $row['url']);
+                $result = $this->template->syncSocialProfile('influencer', $row['id'], $row['type'], $row['url']);
                 if ($result['status']) $synced++; else $failed++;
                 $processed++;
                 usleep(300000);
