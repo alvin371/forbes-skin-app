@@ -106,11 +106,22 @@ fn generate_worker_uuid() -> String {
 
     format!(
         "{}{}{}{}-{}{}-{}{}-{}{}-{}{}{}{}{}{}",
-        hex[0], hex[1], hex[2], hex[3],
-        hex[4], hex[5],
-        hex[6], hex[7],
-        hex[8], hex[9],
-        hex[10], hex[11], hex[12], hex[13], hex[14], hex[15]
+        hex[0],
+        hex[1],
+        hex[2],
+        hex[3],
+        hex[4],
+        hex[5],
+        hex[6],
+        hex[7],
+        hex[8],
+        hex[9],
+        hex[10],
+        hex[11],
+        hex[12],
+        hex[13],
+        hex[14],
+        hex[15]
     )
 }
 
@@ -257,7 +268,9 @@ impl SocialResponse {
             stats_found: false,
             stats_complete: false,
             stats_fields: vec![],
-            observed_at: chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.6f").to_string(),
+            observed_at: chrono::Utc::now()
+                .format("%Y-%m-%d %H:%M:%S%.6f")
+                .to_string(),
             data: SocialData::default(),
         }
     }
@@ -403,7 +416,11 @@ async fn run_loop(client: Client, cfg: Config, heartbeat: Arc<AtomicI64>) {
 
         if !releases.is_empty() {
             if let Err(e) = release_results(&client, &cfg, &releases).await {
-                error!("release_results failed: {} — {} claims not released", e, releases.len());
+                error!(
+                    "release_results failed: {} — {} claims not released",
+                    e,
+                    releases.len()
+                );
             }
         }
 
@@ -430,14 +447,12 @@ fn auth(req: reqwest::RequestBuilder, cfg: &Config) -> reqwest::RequestBuilder {
 async fn claim(client: &Client, cfg: &Config) -> Result<ClaimResponse, String> {
     let url = format!("{}/api/endorse-refresh/claim", cfg.api_base);
     let req = auth(
-        client
-            .post(&url)
-            .json(&serde_json::json!({
-                "contract_version": 2,
-                "worker_id": cfg.worker_id,
-                "task_identity": cfg.task_identity,
-                "limit": cfg.claim_limit
-            })),
+        client.post(&url).json(&serde_json::json!({
+            "contract_version": 2,
+            "worker_id": cfg.worker_id,
+            "task_identity": cfg.task_identity,
+            "limit": cfg.claim_limit
+        })),
         cfg,
     )
     .timeout(Duration::from_secs(30));
@@ -475,13 +490,11 @@ async fn post_results(client: &Client, cfg: &Config, results: &[ResultItem]) -> 
     }
     let url = format!("{}/api/endorse-refresh/result", cfg.api_base);
     let req = auth(
-        client
-            .post(&url)
-            .json(&serde_json::json!({
-                "contract_version": 2,
-                "worker_id": cfg.worker_id,
-                "results": results
-            })),
+        client.post(&url).json(&serde_json::json!({
+            "contract_version": 2,
+            "worker_id": cfg.worker_id,
+            "results": results
+        })),
         cfg,
     )
     .timeout(Duration::from_secs(30));
@@ -495,16 +508,18 @@ async fn post_results(client: &Client, cfg: &Config, results: &[ResultItem]) -> 
     Ok(())
 }
 
-async fn release_results(client: &Client, cfg: &Config, items: &[ReleaseItem]) -> Result<(), String> {
+async fn release_results(
+    client: &Client,
+    cfg: &Config,
+    items: &[ReleaseItem],
+) -> Result<(), String> {
     let url = format!("{}/api/endorse-refresh/release", cfg.api_base);
     let req = auth(
-        client
-            .post(&url)
-            .json(&serde_json::json!({
-                "contract_version": 2,
-                "worker_id": cfg.worker_id,
-                "items": items
-            })),
+        client.post(&url).json(&serde_json::json!({
+            "contract_version": 2,
+            "worker_id": cfg.worker_id,
+            "items": items
+        })),
         cfg,
     )
     .timeout(Duration::from_secs(30));
@@ -520,16 +535,31 @@ async fn release_results(client: &Client, cfg: &Config, items: &[ReleaseItem]) -
     Ok(())
 }
 
-/// Fetch one TikTok item. Direct page extraction stays the cheap primary path; every
-/// scrape failure falls back to PHP's authenticated, authoritative single-item HTTP/1.1
-/// RapidAPI path so a generic TikTok HTTP-200 app shell cannot consume queue attempts.
+/// Fetch one social item. TikTok keeps direct page extraction as its cheap primary path;
+/// authenticated platforms are fetched by PHP so credentials remain server-owned.
 async fn fetch_one(client: &Client, cfg: &Config, item: &ClaimItem) -> FetchOutcome {
     if item.platform != "Tiktok" {
+        let fallback = fetch_fallback(client, cfg, item).await;
+        let release = if fallback.reason_code == "circuit_open" {
+            Some(ReleaseItem {
+                queue_id: item.queue_id,
+                attempt_no: item.attempt_no,
+                active_attempt_id: item.active_attempt_id,
+                reason_code: "provider_circuit_open".to_string(),
+                msg: fallback.msg.clone(),
+            })
+        } else {
+            None
+        };
         return FetchOutcome {
-            response: SocialResponse::failure("transient", "Platform belum tersedia di worker"),
-            source: FetchSource::Failed,
+            source: if fallback.status {
+                FetchSource::Fallback
+            } else {
+                FetchSource::Failed
+            },
+            response: fallback,
             normalized_url: false,
-            release: None,
+            release,
         };
     }
     if item.url.is_empty() {
@@ -666,15 +696,13 @@ async fn fetch_fallback(client: &Client, cfg: &Config, item: &ClaimItem) -> Soci
         cfg.default_timeout
     };
     let req = auth(
-        client
-            .post(&url)
-            .json(&serde_json::json!({
-                "contract_version": 2,
-                "queue_id": item.queue_id,
-                "attempt_no": item.attempt_no,
-                "active_attempt_id": item.active_attempt_id,
-                "worker_id": item.worker_id,
-            })),
+        client.post(&url).json(&serde_json::json!({
+            "contract_version": 2,
+            "queue_id": item.queue_id,
+            "attempt_no": item.attempt_no,
+            "active_attempt_id": item.active_attempt_id,
+            "worker_id": item.worker_id,
+        })),
         cfg,
     )
     // PHP may make two isolated 12-second RapidAPI attempts. Leave enough headroom
@@ -715,7 +743,9 @@ async fn fetch_fallback(client: &Client, cfg: &Config, item: &ClaimItem) -> Soci
             stats_found: false,
             stats_complete: false,
             stats_fields: vec![],
-            observed_at: chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.6f").to_string(),
+            observed_at: chrono::Utc::now()
+                .format("%Y-%m-%d %H:%M:%S%.6f")
+                .to_string(),
             data: SocialData::default(),
         };
     }
@@ -793,11 +823,31 @@ fn map_item(item: &Value, url: &str) -> SocialResponse {
     if !(like_present || share_present || comment_present || collect_present || view_present) {
         return SocialResponse::failure("transient", "Stats data tidak valid dari scrape");
     }
-    let like = if like_present { Some(i64_at(&stats, "diggCount")) } else { None };
-    let share = if share_present { Some(i64_at(&stats, "shareCount")) } else { None };
-    let comment = if comment_present { Some(i64_at(&stats, "commentCount")) } else { None };
-    let collect = if collect_present { Some(i64_at(&stats, "collectCount")) } else { None };
-    let view = if view_present { Some(i64_at(&stats, "playCount")) } else { None };
+    let like = if like_present {
+        Some(i64_at(&stats, "diggCount"))
+    } else {
+        None
+    };
+    let share = if share_present {
+        Some(i64_at(&stats, "shareCount"))
+    } else {
+        None
+    };
+    let comment = if comment_present {
+        Some(i64_at(&stats, "commentCount"))
+    } else {
+        None
+    };
+    let collect = if collect_present {
+        Some(i64_at(&stats, "collectCount"))
+    } else {
+        None
+    };
+    let view = if view_present {
+        Some(i64_at(&stats, "playCount"))
+    } else {
+        None
+    };
 
     let content_id = {
         let id = str_at(item, "id");
@@ -863,7 +913,11 @@ fn map_item(item: &Value, url: &str) -> SocialResponse {
         error_class: String::new(),
         reason_code: String::new(),
         stats_found: true,
-        stats_complete: like_present && share_present && comment_present && collect_present && view_present,
+        stats_complete: like_present
+            && share_present
+            && comment_present
+            && collect_present
+            && view_present,
         stats_fields: [
             ("like", like_present),
             ("share", share_present),
@@ -872,9 +926,17 @@ fn map_item(item: &Value, url: &str) -> SocialResponse {
             ("view", view_present),
         ]
         .into_iter()
-        .filter_map(|(name, present)| if present { Some(name.to_string()) } else { None })
+        .filter_map(|(name, present)| {
+            if present {
+                Some(name.to_string())
+            } else {
+                None
+            }
+        })
         .collect(),
-        observed_at: chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.6f").to_string(),
+        observed_at: chrono::Utc::now()
+            .format("%Y-%m-%d %H:%M:%S%.6f")
+            .to_string(),
         data: SocialData {
             like,
             share,
