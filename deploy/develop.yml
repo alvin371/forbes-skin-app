@@ -9,6 +9,7 @@
     stack_name: "forbes"
     container_version: "{{ CI_COMMIT_SHORT_SHA | default(lookup('env', 'GITHUB_SHA') | regex_replace('^(.{8}).*$', '\\1'), true) }}"
     container_image: "gilangp/forbes-app:develop{{ container_version }}"
+    worker_container_image: "gilangp/forbes-endorse-refresh-worker:develop{{ container_version }}"
 
   tasks:
   - name: update app docker image
@@ -16,6 +17,32 @@
       docker service update {{ stack_name }}_app \
         --image {{ container_image }} \
         --with-registry-auth
+
+  # The worker can intentionally be scaled to zero while DRIVER=cron. Updating its
+  # immutable image must preserve that replica count; activation is a separate,
+  # explicit rollout step after the server-side claim gate is verified.
+  - name: check endorse refresh worker service
+    ansible.builtin.command:
+      argv:
+        - docker
+        - service
+        - inspect
+        - "{{ stack_name }}_endorse-refresh-worker"
+    register: endorse_refresh_worker_service
+    changed_when: false
+    failed_when: false
+
+  - name: update endorse refresh worker docker image
+    ansible.builtin.command:
+      argv:
+        - docker
+        - service
+        - update
+        - --image
+        - "{{ worker_container_image }}"
+        - --with-registry-auth
+        - "{{ stack_name }}_endorse-refresh-worker"
+    when: endorse_refresh_worker_service.rc == 0
 
  # - name: waiting nextjs-app ready
  #   ansible.builtin.uri:
