@@ -5,13 +5,12 @@ defined('BASEPATH') or exit('No direct script access allowed');
  * Social platform registry for the content-optimization feature.
  *
  * Single source of truth for:
- *  - which platforms support real auto-fetch of per-post metrics (TikTok today;
- *    others are placeholders pending future scraper integration), and
+ *  - which platforms support real auto-fetch of per-post metrics, and
  *  - detecting the platform from a content link so the requestor form can
  *    auto-select it.
  *
  * Canonical platform strings match the values used in the endorse forms:
- *   Tiktok, Instagram, Youtube, Twitter, Facebook
+ *   Tiktok, Instagram, Threads, Youtube, Twitter, Facebook
  */
 
 if (!function_exists('social_auto_fetch_platforms')) {
@@ -23,7 +22,8 @@ if (!function_exists('social_auto_fetch_platforms')) {
     {
         return [
             'Tiktok'    => true,
-            'Instagram' => false,
+            'Instagram' => true,
+            'Threads'   => true,
             'Youtube'   => false,
             'Twitter'   => false,
             'Facebook'  => false,
@@ -59,6 +59,7 @@ if (!function_exists('detect_platform_from_url')) {
         $patterns = [
             'Tiktok'    => '#(^|\.)tiktok\.com#i',
             'Instagram' => '#(^|\.)instagram\.com#i',
+            'Threads'   => '#(^|\.)threads\.(com|net)#i',
             'Youtube'   => '#(^|\.)(youtube\.com|youtu\.be)#i',
             'Twitter'   => '#(^|\.)(twitter\.com|x\.com)#i',
             'Facebook'  => '#(^|\.)(facebook\.com|fb\.watch|fb\.com)#i',
