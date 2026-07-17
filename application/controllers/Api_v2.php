@@ -20,6 +20,10 @@ use Lazada\LazopRequest;
 defined('BASEPATH') or exit('No direct script access allowed');
 class Api_v2 extends CI_Controller
 {
+    protected $app_id_threads;
+    protected $app_secret_threads;
+    protected $threads_redirect_uri;
+
     function __construct()
     {
         parent::__construct();
@@ -43,6 +47,9 @@ class Api_v2 extends CI_Controller
         // Meta/Facebook API credentials
         $this->app_id_meta = env('META_APP_ID', '');
         $this->app_secret_meta = env('META_APP_SECRET', '');
+        $this->app_id_threads = env('THREADS_APP_ID', '');
+        $this->app_secret_threads = env('THREADS_APP_SECRET', '');
+        $this->threads_redirect_uri = env('THREADS_REDIRECT_URI', rtrim(base_url(), '/') . '/api_v2/threads_callback');
         $config = $this->mymodel->selectWithQuery("SELECT * FROM endorse_config");
         $config_map = array();
         if (is_array($config)) {
@@ -137,6 +144,204 @@ class Api_v2 extends CI_Controller
         }
 
         return true;
+    }
+
+    public function threads_authorize()
+    {
+        if (empty($_SESSION['user']['id'])) {
+            redirect(base_url('auth/login'));
+            return;
+        }
+        $influencerId = intval($this->input->get('influencer_id'));
+        $influencer = $this->mymodel->selectDataOne('influencer', ['id' => $influencerId, 'type' => 'Threads']);
+        if (empty($influencer)) {
+            redirect(base_url('influencer?msg=threads_not_found'));
+            return;
+        }
+        if ($this->app_id_threads === '' || $this->app_secret_threads === '') {
+            redirect(base_url('influencer?msg=threads_config_missing'));
+            return;
+        }
+
+        $state = bin2hex(random_bytes(32));
+        $_SESSION['threads_oauth_state'] = [
+            'hash' => hash('sha256', $state),
+            'influencer_id' => $influencerId,
+            'user_id' => intval($_SESSION['user']['id']),
+            'expires_at' => time() + 600,
+        ];
+        $url = 'https://threads.net/oauth/authorize?' . http_build_query([
+            'client_id' => $this->app_id_threads,
+            'redirect_uri' => $this->threads_redirect_uri,
+            'scope' => 'threads_basic,threads_manage_insights',
+            'response_type' => 'code',
+            'state' => $state,
+        ], '', '&', PHP_QUERY_RFC3986);
+        redirect($url);
+    }
+
+    public function threads_callback()
+    {
+        $stored = $_SESSION['threads_oauth_state'] ?? null;
+        unset($_SESSION['threads_oauth_state']);
+        $state = strval($this->input->get('state'));
+        $code = strval($this->input->get('code'));
+        if (!is_array($stored) || $state === '' || $code === ''
+            || intval($stored['expires_at'] ?? 0) < time()
+            || intval($stored['user_id'] ?? 0) !== intval($_SESSION['user']['id'] ?? 0)
+            || !hash_equals(strval($stored['hash'] ?? ''), hash('sha256', $state))) {
+            redirect(base_url('influencer?msg=threads_oauth_invalid'));
+            return;
+        }
+
+        $influencerId = intval($stored['influencer_id'] ?? 0);
+        $influencer = $this->mymodel->selectDataOne('influencer', ['id' => $influencerId, 'type' => 'Threads']);
+        if (empty($influencer)) {
+            redirect(base_url('influencer?msg=threads_not_found'));
+            return;
+        }
+
+        $this->load->library('Threads_api');
+        $short = $this->threads_api->exchangeCode($code, $this->threads_redirect_uri);
+        $shortToken = strval($short['data']['access_token'] ?? '');
+        if (empty($short['status']) || $shortToken === '') {
+            log_message('error', 'threads_oauth_code_exchange_failed: ' . strval($short['msg'] ?? 'unknown'));
+            redirect(base_url('influencer?msg=threads_connect_failed'));
+            return;
+        }
+        $long = $this->threads_api->exchangeLongLived($shortToken);
+        $longToken = strval($long['data']['access_token'] ?? '');
+        if (empty($long['status']) || $longToken === '') {
+            log_message('error', 'threads_oauth_long_token_failed: ' . strval($long['msg'] ?? 'unknown'));
+            redirect(base_url('influencer?msg=threads_connect_failed'));
+            return;
+        }
+
+        $expiresIn = max(1, intval($long['data']['expires_in'] ?? 5184000));
+        $this->db->update('influencer', [
+            'threads_user_id' => strval($short['data']['user_id'] ?? ''),
+            'threads_access_token' => $longToken,
+            'threads_token_expires_at' => date('Y-m-d H:i:s', time() + $expiresIn),
+            'updated_at' => date('Y-m-d H:i:s'),
+            'updated_by' => strval($_SESSION['user']['id']),
+        ], ['id' => $influencerId]);
+        $sync = $this->template->syncSocialProfile('influencer', $influencerId, 'Threads', strval($influencer['url'] ?? ''));
+        if (empty($sync['status'])) {
+            log_message('error', 'threads_profile_sync_after_oauth_failed influencer=' . $influencerId . ' msg=' . strval($sync['msg'] ?? 'unknown'));
+        }
+        redirect(base_url('influencer?msg=threads_connected&influencer_id=' . $influencerId));
+    }
+
+    public function threads_refresh_token()
+    {
+        $this->worker_auth_guard();
+        header('Content-Type: application/json; charset=utf-8');
+        if (!$this->db->field_exists('threads_access_token', 'influencer')) {
+            echo json_encode(['status' => false, 'refreshed' => 0, 'failed' => 0, 'msg' => 'Migration Threads belum dijalankan.']);
+            return;
+        }
+        $deadline = date('Y-m-d H:i:s', strtotime('+7 days'));
+        $rows = $this->mymodel->selectWithQuery(
+            "SELECT id, threads_access_token FROM influencer WHERE type = 'Threads' AND threads_access_token IS NOT NULL AND threads_access_token != '' AND threads_token_expires_at > NOW() AND threads_token_expires_at <= " . $this->db->escape($deadline) . " LIMIT 100"
+        );
+        $this->load->library('Threads_api');
+        $refreshed = 0; $failed = 0;
+        foreach ($rows as $row) {
+            $result = $this->threads_api->refreshToken(strval($row['threads_access_token']));
+            if (!empty($result['status']) && !empty($result['data']['access_token'])) {
+                $this->db->update('influencer', [
+                    'threads_access_token' => strval($result['data']['access_token']),
+                    'threads_token_expires_at' => date('Y-m-d H:i:s', time() + max(1, intval($result['data']['expires_in'] ?? 5184000))),
+                    'updated_at' => date('Y-m-d H:i:s'),
+                    'updated_by' => '1',
+                ], ['id' => intval($row['id'])]);
+                $refreshed++;
+            } else {
+                $failed++;
+                log_message('error', 'threads_token_refresh_failed influencer=' . intval($row['id']) . ' msg=' . strval($result['msg'] ?? 'unknown'));
+            }
+        }
+        echo json_encode(['status' => true, 'refreshed' => $refreshed, 'failed' => $failed]);
+    }
+
+    public function threads_deauthorize()
+    {
+        $payload = $this->parse_threads_signed_request(strval($this->input->post('signed_request')));
+        if ($payload === null) $this->json_response(400, ['status' => false, 'msg' => 'signed_request tidak valid.']);
+        $this->clear_threads_connection(strval($payload['user_id'] ?? ''));
+        $this->json_response(200, ['url' => base_url(), 'confirmation_code' => $this->threads_confirmation_code(strval($payload['user_id'] ?? ''))]);
+    }
+
+    public function threads_delete_data()
+    {
+        $payload = $this->parse_threads_signed_request(strval($this->input->post('signed_request')));
+        if ($payload === null) $this->json_response(400, ['status' => false, 'msg' => 'signed_request tidak valid.']);
+        $userId = strval($payload['user_id'] ?? '');
+        $this->clear_threads_connection($userId);
+        $code = $this->threads_confirmation_code($userId);
+        $this->json_response(200, [
+            'url' => base_url('api_v2/threads_delete_status?code=' . rawurlencode($code)),
+            'confirmation_code' => $code,
+        ]);
+    }
+
+    public function threads_delete_status()
+    {
+        $valid = $this->verify_threads_confirmation_code(strval($this->input->get('code')));
+        $this->json_response($valid ? 200 : 404, [
+            'status' => $valid,
+            'msg' => $valid ? 'Data Threads telah dihapus.' : 'Kode konfirmasi tidak valid.',
+        ]);
+    }
+
+    private function parse_threads_signed_request(string $signedRequest)
+    {
+        $parts = explode('.', $signedRequest, 2);
+        if (count($parts) !== 2 || $this->app_secret_threads === '') return null;
+        $signature = $this->base64url_decode($parts[0]);
+        $payloadJson = $this->base64url_decode($parts[1]);
+        $payload = json_decode($payloadJson, true);
+        if (!is_array($payload) || strtoupper(strval($payload['algorithm'] ?? '')) !== 'HMAC-SHA256') return null;
+        $expected = hash_hmac('sha256', $parts[1], $this->app_secret_threads, true);
+        return hash_equals($expected, $signature) ? $payload : null;
+    }
+
+    private function clear_threads_connection(string $threadsUserId): void
+    {
+        if ($threadsUserId === '' || !$this->db->field_exists('threads_user_id', 'influencer')) return;
+        $this->db->update('influencer', [
+            'threads_access_token' => null,
+            'threads_user_id' => null,
+            'threads_token_expires_at' => null,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ], ['threads_user_id' => $threadsUserId]);
+    }
+
+    private function threads_confirmation_code(string $threadsUserId): string
+    {
+        $payload = $this->base64url_encode(json_encode(['sub' => hash('sha256', $threadsUserId), 'exp' => time() + 86400]));
+        return $payload . '.' . $this->base64url_encode(hash_hmac('sha256', $payload, $this->app_secret_threads, true));
+    }
+
+    private function verify_threads_confirmation_code(string $code): bool
+    {
+        $parts = explode('.', $code, 2);
+        if (count($parts) !== 2 || $this->app_secret_threads === '') return false;
+        $expected = $this->base64url_encode(hash_hmac('sha256', $parts[0], $this->app_secret_threads, true));
+        $payload = json_decode($this->base64url_decode($parts[0]), true);
+        return hash_equals($expected, $parts[1]) && is_array($payload) && intval($payload['exp'] ?? 0) >= time();
+    }
+
+    private function base64url_encode(string $value): string
+    {
+        return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
+    }
+
+    private function base64url_decode(string $value): string
+    {
+        $padding = strlen($value) % 4;
+        if ($padding) $value .= str_repeat('=', 4 - $padding);
+        return strval(base64_decode(strtr($value, '-_', '+/'), true));
     }
 
     private function cron_monitor_start($job, array $context = array())

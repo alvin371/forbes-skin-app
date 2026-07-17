@@ -698,5 +698,23 @@
 
     $(document).ready(function() {
         loadMoreData();
+
+        var threadsMessages = {
+            threads_connected: { icon: 'success', heading: 'Informasi', text: 'Akun Threads berhasil terhubung.' },
+            threads_connect_failed: { icon: 'error', heading: 'Gagal', text: 'Gagal menghubungkan akun Threads. Silakan coba lagi.' },
+            threads_oauth_invalid: { icon: 'error', heading: 'Gagal', text: 'Permintaan OAuth Threads tidak valid atau sudah kedaluwarsa.' },
+            threads_not_found: { icon: 'error', heading: 'Gagal', text: 'Influencer Threads tidak ditemukan.' },
+            threads_config_missing: { icon: 'error', heading: 'Gagal', text: 'Konfigurasi Threads belum lengkap. Hubungi administrator.' }
+        };
+        var flash = threadsMessages[new URLSearchParams(window.location.search).get('msg')];
+        if (flash) {
+            $.toast({
+                heading: flash.heading,
+                text: flash.text,
+                icon: flash.icon,
+                position: 'top-right',
+                hideAfter: 4000
+            });
+        }
     });
 </script>
