@@ -166,6 +166,8 @@ if ($view == 'table') {
                         $v['img'] = base_url() . '/assets/img/icon/icon-tiktok.png';
                     } else if ($v['platform'] == "Instagram") {
                         $v['img'] = base_url() . '/assets/img/icon/icon-ig.png';
+                    } else if ($v['platform'] == "Threads") {
+                        $v['img'] = base_url() . '/assets/img/icon/icon-threads.svg';
                     } else if ($v['platform'] == "Youtube") {
                         $v['img'] = base_url() . '/assets/img/icon/icon-youtube.png';
                     } else if ($v['platform'] == "Facebook") {
@@ -572,6 +574,8 @@ if ($view == 'table') {
             $v['img'] = base_url() . '/assets/img/icon/icon-tiktok.png';
         } else if ($v['platform'] == "Instagram") {
             $v['img'] = base_url() . '/assets/img/icon/icon-ig.png';
+        } else if ($v['platform'] == "Threads") {
+            $v['img'] = base_url() . '/assets/img/icon/icon-threads.svg';
         } else if ($v['platform'] == "Youtube") {
             $v['img'] = base_url() . '/assets/img/icon/icon-youtube.png';
         } else if ($v['platform'] == "Facebook") {

@@ -12,6 +12,17 @@
 
 # Local agent/tool output
 .impeccable/
+.agents/
+.claude/
+CLAUDE.md
+HRMS_API.md
+PRODUCT.md
+SETUP.md
+TIKTOK_INTEGRATIONS*
+TIKTOK_INTEGRATION*
+docs/**
+!docs/openapi/
+!docs/openapi/hrms.yaml
 .claude/settings.local.json
 .php-cs-fixer.cache
 

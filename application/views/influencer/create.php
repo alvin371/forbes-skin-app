@@ -66,7 +66,7 @@
 			<label>Platform</label>
 			<select class="form-control" name="dt[type]">
 				<?php
-				$arr = ["Tiktok", "Instagram", "Twitter", "Youtube"];
+				$arr = ["Tiktok", "Instagram", "Threads", "Twitter", "Youtube"];
 				foreach ($arr as $v2) {
 					$selected = $data['type'] == $v2 ? 'selected' : '';
 					echo "<option $selected value=\"$v2\">$v2</option>";

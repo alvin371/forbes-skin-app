@@ -20,6 +20,10 @@ use Lazada\LazopRequest;
 defined('BASEPATH') or exit('No direct script access allowed');
 class Api_v2 extends CI_Controller
 {
+    protected $app_id_threads;
+    protected $app_secret_threads;
+    protected $threads_redirect_uri;
+
     function __construct()
     {
         parent::__construct();
@@ -43,6 +47,9 @@ class Api_v2 extends CI_Controller
         // Meta/Facebook API credentials
         $this->app_id_meta = env('META_APP_ID', '');
         $this->app_secret_meta = env('META_APP_SECRET', '');
+        $this->app_id_threads = env('THREADS_APP_ID', '');
+        $this->app_secret_threads = env('THREADS_APP_SECRET', '');
+        $this->threads_redirect_uri = env('THREADS_REDIRECT_URI', rtrim(base_url(), '/') . '/api_v2/threads_callback');
         $config = $this->mymodel->selectWithQuery("SELECT * FROM endorse_config");
         $config_map = array();
         if (is_array($config)) {
@@ -107,6 +114,13 @@ class Api_v2 extends CI_Controller
         return null;
     }
 
+    private function json_response(int $httpStatus, array $body)
+    {
+        http_response_code($httpStatus);
+        echo json_encode($body);
+        die;
+    }
+
     private function worker_auth_guard()
     {
         $ip_allowlist = env('WORKER_IP_ALLOWLIST', '');
@@ -114,21 +128,220 @@ class Api_v2 extends CI_Controller
             $allowed = array_map('trim', explode(',', $ip_allowlist));
             $remote = $_SERVER['REMOTE_ADDR'] ?? '';
             if ($remote === '' || !in_array($remote, $allowed, true)) {
-                echo json_encode(array('status' => false, 'msg' => 'Unauthorized'), true);
-                die;
+                $this->json_response(403, array('status' => false, 'reason' => 'worker_ip_denied', 'msg' => 'Unauthorized'));
             }
         }
 
         $secret = env('WORKER_SHARED_SECRET', '');
         if ($secret) {
             $header = $_SERVER['HTTP_X_WORKER_SECRET'] ?? '';
-            if ($header === '' || !hash_equals($secret, $header)) {
-                echo json_encode(array('status' => false, 'msg' => 'Unauthorized'), true);
-                die;
+            if ($header === '') {
+                $this->json_response(401, array('status' => false, 'reason' => 'worker_auth_missing', 'msg' => 'Unauthorized'));
+            }
+            if (!hash_equals($secret, $header)) {
+                $this->json_response(401, array('status' => false, 'reason' => 'worker_auth_invalid', 'msg' => 'Unauthorized'));
             }
         }
 
         return true;
+    }
+
+    public function threads_authorize()
+    {
+        if (empty($_SESSION['user']['id'])) {
+            redirect(base_url('auth/login'));
+            return;
+        }
+        $influencerId = intval($this->input->get('influencer_id'));
+        $influencer = $this->mymodel->selectDataOne('influencer', ['id' => $influencerId, 'type' => 'Threads']);
+        if (empty($influencer)) {
+            redirect(base_url('influencer?msg=threads_not_found'));
+            return;
+        }
+        if ($this->app_id_threads === '' || $this->app_secret_threads === '') {
+            redirect(base_url('influencer?msg=threads_config_missing'));
+            return;
+        }
+
+        $state = bin2hex(random_bytes(32));
+        $_SESSION['threads_oauth_state'] = [
+            'hash' => hash('sha256', $state),
+            'influencer_id' => $influencerId,
+            'user_id' => intval($_SESSION['user']['id']),
+            'expires_at' => time() + 600,
+        ];
+        $url = 'https://threads.net/oauth/authorize?' . http_build_query([
+            'client_id' => $this->app_id_threads,
+            'redirect_uri' => $this->threads_redirect_uri,
+            'scope' => 'threads_basic,threads_manage_insights',
+            'response_type' => 'code',
+            'state' => $state,
+        ], '', '&', PHP_QUERY_RFC3986);
+        redirect($url);
+    }
+
+    public function threads_callback()
+    {
+        $stored = $_SESSION['threads_oauth_state'] ?? null;
+        unset($_SESSION['threads_oauth_state']);
+        $state = strval($this->input->get('state'));
+        $code = strval($this->input->get('code'));
+        if (!is_array($stored) || $state === '' || $code === ''
+            || intval($stored['expires_at'] ?? 0) < time()
+            || intval($stored['user_id'] ?? 0) !== intval($_SESSION['user']['id'] ?? 0)
+            || !hash_equals(strval($stored['hash'] ?? ''), hash('sha256', $state))) {
+            redirect(base_url('influencer?msg=threads_oauth_invalid'));
+            return;
+        }
+
+        $influencerId = intval($stored['influencer_id'] ?? 0);
+        $influencer = $this->mymodel->selectDataOne('influencer', ['id' => $influencerId, 'type' => 'Threads']);
+        if (empty($influencer)) {
+            redirect(base_url('influencer?msg=threads_not_found'));
+            return;
+        }
+
+        $this->load->library('Threads_api');
+        $short = $this->threads_api->exchangeCode($code, $this->threads_redirect_uri);
+        $shortToken = strval($short['data']['access_token'] ?? '');
+        if (empty($short['status']) || $shortToken === '') {
+            log_message('error', 'threads_oauth_code_exchange_failed: ' . strval($short['msg'] ?? 'unknown'));
+            redirect(base_url('influencer?msg=threads_connect_failed'));
+            return;
+        }
+        $long = $this->threads_api->exchangeLongLived($shortToken);
+        $longToken = strval($long['data']['access_token'] ?? '');
+        if (empty($long['status']) || $longToken === '') {
+            log_message('error', 'threads_oauth_long_token_failed: ' . strval($long['msg'] ?? 'unknown'));
+            redirect(base_url('influencer?msg=threads_connect_failed'));
+            return;
+        }
+
+        $expiresIn = max(1, intval($long['data']['expires_in'] ?? 5184000));
+        $this->db->update('influencer', [
+            'threads_user_id' => strval($short['data']['user_id'] ?? ''),
+            'threads_access_token' => $longToken,
+            'threads_token_expires_at' => date('Y-m-d H:i:s', time() + $expiresIn),
+            'updated_at' => date('Y-m-d H:i:s'),
+            'updated_by' => strval($_SESSION['user']['id']),
+        ], ['id' => $influencerId]);
+        $sync = $this->template->syncSocialProfile('influencer', $influencerId, 'Threads', strval($influencer['url'] ?? ''));
+        if (empty($sync['status'])) {
+            log_message('error', 'threads_profile_sync_after_oauth_failed influencer=' . $influencerId . ' msg=' . strval($sync['msg'] ?? 'unknown'));
+        }
+        redirect(base_url('influencer?msg=threads_connected&influencer_id=' . $influencerId));
+    }
+
+    public function threads_refresh_token()
+    {
+        $this->worker_auth_guard();
+        header('Content-Type: application/json; charset=utf-8');
+        if (!$this->db->field_exists('threads_access_token', 'influencer')) {
+            echo json_encode(['status' => false, 'refreshed' => 0, 'failed' => 0, 'msg' => 'Migration Threads belum dijalankan.']);
+            return;
+        }
+        $deadline = date('Y-m-d H:i:s', strtotime('+7 days'));
+        $rows = $this->mymodel->selectWithQuery(
+            "SELECT id, threads_access_token FROM influencer WHERE type = 'Threads' AND threads_access_token IS NOT NULL AND threads_access_token != '' AND threads_token_expires_at > NOW() AND threads_token_expires_at <= " . $this->db->escape($deadline) . " LIMIT 100"
+        );
+        $this->load->library('Threads_api');
+        $refreshed = 0; $failed = 0;
+        foreach ($rows as $row) {
+            $result = $this->threads_api->refreshToken(strval($row['threads_access_token']));
+            if (!empty($result['status']) && !empty($result['data']['access_token'])) {
+                $this->db->update('influencer', [
+                    'threads_access_token' => strval($result['data']['access_token']),
+                    'threads_token_expires_at' => date('Y-m-d H:i:s', time() + max(1, intval($result['data']['expires_in'] ?? 5184000))),
+                    'updated_at' => date('Y-m-d H:i:s'),
+                    'updated_by' => '1',
+                ], ['id' => intval($row['id'])]);
+                $refreshed++;
+            } else {
+                $failed++;
+                log_message('error', 'threads_token_refresh_failed influencer=' . intval($row['id']) . ' msg=' . strval($result['msg'] ?? 'unknown'));
+            }
+        }
+        echo json_encode(['status' => true, 'refreshed' => $refreshed, 'failed' => $failed]);
+    }
+
+    public function threads_deauthorize()
+    {
+        $payload = $this->parse_threads_signed_request(strval($this->input->post('signed_request')));
+        if ($payload === null) $this->json_response(400, ['status' => false, 'msg' => 'signed_request tidak valid.']);
+        $this->clear_threads_connection(strval($payload['user_id'] ?? ''));
+        $this->json_response(200, ['url' => base_url(), 'confirmation_code' => $this->threads_confirmation_code(strval($payload['user_id'] ?? ''))]);
+    }
+
+    public function threads_delete_data()
+    {
+        $payload = $this->parse_threads_signed_request(strval($this->input->post('signed_request')));
+        if ($payload === null) $this->json_response(400, ['status' => false, 'msg' => 'signed_request tidak valid.']);
+        $userId = strval($payload['user_id'] ?? '');
+        $this->clear_threads_connection($userId);
+        $code = $this->threads_confirmation_code($userId);
+        $this->json_response(200, [
+            'url' => base_url('api_v2/threads_delete_status?code=' . rawurlencode($code)),
+            'confirmation_code' => $code,
+        ]);
+    }
+
+    public function threads_delete_status()
+    {
+        $valid = $this->verify_threads_confirmation_code(strval($this->input->get('code')));
+        $this->json_response($valid ? 200 : 404, [
+            'status' => $valid,
+            'msg' => $valid ? 'Data Threads telah dihapus.' : 'Kode konfirmasi tidak valid.',
+        ]);
+    }
+
+    private function parse_threads_signed_request(string $signedRequest)
+    {
+        $parts = explode('.', $signedRequest, 2);
+        if (count($parts) !== 2 || $this->app_secret_threads === '') return null;
+        $signature = $this->base64url_decode($parts[0]);
+        $payloadJson = $this->base64url_decode($parts[1]);
+        $payload = json_decode($payloadJson, true);
+        if (!is_array($payload) || strtoupper(strval($payload['algorithm'] ?? '')) !== 'HMAC-SHA256') return null;
+        $expected = hash_hmac('sha256', $parts[1], $this->app_secret_threads, true);
+        return hash_equals($expected, $signature) ? $payload : null;
+    }
+
+    private function clear_threads_connection(string $threadsUserId): void
+    {
+        if ($threadsUserId === '' || !$this->db->field_exists('threads_user_id', 'influencer')) return;
+        $this->db->update('influencer', [
+            'threads_access_token' => null,
+            'threads_user_id' => null,
+            'threads_token_expires_at' => null,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ], ['threads_user_id' => $threadsUserId]);
+    }
+
+    private function threads_confirmation_code(string $threadsUserId): string
+    {
+        $payload = $this->base64url_encode(json_encode(['sub' => hash('sha256', $threadsUserId), 'exp' => time() + 86400]));
+        return $payload . '.' . $this->base64url_encode(hash_hmac('sha256', $payload, $this->app_secret_threads, true));
+    }
+
+    private function verify_threads_confirmation_code(string $code): bool
+    {
+        $parts = explode('.', $code, 2);
+        if (count($parts) !== 2 || $this->app_secret_threads === '') return false;
+        $expected = $this->base64url_encode(hash_hmac('sha256', $parts[0], $this->app_secret_threads, true));
+        $payload = json_decode($this->base64url_decode($parts[0]), true);
+        return hash_equals($expected, $parts[1]) && is_array($payload) && intval($payload['exp'] ?? 0) >= time();
+    }
+
+    private function base64url_encode(string $value): string
+    {
+        return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
+    }
+
+    private function base64url_decode(string $value): string
+    {
+        $padding = strlen($value) % 4;
+        if ($padding) $value .= str_repeat('=', 4 - $padding);
+        return strval(base64_decode(strtr($value, '-_', '+/'), true));
     }
 
     private function cron_monitor_start($job, array $context = array())
@@ -4684,7 +4897,7 @@ class Api_v2 extends CI_Controller
             }
         }
 
-        // Now uses queue-based approach: enqueue influencers needing sync
+        // Synchronously refresh supported social profiles through their adapters.
         $today = DATE("Y-m-d");
         $sync_date = DATE('Y-m-d', strtotime($today . " -7 days"));
 
@@ -4723,8 +4936,9 @@ class Api_v2 extends CI_Controller
             }
             $this->db->update('influencer', $dt, array('id' => $id));
 
-            // Enqueue for ScrapingBot async processing
-            $result = $this->template->enqueue_scrape('influencer', $vl['id'], $vl['type'], $vl['url'], 5);
+            $result = in_array($vl['type'], ['Tiktok', 'Instagram', 'Threads'], true)
+                ? $this->template->syncSocialProfile('influencer', $vl['id'], $vl['type'], $vl['url'])
+                : ['status' => false];
             if ($result['status']) $enqueued++;
         }
 
@@ -4732,7 +4946,7 @@ class Api_v2 extends CI_Controller
         echo json_encode([
             'status' => true,
             'data' => [],
-            'msg' => $enqueued . " of " . count($list) . " influencer records enqueued for sync (sync_at <= $sync_date)"
+            'msg' => $enqueued . " of " . count($list) . " influencer records synced (sync_at <= $sync_date)"
         ]);
         $this->cron_monitor_finish($monitor, array(
             'status' => 'ok',
@@ -4775,7 +4989,7 @@ class Api_v2 extends CI_Controller
         $today = DATE("Y-m-d");
         $sync_date = DATE('Y-m-d', strtotime($today . " -7 days"));
 
-        // Now uses queue-based approach: enqueue dummy influencers needing sync
+        // Dummy profiles support direct TikTok and Instagram refresh.
         $list = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer_dummy
             WHERE status = 'Aktif'
@@ -4787,7 +5001,9 @@ class Api_v2 extends CI_Controller
         $enqueued = 0;
         foreach ($list as $vl) {
             $type = $vl['type'] ? $vl['type'] : 'Tiktok';
-            $result = $this->template->enqueue_scrape('influencer_dummy', $vl['id'], $type, $vl['url'], 5);
+            $result = in_array($type, ['Tiktok', 'Instagram'], true)
+                ? $this->template->syncSocialProfile('influencer_dummy', $vl['id'], $type, $vl['url'])
+                : ['status' => false];
             if ($result['status']) $enqueued++;
         }
 
@@ -4795,7 +5011,7 @@ class Api_v2 extends CI_Controller
         echo json_encode([
             'status' => true,
             'data' => [],
-            'msg' => $enqueued . " of " . count($list) . " influencer dummy records enqueued for sync (sync_at <= $sync_date)"
+            'msg' => $enqueued . " of " . count($list) . " influencer dummy records synced (sync_at <= $sync_date)"
         ]);
         $this->cron_monitor_finish($monitor, array(
             'status' => 'ok',
@@ -7411,7 +7627,7 @@ class Api_v2 extends CI_Controller
         $tier1_influencer = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer
             WHERE status = 'Aktif' AND url != ''
-            AND type != 'Tiktok'
+            AND type NOT IN ('Tiktok', 'Instagram', 'Threads')
             AND sync_at IS NULL
             LIMIT 20
         ");
@@ -7423,7 +7639,7 @@ class Api_v2 extends CI_Controller
         $tier1_dummy = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer_dummy
             WHERE status = 'Aktif' AND url != ''
-            AND type != 'Tiktok'
+            AND type NOT IN ('Tiktok', 'Instagram', 'Threads')
             AND sync_at IS NULL
             LIMIT 20
         ");
@@ -7439,7 +7655,7 @@ class Api_v2 extends CI_Controller
             INNER JOIN endorse e ON e.influencer = i.id
             INNER JOIN endorse_campaign ec ON e.id_campaign = ec.id
             WHERE i.status = 'Aktif' AND i.url != ''
-            AND i.type != 'Tiktok'
+            AND i.type NOT IN ('Tiktok', 'Instagram', 'Threads')
             AND ec.status = 'Aktif'
             AND (i.sync_at < ('$three_days_ago' + INTERVAL 1 DAY) OR i.sync_at IS NULL)
             LIMIT 20
@@ -7454,7 +7670,7 @@ class Api_v2 extends CI_Controller
         $tier3_influencer = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer
             WHERE status = 'Aktif' AND url != ''
-            AND type != 'Tiktok'
+            AND type NOT IN ('Tiktok', 'Instagram', 'Threads')
             AND sync_at < ('$seven_days_ago' + INTERVAL 1 DAY)
             LIMIT 10
         ");
@@ -7466,7 +7682,7 @@ class Api_v2 extends CI_Controller
         $tier3_dummy = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer_dummy
             WHERE status = 'Aktif' AND url != ''
-            AND type != 'Tiktok'
+            AND type NOT IN ('Tiktok', 'Instagram', 'Threads')
             AND sync_at < ('$seven_days_ago' + INTERVAL 1 DAY)
             LIMIT 10
         ");
@@ -7480,7 +7696,7 @@ class Api_v2 extends CI_Controller
         $tier4 = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer
             WHERE status = 'Aktif' AND url != ''
-            AND type != 'Tiktok'
+            AND type NOT IN ('Tiktok', 'Instagram', 'Threads')
             AND sync_at < ('$fourteen_days_ago' + INTERVAL 1 DAY)
             LIMIT 5
         ");
@@ -7499,8 +7715,8 @@ class Api_v2 extends CI_Controller
     }
 
     /**
-     * Cronjob: Synchronous TikTok profile sync via RapidAPI
-     * Replaces ScrapingBot queue for TikTok records
+     * Compatibility cron route for synchronous supported social-profile sync.
+     * Replaces ScrapingBot for TikTok and Instagram; Threads uses its stored token.
      * Same 4-tier priority logic, processes max 20 per run with 300ms delay
      */
     function cronjob_tiktok_sync()
@@ -7518,13 +7734,13 @@ class Api_v2 extends CI_Controller
         // Tier 1 (Hot): sync_at IS NULL or new records
         $tier1_influencer = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer
-            WHERE status = 'Aktif' AND url != '' AND type = 'Tiktok'
+            WHERE status = 'Aktif' AND url != '' AND type IN ('Tiktok', 'Instagram', 'Threads')
             AND sync_at IS NULL
             LIMIT 10
         ");
         foreach ($tier1_influencer as $row) {
             if ($processed >= $maxPerRun) break;
-            $result = $this->template->syncTiktokProfile('influencer', $row['id'], $row['type'], $row['url']);
+            $result = $this->template->syncSocialProfile('influencer', $row['id'], $row['type'], $row['url']);
             if ($result['status']) $synced++; else $failed++;
             $processed++;
             usleep(300000);
@@ -7532,13 +7748,13 @@ class Api_v2 extends CI_Controller
 
         $tier1_dummy = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer_dummy
-            WHERE status = 'Aktif' AND url != '' AND type = 'Tiktok'
+            WHERE status = 'Aktif' AND url != '' AND type IN ('Tiktok', 'Instagram')
             AND sync_at IS NULL
             LIMIT 10
         ");
         foreach ($tier1_dummy as $row) {
             if ($processed >= $maxPerRun) break;
-            $result = $this->template->syncTiktokProfile('influencer_dummy', $row['id'], $row['type'], $row['url']);
+            $result = $this->template->syncSocialProfile('influencer_dummy', $row['id'], $row['type'], $row['url']);
             if ($result['status']) $synced++; else $failed++;
             $processed++;
             usleep(300000);
@@ -7551,14 +7767,14 @@ class Api_v2 extends CI_Controller
                 SELECT DISTINCT i.id, i.type, i.url FROM influencer i
                 INNER JOIN endorse e ON e.influencer = i.id
                 INNER JOIN endorse_campaign ec ON e.id_campaign = ec.id
-                WHERE i.status = 'Aktif' AND i.url != '' AND i.type = 'Tiktok'
+                WHERE i.status = 'Aktif' AND i.url != '' AND i.type IN ('Tiktok', 'Instagram', 'Threads')
                 AND ec.status = 'Aktif'
                 AND (i.sync_at < ('$three_days_ago' + INTERVAL 1 DAY) OR i.sync_at IS NULL)
                 LIMIT 10
             ");
             foreach ($tier2 as $row) {
                 if ($processed >= $maxPerRun) break;
-                $result = $this->template->syncTiktokProfile('influencer', $row['id'], $row['type'], $row['url']);
+                $result = $this->template->syncSocialProfile('influencer', $row['id'], $row['type'], $row['url']);
                 if ($result['status']) $synced++; else $failed++;
                 $processed++;
                 usleep(300000);
@@ -7570,13 +7786,13 @@ class Api_v2 extends CI_Controller
             $seven_days_ago = date('Y-m-d', strtotime('-7 days'));
             $tier3_influencer = $this->mymodel->selectWithQuery("
                 SELECT id, type, url FROM influencer
-                WHERE status = 'Aktif' AND url != '' AND type = 'Tiktok'
+                WHERE status = 'Aktif' AND url != '' AND type IN ('Tiktok', 'Instagram', 'Threads')
                 AND sync_at < ('$seven_days_ago' + INTERVAL 1 DAY)
                 LIMIT 5
             ");
             foreach ($tier3_influencer as $row) {
                 if ($processed >= $maxPerRun) break;
-                $result = $this->template->syncTiktokProfile('influencer', $row['id'], $row['type'], $row['url']);
+                $result = $this->template->syncSocialProfile('influencer', $row['id'], $row['type'], $row['url']);
                 if ($result['status']) $synced++; else $failed++;
                 $processed++;
                 usleep(300000);
@@ -7584,13 +7800,13 @@ class Api_v2 extends CI_Controller
 
             $tier3_dummy = $this->mymodel->selectWithQuery("
                 SELECT id, type, url FROM influencer_dummy
-                WHERE status = 'Aktif' AND url != '' AND type = 'Tiktok'
+                WHERE status = 'Aktif' AND url != '' AND type IN ('Tiktok', 'Instagram')
                 AND sync_at < ('$seven_days_ago' + INTERVAL 1 DAY)
                 LIMIT 5
             ");
             foreach ($tier3_dummy as $row) {
                 if ($processed >= $maxPerRun) break;
-                $result = $this->template->syncTiktokProfile('influencer_dummy', $row['id'], $row['type'], $row['url']);
+                $result = $this->template->syncSocialProfile('influencer_dummy', $row['id'], $row['type'], $row['url']);
                 if ($result['status']) $synced++; else $failed++;
                 $processed++;
                 usleep(300000);
@@ -7602,13 +7818,13 @@ class Api_v2 extends CI_Controller
             $fourteen_days_ago = date('Y-m-d', strtotime('-14 days'));
             $tier4 = $this->mymodel->selectWithQuery("
                 SELECT id, type, url FROM influencer
-                WHERE status = 'Aktif' AND url != '' AND type = 'Tiktok'
+                WHERE status = 'Aktif' AND url != '' AND type IN ('Tiktok', 'Instagram', 'Threads')
                 AND sync_at < ('$fourteen_days_ago' + INTERVAL 1 DAY)
                 LIMIT 5
             ");
             foreach ($tier4 as $row) {
                 if ($processed >= $maxPerRun) break;
-                $result = $this->template->syncTiktokProfile('influencer', $row['id'], $row['type'], $row['url']);
+                $result = $this->template->syncSocialProfile('influencer', $row['id'], $row['type'], $row['url']);
                 if ($result['status']) $synced++; else $failed++;
                 $processed++;
                 usleep(300000);
@@ -7973,6 +8189,8 @@ class Api_v2 extends CI_Controller
                 'rescue_lane' => !empty($item['rescue_lane']),
                 'timeout_sec' => intval($item['timeout_sec']),
                 'hd'          => intval($item['hd']),
+                'influencer_id' => intval($item['influencer_id'] ?? 0),
+                'content_id'  => strval($item['content_id'] ?? ''),
             ];
         }
         $responses = $this->template->get_social_media_batch($tasks, $PARALLEL_HTTP, $DEADLINE_SEC);
@@ -8018,29 +8236,60 @@ class Api_v2 extends CI_Controller
     {
         header('Content-Type: application/json; charset=utf-8');
         $this->worker_auth_guard();
-        $this->load->library('EndorseRefreshQueueService');
+        $this->load->library('EndorseRefreshV2Coordinator');
 
         $payload = json_decode(file_get_contents('php://input'), true);
         if (!is_array($payload)) {
             $payload = [];
         }
-        $limit = intval($payload['limit'] ?? env('ENDORSE_REFRESH_BATCH_SIZE', 40));
+        $error = $this->endorserefreshv2coordinator->validateV2Request($payload, true);
+        if ($error !== null) {
+            $this->json_response($error['http_status'], $error['body']);
+        }
 
-        // force is never honoured here — the worker path always respects the caps.
-        $claim = $this->endorserefreshqueueservice->claimBatch([
-            'limit'         => $limit,
-            'force'         => false,
-            'stale_minutes' => 5,
-        ]);
+        $claim = $this->endorserefreshv2coordinator->claimBatchV2(
+            EndorseRefreshV2Coordinator::OWNER_RUST,
+            trim((string) $payload['worker_id']),
+            intval($payload['limit'] ?? env('ENDORSE_REFRESH_BATCH_SIZE', 40)),
+            strval($payload['task_identity'] ?? '')
+        );
 
-        echo json_encode([
-            'status'    => true,
-            'worker_id' => $claim['worker_id'] ?? null,
-            'claimed'   => $claim['claimed'] ?? 0,
-            'skipped'   => $claim['skipped'] ?? null,
-            'items'     => $claim['items'] ?? [],
-        ]);
-        die;
+        $this->json_response($claim['http_status'], $claim['body']);
+    }
+
+    /**
+     * Authenticated per-item fallback for the Rust consumer. Only queue_id is
+     * accepted; PHP reloads the authoritative row and owns URL, credentials,
+     * RapidAPI validation and response mapping.
+     */
+    function endorse_refresh_fetch_fallback()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        $this->worker_auth_guard();
+        $this->load->library('EndorseRefreshV2Coordinator');
+
+        $payload = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($payload)) {
+            $payload = [];
+        }
+        $response = $this->endorserefreshv2coordinator->fetchFallbackV2($payload);
+
+        $this->json_response($response['http_status'], $response['body']);
+    }
+
+    function endorse_refresh_release()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        $this->worker_auth_guard();
+        $this->load->library('EndorseRefreshV2Coordinator');
+
+        $payload = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($payload)) {
+            $payload = [];
+        }
+        $response = $this->endorserefreshv2coordinator->releaseClaimsV2($payload, EndorseRefreshV2Coordinator::OWNER_RUST);
+
+        $this->json_response($response['http_status'], $response['body']);
     }
 
     /**
@@ -8058,73 +8307,15 @@ class Api_v2 extends CI_Controller
     {
         header('Content-Type: application/json; charset=utf-8');
         $this->worker_auth_guard();
-        $this->load->library('EndorseRefreshQueueService');
+        $this->load->library('EndorseRefreshV2Coordinator');
 
         $payload = json_decode(file_get_contents('php://input'), true);
-        $results = is_array($payload) ? ($payload['results'] ?? null) : null;
-        if (!is_array($results) || empty($results)) {
-            echo json_encode(['status' => true, 'processed' => 0, 'msg' => 'No results to apply']);
-            die;
+        if (!is_array($payload)) {
+            $payload = [];
         }
+        $response = $this->endorserefreshv2coordinator->applyResultsV2($payload);
 
-        // Map posted responses by queue_id (last write wins on duplicates).
-        $responseByQueue = [];
-        foreach ($results as $r) {
-            if (!is_array($r)) {
-                continue;
-            }
-            $qid = intval($r['queue_id'] ?? 0);
-            if ($qid <= 0) {
-                continue;
-            }
-            $resp = $r['response'] ?? null;
-            $responseByQueue[$qid] = is_array($resp)
-                ? $resp
-                : ['status' => false, 'msg' => 'No response', 'data' => []];
-        }
-        if (empty($responseByQueue)) {
-            echo json_encode(['status' => true, 'processed' => 0, 'msg' => 'No valid results']);
-            die;
-        }
-
-        // Re-read authoritative rows still owned by a worker (status='processing'). Rows
-        // that already timed out and were reset by resetStuck are simply skipped here.
-        $queueIdList = implode(',', array_map('intval', array_keys($responseByQueue)));
-        $rows = $this->mymodel->selectWithQuery("
-            SELECT * FROM endorse_refresh_queue
-            WHERE id IN ($queueIdList) AND status = 'processing'
-        ");
-
-        $items = [];
-        $responses = [];
-        foreach ($rows as $row) {
-            $qid = intval($row['id']);
-            if (!isset($responseByQueue[$qid])) {
-                continue;
-            }
-            $items[] = [
-                'queue_id'     => $qid,
-                'id_endorse'   => intval($row['id_endorse']),
-                'purpose'      => strval($row['purpose'] ?? 'daily'),
-                'enqueued_by'  => intval($row['enqueued_by'] ?: 0),
-                'attempts'     => intval($row['attempts']),
-                'max_attempts' => intval($row['max_attempts']),
-                'worker_id'    => strval($row['worker_id']),
-            ];
-            $responses[] = $responseByQueue[$qid];
-        }
-
-        $summary = $this->endorserefreshqueueservice->applyResults($items, $responses);
-
-        echo json_encode([
-            'status'    => true,
-            'processed' => $summary['processed'],
-            'completed' => $summary['completed'],
-            'failed'    => $summary['failed'],
-            'retrying'  => $summary['retrying'],
-            'msg'       => $summary['processed'] . " applied: {$summary['completed']} ok, {$summary['failed']} failed, {$summary['retrying']} retrying",
-        ]);
-        die;
+        $this->json_response($response['http_status'], $response['body']);
     }
 
     /**

@@ -114,6 +114,8 @@ if ($view == 'table') {
                         $v['img'] = base_url() . '/assets/img/icon/icon-tiktok.png';
                     } else if ($v['type'] == "Instagram") {
                         $v['img'] = base_url() . '/assets/img/icon/icon-ig.png';
+                    } else if ($v['type'] == "Threads") {
+                        $v['img'] = base_url() . '/assets/img/icon/icon-threads.svg';
                     } else if ($v['type'] == "Youtube") {
                         $v['img'] = base_url() . '/assets/img/icon/icon-youtube.png';
                     } else if ($v['type'] == "Facebook") {
@@ -272,6 +274,14 @@ if ($view == 'table') {
                                         </a>
                                     </li>
                                     <?php } ?>
+                                    <?php if ($v['type'] === 'Threads') { ?>
+                                    <li>
+                                        <a href="<?= base_url('api_v2/threads_authorize?influencer_id=' . intval($v['id'])) ?>" class="dropdown-item">
+                                            <i class="bi bi-threads me-2"></i>
+                                            <?= empty($v['threads_access_token']) ? 'Hubungkan Threads' : 'Hubungkan Ulang Threads' ?>
+                                        </a>
+                                    </li>
+                                    <?php } ?>
                                     <li>
                                         <a href="#!" class="dropdown-item" onclick="clone('<?= $v['id'] ?>')">
                                             <i class="bi bi-copy me-2"></i> Kloning
@@ -312,6 +322,8 @@ if ($view == 'table') {
             $v['img'] = base_url() . '/assets/img/icon/icon-tiktok.png';
         } else if ($v['type'] == "Instagram") {
             $v['img'] = base_url() . '/assets/img/icon/icon-ig.png';
+        } else if ($v['type'] == "Threads") {
+            $v['img'] = base_url() . '/assets/img/icon/icon-threads.svg';
         } else if ($v['type'] == "Youtube") {
             $v['img'] = base_url() . '/assets/img/icon/icon-youtube.png';
         } else if ($v['type'] == "Facebook") {
@@ -430,6 +442,11 @@ if ($view == 'table') {
                 <div class="col-lg-5 text-lg-end text-start">
                     <a href="#!" onclick="remove('<?= $v['id'] ?>')" class="btn btn-delete  mt-0 mb-2"><i class="bi bi-trash fs-16"></i> Delete Data</a>
                     <a href="#!" onclick="sync('<?= $v['id'] ?>')" class="btn btn-sync ms-1 mt-0 mb-2"><i class="bi bi-bootstrap-reboot fs-16"></i> Refresh</a>
+                    <?php if ($v['type'] === 'Threads') { ?>
+                    <a href="<?= base_url('api_v2/threads_authorize?influencer_id=' . intval($v['id'])) ?>" class="btn btn-edit mt-0 ms-1 mb-2">
+                        <i class="bi bi-threads fs-16"></i> <?= empty($v['threads_access_token']) ? 'Hubungkan' : 'Hubungkan Ulang' ?>
+                    </a>
+                    <?php } ?>
                     <a href="<?= base_url() ?>endorse/stats?id_campaign=<?= $campaign['id'] ?>&id_influencer=<?= $v['id'] ?>" class="btn btn-copy ms-1 mt-0 mb-2"><i class="bi bi-person-video2 fs-16"></i> Konten</a>
                     <a href="#!" onclick="edit('<?= $v['id'] ?>')" class="btn btn-edit  mt-0 ms-1 mb-2"><i class="bi bi-pencil-square fs-16"></i> Edit Data</a>
                 </div>

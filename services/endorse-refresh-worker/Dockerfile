@@ -5,12 +5,12 @@ FROM rust:1-bookworm AS builder
 WORKDIR /app
 
 # Cache deps: build against a stub main, then swap in real sources.
-COPY Cargo.toml ./
+COPY Cargo.toml Cargo.lock ./
 RUN mkdir -p src && echo "fn main() {}" > src/main.rs
-RUN cargo build --release || true
+RUN cargo build --release --locked
 
 COPY src ./src
-RUN cargo build --release
+RUN cargo build --release --locked
 
 FROM debian:bookworm-slim
 

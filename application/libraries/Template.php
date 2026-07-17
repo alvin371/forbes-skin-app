@@ -776,6 +776,9 @@ class Template
             'error_class' => $errorClass,
             'error_meta' => $meta,
             'upstream_msg' => $msg,
+            'stats_found' => false,
+            'stats_complete' => false,
+            'stats_fields' => [],
         ];
     }
 
@@ -797,7 +800,20 @@ class Template
                 'cover' => '',
                 'images' => [],
             ],
+            'stats_found' => false,
+            'stats_complete' => false,
+            'stats_fields' => [],
         ];
+    }
+
+    protected function finalizeStatFieldMetadata(array $response, array $fields): array
+    {
+        $fields = array_values(array_unique(array_filter(array_map('strval', $fields))));
+        $response['stats_fields'] = $fields;
+        $response['stats_found'] = !empty($fields);
+        $response['stats_complete'] = count(array_intersect($fields, ['like', 'share', 'comment', 'collect', 'view'])) === 5;
+
+        return $response;
     }
 
     /**
@@ -1172,23 +1188,23 @@ class Template
     }
 
     /**
-     * Synchronous TikTok profile sync via RapidAPI
-     * Combines get_account_id + get_post_list + metrics calculation + DB update
+     * Synchronous social profile sync through the platform adapter.
+     * Combines get_account_id + get_post_list + metrics calculation + DB update.
      *
      * @param string $entityType 'influencer' or 'influencer_dummy'
      * @param int    $entityId   Entity record ID
-     * @param string $type       Platform type (should be 'Tiktok')
+     * @param string $type       Platform type
      * @param string $url        Profile URL
      * @return array ['status' => bool, 'msg' => string]
      */
-    function syncTiktokProfile($entityType, $entityId, $type, $url)
+    function syncSocialProfile($entityType, $entityId, $type, $url)
     {
         $CI =& get_instance();
 
         // Step 1: Get account ID (profile data)
-        $profileResult = $this->get_account_id($type, $url);
+        $profileResult = $this->get_account_id($type, $url, $entityType, $entityId);
         if (!$profileResult['status'] || empty($profileResult['data'])) {
-            return ['status' => false, 'msg' => $profileResult['msg'] ?: 'Gagal mengambil data profil TikTok'];
+            return ['status' => false, 'msg' => $profileResult['msg'] ?: 'Gagal mengambil data profil ' . $type];
         }
 
         $profileData = $profileResult['data'];
@@ -1199,19 +1215,27 @@ class Template
             'account_id'  => $profileData['account_id'],
             'img'         => $profileData['img'],
             'follower'    => $profileData['follower'],
-            'media_count' => $profileData['media_count'],
             'updated_at'  => date('Y-m-d H:i:s'),
             'updated_by'  => '1', // system
         ];
+        if (array_key_exists('media_count', $profileData) && $profileData['media_count'] !== null) {
+            $profileUpdate['media_count'] = intval($profileData['media_count']);
+        }
 
         if (!empty($profileData['username'])) {
             $profileUpdate['full_name'] = $profileData['username'];
+        }
+        if ($type === 'Threads' && $CI->db->field_exists('threads_user_id', $table)) {
+            $profileUpdate['threads_user_id'] = strval($profileData['account_id'] ?? '');
         }
 
         $CI->db->update($table, $profileUpdate, ['id' => $entityId]);
 
         // Step 3: Get post list for engagement metrics
-        $postResult = $this->get_post_list($type, $profileData['username'] ?? '');
+        $postLookup = $type === 'Tiktok'
+            ? strval($profileData['username'] ?? '')
+            : strval($profileData['account_id'] ?? '');
+        $postResult = $this->get_post_list($type, $postLookup, intval($entityId));
         if ($postResult['status'] && !empty($postResult['data'])) {
             $like = $comment = $collect = $share = $view = 0;
             $i = 0;
@@ -1294,11 +1318,16 @@ class Template
             ], ['id' => $entityId]);
         }
 
-        return ['status' => true, 'msg' => 'Data TikTok berhasil disinkronkan'];
+        return ['status' => true, 'msg' => 'Data ' . $type . ' berhasil disinkronkan'];
+    }
+
+    function syncTiktokProfile($entityType, $entityId, $type, $url)
+    {
+        return $this->syncSocialProfile($entityType, $entityId, $type, $url);
     }
 
     /**
-     * Get account ID - TikTok uses RapidAPI (sync), Instagram uses ScrapingBot (async)
+     * Get a normalized social profile from the configured first-party/provider API.
      *
      * @param string $type Platform type
      * @param string $url  Profile URL
@@ -1309,10 +1338,11 @@ class Template
      */
     function get_account_id($type, $url, $entityType = null, $entityId = null, $priority = 5)
     {
-        $uri = explode("/", parse_url($url, PHP_URL_PATH));
-        $username = $uri[1] ?? null;
+        $uri = array_values(array_filter(explode("/", strval(parse_url($url, PHP_URL_PATH)))));
+        $username = ltrim(strval($uri[0] ?? ''), '@');
 
-        if (empty($url) || empty($username)) {
+        // Threads fetches via the stored OAuth token (/me) and never needs the URL.
+        if ($type !== "Threads" && (empty($url) || empty($username))) {
             return [
                 "status" => false,
                 "msg" => "Pastikan URL sudah diisi!",
@@ -1326,23 +1356,22 @@ class Template
             return $result;
         }
 
+        $CI =& get_instance();
         if ($type == "Instagram") {
-            // Async via ScrapingBot queue
-            if ($entityType && $entityId) {
-                $queueResult = $this->enqueue_scrape($entityType, $entityId, $type, $url, $priority);
-                return [
-                    "status"  => false,
-                    "msg"     => "Data sedang diproses (async). " . $queueResult['msg'],
-                    "data"    => [],
-                    "queued"  => true,
-                ];
-            }
+            $CI->load->library('Instagram_rapid_api');
+            return $CI->instagram_rapid_api->profile($username);
+        }
 
-            return [
-                "status" => false,
-                "msg"    => "Gunakan async queue untuk mengambil data.",
-                "data"   => []
-            ];
+        if ($type == "Threads") {
+            if (!$entityId || $entityType !== 'influencer' || !$CI->db->field_exists('threads_access_token', 'influencer')) {
+                return ["status" => false, "msg" => "Hubungkan akun Threads terlebih dahulu.", "data" => [], "error_class" => "config"];
+            }
+            $row = $CI->db->select('threads_access_token')->where('id', intval($entityId))->get('influencer')->row_array();
+            if (empty($row['threads_access_token'])) {
+                return ["status" => false, "msg" => "Hubungkan akun Threads terlebih dahulu.", "data" => [], "error_class" => "config"];
+            }
+            $CI->load->library('Threads_api');
+            return $CI->threads_api->withToken(strval($row['threads_access_token']))->profile();
         }
 
         return [
@@ -1353,14 +1382,13 @@ class Template
     }
 
     /**
-     * Get post list - now returns data from queue result (profile scrape includes posts)
-     * This method is kept for backward compatibility but data comes from the same profile scrape
+     * Get a normalized list of recent posts for profile-level metrics.
      *
      * @param string $type       Platform type
      * @param string $account_id Account ID (unused in new flow, kept for compatibility)
      * @return array Standard response
      */
-    function get_post_list($type, $account_id)
+    function get_post_list($type, $account_id, $influencer_id = null)
     {
         if ($type == "Tiktok") {
             $username = trim((string) $account_id);
@@ -1426,33 +1454,29 @@ class Template
             ];
         }
 
-        // Instagram: post data comes from profile scrape (async queue)
+        $CI =& get_instance();
+        if ($type === 'Instagram') {
+            $CI->load->library('Instagram_rapid_api');
+            return $CI->instagram_rapid_api->posts(strval($account_id), 10);
+        }
+        if ($type === 'Threads' && $influencer_id && $CI->db->field_exists('threads_access_token', 'influencer')) {
+            $row = $CI->db->select('threads_access_token')->where('id', intval($influencer_id))->get('influencer')->row_array();
+            if (!empty($row['threads_access_token'])) {
+                $CI->load->library('Threads_api');
+                return $CI->threads_api->withToken(strval($row['threads_access_token']))->recentPosts(10);
+            }
+        }
         return [
             "status" => false,
-            "msg"    => "Data post didapat dari profile scrape (async queue).",
-            "data"   => []
+            "msg"    => $type === 'Threads' ? "Hubungkan akun Threads terlebih dahulu." : "Platform belum tersedia.",
+            "data"   => [],
+            "error_class" => $type === 'Threads' ? "config" : "permanent"
         ];
     }
 
-    function get_social_media($type, $url, $fetch_media_assets = true, $influencer_id = null, $preferRapidApi = false)
+    function get_social_media($type, $url, $fetch_media_assets = true, $influencer_id = null, $preferRapidApi = false, $known_content_id = null)
     {
-        $response = [
-            "status" => true,
-            "msg" => "",
-            "data" => [
-                "like" => 0,
-                "share" => 0,
-                "comment" => 0,
-                "collect" => 0,
-                "view" => 0,
-                "created_at" => "",
-                "content_id" => "",
-                "media_type" => "",
-                "video_link" => "",
-                "cover" => "",
-                "images" => [],
-            ],
-        ];
+        $response = $this->buildTiktokBaseResponse((string) $url);
         if ($type == "Tiktok") {
             if ($url) {
                 $content_id = $this->extract_tiktok_content_id($url);
@@ -1506,9 +1530,20 @@ class Template
                 $response["data"] = [];
             }
         } else if ($type == "Instagram") {
-            $response["status"] = false;
-            $response["msg"] = "Individual Instagram post scraping belum tersedia";
-            $response["data"] = [];
+            $CI =& get_instance();
+            $CI->load->library('Instagram_rapid_api');
+            return $CI->instagram_rapid_api->post(strval($url));
+        } else if ($type == "Threads") {
+            $CI =& get_instance();
+            if (!$influencer_id || !$CI->db->field_exists('threads_access_token', 'influencer')) {
+                return ["status" => false, "msg" => "Akun Threads influencer belum terhubung.", "data" => [], "error_class" => "config"];
+            }
+            $row = $CI->db->select('threads_access_token')->where('id', intval($influencer_id))->get('influencer')->row_array();
+            if (empty($row['threads_access_token'])) {
+                return ["status" => false, "msg" => "Akun Threads influencer belum terhubung.", "data" => [], "error_class" => "config"];
+            }
+            $CI->load->library('Threads_api');
+            return $CI->threads_api->withToken(strval($row['threads_access_token']))->post(strval($url), strval($known_content_id ?? ''));
         } else {
             $response["status"] = false;
             $response["msg"] = "Platform belum tersedia";
@@ -1519,7 +1554,7 @@ class Template
 
     /**
      * Fetch per-post stats for many endorse rows in parallel via curl_multi.
-     * Each $tasks entry: ['platform' => 'Tiktok'|'Instagram', 'url' => string].
+     * Each $tasks entry contains platform, URL and optional influencer/content IDs.
      * Returns array indexed identically; each element matches the get_social_media() shape.
      */
     function get_social_media_batch(array $tasks, int $maxConcurrent = 10, float $deadlineSeconds = 45.0): array
@@ -1625,7 +1660,14 @@ class Template
                     continue;
                 }
 
-                $results[$idx] = $this->get_social_media($platform, $url, true, null);
+                $results[$idx] = $this->get_social_media(
+                    $platform,
+                    $url,
+                    true,
+                    intval($task['influencer_id'] ?? 0) ?: null,
+                    false,
+                    strval($task['content_id'] ?? '')
+                );
             }
         }
 
@@ -1736,7 +1778,14 @@ class Template
                 $platform = $task['platform'] ?? '';
                 $url = trim((string) ($task['url'] ?? ''));
                 if ($platform !== 'Tiktok' || $url === '') {
-                    $results[$idx] = $this->get_social_media($platform, $url, true, null, true);
+                    $results[$idx] = $this->get_social_media(
+                        $platform,
+                        $url,
+                        true,
+                        intval($task['influencer_id'] ?? 0) ?: null,
+                        true,
+                        strval($task['content_id'] ?? '')
+                    );
                     continue;
                 }
                 $results[$idx] = $this->buildTiktokRapidApiFailureResponse($this->extract_tiktok_content_id($url), $configError);
@@ -1758,10 +1807,16 @@ class Template
             $platform = $task['platform'] ?? '';
             $url = trim((string) ($task['url'] ?? ''));
 
-            // Non-TikTok platforms have no working sync path — return the same
-            // placeholder get_social_media() would, without an HTTP call.
+            // Authenticated/non-TikTok platforms use their server-side adapters.
             if ($platform !== 'Tiktok' || $url === '') {
-                $results[$idx] = $this->get_social_media($platform, $url, true, null, true);
+                $results[$idx] = $this->get_social_media(
+                    $platform,
+                    $url,
+                    true,
+                    intval($task['influencer_id'] ?? 0) ?: null,
+                    true,
+                    strval($task['content_id'] ?? '')
+                );
                 continue;
             }
 
@@ -2006,21 +2061,39 @@ class Template
             return false;
         }
         $stats = $item['stats'];
-        return intval($stats['diggCount'] ?? 0) > 0
-            || intval($stats['shareCount'] ?? 0) > 0
-            || intval($stats['commentCount'] ?? 0) > 0
-            || intval($stats['collectCount'] ?? 0) > 0
-            || intval($stats['playCount'] ?? 0) > 0;
+        foreach (['diggCount', 'shareCount', 'commentCount', 'collectCount', 'playCount'] as $key) {
+            if (array_key_exists($key, $stats)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     protected function mapDirectTiktokItemToResponse(array $response, array $item, bool $fetch_media_assets): array
     {
         $stats = $item['stats'] ?? [];
-        $response['data']['like'] = intval($stats['diggCount'] ?? 0);
-        $response['data']['share'] = intval($stats['shareCount'] ?? 0);
-        $response['data']['comment'] = intval($stats['commentCount'] ?? 0);
-        $response['data']['collect'] = intval($stats['collectCount'] ?? 0);
-        $response['data']['view'] = intval($stats['playCount'] ?? 0);
+        $fields = [];
+        if (array_key_exists('diggCount', $stats)) {
+            $response['data']['like'] = intval($stats['diggCount']);
+            $fields[] = 'like';
+        }
+        if (array_key_exists('shareCount', $stats)) {
+            $response['data']['share'] = intval($stats['shareCount']);
+            $fields[] = 'share';
+        }
+        if (array_key_exists('commentCount', $stats)) {
+            $response['data']['comment'] = intval($stats['commentCount']);
+            $fields[] = 'comment';
+        }
+        if (array_key_exists('collectCount', $stats)) {
+            $response['data']['collect'] = intval($stats['collectCount']);
+            $fields[] = 'collect';
+        }
+        if (array_key_exists('playCount', $stats)) {
+            $response['data']['view'] = intval($stats['playCount']);
+            $fields[] = 'view';
+        }
         $response['data']['content_id'] = strval($item['id'] ?? $response['data']['content_id']);
         $response['data']['cover'] = $this->extract_tiktok_cover_from_item($item);
         if (!empty($item['createTime'])) {
@@ -2049,16 +2122,32 @@ class Template
             }
         }
 
-        return $response;
+        return $this->finalizeStatFieldMetadata($response, $fields);
     }
 
     protected function mapRapidApiTiktokDetailToResponse(array $response, array $item, bool $fetch_media_assets): array
     {
-        $response['data']['like'] = intval($item['digg_count'] ?? 0);
-        $response['data']['share'] = intval($item['share_count'] ?? 0);
-        $response['data']['comment'] = intval($item['comment_count'] ?? 0);
-        $response['data']['collect'] = intval($item['collect_count'] ?? 0);
-        $response['data']['view'] = intval($item['play_count'] ?? 0);
+        $fields = [];
+        if (array_key_exists('digg_count', $item)) {
+            $response['data']['like'] = intval($item['digg_count']);
+            $fields[] = 'like';
+        }
+        if (array_key_exists('share_count', $item)) {
+            $response['data']['share'] = intval($item['share_count']);
+            $fields[] = 'share';
+        }
+        if (array_key_exists('comment_count', $item)) {
+            $response['data']['comment'] = intval($item['comment_count']);
+            $fields[] = 'comment';
+        }
+        if (array_key_exists('collect_count', $item)) {
+            $response['data']['collect'] = intval($item['collect_count']);
+            $fields[] = 'collect';
+        }
+        if (array_key_exists('play_count', $item)) {
+            $response['data']['view'] = intval($item['play_count']);
+            $fields[] = 'view';
+        }
         $response['data']['content_id'] = strval($item['id'] ?? $response['data']['content_id']);
         $response['data']['cover'] = strval($item['cover'] ?? ($item['origin_cover'] ?? ($item['ai_dynamic_cover'] ?? '')));
         if (!empty($item['create_time'])) {
@@ -2090,7 +2179,7 @@ class Template
             }
         }
 
-        return $response;
+        return $this->finalizeStatFieldMetadata($response, $fields);
     }
 
     protected function hasEndorseTiktokColumns($CI)

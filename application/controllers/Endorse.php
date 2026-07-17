@@ -2079,6 +2079,18 @@ class Endorse extends BaseController
             die;
         }
 
+        if (is_file(APPPATH . 'libraries/EndorseRefreshV2Coordinator.php')) {
+            $this->load->library('EndorseRefreshV2Coordinator');
+            if ($this->endorserefreshv2coordinator->isQuarantinedContent(
+                intval($endorse['id']),
+                strval($endorse['platform']),
+                strval($endorse['link_upload'])
+            )) {
+                echo $this->template->alert_danger("Konten ini ditandai unavailable dan diblokir dari sync sampai link_upload diganti atau quarantine dibuka.");
+                die;
+            }
+        }
+
         $response = $this->template->get_social_media($endorse['platform'], $endorse['link_upload']);
 
         $this->load->library('endorse_sync');
