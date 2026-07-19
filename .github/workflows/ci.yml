@@ -60,12 +60,15 @@ jobs:
           cache-from: type=gha,scope=forbes-endorse-refresh-worker
           cache-to: type=gha,mode=max,scope=forbes-endorse-refresh-worker
 
+      # No --rm: a container that exits is removed instantly, taking its logs with it,
+      # and the cleanup trap then reports only "No such container". Remove it ourselves.
       - name: Smoke test container
         shell: bash
         run: |
-          docker run -d --rm --name forbes-smoke -p 8080:80 local/forbes-app:${GITHUB_SHA}
+          docker run -d --name forbes-smoke -p 8080:80 local/forbes-app:${GITHUB_SHA}
           cleanup() {
             docker logs forbes-smoke || true
+            docker inspect --format='exit={{.State.ExitCode}} oom={{.State.OOMKilled}} err={{.State.Error}}' forbes-smoke || true
             docker rm -f forbes-smoke || true
           }
           trap cleanup EXIT
@@ -75,20 +78,30 @@ jobs:
               docker inspect --format='{{json .State.Health}}' forbes-smoke || true
               exit 0
             fi
+            # A dead container will never come back — stop polling and surface it.
+            if [ "$(docker inspect -f '{{.State.Running}}' forbes-smoke 2>/dev/null)" != "true" ]; then
+              echo "::error::forbes-smoke exited before serving /healthz"
+              exit 1
+            fi
             sleep 2
           done
 
+          echo "::error::forbes-smoke never served /healthz within 30s"
           exit 1
 
       - name: Smoke test endorse refresh worker
         shell: bash
         run: |
-          docker run -d --rm --name endorse-refresh-smoke \
+          # APP_API_BASE points at the container's own closed port 9 on purpose: claim
+          # fails, the worker logs a warning and backs off, and /health must stay up.
+          docker run -d --name endorse-refresh-smoke \
             -p 18082:8082 \
             -e APP_API_BASE=http://127.0.0.1:9 \
+            -e RUST_LOG=info \
             local/forbes-endorse-refresh-worker:${GITHUB_SHA}
           cleanup() {
             docker logs endorse-refresh-smoke || true
+            docker inspect --format='exit={{.State.ExitCode}} oom={{.State.OOMKilled}} err={{.State.Error}}' endorse-refresh-smoke || true
             docker rm -f endorse-refresh-smoke || true
           }
           trap cleanup EXIT
@@ -97,9 +110,14 @@ jobs:
             if curl -fsS http://127.0.0.1:18082/health; then
               exit 0
             fi
+            if [ "$(docker inspect -f '{{.State.Running}}' endorse-refresh-smoke 2>/dev/null)" != "true" ]; then
+              echo "::error::worker exited before serving /health — check for a stub binary or a startup panic"
+              exit 1
+            fi
             sleep 2
           done
 
+          echo "::error::worker never served /health within 30s"
           exit 1
 
       - name: Tag and push runtime image
