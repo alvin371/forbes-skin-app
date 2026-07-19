@@ -23,19 +23,19 @@ final class EndorseLinkValidationTest extends TestCase
 
         $this->assertSame(
             'creator',
-            extract_username_from_content_url('https://www.tiktok.com/@creator/video/123', 'Tiktok')
+            extract_username_from_content_url('https://www.tiktok.com/@creator/video/123', 'Tiktok'),
         );
         $this->assertSame(
             'creator',
-            extract_username_from_content_url('https://www.tiktok.com/@creator/photo/123', 'Tiktok')
+            extract_username_from_content_url('https://www.tiktok.com/@creator/photo/123', 'Tiktok'),
         );
         $this->assertSame(
             'creator',
-            extract_username_from_content_url('https://www.threads.com/@creator/post/ABC123', 'Threads')
+            extract_username_from_content_url('https://www.threads.com/@creator/post/ABC123', 'Threads'),
         );
         $this->assertSame(
             'creator',
-            extract_username_from_content_url('https://www.threads.net/@creator/post/ABC123', 'Threads')
+            extract_username_from_content_url('https://www.threads.net/@creator/post/ABC123', 'Threads'),
         );
     }
 
@@ -46,11 +46,11 @@ final class EndorseLinkValidationTest extends TestCase
         $this->assertFalse(platform_requires_username_from_url('Instagram'));
         $this->assertSame(
             '',
-            extract_username_from_content_url('https://www.instagram.com/p/ABC123/', 'Instagram')
+            extract_username_from_content_url('https://www.instagram.com/p/ABC123/', 'Instagram'),
         );
         $this->assertSame(
             '',
-            extract_username_from_content_url('https://www.instagram.com/reel/ABC123/', 'Instagram')
+            extract_username_from_content_url('https://www.instagram.com/reel/ABC123/', 'Instagram'),
         );
     }
 
@@ -59,11 +59,11 @@ final class EndorseLinkValidationTest extends TestCase
         // A TikTok URL submitted under Threads must not resolve, and vice versa.
         $this->assertSame(
             '',
-            extract_username_from_content_url('https://www.tiktok.com/@creator/video/123', 'Threads')
+            extract_username_from_content_url('https://www.tiktok.com/@creator/video/123', 'Threads'),
         );
         $this->assertSame(
             '',
-            extract_username_from_content_url('https://www.threads.com/@creator/post/ABC', 'Tiktok')
+            extract_username_from_content_url('https://www.threads.com/@creator/post/ABC', 'Tiktok'),
         );
 
         // Profile links and garbage yield no username.
@@ -104,12 +104,12 @@ final class EndorseLinkValidationTest extends TestCase
     {
         $this->assertNotSame(
             normalize_content_url_for_duplicate_check('https://www.instagram.com/p/ABC123/'),
-            normalize_content_url_for_duplicate_check('https://www.instagram.com/p/XYZ789/')
+            normalize_content_url_for_duplicate_check('https://www.instagram.com/p/XYZ789/'),
         );
         // Shortcodes are case-sensitive; only the host is lowercased.
         $this->assertNotSame(
             normalize_content_url_for_duplicate_check('https://www.instagram.com/p/ABC123/'),
-            normalize_content_url_for_duplicate_check('https://www.instagram.com/p/abc123/')
+            normalize_content_url_for_duplicate_check('https://www.instagram.com/p/abc123/'),
         );
         $this->assertSame('', normalize_content_url_for_duplicate_check('   '));
     }
@@ -120,11 +120,11 @@ final class EndorseLinkValidationTest extends TestCase
         // duplicate detection is additionally scoped by platform in the controller.
         $this->assertSame(
             'threads.com/@creator/post/ABC',
-            normalize_content_url_for_duplicate_check('https://www.threads.com/@creator/post/ABC/')
+            normalize_content_url_for_duplicate_check('https://www.threads.com/@creator/post/ABC/'),
         );
         $this->assertSame(
             'threads.net/@creator/post/ABC',
-            normalize_content_url_for_duplicate_check('https://www.threads.net/@creator/post/ABC?x=1')
+            normalize_content_url_for_duplicate_check('https://www.threads.net/@creator/post/ABC?x=1'),
         );
     }
 }
