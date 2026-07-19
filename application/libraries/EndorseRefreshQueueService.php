@@ -30,8 +30,8 @@ class EndorseRefreshQueueService
     }
 
     /**
-     * Normalize TikTok links stored without a scheme. Other absolute URLs stay
-     * untouched so existing response classification remains authoritative.
+     * Normalize supported social links stored without a scheme. Other absolute URLs
+     * stay untouched so existing response classification remains authoritative.
      */
     public static function normalizeTiktokUrl(string $url): string
     {
@@ -45,7 +45,7 @@ class EndorseRefreshQueueService
         if (preg_match('#^https?://#i', $url)) {
             return $url;
         }
-        if (preg_match('#^(?:[a-z0-9-]+\.)?tiktok\.com/#i', $url)) {
+        if (preg_match('#^(?:[a-z0-9-]+\.)?(?:tiktok\.com|instagram\.com|threads\.(?:com|net))/#i', $url)) {
             return 'https://' . $url;
         }
 

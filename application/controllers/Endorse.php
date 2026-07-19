@@ -2091,7 +2091,16 @@ class Endorse extends BaseController
             }
         }
 
-        $response = $this->template->get_social_media($endorse['platform'], $endorse['link_upload']);
+        // influencer id is mandatory for Threads (token lookup); threads_media_id short-circuits
+        // the shortcode resolution when the column is present.
+        $response = $this->template->get_social_media(
+            $endorse['platform'],
+            $endorse['link_upload'],
+            true,
+            intval($endorse['influencer'] ?? 0) ?: null,
+            false,
+            strval($endorse['threads_media_id'] ?? '')
+        );
 
         $this->load->library('endorse_sync');
         $result = $this->endorse_sync->apply($endorse, $response, intval($user['id']));
@@ -2466,41 +2475,12 @@ class Endorse extends BaseController
         if ($dt['link_upload']) {
             $dt['status_endorse'] = 'Posted Content';
 
-            if (preg_match('#tiktok\.com/@([^/]+)/#', $dt['link_upload'], $match)) {
-                $usernameFromUrl = $match[1];
-
-                $influencerData = $this->mymodel->selectDataOne('influencer', ['username' => $usernameFromUrl]);
-                if ($influencerData) {
-                    $dt['influencer'] = $influencerData['id'];
-                    $dt['nama_creator'] = $influencerData['username'];
-                } else {
-                    $msg = "Username '$usernameFromUrl' tidak ditemukan di database influencer.";
-                    echo $this->template->alert_danger($msg);
-                    die;
-                }
-
-                if ($dt['link_upload'] !== $old_link_upload) {
-                    $duplicate_check = $this->validate_duplicate_tiktok_content($dt['link_upload'], (int) $id);
-                    if (!$duplicate_check['status']) {
-                        echo $this->template->alert_danger($duplicate_check['msg']);
-                        die;
-                    }
-                }
-            } elseif ($is_optimization) {
-                // Non-TikTok optimization link (placeholder platform): metrics entered
-                // manually, no username extraction or duplicate check.
-                $id_data = $dt['influencer'] ?? '';
-                if ($id_data) {
-                    $detail = $this->mymodel->selectWithQuery("SELECT * FROM influencer WHERE id = '$id_data'");
-                    if (!empty($detail)) {
-                        $dt['nama_creator'] = strval($detail[0]['username']);
-                    }
-                }
-            } else {
-                $msg = "Link upload tidak valid atau tidak dapat mengambil username.";
-                echo $this->template->alert_danger($msg);
+            $resolved = $this->resolve_link_upload_influencer($dt, $is_optimization, $old_link_upload, (int) $id);
+            if (!$resolved['status']) {
+                echo $this->template->alert_danger($resolved['msg']);
                 die;
             }
+            $dt = $resolved['dt'];
         } else {
             $id_data = $dt['influencer'];
             $detail = $this->mymodel->selectWithQuery("SELECT * FROM influencer WHERE id = '$id_data'");
@@ -2964,6 +2944,109 @@ class Endorse extends BaseController
         return $dt;
     }
 
+    /**
+     * Resolve the influencer behind a submitted content link and run the duplicate guard.
+     *
+     * Platforms whose content URL carries the username (TikTok, Threads) are resolved by
+     * reverse-lookup on influencer.username. Instagram post URLs (/p/, /reel/) have no
+     * username, so the influencer selected in the form is trusted instead.
+     *
+     * Returns ['status' => bool, 'msg' => string, 'dt' => array].
+     */
+    private function resolve_link_upload_influencer(array $dt, $is_optimization, $old_link_upload = '', $current_endorse_id = 0)
+    {
+        $this->load->helper('social_platform');
+
+        $link_upload = trim((string) ($dt['link_upload'] ?? ''));
+        $platform = trim((string) ($dt['platform'] ?? ''));
+        $link_changed = $link_upload !== trim((string) $old_link_upload);
+
+        if (platform_requires_username_from_url($platform)) {
+            $usernameFromUrl = extract_username_from_content_url($link_upload, $platform);
+            if ($usernameFromUrl === '') {
+                return [
+                    'status' => false,
+                    'msg' => "Link upload tidak valid atau tidak dapat mengambil username.",
+                    'dt' => $dt,
+                ];
+            }
+
+            $influencerData = $this->mymodel->selectDataOne('influencer', ['username' => $usernameFromUrl]);
+            if (!$influencerData) {
+                return [
+                    'status' => false,
+                    'msg' => "Username '$usernameFromUrl' tidak ditemukan di database influencer.",
+                    'dt' => $dt,
+                ];
+            }
+
+            $dt['influencer'] = $influencerData['id'];
+            $dt['nama_creator'] = $influencerData['username'];
+
+            if ($link_changed) {
+                $duplicate_check = $this->validate_duplicate_content_link($link_upload, $platform, (int) $current_endorse_id);
+                if (!$duplicate_check['status']) {
+                    return ['status' => false, 'msg' => $duplicate_check['msg'], 'dt' => $dt];
+                }
+            }
+
+            return ['status' => true, 'msg' => '', 'dt' => $dt];
+        }
+
+        if (strcasecmp($platform, 'Instagram') === 0) {
+            // Instagram post URLs carry no username; trust the selected influencer.
+            $id_data = $dt['influencer'] ?? '';
+            if (!$id_data) {
+                return [
+                    'status' => false,
+                    'msg' => "Pilih influencer terlebih dahulu untuk link Instagram.",
+                    'dt' => $dt,
+                ];
+            }
+
+            $detail = $this->mymodel->selectDataOne('influencer', ['id' => $id_data]);
+            if (!$detail) {
+                return [
+                    'status' => false,
+                    'msg' => "Influencer yang dipilih tidak ditemukan.",
+                    'dt' => $dt,
+                ];
+            }
+
+            $dt['influencer'] = $detail['id'];
+            $dt['nama_creator'] = strval($detail['username']);
+
+            if ($link_changed) {
+                $duplicate_check = $this->validate_duplicate_content_link($link_upload, $platform, (int) $current_endorse_id);
+                if (!$duplicate_check['status']) {
+                    return ['status' => false, 'msg' => $duplicate_check['msg'], 'dt' => $dt];
+                }
+            }
+
+            return ['status' => true, 'msg' => '', 'dt' => $dt];
+        }
+
+        if ($is_optimization) {
+            // Non-auto-fetch optimization link (placeholder platform): metrics entered
+            // manually, no username extraction or duplicate check.
+            $id_data = $dt['influencer'] ?? '';
+            if ($id_data) {
+                $detail = $this->mymodel->selectDataOne('influencer', ['id' => $id_data]);
+                if ($detail) {
+                    $dt['nama_creator'] = strval($detail['username']);
+                }
+            }
+
+            return ['status' => true, 'msg' => '', 'dt' => $dt];
+        }
+
+        return [
+            'status' => false,
+            'msg' => "Link upload tidak valid atau tidak dapat mengambil username.",
+            'dt' => $dt,
+        ];
+    }
+
     public function store()
     {
         $user = $_SESSION['user'];
@@ -2998,39 +3081,13 @@ class Endorse extends BaseController
         if ($dt['link_upload']) {
             $dt['status_endorse'] = 'Posted Content';
 
-            if (preg_match('#tiktok\.com/@([^/]+)/#', $dt['link_upload'], $match)) {
-                $usernameFromUrl = $match[1];
-
-                $influencerData = $this->mymodel->selectDataOne('influencer', ['username' => $usernameFromUrl]);
-                if ($influencerData) {
-                    $dt['influencer'] = $influencerData['id'];
-                    $id_data = $influencerData['id'];
-                    $dt['nama_creator'] = $influencerData['username'];
-                } else {
-                    $msg = "Username '$usernameFromUrl' tidak ditemukan di database influencer.";
-                    echo $this->template->alert_danger($msg);
-                    die;
-                }
-
-                $duplicate_check = $this->validate_duplicate_tiktok_content($dt['link_upload']);
-                if (!$duplicate_check['status']) {
-                    echo $this->template->alert_danger($duplicate_check['msg']);
-                    die;
-                }
-            } elseif ($is_optimization) {
-                // Non-TikTok optimization link (placeholder platform): metrics entered
-                // manually, no username extraction or duplicate check.
-                if ($id_data) {
-                    $detail = $this->mymodel->selectWithQuery("SELECT * FROM influencer WHERE id = '$id_data'");
-                    if (!empty($detail)) {
-                        $dt['nama_creator'] = strval($detail[0]['username']);
-                    }
-                }
-            } else {
-                $msg = "Link upload tidak valid atau tidak dapat mengambil username.";
-                echo $this->template->alert_danger($msg);
+            $resolved = $this->resolve_link_upload_influencer($dt, $is_optimization);
+            if (!$resolved['status']) {
+                echo $this->template->alert_danger($resolved['msg']);
                 die;
             }
+            $dt = $resolved['dt'];
+            $id_data = $dt['influencer'] ?? $id_data;
         } else {
             $id_data = $dt['influencer'];
             $detail = $this->mymodel->selectWithQuery("SELECT * FROM influencer WHERE id = '$id_data'");
@@ -4350,6 +4407,74 @@ class Endorse extends BaseController
         return $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode($arr, JSON_UNESCAPED_UNICODE));
+    }
+
+    /**
+     * Duplicate guard for a submitted content link, dispatched per platform.
+     *
+     * TikTok keeps the stronger content-id comparison; other auto-fetch platforms fall
+     * back to comparing normalized URLs within the same platform.
+     */
+    private function validate_duplicate_content_link($link_upload, $platform, int $current_endorse_id = 0)
+    {
+        if (strcasecmp(trim((string) $platform), 'Tiktok') === 0) {
+            return $this->validate_duplicate_tiktok_content($link_upload, $current_endorse_id);
+        }
+
+        $this->load->helper('social_platform');
+
+        $link_upload = trim((string) $link_upload);
+        $platform = trim((string) $platform);
+        if ($link_upload === '' || $platform === '') {
+            return ['status' => true, 'msg' => ''];
+        }
+
+        $normalized = normalize_content_url_for_duplicate_check($link_upload);
+        if ($normalized === '') {
+            return ['status' => true, 'msg' => ''];
+        }
+
+        $exclude_sql = $current_endorse_id > 0 ? " AND e.id != " . $this->db->escape($current_endorse_id) : '';
+
+        $rows = $this->mymodel->selectWithQuery("
+            SELECT
+                e.id,
+                e.id_campaign,
+                e.link_upload,
+                c.title
+            FROM endorse e
+            INNER JOIN endorse_campaign c ON c.id = e.id_campaign
+            WHERE e.platform = " . $this->db->escape($platform) . "
+              AND e.link_upload != ''
+              $exclude_sql
+            ORDER BY e.id_campaign ASC, e.id ASC
+        ");
+
+        $conflicts = [];
+        foreach ($rows as $row) {
+            if (normalize_content_url_for_duplicate_check($row['link_upload'] ?? '') !== $normalized) {
+                continue;
+            }
+
+            $title = trim((string) ($row['title'] ?? ''));
+            $conflict_key = (int) $row['id_campaign'] . '-' . (int) $row['id'];
+            $conflicts[$conflict_key] = '#'
+                . (int) $row['id_campaign']
+                . ' '
+                . ($title !== '' ? $title : 'Campaign tanpa nama')
+                . ' (endorse ID '
+                . (int) $row['id']
+                . ')';
+        }
+
+        if (empty($conflicts)) {
+            return ['status' => true, 'msg' => ''];
+        }
+
+        return [
+            'status' => false,
+            'msg' => "Link $platform ini sudah dipakai di data endorse lain: " . implode(', ', array_values($conflicts)) . '. Ganti atau hapus link lama terlebih dahulu.'
+        ];
     }
 
     private function validate_duplicate_tiktok_content($link_upload, int $current_endorse_id = 0)
