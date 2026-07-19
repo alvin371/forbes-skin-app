@@ -280,7 +280,7 @@
 		<div class="col-md-6">
 			<label for="">Link Upload</label>
 			<input type="text" class="form-control" name="dt[link_upload]" value="<?= $data['link_upload'] ?>">
-			<small class="form-text text-muted">Gunakan link konten TikTok langsung seperti `/video/...` atau `/photo/...`. Link pendek `vt.tiktok.com` / `vm.tiktok.com` tidak didukung.</small>
+			<small class="form-text text-muted">Gunakan link konten langsung: TikTok `/video/...` atau `/photo/...`, Instagram `/p/...` atau `/reel/...`, Threads `/@username/post/...`. Untuk Instagram, pilih Nama Creator karena link-nya tidak memuat username. Link pendek `vt.tiktok.com` / `vm.tiktok.com` tidak didukung.</small>
 		</div>
 
 		<div class="col-md-6">
