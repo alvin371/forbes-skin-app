@@ -1,6 +1,10 @@
 <?php
 defined('BASEPATH') or exit('No direct script access allowed');
 
+// Endorse_sync::is_terminal_class() and friends are called statically below; declare the
+// class outright instead of depending on a caller having loaded the library.
+require_once __DIR__ . '/Endorse_sync.php';
+
 class EndorseRefreshQueueService
 {
     const DEFAULT_PRIORITY = 10;
