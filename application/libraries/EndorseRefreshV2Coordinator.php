@@ -1,6 +1,14 @@
 <?php
 defined('BASEPATH') or exit('No direct script access allowed');
 
+// Static calls below (EndorseRefreshQueueService::normalizeTiktokUrl, Endorse_sync::*) need
+// the class declared, not an instance. CI3 has no autoloader, so relying on a caller having
+// run load->library() first is what broke Endorse::sync_process — it loads only this
+// coordinator. require_once cannot use load->library() here: EndorseRefreshQueueService's
+// constructor loads this coordinator, so the loader would recurse.
+require_once __DIR__ . '/EndorseRefreshQueueService.php';
+require_once __DIR__ . '/Endorse_sync.php';
+
 class EndorseRefreshV2Coordinator
 {
     const CONTRACT_VERSION = 2;
