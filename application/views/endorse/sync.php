@@ -37,7 +37,16 @@
 			},
 			error: function(xhr, textStatus, errorThrown) {
 				$(".btn-send").removeClass("disabled").html('Refresh Data').attr('disabled', false);
-				$(".form-message").hide().html(xhr).slideDown("fast");
+				// xhr is the jqXHR object; rendering it directly showed an empty box and
+				// hid every server-side error. Show the body, falling back to the status.
+				var body = (xhr && xhr.responseText) ? xhr.responseText : "";
+				var detail = body || (errorThrown || textStatus || "Unknown error");
+				var requestId = xhr && xhr.getResponseHeader ? xhr.getResponseHeader("X-Request-Id") : null;
+				if (!body) {
+					detail = '<div class="alert alert-danger">Refresh gagal (HTTP ' + (xhr ? xhr.status : "?") + '): ' + detail +
+						(requestId ? ' — Request ID: ' + requestId : '') + '</div>';
+				}
+				$(".form-message").hide().html(detail).slideDown("fast");
 			}
 		});
 		return false;

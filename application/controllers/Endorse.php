@@ -2060,23 +2060,44 @@ class Endorse extends BaseController
 
     public function sync_process()
     {
-        $user = $_SESSION['user'];
-        $id = intval($_POST['id']);
+        $id = intval($this->input->post('id'));
+
+        // A fatal inside the refresh chain used to surface as a bare HTTP 500 with an
+        // empty body: display_errors is off in production and log_threshold is 0, so
+        // neither the browser nor application/logs showed anything. Catch it here and
+        // return an alert the modal can render, plus a Sentry event for the stacktrace.
+        try {
+            echo $this->run_sync_process($id);
+        } catch (Throwable $e) {
+            $this->report_sync_failure($e, $id);
+            echo $this->template->alert_danger(
+                'Refresh gagal karena error internal. Detail: ' . htmlspecialchars($e->getMessage())
+            );
+        }
+    }
+
+    /**
+     * Perform one manual refresh and return the alert HTML to echo.
+     */
+    private function run_sync_process(int $id): string
+    {
+        $user = $_SESSION['user'] ?? [];
+        $user_id = intval($user['id'] ?? 0);
+        if ($user_id <= 0) {
+            return $this->template->alert_danger("Sesi kamu sudah berakhir. Silakan login ulang.");
+        }
 
         $query = $this->mymodel->selectWithQuery("SELECT * FROM endorse WHERE id = '$id'");
         if (empty($query)) {
-            echo $this->template->alert_danger("Endorse tidak ditemukan.");
-            die;
+            return $this->template->alert_danger("Endorse tidak ditemukan.");
         }
 
         $endorse = $query[0];
         if ($endorse['status'] != "Aktif") {
-            echo $this->template->alert_danger("Pastikan status endorse aktif.");
-            die;
+            return $this->template->alert_danger("Pastikan status endorse aktif.");
         }
         if ($endorse['status_campaign'] != "Aktif") {
-            echo $this->template->alert_danger("Pastikan status campaign aktif.");
-            die;
+            return $this->template->alert_danger("Pastikan status campaign aktif.");
         }
 
         if (is_file(APPPATH . 'libraries/EndorseRefreshV2Coordinator.php')) {
@@ -2086,8 +2107,7 @@ class Endorse extends BaseController
                 strval($endorse['platform']),
                 strval($endorse['link_upload'])
             )) {
-                echo $this->template->alert_danger("Konten ini ditandai unavailable dan diblokir dari sync sampai link_upload diganti atau quarantine dibuka.");
-                die;
+                return $this->template->alert_danger("Konten ini ditandai unavailable dan diblokir dari sync sampai link_upload diganti atau quarantine dibuka.");
             }
         }
 
@@ -2103,13 +2123,28 @@ class Endorse extends BaseController
         );
 
         $this->load->library('endorse_sync');
-        $result = $this->endorse_sync->apply($endorse, $response, intval($user['id']));
+        $result = $this->endorse_sync->apply($endorse, $response, $user_id);
 
-        if ($result['status']) {
-            $this->endorse_sync->update_campaign_parent(intval($endorse['id_campaign']), intval($user['id']));
-            echo $this->template->alert_success('Refresh data berhasil!');
-        } else {
-            echo $this->template->alert_danger($result['msg']);
+        if (empty($result['status'])) {
+            return $this->template->alert_danger($result['msg']);
+        }
+
+        $this->endorse_sync->update_campaign_parent(intval($endorse['id_campaign']), $user_id);
+
+        return $this->template->alert_success('Refresh data berhasil!');
+    }
+
+    private function report_sync_failure(Throwable $e, int $id): void
+    {
+        log_message('error', 'Endorse::sync_process failed for id=' . $id . ': ' . $e->getMessage()
+            . ' @ ' . $e->getFile() . ':' . $e->getLine());
+
+        if (function_exists('sentry_capture_exception')) {
+            sentry_capture_exception($e, [
+                'controller' => 'Endorse',
+                'method' => 'sync_process',
+                'id_endorse' => $id,
+            ]);
         }
     }
 
