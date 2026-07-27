@@ -408,19 +408,23 @@ class EndorseRefreshQueueService
         $summaryRows = $this->CI->mymodel->selectWithQuery("
             SELECT status, COUNT(*) AS c
             FROM endorse_refresh_queue
-            WHERE status IN ('pending','processing')
+            WHERE status IN ('pending','processing','submitted')
             $where
             GROUP BY status
         ");
 
         $pending = 0;
         $processing = 0;
+        $submitted = 0;
         foreach ($summaryRows as $row) {
             if ($row['status'] === 'pending') {
                 $pending = intval($row['c']);
             }
             if ($row['status'] === 'processing') {
                 $processing = intval($row['c']);
+            }
+            if ($row['status'] === 'submitted') {
+                $submitted = intval($row['c']);
             }
         }
 
@@ -441,7 +445,7 @@ class EndorseRefreshQueueService
         $lastActivityAt = $lastStartedAt ?: $lastCompletedAt;
         $isStalled = false;
 
-        if ($pending > 0 && $processing === 0) {
+        if ($pending > 0 && $processing === 0 && $submitted === 0) {
             if (empty($lastActivityAt) || strtotime($lastActivityAt) < strtotime('-' . intval($staleMinutes) . ' minutes')) {
                 $isStalled = true;
             }
@@ -450,9 +454,10 @@ class EndorseRefreshQueueService
         $stall = $isStalled ? $this->diagnoseStall() : null;
 
         return [
-            'active_total' => $pending + $processing,
+            'active_total' => $pending + $processing + $submitted,
             'pending_total' => $pending,
             'processing_total' => $processing,
+            'submitted_total' => $submitted,
             'oldest_pending_at' => $oldestPendingAt,
             'last_completed_at' => $lastCompletedAt,
             'last_started_at' => $lastStartedAt,
@@ -529,7 +534,7 @@ class EndorseRefreshQueueService
             FROM endorse_refresh_queue
             WHERE id_endorse IN ($idList)
               AND purpose = $purpose
-              AND status IN ('pending','processing')
+              AND status IN ('pending','processing','submitted')
         ");
 
         $active = [];
@@ -789,7 +794,7 @@ class EndorseRefreshQueueService
         $this->db->query("
             UPDATE endorse_refresh_queue
             SET status = 'processing', worker_id = '$worker_id', claimed_at = '$now', started_at = '$now'
-            WHERE status = 'pending' AND worker_id IS NULL
+            WHERE status = 'pending' AND platform != 'Threads' AND worker_id IS NULL
               AND (
                     claimed_at IS NULL
                     OR TIMESTAMPDIFF(SECOND, claimed_at, NOW()) >=

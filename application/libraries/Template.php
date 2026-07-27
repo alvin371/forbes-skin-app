@@ -1028,9 +1028,17 @@ class Template
     function enqueue_scrape($entityType, $entityId, $type, $url, $priority = 5)
     {
         $CI =& get_instance();
-        $CI->load->library('scrapingbot');
-
-        $params = $CI->scrapingbot->buildScrapeParams($type, $url);
+        $params = null;
+        if ($type === 'Threads') {
+            $link = trim((string) $url);
+            if (!preg_match('#^https?://(?:www\\.)?threads\\.(?:com|net)/@[^/]+/?#i', $link)) {
+                return ['status' => false, 'msg' => 'Link profil Threads tidak valid'];
+            }
+            $params = ['scraper' => 'threadsProfile', 'params' => ['link' => $link]];
+        } else {
+            $CI->load->library('scrapingbot');
+            $params = $CI->scrapingbot->buildScrapeParams($type, $url);
+        }
         if (!$params) {
             return ['status' => false, 'msg' => 'Platform atau URL tidak valid'];
         }
@@ -1080,6 +1088,8 @@ class Template
             $parsed = $this->parseTiktokProfileResponse($resultData);
         } elseif ($scraper === 'instagramProfile') {
             $parsed = $this->parseInstagramProfileResponse($resultData);
+        } elseif ($scraper === 'threadsProfile') {
+            $parsed = $this->parseThreadsScraperProfileResponse($resultData);
         } else {
             return false;
         }
@@ -1087,20 +1097,24 @@ class Template
         $table = ($entityType === 'influencer_dummy') ? 'influencer_dummy' : $entityType;
 
         // Guard: don't overwrite good data with empty/zero results
-        if (empty($parsed['profile']['account_id']) && $parsed['profile']['follower'] <= 0) {
-            log_message('error', "ScrapingBot: Empty parse result for {$entityType}#{$entityId}, skipping update");
+        if ($scraper !== 'threadsProfile' && empty($parsed['profile']['account_id']) && $parsed['profile']['follower'] <= 0) {
+            log_message('error', "Social profile scrape empty for {$entityType}#{$entityId}, skipping update");
             return false;
         }
 
         // Update profile data
         $profileUpdate = [
-            'account_id'  => $parsed['profile']['account_id'],
-            'img'         => $parsed['profile']['img'],
             'follower'    => $parsed['profile']['follower'],
             'media_count' => $parsed['profile']['media_count'],
             'updated_at'  => date('Y-m-d H:i:s'),
             'updated_by'  => '1', // system
         ];
+        // The scraper account UUID is not a platform-native account ID; preserve the
+        // existing local identifiers and image for Threads.
+        if ($scraper !== 'threadsProfile') {
+            $profileUpdate['account_id'] = $parsed['profile']['account_id'];
+            $profileUpdate['img'] = $parsed['profile']['img'];
+        }
 
         if (!empty($parsed['profile']['full_name'])) {
             $profileUpdate['full_name'] = $parsed['profile']['full_name'];
@@ -1187,6 +1201,34 @@ class Template
         return true;
     }
 
+    /** Normalize the account/posts endpoints of the Threads scraper for profile sync. */
+    function parseThreadsScraperProfileResponse($resultData)
+    {
+        $account = is_array($resultData['account'] ?? null) ? $resultData['account'] : [];
+        $posts = is_array($resultData['posts'] ?? null) ? $resultData['posts'] : [];
+        $parsed = [
+            'profile' => [
+                'account_id' => '',
+                'follower' => intval($account['followers'] ?? 0),
+                'media_count' => intval($account['post_count'] ?? 0),
+                'img' => '',
+                'full_name' => strval($account['display_name'] ?? ($account['username'] ?? '')),
+            ],
+            'posts' => [],
+        ];
+        foreach (array_slice($posts, 0, 10) as $post) {
+            if (!is_array($post)) continue;
+            $parsed['posts'][] = [
+                'like' => intval($post['likes'] ?? 0),
+                'comment' => intval($post['comments'] ?? 0),
+                'share' => intval($post['shares'] ?? 0),
+                'collect' => 0,
+                'view' => intval($post['views'] ?? 0),
+            ];
+        }
+        return $parsed;
+    }
+
     /**
      * Synchronous social profile sync through the platform adapter.
      * Combines get_account_id + get_post_list + metrics calculation + DB update.
@@ -1200,6 +1242,12 @@ class Template
     function syncSocialProfile($entityType, $entityId, $type, $url)
     {
         $CI =& get_instance();
+
+        // Threads is an asynchronous provider. Queue the profile refresh instead of
+        // issuing Graph/OAuth requests in the request/cron process.
+        if ($type === 'Threads') {
+            return $this->enqueue_scrape($entityType, $entityId, $type, $url, 10);
+        }
 
         // Step 1: Get account ID (profile data)
         $profileResult = $this->get_account_id($type, $url, $entityType, $entityId);
@@ -1363,15 +1411,7 @@ class Template
         }
 
         if ($type == "Threads") {
-            if (!$entityId || $entityType !== 'influencer' || !$CI->db->field_exists('threads_access_token', 'influencer')) {
-                return ["status" => false, "msg" => "Hubungkan akun Threads terlebih dahulu.", "data" => [], "error_class" => "config"];
-            }
-            $row = $CI->db->select('threads_access_token')->where('id', intval($entityId))->get('influencer')->row_array();
-            if (empty($row['threads_access_token'])) {
-                return ["status" => false, "msg" => "Hubungkan akun Threads terlebih dahulu.", "data" => [], "error_class" => "config"];
-            }
-            $CI->load->library('Threads_api');
-            return $CI->threads_api->withToken(strval($row['threads_access_token']))->profile();
+            return ["status" => false, "msg" => "Sync profil Threads harus diproses melalui antrian scraper async.", "data" => [], "error_class" => "transient"];
         }
 
         return [
@@ -1459,18 +1499,14 @@ class Template
             $CI->load->library('Instagram_rapid_api');
             return $CI->instagram_rapid_api->posts(strval($account_id), 10);
         }
-        if ($type === 'Threads' && $influencer_id && $CI->db->field_exists('threads_access_token', 'influencer')) {
-            $row = $CI->db->select('threads_access_token')->where('id', intval($influencer_id))->get('influencer')->row_array();
-            if (!empty($row['threads_access_token'])) {
-                $CI->load->library('Threads_api');
-                return $CI->threads_api->withToken(strval($row['threads_access_token']))->recentPosts(10);
-            }
+        if ($type === 'Threads') {
+            return ["status" => false, "msg" => "Sync profil Threads harus diproses melalui antrian scraper async.", "data" => [], "error_class" => "transient"];
         }
         return [
             "status" => false,
-            "msg"    => $type === 'Threads' ? "Hubungkan akun Threads terlebih dahulu." : "Platform belum tersedia.",
+            "msg"    => "Platform belum tersedia.",
             "data"   => [],
-            "error_class" => $type === 'Threads' ? "config" : "permanent"
+            "error_class" => "permanent"
         ];
     }
 
@@ -1534,16 +1570,12 @@ class Template
             $CI->load->library('Instagram_rapid_api');
             return $CI->instagram_rapid_api->post(strval($url));
         } else if ($type == "Threads") {
-            $CI =& get_instance();
-            if (!$influencer_id || !$CI->db->field_exists('threads_access_token', 'influencer')) {
-                return ["status" => false, "msg" => "Akun Threads influencer belum terhubung.", "data" => [], "error_class" => "config"];
-            }
-            $row = $CI->db->select('threads_access_token')->where('id', intval($influencer_id))->get('influencer')->row_array();
-            if (empty($row['threads_access_token'])) {
-                return ["status" => false, "msg" => "Akun Threads influencer belum terhubung.", "data" => [], "error_class" => "config"];
-            }
-            $CI->load->library('Threads_api');
-            return $CI->threads_api->withToken(strval($row['threads_access_token']))->post(strval($url), strval($known_content_id ?? ''));
+            return [
+                "status" => false,
+                "msg" => "Refresh Threads harus diproses melalui antrian scraper async.",
+                "data" => [],
+                "error_class" => "transient",
+            ];
         } else {
             $response["status"] = false;
             $response["msg"] = "Platform belum tersedia";

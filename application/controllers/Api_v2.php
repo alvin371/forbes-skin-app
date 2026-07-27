@@ -7466,6 +7466,7 @@ class Api_v2 extends CI_Controller
         header('Content-Type: application/json; charset=utf-8');
 
         $this->load->library('scrapingbot');
+        $this->load->library('Threads_scraper_api');
         $this->load->model('mymodel');
 
         // Pick pending items ordered by priority
@@ -7491,7 +7492,23 @@ class Api_v2 extends CI_Controller
                 continue;
             }
 
-            $result = $this->scrapingbot->startScrape($item['scraper'], $params);
+            if ($item['scraper'] === 'threadsProfile') {
+                $result = $this->threads_scraper_api->createAccount(strval($params['link'] ?? ''));
+                $remote = is_array($result['data'] ?? null) ? $result['data'] : [];
+                if (!empty($result['status']) && !empty($remote['job_id']) && !empty($remote['account']['id'])) {
+                    $params['account_id'] = strval($remote['account']['id']);
+                    $this->db->update('scraping_queue', [
+                        'status'       => 'submitted',
+                        'response_id'  => strval($remote['job_id']),
+                        'scrape_url'   => json_encode($params),
+                        'submitted_at' => date('Y-m-d H:i:s'),
+                    ], ['id' => $item['id']]);
+                    $submitted++;
+                    continue;
+                }
+            } else {
+                $result = $this->scrapingbot->startScrape($item['scraper'], $params);
+            }
 
             if ($result['status'] && !empty($result['responseId'])) {
                 $this->db->update('scraping_queue', [
@@ -7535,6 +7552,7 @@ class Api_v2 extends CI_Controller
         header('Content-Type: application/json; charset=utf-8');
 
         $this->load->library('scrapingbot');
+        $this->load->library('Threads_scraper_api');
         $this->load->model('mymodel');
 
         // Pick submitted items that haven't exceeded max attempts
@@ -7549,8 +7567,72 @@ class Api_v2 extends CI_Controller
         $completed = 0;
         $pending = 0;
         $failed = 0;
+        $jobTimeout = max(60, intval(env('SOCIAL_SCRAPER_JOB_TIMEOUT_SEC', 900)));
 
         foreach ($items as $item) {
+            if ($item['scraper'] === 'threadsProfile') {
+                $params = json_decode($item['scrape_url'], true);
+                $job = $this->threads_scraper_api->job(strval($item['response_id']));
+                if (empty($job['status'])) {
+                    $attempts = intval($item['attempts']) + 1;
+                    $newStatus = ($attempts >= intval($item['max_attempts'])) ? 'failed' : 'pending';
+                    $this->db->update('scraping_queue', [
+                        'attempts' => $attempts, 'status' => $newStatus,
+                        'error_message' => strval($job['msg'] ?? 'Gagal memeriksa job Threads.'),
+                        'response_id' => $newStatus === 'pending' ? null : $item['response_id'],
+                        'completed_at' => $newStatus === 'failed' ? date('Y-m-d H:i:s') : null,
+                    ], ['id' => $item['id']]);
+                    $failed++;
+                    continue;
+                }
+                $remote = $job['data'];
+                $remoteStatus = strval($remote['status'] ?? '');
+                if (in_array($remoteStatus, ['pending', 'running'], true)) {
+                    $submittedAt = strtotime(strval($item['submitted_at'] ?? '')) ?: time();
+                    if ((time() - $submittedAt) < $jobTimeout) {
+                        $pending++;
+                        continue;
+                    }
+                    $attempts = intval($item['attempts']) + 1;
+                    $newStatus = ($attempts >= intval($item['max_attempts'])) ? 'failed' : 'pending';
+                    $this->db->update('scraping_queue', [
+                        'attempts' => $attempts, 'status' => $newStatus,
+                        'response_id' => $newStatus === 'pending' ? null : $item['response_id'],
+                        'error_message' => 'Job Threads melewati batas waktu.',
+                        'completed_at' => $newStatus === 'failed' ? date('Y-m-d H:i:s') : null,
+                    ], ['id' => $item['id']]);
+                    $failed++;
+                    continue;
+                }
+                if ($remoteStatus === 'completed' && !empty($params['account_id'])) {
+                    $account = $this->threads_scraper_api->account(strval($params['account_id']));
+                    $posts = $this->threads_scraper_api->posts(strval($params['account_id']), 10);
+                    if (!empty($account['status']) && !empty($posts['status'])) {
+                        $data = ['account' => $account['data'], 'posts' => $posts['data']];
+                        $this->db->update('scraping_queue', [
+                            'status' => 'completed', 'result_data' => json_encode($data),
+                            'completed_at' => date('Y-m-d H:i:s'), 'attempts' => intval($item['attempts']) + 1,
+                        ], ['id' => $item['id']]);
+                        $item['result_data'] = json_encode($data);
+                        $this->template->process_scrape_result($item, $data);
+                        $completed++;
+                        continue;
+                    }
+                    $job = !empty($account['status']) ? $posts : $account;
+                }
+
+                $attempts = intval($item['attempts']) + 1;
+                $newStatus = ($attempts >= intval($item['max_attempts'])) ? 'failed' : 'pending';
+                $this->db->update('scraping_queue', [
+                    'attempts' => $attempts, 'status' => $newStatus,
+                    'response_id' => $newStatus === 'pending' ? null : $item['response_id'],
+                    'error_message' => strval($remote['error'] ?? ($job['msg'] ?? 'Job Threads gagal.')),
+                    'completed_at' => $newStatus === 'failed' ? date('Y-m-d H:i:s') : null,
+                ], ['id' => $item['id']]);
+                $failed++;
+                continue;
+            }
+
             $result = $this->scrapingbot->pollResult($item['scraper'], $item['response_id']);
 
             if ($result['status'] === 'success') {
@@ -7627,7 +7709,7 @@ class Api_v2 extends CI_Controller
         $tier1_influencer = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer
             WHERE status = 'Aktif' AND url != ''
-            AND type NOT IN ('Tiktok', 'Instagram', 'Threads')
+            AND type NOT IN ('Tiktok', 'Instagram')
             AND sync_at IS NULL
             LIMIT 20
         ");
@@ -7639,7 +7721,7 @@ class Api_v2 extends CI_Controller
         $tier1_dummy = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer_dummy
             WHERE status = 'Aktif' AND url != ''
-            AND type NOT IN ('Tiktok', 'Instagram', 'Threads')
+            AND type NOT IN ('Tiktok', 'Instagram')
             AND sync_at IS NULL
             LIMIT 20
         ");
@@ -7655,7 +7737,7 @@ class Api_v2 extends CI_Controller
             INNER JOIN endorse e ON e.influencer = i.id
             INNER JOIN endorse_campaign ec ON e.id_campaign = ec.id
             WHERE i.status = 'Aktif' AND i.url != ''
-            AND i.type NOT IN ('Tiktok', 'Instagram', 'Threads')
+            AND i.type NOT IN ('Tiktok', 'Instagram')
             AND ec.status = 'Aktif'
             AND (i.sync_at < ('$three_days_ago' + INTERVAL 1 DAY) OR i.sync_at IS NULL)
             LIMIT 20
@@ -7670,7 +7752,7 @@ class Api_v2 extends CI_Controller
         $tier3_influencer = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer
             WHERE status = 'Aktif' AND url != ''
-            AND type NOT IN ('Tiktok', 'Instagram', 'Threads')
+            AND type NOT IN ('Tiktok', 'Instagram')
             AND sync_at < ('$seven_days_ago' + INTERVAL 1 DAY)
             LIMIT 10
         ");
@@ -7682,7 +7764,7 @@ class Api_v2 extends CI_Controller
         $tier3_dummy = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer_dummy
             WHERE status = 'Aktif' AND url != ''
-            AND type NOT IN ('Tiktok', 'Instagram', 'Threads')
+            AND type NOT IN ('Tiktok', 'Instagram')
             AND sync_at < ('$seven_days_ago' + INTERVAL 1 DAY)
             LIMIT 10
         ");
@@ -7696,7 +7778,7 @@ class Api_v2 extends CI_Controller
         $tier4 = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer
             WHERE status = 'Aktif' AND url != ''
-            AND type NOT IN ('Tiktok', 'Instagram', 'Threads')
+            AND type NOT IN ('Tiktok', 'Instagram')
             AND sync_at < ('$fourteen_days_ago' + INTERVAL 1 DAY)
             LIMIT 5
         ");
@@ -7716,7 +7798,7 @@ class Api_v2 extends CI_Controller
 
     /**
      * Compatibility cron route for synchronous supported social-profile sync.
-     * Replaces ScrapingBot for TikTok and Instagram; Threads uses its stored token.
+     * Replaces ScrapingBot for TikTok and Instagram. Threads uses scraping_queue.
      * Same 4-tier priority logic, processes max 20 per run with 300ms delay
      */
     function cronjob_tiktok_sync()
@@ -7734,7 +7816,7 @@ class Api_v2 extends CI_Controller
         // Tier 1 (Hot): sync_at IS NULL or new records
         $tier1_influencer = $this->mymodel->selectWithQuery("
             SELECT id, type, url FROM influencer
-            WHERE status = 'Aktif' AND url != '' AND type IN ('Tiktok', 'Instagram', 'Threads')
+            WHERE status = 'Aktif' AND url != '' AND type IN ('Tiktok', 'Instagram')
             AND sync_at IS NULL
             LIMIT 10
         ");
@@ -7767,7 +7849,7 @@ class Api_v2 extends CI_Controller
                 SELECT DISTINCT i.id, i.type, i.url FROM influencer i
                 INNER JOIN endorse e ON e.influencer = i.id
                 INNER JOIN endorse_campaign ec ON e.id_campaign = ec.id
-                WHERE i.status = 'Aktif' AND i.url != '' AND i.type IN ('Tiktok', 'Instagram', 'Threads')
+                WHERE i.status = 'Aktif' AND i.url != '' AND i.type IN ('Tiktok', 'Instagram')
                 AND ec.status = 'Aktif'
                 AND (i.sync_at < ('$three_days_ago' + INTERVAL 1 DAY) OR i.sync_at IS NULL)
                 LIMIT 10
@@ -7786,7 +7868,7 @@ class Api_v2 extends CI_Controller
             $seven_days_ago = date('Y-m-d', strtotime('-7 days'));
             $tier3_influencer = $this->mymodel->selectWithQuery("
                 SELECT id, type, url FROM influencer
-                WHERE status = 'Aktif' AND url != '' AND type IN ('Tiktok', 'Instagram', 'Threads')
+                WHERE status = 'Aktif' AND url != '' AND type IN ('Tiktok', 'Instagram')
                 AND sync_at < ('$seven_days_ago' + INTERVAL 1 DAY)
                 LIMIT 5
             ");
@@ -7818,7 +7900,7 @@ class Api_v2 extends CI_Controller
             $fourteen_days_ago = date('Y-m-d', strtotime('-14 days'));
             $tier4 = $this->mymodel->selectWithQuery("
                 SELECT id, type, url FROM influencer
-                WHERE status = 'Aktif' AND url != '' AND type IN ('Tiktok', 'Instagram', 'Threads')
+                WHERE status = 'Aktif' AND url != '' AND type IN ('Tiktok', 'Instagram')
                 AND sync_at < ('$fourteen_days_ago' + INTERVAL 1 DAY)
                 LIMIT 5
             ");
@@ -8092,6 +8174,12 @@ class Api_v2 extends CI_Controller
         $this->load->library('template');
         $this->load->library('endorse_sync');
         $this->load->library('EndorseRefreshQueueService');
+        // Threads uses a separate remote async job lifecycle. Run it on this existing
+        // cron tick so production needs no additional scheduler entry.
+        $this->load->library('ThreadsEndorseScraperService');
+        $threadsSummary = $this->threadsendorsescraperservice->run(
+            max(1, min(200, intval(env('SOCIAL_SCRAPER_BATCH_SIZE', 40))))
+        );
 
         // Driver gate: when the long-lived Rust consumer owns draining
         // (ENDORSE_REFRESH_DRIVER=rust) the per-minute cron stands down; only the manual
@@ -8105,6 +8193,7 @@ class Api_v2 extends CI_Controller
                 'status'    => true,
                 'processed' => 0,
                 'driver'    => 'rust',
+                'threads'   => $threadsSummary,
                 'msg'       => 'Rust consumer owns draining — cron standing down',
             ]);
             $this->cron_monitor_finish($monitor, array(
@@ -8207,6 +8296,7 @@ class Api_v2 extends CI_Controller
             'failed'    => $summary['failed'],
             'retrying'  => $summary['retrying'],
             'deferred'  => $summary['deferred'],
+            'threads'   => $threadsSummary,
             'msg'       => $summary['processed'] . " items: {$summary['completed']} ok, {$summary['failed']} failed, {$summary['retrying']} retrying, {$summary['deferred']} deferred",
         ]);
         $this->cron_monitor_finish($monitor, array(
@@ -8219,6 +8309,20 @@ class Api_v2 extends CI_Controller
             'deferred_count'  => $summary['deferred'],
             'worker'          => $worker_id,
         ));
+        die;
+    }
+
+    /**
+     * Async Threads slice of endorse_refresh_queue. This runs independently from
+     * ENDORSE_REFRESH_DRIVER because the Rust worker deliberately skips Threads.
+     */
+    function cronjob_threads_scraper()
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        $this->load->library('ThreadsEndorseScraperService');
+        $limit = max(1, min(200, intval(env('SOCIAL_SCRAPER_BATCH_SIZE', 40))));
+        $result = $this->threadsendorsescraperservice->run($limit);
+        echo json_encode($result);
         die;
     }
 
