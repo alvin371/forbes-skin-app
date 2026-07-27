@@ -2111,8 +2111,19 @@ class Endorse extends BaseController
             }
         }
 
-        // influencer id is mandatory for Threads (token lookup); threads_media_id short-circuits
-        // the shortcode resolution when the column is present.
+        // Threads is fulfilled by the async scraper worker; do not fall back to
+        // the legacy Graph/OAuth adapter for a manual refresh.
+        if (strcasecmp(strval($endorse['platform'] ?? ''), 'Threads') === 0) {
+            $this->load->library('EndorseRefreshQueueService');
+            $queued = $this->endorserefreshqueueservice->enqueueCampaign(
+                intval($endorse['id_campaign']), $user_id, [intval($endorse['id'])]
+            );
+            return !empty($queued['status'])
+                ? $this->template->alert_success('Refresh Threads ditambahkan ke antrian.')
+                : $this->template->alert_danger(strval($queued['msg'] ?? 'Gagal menambahkan antrian Threads.'));
+        }
+
+        // Legacy adapters receive the related influencer ID where required.
         $response = $this->template->get_social_media(
             $endorse['platform'],
             $endorse['link_upload'],

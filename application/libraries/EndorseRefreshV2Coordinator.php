@@ -188,6 +188,7 @@ class EndorseRefreshV2Coordinator
                 SELECT *
                 FROM `endorse_refresh_queue`
                 WHERE `status` = 'pending'
+                  AND `platform` != 'Threads'
                   AND `worker_id` IS NULL
                   AND (`next_attempt_at` IS NULL OR `next_attempt_at` <= UTC_TIMESTAMP(6))
                 ORDER BY `priority` DESC, `attempts` ASC, `created_at` ASC, `id` ASC

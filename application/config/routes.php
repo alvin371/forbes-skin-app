@@ -311,6 +311,7 @@ $route['api/cronjob/scraping-poll'] = 'Api_v2/cronjob_scraping_poll';
 $route['api/cronjob/scraping-enqueue'] = 'Api_v2/cronjob_scraping_enqueue';
 $route['api/cronjob/tiktok-sync'] = 'Api_v2/cronjob_tiktok_sync';
 $route['api/cronjob/endorse-refresh'] = 'Api_v2/cronjob_endorse_refresh';
+$route['api/cronjob/threads-scraper'] = 'Api_v2/cronjob_threads_scraper';
 $route['api/endorse-refresh/claim'] = 'Api_v2/endorse_refresh_claim';
 $route['api/endorse-refresh/fetch-fallback'] = 'Api_v2/endorse_refresh_fetch_fallback';
 $route['api/endorse-refresh/release'] = 'Api_v2/endorse_refresh_release';
