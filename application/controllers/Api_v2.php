@@ -8223,6 +8223,79 @@ class Api_v2 extends CI_Controller
             ? intval(env('ENDORSE_REFRESH_FORCE_BATCH', 250))
             : intval(env('ENDORSE_REFRESH_BATCH_SIZE', 40));
 
+        // Incremental drain path (default OFF). When enabled, one run drains multiple
+        // slot-sized chunks (claim→reserve-per-request→fetch→apply→next chunk) via the
+        // e2e-tested EndorseRefreshDrainRunner instead of one oversized claim. Legacy path
+        // below is byte-for-byte unchanged when the flag is off, so rollback is instant.
+        if (EndorseRefreshQueueService::incrementalClaimEnabled() && !$force) {
+            require_once APPPATH . 'libraries/EndorseRefreshDrainRunner.php';
+            $svc = $this->endorserefreshqueueservice;
+            $tpl = $this->template;
+            $requestStart = EndorseRefreshQueueService::reservesAtRequestStart();
+            $env = strtolower((string) env('APP_ENV', 'prod'));
+            $app = strtolower((string) env('APP_NAME', 'forbes'));
+            $rapidKey = (string) env('RAPIDAPI_KEY', '');
+            $rate = intval(env('ENDORSE_REFRESH_RATE_PER_MIN', 0));
+            $store = new CiDbReservationStore($this->db, $env, $app);
+            $store->pruneExpired(60, 60);
+            $logger = new EndorseRefreshRunLogger();
+            $chunk = EndorseRefreshQueueService::effectiveClaimLimit($limit, $PARALLEL_HTTP, true);
+
+            $runner = new EndorseRefreshDrainRunner([
+                'run_id'                  => $worker_id ?? substr(md5(uniqid('', true)), 0, 32),
+                'deadline_sec'            => $DEADLINE_SEC,
+                'chunk_size'              => $chunk,
+                'per_request_timeout_sec' => floatval(env('ENDORSE_REFRESH_HTTP_TIMEOUT', 30)),
+                'inline_retry'            => EndorseRefreshQueueService::inlineFallbackRetryEnabled(),
+                'max_attempts'            => 3,
+                'limiter_mode'            => EndorseRefreshQueueService::limiterMode(),
+                'log'                     => $logger,
+                'now'                     => function () { return microtime(true); },
+                'sleep'                   => function ($s) { usleep((int) ($s * 1000000)); },
+                'claim' => function (int $n) use ($svc, $rapidKey) {
+                    $c = $svc->claimBatch(['limit' => $n, 'stale_minutes' => 5]);
+                    if (!empty($c['skipped']) || empty($c['items'])) {
+                        return [];
+                    }
+                    $scope = EndorseRefreshRateScope::scope(EndorseRefreshRateScope::PROVIDER_RAPIDAPI, $rapidKey);
+                    return array_map(function ($it) use ($scope) {
+                        return ['queue_id' => $it['queue_id'], 'scope' => $scope, 'orig' => $it];
+                    }, $c['items']);
+                },
+                'reserve' => $requestStart ? function (string $scope) use ($store, $rate) {
+                    return $store->reserve($scope, $rate > 0 ? $rate : PHP_INT_MAX, 60, ['run_id' => 'cron']);
+                } : null,
+                'fetch' => function (array $item, int $attempt) use ($tpl, $svc) {
+                    $o = $item['orig'];
+                    // Stamp the observation time at REQUEST START (UTC, microseconds), not at
+                    // apply time — this is the ordering signal the atomic guard compares, so a
+                    // late older response cannot regress newer stats regardless of apply order.
+                    $mt = microtime(true);
+                    $observedAt = gmdate('Y-m-d H:i:s', (int) $mt) . '.' . sprintf('%06d', (int) round(($mt - floor($mt)) * 1e6));
+                    $resp = $tpl->get_social_media($o['platform'], $o['url'], true, intval($o['influencer_id'] ?? 0) ?: null);
+                    if (is_array($resp)) {
+                        $resp['observed_at'] = $observedAt;
+                    }
+                    $cls = $svc->classify_response($resp, strval($o['platform']), strval($o['url']));
+                    return ['ok' => $cls['class'] === Endorse_sync::ERR_OK, 'error_class' => $cls['class'], '_resp' => $resp, 'path' => 'rapidapi'];
+                },
+                'apply' => function (array $item, array $resp) use ($svc) {
+                    $svc->applyResults([$item['orig']], [$resp['_resp'] ?? ['status' => false, 'msg' => 'No response', 'data' => []]]);
+                },
+                'release' => function (array $items) use ($svc) {
+                    $svc->releaseUnstartedChunk(array_map(function ($it) { return $it['orig']; }, $items));
+                },
+            ]);
+            $summary = $runner->run();
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['status' => true, 'mode' => 'incremental', 'summary' => $summary]);
+            $this->cron_monitor_finish($monitor, array(
+                'status' => 'ok', 'processed_count' => $summary['requests_started'] ?? 0,
+                'completed_count' => $summary['unique_completed'] ?? 0, 'note' => $summary['stop_reason'] ?? '',
+            ));
+            die;
+        }
+
         // Claim (stale recovery + caps + atomic claim + attempt-insert all inside).
         $claim = $this->endorserefreshqueueservice->claimBatch([
             'limit'         => $limit,

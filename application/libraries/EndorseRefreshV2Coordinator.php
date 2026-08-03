@@ -524,6 +524,12 @@ class EndorseRefreshV2Coordinator
                     continue;
                 }
 
+                // Supply the stable LOGICAL observation order (queue-row id) — parity with
+                // EndorseRefreshQueueService::applyResults so the Rust /result path is subject
+                // to the same ordering guard and cannot regress newer data or bypass the
+                // contract. Every production apply caller MUST set this.
+                $response['observation_seq'] = $queueId;
+
                 $purpose = strval($queue['purpose'] ?? 'daily');
                 if ($purpose === 'daily') {
                     $result = $this->CI->endorse_sync->apply(

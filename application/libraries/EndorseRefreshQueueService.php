@@ -4,6 +4,8 @@ defined('BASEPATH') or exit('No direct script access allowed');
 // Endorse_sync::is_terminal_class() and friends are called statically below; declare the
 // class outright instead of depending on a caller having loaded the library.
 require_once __DIR__ . '/Endorse_sync.php';
+require_once __DIR__ . '/EndorseRefreshClaimRepository.php';
+require_once __DIR__ . '/EndorseRefreshRateLimiter.php';
 
 class EndorseRefreshQueueService
 {
@@ -31,6 +33,222 @@ class EndorseRefreshQueueService
         $exponent = max(0, min(10, $attempts - 1));
 
         return $baseSeconds * (2 ** $exponent);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Provider-parity fix (fix/endorse-refresh-provider-parity).
+    //
+    // The healthy reference app (bhskin) drains sequentially: one item at a time,
+    // direct scrape with unlimited timeout, RapidAPI fallback retried inline. It
+    // never reserves more work than it can execute, so it reaches ~100% eventual
+    // success. Forbes reimplemented this as a batch queue that can CLAIM up to 500
+    // items while only ~PARALLEL_HTTP execute per run, and whose rolling rate limit
+    // counts CLAIMS, not started requests. Overlarge claims → mass deferral + the
+    // claim burst starves overlapping staggered runs.
+    //
+    // These pure helpers encode the corrected decisions. They are all default-off
+    // (behaviour identical to today) and independently unit-tested so the semantics
+    // cannot drift. Integration wiring reads them via env().
+    // ---------------------------------------------------------------------------
+
+    const LIMITER_CLAIM_RESERVATION = 'claim_reservation';
+    const LIMITER_REQUEST_START     = 'request_start_reservation';
+
+    /**
+     * Selected rate-limiter mode. Default preserves current production semantics
+     * (a token is reserved at CLAIM time). 'request_start_reservation' means a token
+     * is consumed immediately before each outbound request, by every started request
+     * regardless of outcome — and never by a claim that does not start.
+     */
+    public static function limiterMode(?string $raw = null): string
+    {
+        $raw = strtolower(trim((string) ($raw ?? env('ENDORSE_REFRESH_LIMITER_MODE', self::LIMITER_CLAIM_RESERVATION))));
+        return $raw === self::LIMITER_REQUEST_START
+            ? self::LIMITER_REQUEST_START
+            : self::LIMITER_CLAIM_RESERVATION;
+    }
+
+    public static function reservesAtRequestStart(?string $rawMode = null): bool
+    {
+        return self::limiterMode($rawMode) === self::LIMITER_REQUEST_START;
+    }
+
+    /**
+     * In request-start mode, EVERY outbound provider request consumes exactly one
+     * token — success, 429, 5xx, timeout, invalid JSON, application error alike.
+     * A claim that never starts a request (clean deferral) consumes nothing.
+     * Encodes acceptance criteria 5 & 6. Pure and total so it cannot drift.
+     *
+     * @param string $outcome one of: success|http_429|http_5xx|timeout|invalid|app_error|deferred_unstarted
+     */
+    public static function consumesRequestToken(string $outcome): bool
+    {
+        return $outcome !== 'deferred_unstarted' && $outcome !== '';
+    }
+
+    /**
+     * Incremental-claim sizing. Default off → returns the configured batch unchanged
+     * (current behaviour). When ENDORSE_REFRESH_INCREMENTAL_CLAIM is on, a run claims
+     * no more than it can actually start this pass: chunk = parallel_http * multiplier,
+     * capped by the batch. This is what stops one run reserving hundreds of items for
+     * ~20 execution slots and starving the staggered runs behind it.
+     *
+     * Initial safe rule: claim_chunk <= effective_parallel_http (multiplier 1). A larger
+     * multiplier is allowed only with test evidence; clamped to [1,4] here.
+     */
+    public static function effectiveClaimLimit(int $configuredBatch, int $parallelHttp, bool $incremental, int $multiplier = 1): int
+    {
+        $configuredBatch = max(1, $configuredBatch);
+        if (!$incremental) {
+            return $configuredBatch;
+        }
+        $parallelHttp = max(1, $parallelHttp);
+        $multiplier   = max(1, min(4, $multiplier));
+        $chunk        = $parallelHttp * $multiplier;
+        return max(1, min($configuredBatch, $chunk));
+    }
+
+    public static function incrementalClaimEnabled(?string $raw = null): bool
+    {
+        $raw = strtolower(trim((string) ($raw ?? env('ENDORSE_REFRESH_INCREMENTAL_CLAIM', 'false'))));
+        return $raw === '1' || $raw === 'true' || $raw === 'on' || $raw === 'yes';
+    }
+
+    /**
+     * Parity with bhskin's `has_valid_stats`: the direct scrape is only "usable" when
+     * at least one engagement stat is strictly > 0. Forbes' isValidTiktokScrapeItem
+     * accepts a row where the keys merely EXIST (all-zero), which both writes bogus
+     * zeros and masks the need to fall back. Default off to preserve behaviour.
+     *
+     * @param array $stats e.g. ['diggCount'=>.., 'playCount'=>.., ...]
+     */
+    public static function scrapeStatsAreUsable(array $stats): bool
+    {
+        foreach (['diggCount', 'shareCount', 'commentCount', 'collectCount', 'playCount'] as $k) {
+            if (intval($stats[$k] ?? 0) > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static function strictScrapeStatsEnabled(?string $raw = null): bool
+    {
+        $raw = strtolower(trim((string) ($raw ?? env('ENDORSE_REFRESH_STRICT_SCRAPE_STATS', 'false'))));
+        return $raw === '1' || $raw === 'true' || $raw === 'on' || $raw === 'yes';
+    }
+
+    /**
+     * True incremental draining decision: given the run deadline and time already
+     * spent, decide whether another slot-sized chunk may be claimed. Encodes rule 7
+     * (never start work that cannot safely finish): only claim again if the remaining
+     * budget exceeds one chunk's worst-case wall (perItemTimeout) plus a safety margin.
+     * Pure so the loop's stop condition is regression-locked.
+     */
+    public static function mayClaimAnotherChunk(float $deadlineSec, float $elapsedSec, float $perItemTimeoutSec, float $safetyMarginSec = 2.0): bool
+    {
+        $remaining = $deadlineSec - $elapsedSec;
+        return $remaining >= ($perItemTimeoutSec + $safetyMarginSec);
+    }
+
+    /**
+     * True incremental drain loop. Repeatedly claims a slot-sized chunk, processes it,
+     * and only claims again while the deadline safely allows another chunk — so ONE run
+     * drains MULTIPLE bounded chunks instead of reserving one huge batch it cannot start.
+     *
+     * Fully injectable (clock + claim + process callables) so the multi-chunk behaviour,
+     * deadline stop and clean release are deterministically testable without CI or a DB.
+     *
+     *   $claimChunk(int $chunkSize): array  → returns claimed items (possibly < chunkSize)
+     *   $process(array $items): array       → ['started'=>int,'unique_completed'=>int,'deferred'=>int]
+     *   $now(): float                       → monotonic seconds
+     *
+     * @return array run totals incl. chunk count.
+     */
+    public static function drainIncrementally(
+        float $deadlineSec,
+        int $chunkSize,
+        float $perChunkTimeoutSec,
+        callable $claimChunk,
+        callable $process,
+        callable $now,
+        float $safetyMarginSec = 2.0
+    ): array {
+        $start = $now();
+        $totals = ['chunks' => 0, 'claimed' => 0, 'requests_started' => 0, 'unique_completed' => 0, 'deferred_unstarted' => 0];
+        while (true) {
+            $elapsed = $now() - $start;
+            if (!self::mayClaimAnotherChunk($deadlineSec, $elapsed, $perChunkTimeoutSec, $safetyMarginSec)) {
+                break;
+            }
+            $items = $claimChunk(max(1, $chunkSize));
+            $claimed = is_array($items) ? count($items) : 0;
+            if ($claimed === 0) {
+                break; // queue empty for now
+            }
+            $totals['chunks']++;
+            $totals['claimed'] += $claimed;
+            $r = $process($items);
+            $totals['requests_started']   += intval($r['started'] ?? 0);
+            $totals['unique_completed']   += intval($r['unique_completed'] ?? 0);
+            $totals['deferred_unstarted'] += intval($r['deferred'] ?? 0);
+        }
+        return $totals;
+    }
+
+    public static function inlineFallbackRetryEnabled(?string $raw = null): bool
+    {
+        $raw = strtolower(trim((string) ($raw ?? env('ENDORSE_REFRESH_INLINE_FALLBACK_RETRY', 'false'))));
+        return $raw === '1' || $raw === 'true' || $raw === 'on' || $raw === 'yes';
+    }
+
+    /**
+     * Bounded inline-retry policy. Parity with bhskin's inline retry WITHOUT its
+     * unlimited timeout: retry only proven-retryable classes, cap attempts, and never
+     * start another retry unless enough run budget remains for a full attempt.
+     *
+     * @param string $errorClass Endorse_sync::ERR_* of the just-finished attempt
+     * @return bool whether another inline retry should be started now
+     */
+    public static function shouldInlineRetry(string $errorClass, int $attemptNo, int $maxAttempts, float $remainingBudgetSec, float $perAttemptTimeoutSec): bool
+    {
+        if ($attemptNo >= $maxAttempts) {
+            return false;
+        }
+        if ($remainingBudgetSec < $perAttemptTimeoutSec) {
+            return false; // not enough time to complete another attempt safely
+        }
+        $retryable = [
+            Endorse_sync::ERR_TRANSIENT,
+            Endorse_sync::ERR_INFRA,
+            Endorse_sync::ERR_INFRA_DNS,
+            Endorse_sync::ERR_INFRA_CONNECT,
+            Endorse_sync::ERR_INFRA_TLS,
+            Endorse_sync::ERR_INFRA_STALL,
+        ];
+        return in_array($errorClass, $retryable, true);
+    }
+
+    /**
+     * Structured per-run summary for observability. Distinguishes claims, actual
+     * requests started, completions and UNIQUE successes (the business metric) so an
+     * operator never again mistakes `processed` for throughput. Returns a compact JSON
+     * string; contains no URLs, cookies, keys or bodies.
+     */
+    public static function buildRunSummary(array $m): string
+    {
+        $fields = [
+            'run_id', 'worker_id', 'source_revision', 'fetch_mode', 'limiter_mode',
+            'effective_batch', 'effective_concurrency', 'effective_rate',
+            'claimed', 'requests_started', 'direct_attempts', 'direct_successes',
+            'fallback_attempts', 'fallback_successes', 'transient', 'terminal',
+            'deferred_unstarted', 'stale_recovered', 'unique_completed', 'wall_ms',
+        ];
+        $out = ['evt' => 'endorse_refresh_run'];
+        foreach ($fields as $f) {
+            $out[$f] = $m[$f] ?? null;
+        }
+        return json_encode($out, JSON_UNESCAPED_SLASHES);
     }
 
     /**
@@ -713,6 +931,19 @@ class EndorseRefreshQueueService
         } elseif ($limit > 500) {
             $limit = 500;
         }
+
+        // Incremental claim (default off). When enabled, never reserve more than one
+        // run can actually start (chunk = parallel_http * multiplier), so a big batch
+        // cannot strand rows or starve overlapping staggered runs. See effectiveClaimLimit().
+        $incremental = array_key_exists('incremental_claim', $opts)
+            ? !empty($opts['incremental_claim'])
+            : self::incrementalClaimEnabled();
+        if ($incremental) {
+            $parallelHttp = intval($opts['parallel_http'] ?? env('ENDORSE_REFRESH_PARALLEL_HTTP', 10));
+            $multiplier   = intval($opts['claim_chunk_multiplier'] ?? env('ENDORSE_REFRESH_CLAIM_CHUNK_MULTIPLIER', 1));
+            $limit = self::effectiveClaimLimit($limit, $parallelHttp, true, $multiplier);
+        }
+
         $force = !empty($opts['force']);
         $staleMinutes = intval($opts['stale_minutes'] ?? 5);
         if ($staleMinutes < 1) {
@@ -790,19 +1021,11 @@ class EndorseRefreshQueueService
         $retryBaseSeconds = max(1, min(3600, $retryBaseSeconds));
 
         // Atomic claim (single UPDATE serialized by MySQL). `attempts ASC` after priority
-        // drains never-tried rows before re-queued transient retries.
-        $this->db->query("
-            UPDATE endorse_refresh_queue
-            SET status = 'processing', worker_id = '$worker_id', claimed_at = '$now', started_at = '$now'
-            WHERE status = 'pending' AND platform != 'Threads' AND worker_id IS NULL
-              AND (
-                    claimed_at IS NULL
-                    OR TIMESTAMPDIFF(SECOND, claimed_at, NOW()) >=
-                       ($retryBaseSeconds * POW(2, LEAST(10, GREATEST(attempts - 1, 0))))
-              )
-            ORDER BY priority DESC, attempts ASC, created_at ASC
-            LIMIT $limit
-        ");
+        // drains never-tried rows before re-queued transient retries. The statement is built
+        // by the shared repository so the MySQL concurrency tests exercise this exact SQL.
+        $this->db->query(
+            EndorseRefreshClaimRepository::buildClaimSql($worker_id, $now, $limit, $retryBaseSeconds)
+        );
         $claimed = $this->db->affected_rows();
         if ($claimed <= 0) {
             return ['status' => true, 'claimed' => 0, 'items' => [], 'worker_id' => $worker_id];
@@ -909,6 +1132,34 @@ class EndorseRefreshQueueService
      * logged" bug: the true error is recorded as it happens, never masked by resetStuck's
      * generic stall label after a 60s guillotine.
      */
+    /**
+     * Return a chunk of claimed-but-unstarted items to `pending` and delete their up-front
+     * attempt rows — identical to the clean-deferral path in applyResults(), so incremental
+     * draining never strands rows and unstarted work consumes no provider budget/attempt.
+     *
+     * @param array $items claimBatch items (need queue_id, attempt_no, worker_id)
+     */
+    public function releaseUnstartedChunk(array $items): int
+    {
+        $released = 0;
+        foreach ($items as $item) {
+            $queue_id = intval($item['queue_id'] ?? 0);
+            if ($queue_id <= 0) {
+                continue;
+            }
+            $this->db->update('endorse_refresh_queue', [
+                'status' => 'pending', 'worker_id' => null, 'started_at' => null, 'claimed_at' => null,
+            ], ['id' => $queue_id]);
+            $this->db->delete('endorse_refresh_queue_attempts', [
+                'queue_id'   => $queue_id,
+                'attempt_no' => intval($item['attempt_no'] ?? (intval($item['attempts'] ?? 0) + 1)),
+                'worker_id'  => strval($item['worker_id'] ?? ''),
+            ]);
+            $released++;
+        }
+        return $released;
+    }
+
     public function applyResults(array $items, array $responses): array
     {
         if (empty($items)) {
@@ -929,7 +1180,7 @@ class EndorseRefreshQueueService
         }
         $prevStatsMap = $this->CI->endorse_sync->load_prev_stats_batch($endorseIds, $today);
 
-        $completed = 0; $failed = 0; $retrying = 0; $deferred = 0;
+        $completed = 0; $failed = 0; $retrying = 0; $deferred = 0; $exceptioned = 0;
         $touched = [];
 
         foreach ($items as $i => $item) {
@@ -960,53 +1211,80 @@ class EndorseRefreshQueueService
                 continue;
             }
 
+            // Stamp the stable LOGICAL observation order for every path (legacy batch AND
+            // incremental runner). The queue-row id is monotonic and constant across all
+            // attempts/retries of this refresh generation, so a retry cannot outrank a newer
+            // job. This is the freshness authority — not any request-start timestamp.
+            $response['observation_seq'] = $queue_id;
+
             $purpose = strval($item['purpose'] ?? 'daily');
-            if ($purpose === 'daily') {
-                $result = $this->CI->endorse_sync->apply(
-                    $endorse, $response, intval($item['enqueued_by'] ?: 0), $prevStatsMap[$id_endorse] ?? null
-                );
-            } else {
-                $result = $this->CI->endorse_sync->apply_snapshot(
-                    $endorse, $response, $purpose, intval($item['enqueued_by'] ?: 0)
-                );
-            }
 
-            if ($result['status']) {
-                $completedAt = date('Y-m-d H:i:s');
-                $this->db->update('endorse_refresh_queue', [
-                    'status' => 'completed', 'attempts' => $attempts, 'error_message' => null,
-                    'worker_id' => null, 'completed_at' => $completedAt,
-                ], ['id' => $queue_id]);
-                $this->finalizeQueueAttempt($queue_id, $attempts, $worker_id, 'completed', null, null, $completedAt);
+            // ONE consistency boundary per item: the business writes (endorse stats + endorse_logs,
+            // inside apply()) AND the queue/attempt state transition commit together or not at all.
+            // A crash/exception anywhere rolls the whole item back, leaving the queue row
+            // 'processing' → stale recovery re-claims and retries it cleanly (the logical
+            // observation sequence is unchanged, so the retry re-applies without regressing data).
+            // The campaign rollup is a derived aggregate and stays OUTSIDE the transaction.
+            $this->db->trans_begin();
+            try {
                 if ($purpose === 'daily') {
-                    $touched[intval($endorse['id_campaign'])] = true;
+                    $result = $this->CI->endorse_sync->apply(
+                        $endorse, $response, intval($item['enqueued_by'] ?: 0), $prevStatsMap[$id_endorse] ?? null
+                    );
+                } else {
+                    $result = $this->CI->endorse_sync->apply_snapshot(
+                        $endorse, $response, $purpose, intval($item['enqueued_by'] ?: 0)
+                    );
                 }
-                $completed++;
-                continue;
-            }
 
-            $errorClass = $result['error_class'] ?? Endorse_sync::ERR_TRANSIENT;
-            $msg = $result['msg'] ?: 'Gagal';
+                if ($result['status']) {
+                    $completedAt = date('Y-m-d H:i:s');
+                    $this->db->update('endorse_refresh_queue', [
+                        'status' => 'completed', 'attempts' => $attempts, 'error_message' => null,
+                        'worker_id' => null, 'completed_at' => $completedAt,
+                    ], ['id' => $queue_id]);
+                    $this->finalizeQueueAttempt($queue_id, $attempts, $worker_id, 'completed', null, null, $completedAt);
+                    $this->commitOrThrow();
+                    if ($purpose === 'daily') {
+                        $touched[intval($endorse['id_campaign'])] = true;
+                    }
+                    $completed++;
+                    continue;
+                }
 
-            // Only genuinely unrecoverable classes fail immediately; transport/infra classes
-            // retry up to max_attempts (one upstream outage must not drain the queue to failed).
-            if (Endorse_sync::is_terminal_class($errorClass)) {
-                $this->markQueueFailed($queue_id, $attempts, $msg, $errorClass, $worker_id);
-                $failed++;
-                continue;
-            }
+                $errorClass = $result['error_class'] ?? Endorse_sync::ERR_TRANSIENT;
+                $msg = $result['msg'] ?: 'Gagal';
 
-            if ($attempts >= $maxAttempts) {
-                $this->markQueueFailed($queue_id, $attempts, "$msg (after $attempts attempts)", $errorClass, $worker_id);
-                $failed++;
-            } else {
-                $finishedAt = date('Y-m-d H:i:s');
-                $this->db->update('endorse_refresh_queue', [
-                    'status' => 'pending', 'attempts' => $attempts, 'error_message' => $msg,
-                    'worker_id' => null, 'started_at' => null, 'claimed_at' => $finishedAt,
-                ], ['id' => $queue_id]);
-                $this->finalizeQueueAttempt($queue_id, $attempts, $worker_id, 'retrying', $errorClass, $msg, $finishedAt);
-                $retrying++;
+                // Only genuinely unrecoverable classes fail immediately; transport/infra classes
+                // retry up to max_attempts (one upstream outage must not drain the queue to failed).
+                if (Endorse_sync::is_terminal_class($errorClass)) {
+                    $this->markQueueFailed($queue_id, $attempts, $msg, $errorClass, $worker_id);
+                    $this->commitOrThrow();
+                    $failed++;
+                    continue;
+                }
+
+                if ($attempts >= $maxAttempts) {
+                    $this->markQueueFailed($queue_id, $attempts, "$msg (after $attempts attempts)", $errorClass, $worker_id);
+                    $this->commitOrThrow();
+                    $failed++;
+                } else {
+                    $finishedAt = date('Y-m-d H:i:s');
+                    $this->db->update('endorse_refresh_queue', [
+                        'status' => 'pending', 'attempts' => $attempts, 'error_message' => $msg,
+                        'worker_id' => null, 'started_at' => null, 'claimed_at' => $finishedAt,
+                    ], ['id' => $queue_id]);
+                    $this->finalizeQueueAttempt($queue_id, $attempts, $worker_id, 'retrying', $errorClass, $msg, $finishedAt);
+                    $this->commitOrThrow();
+                    $retrying++;
+                }
+            } catch (\Throwable $e) {
+                // Crash between side effects (incl. simulated crashes, deadlocks, connection
+                // loss): roll back so no partial business state is visible. The row stays
+                // 'processing' and is safely recovered later. Never leaves duplicated effects.
+                $this->db->trans_rollback();
+                $this->log_apply_exception($queue_id, $attempts, $e);
+                $exceptioned++;
             }
         }
 
@@ -1016,8 +1294,28 @@ class EndorseRefreshQueueService
 
         return [
             'completed' => $completed, 'failed' => $failed, 'retrying' => $retrying,
-            'deferred' => $deferred, 'processed' => count($items),
+            'deferred' => $deferred, 'exceptioned' => $exceptioned, 'processed' => count($items),
         ];
+    }
+
+    /** Commit the per-item transaction, converting a failed transaction into an exception
+     *  so the caller's catch rolls it back (no partial business state ever commits). */
+    private function commitOrThrow(): void
+    {
+        if ($this->db->trans_status() === false) {
+            throw new RuntimeException('endorse apply transaction failed');
+        }
+        $this->db->trans_commit();
+    }
+
+    private function log_apply_exception(int $queue_id, int $attempts, \Throwable $e): void
+    {
+        error_log(json_encode([
+            'evt' => 'endorse_apply_exception',
+            'queue_id' => $queue_id,
+            'attempt' => $attempts,
+            'error' => $e->getMessage(),
+        ], JSON_UNESCAPED_SLASHES));
     }
 
     /**

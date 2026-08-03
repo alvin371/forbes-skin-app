@@ -1,0 +1,14 @@
+{
+  "_about": "Sanitized shared parity corpus for Forbes vs bhskin (golden reference). Identical normalized content identity in both apps. No credentials/cookies/keys. content_id/media_type are the semantic contract both apps' extractors must satisfy (parsers verified semantically-equivalent by source diff).",
+  "items": [
+    {"shape": "canonical-video",      "url": "https://www.tiktok.com/@creator/video/7543561482844392722",                       "content_id": "7543561482844392722", "media_type": "video"},
+    {"shape": "video+tracking-query", "url": "https://www.tiktok.com/@creator/video/7564764326364597512?is_from_webapp=1&",      "content_id": "7564764326364597512", "media_type": "video"},
+    {"shape": "photo-slideshow",      "url": "https://www.tiktok.com/@creator/photo/7543552831580687623?is_from_webapp=1&",      "content_id": "7543552831580687623", "media_type": "photo"},
+    {"shape": "photo-clean",          "url": "https://www.tiktok.com/@creator/photo/7559012321352322360",                        "content_id": "7559012321352322360", "media_type": "photo"},
+    {"shape": "video+fragment",       "url": "https://www.tiktok.com/@creator/video/7551611565087444231#hashtag",                "content_id": "7551611565087444231", "media_type": "video"},
+    {"shape": "no-scheme",            "url": "www.tiktok.com/@creator/video/7546117606760156434",                                "content_id": "7546117606760156434", "media_type": "video"},
+    {"shape": "digits-only-fallback", "url": "https://vt.tiktok.com/7543851763024055559/",                                       "content_id": "7543851763024055559", "media_type": ""},
+    {"shape": "empty",                "url": "",                                                                                 "content_id": "",                    "media_type": ""},
+    {"shape": "non-tiktok",           "url": "https://example.com/nope",                                                         "content_id": "",                    "media_type": ""}
+  ]
+}

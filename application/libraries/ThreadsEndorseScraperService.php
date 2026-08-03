@@ -111,6 +111,10 @@ class ThreadsEndorseScraperService
                 continue;
             }
             $endorse = $endorseRows[0];
+            // Threads rows never enter the main endorse_refresh_queue (claimBatch excludes
+            // platform='Threads'), so the Threads scraper queue id is this row's single,
+            // consistent logical observation source — stable across its retries.
+            $response['observation_seq'] = intval($row['id']);
             $purpose = strval($row['purpose'] ?? 'daily');
             $applied = $purpose === 'daily'
                 ? $this->CI->endorse_sync->apply($endorse, $response, intval($row['enqueued_by'] ?? 0))

@@ -2134,6 +2134,10 @@ class Endorse extends BaseController
         );
 
         $this->load->library('endorse_sync');
+        // Manual "Refresh data" is an interactive, authoritative sync with no queue generation:
+        // write the current stats but leave stats_observation_seq untouched so a later queue
+        // refresh still applies and queue ordering is preserved. See apply()'s null-order branch.
+        $response['observation_authoritative'] = true;
         $result = $this->endorse_sync->apply($endorse, $response, $user_id);
 
         if (empty($result['status'])) {

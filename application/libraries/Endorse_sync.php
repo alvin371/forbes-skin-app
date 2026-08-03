@@ -34,6 +34,25 @@ class Endorse_sync
             || $errorClass === self::ERR_EMPTY;
     }
 
+    /**
+     * Ordering guard, single source of truth (unit-tested). An observation is stale when the
+     * row already carries an observation timestamp that is newer than, or equal to, the
+     * incoming one — so a late older/duplicate response cannot overwrite fresher data.
+     * A missing/empty existing timestamp (first observation) or a missing incoming timestamp
+     * is never treated as stale, preserving forward progress and legacy behaviour.
+     *
+     * Both values are 'Y-m-d H:i:s[.u]' in UTC; string comparison is correct for that format.
+     */
+    public static function isStaleObservation(string $existingObservedAt, string $incomingObservedAt): bool
+    {
+        $existingObservedAt = trim($existingObservedAt);
+        $incomingObservedAt = trim($incomingObservedAt);
+        if ($existingObservedAt === '' || $incomingObservedAt === '') {
+            return false;
+        }
+        return $incomingObservedAt <= $existingObservedAt;
+    }
+
     /** @var CI_Controller */
     protected $CI;
 
@@ -246,7 +265,8 @@ class Endorse_sync
         }
 
         $db = $this->CI->db;
-        $today = $this->businessDateFromObservedAt(strval($response['observed_at']));
+        $incomingObservedAt = strval($response['observed_at']);
+        $today = $this->businessDateFromObservedAt($incomingObservedAt);
         $id_endorse = intval($endorse['id']);
 
         if ($prev_stats === null) {
@@ -319,7 +339,56 @@ class Endorse_sync
             $endorseUpdate['threads_media_id'] = strval($response['data']['content_id']);
         }
 
-        $db->update('endorse', $endorseUpdate, ['id' => $id_endorse]);
+        // LOGICAL-ORDER guard. Freshness is decided by `stats_observation_seq` — the monotonic
+        // queue-row id, STABLE across all attempts/retries of one refresh generation (so a
+        // retry cannot outrank a newer job) and strictly greater for a genuinely newer refresh.
+        // The check is atomic (lives in the UPDATE's WHERE); affected-row count classifies the
+        // outcome. `$applyStats` decides whether the stat columns are (re)written; duplicates
+        // still fall through to the log upsert so a crash BEFORE endorse_logs recovers on retry.
+        $hasSeqCol   = $db->field_exists('stats_observation_seq', 'endorse');
+        $incomingSeq = (array_key_exists('observation_seq', $response) && $response['observation_seq'] !== null && $response['observation_seq'] !== '')
+            ? intval($response['observation_seq'])
+            : null;
+        $outcome = 'applied_newer';
+
+        if ($hasSeqCol && $incomingSeq === null) {
+            // No queue-derived order. Two legitimate cases:
+            //  - interactive/authoritative sync (manual "Refresh data" button): the user asked
+            //    for CURRENT data now → write the stats but DO NOT advance stats_observation_seq,
+            //    so a later queue generation (whatever its id) still applies and ordering stays
+            //    intact. This is the only sanctioned way to reach apply without an order.
+            //  - first-ever observation on a row that has no order yet → apply.
+            // Anything else (a queue-style caller that failed to supply an order over ORDERED
+            // data) is a contract violation and must not overwrite fresher data.
+            $authoritative = !empty($response['observation_authoritative']);
+            $curSeq = $this->currentObservationSeq($id_endorse);
+            if ($curSeq !== null && !$authoritative) {
+                $this->emitContractError($id_endorse, 'missing_observation_seq');
+                return ['status' => true, 'error_class' => self::ERR_OK, 'msg' => 'contract_error: missing observation order', 'outcome' => 'contract_error'];
+            }
+            $db->update('endorse', $endorseUpdate, ['id' => $id_endorse]);
+            $outcome = ($authoritative && $curSeq !== null) ? 'applied_authoritative' : 'applied_newer';
+        } elseif ($hasSeqCol) {
+            $endorseUpdate['stats_observation_seq'] = $incomingSeq;
+            $db->where('id', $id_endorse);
+            $db->where('(stats_observation_seq IS NULL OR stats_observation_seq < ' . intval($incomingSeq) . ')', null, false);
+            $db->update('endorse', $endorseUpdate);
+            if (intval($db->affected_rows()) < 1) {
+                // 0 rows changed → classify precisely (never one undocumented bucket).
+                $curSeq = $this->currentObservationSeq($id_endorse);
+                if ($curSeq !== null && $curSeq > $incomingSeq) {
+                    return ['status' => true, 'error_class' => self::ERR_OK, 'msg' => 'stale observation skipped', 'outcome' => 'stale'];
+                }
+                // equal sequence → duplicate delivery. The stat columns are already current, so
+                // the endorse UPDATE was a no-op; we STILL fall through to the log upsert
+                // (idempotent via the unique (id_endorse,date) key) so a crash before
+                // endorse_logs is repaired on retry.
+                $outcome = 'duplicate';
+            }
+        } else {
+            // Legacy schema without the sequence column → previous unguarded behaviour.
+            $db->update('endorse', $endorseUpdate, ['id' => $id_endorse]);
+        }
 
         // endorse_logs upsert for today.
         $existing = $this->CI->mymodel->selectWithQuery("
@@ -373,11 +442,22 @@ class Endorse_sync
         ];
         $this->applyObservationMetadata('endorse_logs', $logRow, $response);
 
+        if ($hasSeqCol && $incomingSeq !== null && $db->field_exists('stats_observation_seq', 'endorse_logs')) {
+            $logRow['stats_observation_seq'] = $incomingSeq;
+        }
+
         if ($existing_log_id) {
-            $logRow['updated_at'] = date('Y-m-d H:i:s');
-            $logRow['updated_by'] = strval($user_id);
-            $db->update('endorse_logs', $logRow, ['id' => $existing_log_id]);
+            // A duplicate delivery (same observation order) must not rewrite an existing log —
+            // the endorse row was left unchanged, so the already-written log stays consistent.
+            // Only applied_newer refreshes update the log.
+            if ($outcome !== 'duplicate') {
+                $logRow['updated_at'] = date('Y-m-d H:i:s');
+                $logRow['updated_by'] = strval($user_id);
+                $db->update('endorse_logs', $logRow, ['id' => $existing_log_id]);
+            }
         } else {
+            // Missing log (first apply, or a crash before the log write on a prior attempt) →
+            // insert. This is what makes the whole apply crash-recoverable.
             $logRow['created_at'] = date('Y-m-d H:i:s');
             $logRow['created_by'] = strval($user_id);
             $db->insert('endorse_logs', $logRow);
@@ -387,7 +467,30 @@ class Endorse_sync
             'status'      => true,
             'error_class' => self::ERR_OK,
             'msg'         => 'OK',
+            'outcome'     => $outcome,
         ];
+    }
+
+    /** Authoritative current logical observation sequence for a row (null if unset). */
+    private function currentObservationSeq(int $id_endorse): ?int
+    {
+        $rows = $this->CI->mymodel->selectWithQuery(
+            "SELECT stats_observation_seq FROM endorse WHERE id = '$id_endorse'"
+        );
+        if (empty($rows) || !array_key_exists('stats_observation_seq', $rows[0]) || $rows[0]['stats_observation_seq'] === null) {
+            return null;
+        }
+        return intval($rows[0]['stats_observation_seq']);
+    }
+
+    /** Emit a structured contract-error metric (no secrets). */
+    private function emitContractError(int $id_endorse, string $reason): void
+    {
+        error_log(json_encode([
+            'evt'        => 'endorse_apply_contract_error',
+            'reason'     => $reason,
+            'id_endorse' => $id_endorse,
+        ], JSON_UNESCAPED_SLASHES));
     }
 
     /**
