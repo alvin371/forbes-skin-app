@@ -137,6 +137,137 @@ class EndorseRefreshQueueService
     }
 
     /**
+     * Atomic request-start reservation over a rolling window, safe across overlapping
+     * workers WITHOUT Redis. A MySQL user-level lock (GET_LOCK) serialises the
+     * check-and-insert so N concurrent workers can never exceed $limit tokens in the
+     * last $windowSec. Called immediately before an outbound provider request; the
+     * token is retained regardless of the request's outcome. Returns true if granted.
+     *
+     * Uses the existing MySQL infrastructure (a tiny append-only token table). Pure of
+     * CI so it is directly testable with concurrent PDO connections.
+     */
+    public static function tryReserveToken(PDO $pdo, int $limit, int $windowSec = 60, string $lockName = 'erq_rate'): bool
+    {
+        if ($limit <= 0) {
+            return false;
+        }
+        $scalar = static function (PDO $pdo, string $sql) {
+            $st = $pdo->query($sql);
+            $v = $st->fetchColumn();
+            $st->closeCursor();
+            return $v;
+        };
+        $got = $scalar($pdo, "SELECT GET_LOCK(" . $pdo->quote($lockName) . ", 5)");
+        if (intval($got) !== 1) {
+            return false; // could not serialise → fail closed (do not over-reserve)
+        }
+        try {
+            $used = (int) $scalar(
+                $pdo,
+                "SELECT COUNT(*) FROM endorse_refresh_rate_tokens WHERE created_at > (NOW(6) - INTERVAL $windowSec SECOND)"
+            );
+            if ($used >= $limit) {
+                return false;
+            }
+            $pdo->exec("INSERT INTO endorse_refresh_rate_tokens (created_at) VALUES (NOW(6))");
+            return true;
+        } finally {
+            $scalar($pdo, "SELECT RELEASE_LOCK(" . $pdo->quote($lockName) . ")");
+        }
+    }
+
+    /**
+     * True incremental draining decision: given the run deadline and time already
+     * spent, decide whether another slot-sized chunk may be claimed. Encodes rule 7
+     * (never start work that cannot safely finish): only claim again if the remaining
+     * budget exceeds one chunk's worst-case wall (perItemTimeout) plus a safety margin.
+     * Pure so the loop's stop condition is regression-locked.
+     */
+    public static function mayClaimAnotherChunk(float $deadlineSec, float $elapsedSec, float $perItemTimeoutSec, float $safetyMarginSec = 2.0): bool
+    {
+        $remaining = $deadlineSec - $elapsedSec;
+        return $remaining >= ($perItemTimeoutSec + $safetyMarginSec);
+    }
+
+    /**
+     * True incremental drain loop. Repeatedly claims a slot-sized chunk, processes it,
+     * and only claims again while the deadline safely allows another chunk — so ONE run
+     * drains MULTIPLE bounded chunks instead of reserving one huge batch it cannot start.
+     *
+     * Fully injectable (clock + claim + process callables) so the multi-chunk behaviour,
+     * deadline stop and clean release are deterministically testable without CI or a DB.
+     *
+     *   $claimChunk(int $chunkSize): array  → returns claimed items (possibly < chunkSize)
+     *   $process(array $items): array       → ['started'=>int,'unique_completed'=>int,'deferred'=>int]
+     *   $now(): float                       → monotonic seconds
+     *
+     * @return array run totals incl. chunk count.
+     */
+    public static function drainIncrementally(
+        float $deadlineSec,
+        int $chunkSize,
+        float $perChunkTimeoutSec,
+        callable $claimChunk,
+        callable $process,
+        callable $now,
+        float $safetyMarginSec = 2.0
+    ): array {
+        $start = $now();
+        $totals = ['chunks' => 0, 'claimed' => 0, 'requests_started' => 0, 'unique_completed' => 0, 'deferred_unstarted' => 0];
+        while (true) {
+            $elapsed = $now() - $start;
+            if (!self::mayClaimAnotherChunk($deadlineSec, $elapsed, $perChunkTimeoutSec, $safetyMarginSec)) {
+                break;
+            }
+            $items = $claimChunk(max(1, $chunkSize));
+            $claimed = is_array($items) ? count($items) : 0;
+            if ($claimed === 0) {
+                break; // queue empty for now
+            }
+            $totals['chunks']++;
+            $totals['claimed'] += $claimed;
+            $r = $process($items);
+            $totals['requests_started']   += intval($r['started'] ?? 0);
+            $totals['unique_completed']   += intval($r['unique_completed'] ?? 0);
+            $totals['deferred_unstarted'] += intval($r['deferred'] ?? 0);
+        }
+        return $totals;
+    }
+
+    public static function inlineFallbackRetryEnabled(?string $raw = null): bool
+    {
+        $raw = strtolower(trim((string) ($raw ?? env('ENDORSE_REFRESH_INLINE_FALLBACK_RETRY', 'false'))));
+        return $raw === '1' || $raw === 'true' || $raw === 'on' || $raw === 'yes';
+    }
+
+    /**
+     * Bounded inline-retry policy. Parity with bhskin's inline retry WITHOUT its
+     * unlimited timeout: retry only proven-retryable classes, cap attempts, and never
+     * start another retry unless enough run budget remains for a full attempt.
+     *
+     * @param string $errorClass Endorse_sync::ERR_* of the just-finished attempt
+     * @return bool whether another inline retry should be started now
+     */
+    public static function shouldInlineRetry(string $errorClass, int $attemptNo, int $maxAttempts, float $remainingBudgetSec, float $perAttemptTimeoutSec): bool
+    {
+        if ($attemptNo >= $maxAttempts) {
+            return false;
+        }
+        if ($remainingBudgetSec < $perAttemptTimeoutSec) {
+            return false; // not enough time to complete another attempt safely
+        }
+        $retryable = [
+            Endorse_sync::ERR_TRANSIENT,
+            Endorse_sync::ERR_INFRA,
+            Endorse_sync::ERR_INFRA_DNS,
+            Endorse_sync::ERR_INFRA_CONNECT,
+            Endorse_sync::ERR_INFRA_TLS,
+            Endorse_sync::ERR_INFRA_STALL,
+        ];
+        return in_array($errorClass, $retryable, true);
+    }
+
+    /**
      * Structured per-run summary for observability. Distinguishes claims, actual
      * requests started, completions and UNIQUE successes (the business metric) so an
      * operator never again mistakes `processed` for throughput. Returns a compact JSON
