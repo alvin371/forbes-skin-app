@@ -8267,7 +8267,15 @@ class Api_v2 extends CI_Controller
                 } : null,
                 'fetch' => function (array $item, int $attempt) use ($tpl, $svc) {
                     $o = $item['orig'];
+                    // Stamp the observation time at REQUEST START (UTC, microseconds), not at
+                    // apply time — this is the ordering signal the atomic guard compares, so a
+                    // late older response cannot regress newer stats regardless of apply order.
+                    $mt = microtime(true);
+                    $observedAt = gmdate('Y-m-d H:i:s', (int) $mt) . '.' . sprintf('%06d', (int) round(($mt - floor($mt)) * 1e6));
                     $resp = $tpl->get_social_media($o['platform'], $o['url'], true, intval($o['influencer_id'] ?? 0) ?: null);
+                    if (is_array($resp)) {
+                        $resp['observed_at'] = $observedAt;
+                    }
                     $cls = $svc->classify_response($resp, strval($o['platform']), strval($o['url']));
                     return ['ok' => $cls['class'] === Endorse_sync::ERR_OK, 'error_class' => $cls['class'], '_resp' => $resp, 'path' => 'rapidapi'];
                 },

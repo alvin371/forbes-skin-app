@@ -264,20 +264,9 @@ class Endorse_sync
             ];
         }
 
-        // Out-of-order guard: a late-arriving OLDER observation must never regress newer
-        // stats (overlapping workers / retries can finish out of order). Compare the incoming
-        // observation time with the one already stored on the row; skip stale writes as an
-        // idempotent no-op. Forward and first-ever observations always apply.
-        if ($this->isStaleObservation(strval($endorse['stats_observed_at'] ?? ''), strval($response['observed_at']))) {
-            return [
-                'status'      => true,
-                'error_class' => self::ERR_OK,
-                'msg'         => 'Stale observation skipped (ordering guard)',
-            ];
-        }
-
         $db = $this->CI->db;
-        $today = $this->businessDateFromObservedAt(strval($response['observed_at']));
+        $incomingObservedAt = strval($response['observed_at']);
+        $today = $this->businessDateFromObservedAt($incomingObservedAt);
         $id_endorse = intval($endorse['id']);
 
         if ($prev_stats === null) {
@@ -350,7 +339,28 @@ class Endorse_sync
             $endorseUpdate['threads_media_id'] = strval($response['data']['content_id']);
         }
 
-        $db->update('endorse', $endorseUpdate, ['id' => $id_endorse]);
+        // ATOMIC out-of-order guard. Instead of SELECT→compare→UPDATE (racy across overlapping
+        // workers), the freshness check lives IN the UPDATE's WHERE: the row is written only if
+        // no newer observation is already stored. `stats_observed_at` carries the incoming
+        // observation time. The affected-row count is the single authority on the outcome:
+        //   1 → applied; 0 → stale/duplicate/lost-race (skip logs, idempotent no-op).
+        // Guard only engages when the column exists AND we have a real (non-empty) incoming
+        // timestamp, so legacy schemas/callers keep their previous behaviour.
+        $guarded = $db->field_exists('stats_observed_at', 'endorse') && $incomingObservedAt !== '';
+        if ($guarded) {
+            $db->where('id', $id_endorse);
+            $db->where('(stats_observed_at IS NULL OR stats_observed_at < ' . $db->escape($incomingObservedAt) . ')', null, false);
+            $db->update('endorse', $endorseUpdate);
+            if (intval($db->affected_rows()) < 1) {
+                return [
+                    'status'      => true,
+                    'error_class' => self::ERR_OK,
+                    'msg'         => 'Stale/duplicate observation skipped (atomic ordering guard)',
+                ];
+            }
+        } else {
+            $db->update('endorse', $endorseUpdate, ['id' => $id_endorse]);
+        }
 
         // endorse_logs upsert for today.
         $existing = $this->CI->mymodel->selectWithQuery("
