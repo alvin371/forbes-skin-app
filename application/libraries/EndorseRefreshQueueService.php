@@ -1211,6 +1211,12 @@ class EndorseRefreshQueueService
                 continue;
             }
 
+            // Stamp the stable LOGICAL observation order for every path (legacy batch AND
+            // incremental runner). The queue-row id is monotonic and constant across all
+            // attempts/retries of this refresh generation, so a retry cannot outrank a newer
+            // job. This is the freshness authority — not any request-start timestamp.
+            $response['observation_seq'] = $queue_id;
+
             $purpose = strval($item['purpose'] ?? 'daily');
             if ($purpose === 'daily') {
                 $result = $this->CI->endorse_sync->apply(
