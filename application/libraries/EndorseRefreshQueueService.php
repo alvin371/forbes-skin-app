@@ -33,6 +33,131 @@ class EndorseRefreshQueueService
         return $baseSeconds * (2 ** $exponent);
     }
 
+    // ---------------------------------------------------------------------------
+    // Provider-parity fix (fix/endorse-refresh-provider-parity).
+    //
+    // The healthy reference app (bhskin) drains sequentially: one item at a time,
+    // direct scrape with unlimited timeout, RapidAPI fallback retried inline. It
+    // never reserves more work than it can execute, so it reaches ~100% eventual
+    // success. Forbes reimplemented this as a batch queue that can CLAIM up to 500
+    // items while only ~PARALLEL_HTTP execute per run, and whose rolling rate limit
+    // counts CLAIMS, not started requests. Overlarge claims → mass deferral + the
+    // claim burst starves overlapping staggered runs.
+    //
+    // These pure helpers encode the corrected decisions. They are all default-off
+    // (behaviour identical to today) and independently unit-tested so the semantics
+    // cannot drift. Integration wiring reads them via env().
+    // ---------------------------------------------------------------------------
+
+    const LIMITER_CLAIM_RESERVATION = 'claim_reservation';
+    const LIMITER_REQUEST_START     = 'request_start_reservation';
+
+    /**
+     * Selected rate-limiter mode. Default preserves current production semantics
+     * (a token is reserved at CLAIM time). 'request_start_reservation' means a token
+     * is consumed immediately before each outbound request, by every started request
+     * regardless of outcome — and never by a claim that does not start.
+     */
+    public static function limiterMode(?string $raw = null): string
+    {
+        $raw = strtolower(trim((string) ($raw ?? env('ENDORSE_REFRESH_LIMITER_MODE', self::LIMITER_CLAIM_RESERVATION))));
+        return $raw === self::LIMITER_REQUEST_START
+            ? self::LIMITER_REQUEST_START
+            : self::LIMITER_CLAIM_RESERVATION;
+    }
+
+    public static function reservesAtRequestStart(?string $rawMode = null): bool
+    {
+        return self::limiterMode($rawMode) === self::LIMITER_REQUEST_START;
+    }
+
+    /**
+     * In request-start mode, EVERY outbound provider request consumes exactly one
+     * token — success, 429, 5xx, timeout, invalid JSON, application error alike.
+     * A claim that never starts a request (clean deferral) consumes nothing.
+     * Encodes acceptance criteria 5 & 6. Pure and total so it cannot drift.
+     *
+     * @param string $outcome one of: success|http_429|http_5xx|timeout|invalid|app_error|deferred_unstarted
+     */
+    public static function consumesRequestToken(string $outcome): bool
+    {
+        return $outcome !== 'deferred_unstarted' && $outcome !== '';
+    }
+
+    /**
+     * Incremental-claim sizing. Default off → returns the configured batch unchanged
+     * (current behaviour). When ENDORSE_REFRESH_INCREMENTAL_CLAIM is on, a run claims
+     * no more than it can actually start this pass: chunk = parallel_http * multiplier,
+     * capped by the batch. This is what stops one run reserving hundreds of items for
+     * ~20 execution slots and starving the staggered runs behind it.
+     *
+     * Initial safe rule: claim_chunk <= effective_parallel_http (multiplier 1). A larger
+     * multiplier is allowed only with test evidence; clamped to [1,4] here.
+     */
+    public static function effectiveClaimLimit(int $configuredBatch, int $parallelHttp, bool $incremental, int $multiplier = 1): int
+    {
+        $configuredBatch = max(1, $configuredBatch);
+        if (!$incremental) {
+            return $configuredBatch;
+        }
+        $parallelHttp = max(1, $parallelHttp);
+        $multiplier   = max(1, min(4, $multiplier));
+        $chunk        = $parallelHttp * $multiplier;
+        return max(1, min($configuredBatch, $chunk));
+    }
+
+    public static function incrementalClaimEnabled(?string $raw = null): bool
+    {
+        $raw = strtolower(trim((string) ($raw ?? env('ENDORSE_REFRESH_INCREMENTAL_CLAIM', 'false'))));
+        return $raw === '1' || $raw === 'true' || $raw === 'on' || $raw === 'yes';
+    }
+
+    /**
+     * Parity with bhskin's `has_valid_stats`: the direct scrape is only "usable" when
+     * at least one engagement stat is strictly > 0. Forbes' isValidTiktokScrapeItem
+     * accepts a row where the keys merely EXIST (all-zero), which both writes bogus
+     * zeros and masks the need to fall back. Default off to preserve behaviour.
+     *
+     * @param array $stats e.g. ['diggCount'=>.., 'playCount'=>.., ...]
+     */
+    public static function scrapeStatsAreUsable(array $stats): bool
+    {
+        foreach (['diggCount', 'shareCount', 'commentCount', 'collectCount', 'playCount'] as $k) {
+            if (intval($stats[$k] ?? 0) > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static function strictScrapeStatsEnabled(?string $raw = null): bool
+    {
+        $raw = strtolower(trim((string) ($raw ?? env('ENDORSE_REFRESH_STRICT_SCRAPE_STATS', 'false'))));
+        return $raw === '1' || $raw === 'true' || $raw === 'on' || $raw === 'yes';
+    }
+
+    /**
+     * Structured per-run summary for observability. Distinguishes claims, actual
+     * requests started, completions and UNIQUE successes (the business metric) so an
+     * operator never again mistakes `processed` for throughput. Returns a compact JSON
+     * string; contains no URLs, cookies, keys or bodies.
+     */
+    public static function buildRunSummary(array $m): string
+    {
+        $fields = [
+            'run_id', 'worker_id', 'source_revision', 'fetch_mode', 'limiter_mode',
+            'effective_batch', 'effective_concurrency', 'effective_rate',
+            'claimed', 'requests_started', 'direct_attempts', 'direct_successes',
+            'fallback_attempts', 'fallback_successes', 'transient', 'terminal',
+            'deferred_unstarted', 'stale_recovered', 'unique_completed', 'wall_ms',
+        ];
+        $out = ['evt' => 'endorse_refresh_run'];
+        foreach ($fields as $f) {
+            $out[$f] = $m[$f] ?? null;
+        }
+        return json_encode($out, JSON_UNESCAPED_SLASHES);
+    }
+
     /**
      * Normalize supported social links stored without a scheme. Other absolute URLs
      * stay untouched so existing response classification remains authoritative.
@@ -713,6 +838,19 @@ class EndorseRefreshQueueService
         } elseif ($limit > 500) {
             $limit = 500;
         }
+
+        // Incremental claim (default off). When enabled, never reserve more than one
+        // run can actually start (chunk = parallel_http * multiplier), so a big batch
+        // cannot strand rows or starve overlapping staggered runs. See effectiveClaimLimit().
+        $incremental = array_key_exists('incremental_claim', $opts)
+            ? !empty($opts['incremental_claim'])
+            : self::incrementalClaimEnabled();
+        if ($incremental) {
+            $parallelHttp = intval($opts['parallel_http'] ?? env('ENDORSE_REFRESH_PARALLEL_HTTP', 10));
+            $multiplier   = intval($opts['claim_chunk_multiplier'] ?? env('ENDORSE_REFRESH_CLAIM_CHUNK_MULTIPLIER', 1));
+            $limit = self::effectiveClaimLimit($limit, $parallelHttp, true, $multiplier);
+        }
+
         $force = !empty($opts['force']);
         $staleMinutes = intval($opts['stale_minutes'] ?? 5);
         if ($staleMinutes < 1) {
