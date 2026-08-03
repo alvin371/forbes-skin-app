@@ -1,25 +1,26 @@
 <?php
 /**
- * One concurrent request-start reservation worker. Calls the REAL
- * EndorseRefreshQueueService::tryReserveToken() in a tight loop, simulating a worker
- * that keeps starting outbound requests. Prints how many tokens it was granted.
+ * One concurrent request-start reservation worker. Calls the REAL scoped
+ * PdoReservationStore::reserve() in a tight loop, simulating a worker that keeps starting
+ * outbound requests against one provider scope. Prints how many tokens it was granted.
  *
- * argv: dsn user pass limit window attempts
+ * argv: dsn user pass scope limit window attempts [env] [app]
  * prints: granted=<n>
  */
 if (! defined('BASEPATH')) {
     define('BASEPATH', __DIR__);
 }
-require_once __DIR__ . '/../../application/libraries/Endorse_sync.php';
-require_once __DIR__ . '/../../application/libraries/EndorseRefreshQueueService.php';
+require_once __DIR__ . '/../../application/libraries/EndorseRefreshRateLimiter.php';
 
-[$_, $dsn, $user, $pass, $limit, $window, $attempts] = array_pad($argv, 7, null);
+[$_, $dsn, $user, $pass, $scope, $limit, $window, $attempts, $env, $app] = array_pad($argv, 10, null);
 $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$store = new PdoReservationStore($pdo, $env ?: 'test', $app ?: 'forbes');
+
 $granted = 0;
 for ($i = 0; $i < intval($attempts); $i++) {
-    if (EndorseRefreshQueueService::tryReserveToken($pdo, intval($limit), intval($window))) {
+    if ($store->reserve((string) $scope, intval($limit), intval($window), ['run_id' => 'itest'])) {
         $granted++;
     }
-    usleep(1000); // 1ms between attempts
+    usleep(1000);
 }
 echo "granted=$granted\n";
