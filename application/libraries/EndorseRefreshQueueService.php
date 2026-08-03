@@ -4,6 +4,8 @@ defined('BASEPATH') or exit('No direct script access allowed');
 // Endorse_sync::is_terminal_class() and friends are called statically below; declare the
 // class outright instead of depending on a caller having loaded the library.
 require_once __DIR__ . '/Endorse_sync.php';
+require_once __DIR__ . '/EndorseRefreshClaimRepository.php';
+require_once __DIR__ . '/EndorseRefreshRateLimiter.php';
 
 class EndorseRefreshQueueService
 {
@@ -134,46 +136,6 @@ class EndorseRefreshQueueService
     {
         $raw = strtolower(trim((string) ($raw ?? env('ENDORSE_REFRESH_STRICT_SCRAPE_STATS', 'false'))));
         return $raw === '1' || $raw === 'true' || $raw === 'on' || $raw === 'yes';
-    }
-
-    /**
-     * Atomic request-start reservation over a rolling window, safe across overlapping
-     * workers WITHOUT Redis. A MySQL user-level lock (GET_LOCK) serialises the
-     * check-and-insert so N concurrent workers can never exceed $limit tokens in the
-     * last $windowSec. Called immediately before an outbound provider request; the
-     * token is retained regardless of the request's outcome. Returns true if granted.
-     *
-     * Uses the existing MySQL infrastructure (a tiny append-only token table). Pure of
-     * CI so it is directly testable with concurrent PDO connections.
-     */
-    public static function tryReserveToken(PDO $pdo, int $limit, int $windowSec = 60, string $lockName = 'erq_rate'): bool
-    {
-        if ($limit <= 0) {
-            return false;
-        }
-        $scalar = static function (PDO $pdo, string $sql) {
-            $st = $pdo->query($sql);
-            $v = $st->fetchColumn();
-            $st->closeCursor();
-            return $v;
-        };
-        $got = $scalar($pdo, "SELECT GET_LOCK(" . $pdo->quote($lockName) . ", 5)");
-        if (intval($got) !== 1) {
-            return false; // could not serialise → fail closed (do not over-reserve)
-        }
-        try {
-            $used = (int) $scalar(
-                $pdo,
-                "SELECT COUNT(*) FROM endorse_refresh_rate_tokens WHERE created_at > (NOW(6) - INTERVAL $windowSec SECOND)"
-            );
-            if ($used >= $limit) {
-                return false;
-            }
-            $pdo->exec("INSERT INTO endorse_refresh_rate_tokens (created_at) VALUES (NOW(6))");
-            return true;
-        } finally {
-            $scalar($pdo, "SELECT RELEASE_LOCK(" . $pdo->quote($lockName) . ")");
-        }
     }
 
     /**
@@ -1059,19 +1021,11 @@ class EndorseRefreshQueueService
         $retryBaseSeconds = max(1, min(3600, $retryBaseSeconds));
 
         // Atomic claim (single UPDATE serialized by MySQL). `attempts ASC` after priority
-        // drains never-tried rows before re-queued transient retries.
-        $this->db->query("
-            UPDATE endorse_refresh_queue
-            SET status = 'processing', worker_id = '$worker_id', claimed_at = '$now', started_at = '$now'
-            WHERE status = 'pending' AND platform != 'Threads' AND worker_id IS NULL
-              AND (
-                    claimed_at IS NULL
-                    OR TIMESTAMPDIFF(SECOND, claimed_at, NOW()) >=
-                       ($retryBaseSeconds * POW(2, LEAST(10, GREATEST(attempts - 1, 0))))
-              )
-            ORDER BY priority DESC, attempts ASC, created_at ASC
-            LIMIT $limit
-        ");
+        // drains never-tried rows before re-queued transient retries. The statement is built
+        // by the shared repository so the MySQL concurrency tests exercise this exact SQL.
+        $this->db->query(
+            EndorseRefreshClaimRepository::buildClaimSql($worker_id, $now, $limit, $retryBaseSeconds)
+        );
         $claimed = $this->db->affected_rows();
         if ($claimed <= 0) {
             return ['status' => true, 'claimed' => 0, 'items' => [], 'worker_id' => $worker_id];
