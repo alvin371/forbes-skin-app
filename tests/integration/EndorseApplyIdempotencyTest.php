@@ -10,9 +10,9 @@ require_once __DIR__ . '/support/FakeCi.php';
 require_once __DIR__ . '/../../application/libraries/Endorse_sync.php';
 
 /**
- * Idempotency + out-of-order safety against the REAL Endorse_sync::apply() and the REAL
- * endorse/endorse_logs schema (loaded from production DDL). Only the DB adapter is a thin
- * mysqli shim; the apply logic under test is production code.
+ * Logical-ordering + crash-idempotency against the REAL Endorse_sync::apply() and the REAL
+ * endorse/endorse_logs schema. Ordering authority is `stats_observation_seq` (the stable
+ * queue-generation id), NOT any request/apply timestamp. Only the DB adapter is a thin shim.
  *
  * @group integration
  * @internal
@@ -41,20 +41,19 @@ final class EndorseApplyIdempotencyTest extends TestCase
         if ($m->connect_errno) {
             self::fail('connect: ' . $m->connect_error);
         }
-        // Legacy tables have NOT NULL columns without defaults; relax strict mode for seeds
-        // so missing columns take their zero-value (matches how the legacy app inserts).
         $m->query("SET SESSION sql_mode=''");
         $m->query("DROP TABLE IF EXISTS endorse");
         $m->query("DROP TABLE IF EXISTS endorse_logs");
         $ddl = file_get_contents(__DIR__ . '/schema/endorse_real_schema.sql');
         foreach (array_filter(array_map('trim', explode(";\n", $ddl))) as $stmt) {
-            if ($stmt === '') {
-                continue;
-            }
-            if ($m->query($stmt) === false) {
+            if ($stmt !== '' && $m->query($stmt) === false) {
                 self::fail('schema load failed: ' . $m->error);
             }
         }
+        // Apply the real migration (up) to add stats_observation_seq, then EXPLAIN-check unused.
+        $pdo = new PDO("mysql:host={$c['host']};port={$c['port']};dbname={$c['db']}", $c['user'], $c['pass'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $direction = 'up';
+        require __DIR__ . '/../../migrations/20260803130000_add_stats_observation_seq.php';
         self::$m = $m;
     }
 
@@ -72,24 +71,27 @@ final class EndorseApplyIdempotencyTest extends TestCase
     {
         self::$m->query("INSERT INTO endorse
             (id, id_campaign, platform, link_upload, total_cost, status, status_campaign, brand, influencer,
-             views, likes, comment, share_save, is_fyp,
-             pengajuan_payment_logs, task, logs)
+             views, likes, comment, share_save, is_fyp, pengajuan_payment_logs, task, logs)
             VALUES ($id, 100, 'Tiktok', 'https://www.tiktok.com/@c/video/7500000000000000001', 0,
              'Aktif', 'Aktif', 'B1', '0', 0,0,0,0,0, '', '', '')");
-        $row = self::$m->query("SELECT * FROM endorse WHERE id=$id")->fetch_assoc();
-        return $row;
+        return self::$m->query("SELECT * FROM endorse WHERE id=$id")->fetch_assoc();
     }
 
-    private function response(int $views, int $likes, string $observedAt): array
+    /** $seq = logical observation order; null = no order supplied (contract). */
+    private function response(int $views, int $likes, ?int $seq): array
     {
-        return [
-            'status'      => true,
-            'msg'         => '',
-            'data'        => ['like' => $likes, 'comment' => 5, 'share' => 1, 'collect' => 1, 'view' => $views],
+        $r = [
+            'status'       => true,
+            'msg'          => '',
+            'data'         => ['like' => $likes, 'comment' => 5, 'share' => 1, 'collect' => 1, 'view' => $views],
             'stats_fields' => ['like', 'comment', 'share', 'collect', 'view'],
-            'observed_at' => $observedAt,
+            'observed_at'  => '2026-08-03 10:00:00.000000',
             'stats_source' => 'itest',
         ];
+        if ($seq !== null) {
+            $r['observation_seq'] = $seq;
+        }
+        return $r;
     }
 
     private function endorse(int $id = 1): array
@@ -97,69 +99,118 @@ final class EndorseApplyIdempotencyTest extends TestCase
         return self::$m->query("SELECT * FROM endorse WHERE id=$id")->fetch_assoc();
     }
 
-    public function testDuplicateProcessingProducesOneLogRowAndConsistentStats(): void
+    private function logCount(int $id = 1): int
     {
-        $endorse = $this->seedEndorse();
-        $sync = new Endorse_sync();
-        $resp = $this->response(1000, 200, '2026-08-03 10:00:00.000000');
-
-        $r1 = $sync->apply($endorse, $resp, 1);
-        $this->assertTrue($r1['status'], $r1['msg'] ?? '');
-        // Apply the SAME observation again (duplicate delivery of one queue item).
-        $r2 = $sync->apply($this->endorse(), $resp, 1);
-        $this->assertTrue($r2['status']);
-
-        $logRows = intval(self::$m->query("SELECT COUNT(*) c FROM endorse_logs WHERE id_endorse=1")->fetch_assoc()['c']);
-        $this->assertSame(1, $logRows, 'exactly one log row per (id_endorse,date) — no duplicate logs');
-        $e = $this->endorse();
-        $this->assertSame(1000, intval($e['views']));
-        $this->assertSame(200, intval($e['likes']));
+        return intval(self::$m->query("SELECT COUNT(*) c FROM endorse_logs WHERE id_endorse=$id")->fetch_assoc()['c']);
     }
 
-    public function testOlderObservationDoesNotOverwriteNewerStats(): void
+    // --- basic ordering by logical sequence -----------------------------------
+
+    public function testForwardSequenceApplies(): void
     {
-        $endorse = $this->seedEndorse();
-        $sync = new Endorse_sync();
-
-        // Newer observation lands first (T2), then an older one (T1 < T2) arrives late.
-        $newer = $this->response(1000, 200, '2026-08-03 10:05:00.000000');
-        $older = $this->response(500, 90, '2026-08-03 10:00:00.000000');
-
-        $this->assertTrue($sync->apply($this->endorse(), $newer, 1)['status']);
-        $sync->apply($this->endorse(), $older, 1); // late, stale delivery
-
-        $e = $this->endorse();
-        $this->assertSame(1000, intval($e['views']), 'older response must not regress newer views');
-        $this->assertSame(200, intval($e['likes']), 'older response must not regress newer likes');
-        // The stored observation timestamp must remain the newer one.
-        $this->assertStringStartsWith('2026-08-03 10:05:00', (string) $e['stats_observed_at']);
+        $this->seedEndorse();
+        $s = new Endorse_sync();
+        $this->assertSame('applied_newer', $s->apply($this->endorse(), $this->response(500, 90, 100), 1)['outcome']);
+        $this->assertSame('applied_newer', $s->apply($this->endorse(), $this->response(1000, 200, 105), 1)['outcome']);
+        $this->assertSame(1000, intval($this->endorse()['views']));
     }
 
-    public function testForwardObservationsStillApply(): void
+    public function testOlderSequenceDoesNotOverwrite(): void
     {
-        $endorse = $this->seedEndorse();
-        $sync = new Endorse_sync();
-        $this->assertTrue($sync->apply($this->endorse(), $this->response(500, 90, '2026-08-03 10:00:00.000000'), 1)['status']);
-        $this->assertTrue($sync->apply($this->endorse(), $this->response(1000, 200, '2026-08-03 10:05:00.000000'), 1)['status']);
-        $e = $this->endorse();
-        $this->assertSame(1000, intval($e['views']), 'a genuinely newer observation must apply');
-        $this->assertSame(200, intval($e['likes']));
+        $this->seedEndorse();
+        $s = new Endorse_sync();
+        $s->apply($this->endorse(), $this->response(1000, 200, 105), 1);
+        $this->assertSame('stale', $s->apply($this->endorse(), $this->response(500, 90, 100), 1)['outcome']);
+        $this->assertSame(1000, intval($this->endorse()['views']), 'older sequence must not regress newer stats');
     }
 
     public function testNewerLowerValueStillWinsWhenFresher(): void
     {
-        // Legitimate decrease (moderation/deletion): a fresher observation with LOWER counts
-        // must win — ordering is by observation freshness, not MAX of the values.
         $this->seedEndorse();
-        $sync = new Endorse_sync();
-        $this->assertTrue($sync->apply($this->endorse(), $this->response(1000, 200, '2026-08-03 10:00:00.000000'), 1)['status']);
-        $this->assertTrue($sync->apply($this->endorse(), $this->response(700, 150, '2026-08-03 10:05:00.000000'), 1)['status']);
-        $e = $this->endorse();
-        $this->assertSame(700, intval($e['views']), 'a fresher, lower observation must apply (legitimate decrease)');
-        $this->assertSame(150, intval($e['likes']));
+        $s = new Endorse_sync();
+        $s->apply($this->endorse(), $this->response(1000, 200, 100), 1);
+        $s->apply($this->endorse(), $this->response(700, 150, 105), 1);
+        $this->assertSame(700, intval($this->endorse()['views']), 'fresher lower observation must apply (legitimate decrease)');
     }
 
-    // --- concurrent race: newest observation must always win ------------------
+    // --- Critical correction 1: retry must not outrank a newer job -------------
+
+    public function testRetryDoesNotOutrankNewerJob(): void
+    {
+        $this->seedEndorse();
+        $s = new Endorse_sync();
+        // Job A (seq 100) applies; newer Job B (seq 105) applies; then A RETRIES (still seq 100).
+        $s->apply($this->endorse(), $this->response(500, 90, 100), 1);
+        $s->apply($this->endorse(), $this->response(1000, 200, 105), 1);
+        $retry = $s->apply($this->endorse(), $this->response(500, 90, 100), 1); // A's late retry
+        $this->assertSame('stale', $retry['outcome'], 'A retry (older seq) must be stale vs newer B');
+        $this->assertSame(1000, intval($this->endorse()['views']), 'newer job B must remain');
+    }
+
+    public function testMultipleRetriesShareOneLogicalOrder(): void
+    {
+        $this->seedEndorse();
+        $s = new Endorse_sync();
+        $this->assertSame('applied_newer', $s->apply($this->endorse(), $this->response(500, 90, 100), 1)['outcome']);
+        // same job retried twice → same seq → duplicates, not newer.
+        $this->assertSame('duplicate', $s->apply($this->endorse(), $this->response(500, 90, 100), 1)['outcome']);
+        $this->assertSame('duplicate', $s->apply($this->endorse(), $this->response(500, 90, 100), 1)['outcome']);
+        $this->assertSame(1, $this->logCount());
+    }
+
+    // --- Critical correction 4: crash-before-log recovery ---------------------
+
+    public function testCrashBeforeLogRecoversOnRetry(): void
+    {
+        $this->seedEndorse();
+        $s = new Endorse_sync();
+        $s->apply($this->endorse(), $this->response(1000, 200, 100), 1);
+        $this->assertSame(1, $this->logCount());
+        // Simulate a crash AFTER the endorse update but BEFORE the log write: remove the log.
+        self::$m->query("DELETE FROM endorse_logs WHERE id_endorse=1");
+        $this->assertSame(0, $this->logCount());
+        // The queue retries with the SAME logical order (seq 100). Duplicate branch must repair
+        // the missing log without rewriting the (already correct) endorse stats.
+        $out = $s->apply($this->endorse(), $this->response(1000, 200, 100), 1);
+        $this->assertSame('duplicate', $out['outcome']);
+        $this->assertSame(1, $this->logCount(), 'missing log recovered exactly once');
+        $this->assertSame(1000, intval($this->endorse()['views']));
+    }
+
+    public function testEqualSequenceConflictingPayloadKeepsFirst(): void
+    {
+        $this->seedEndorse();
+        $s = new Endorse_sync();
+        $s->apply($this->endorse(), $this->response(1000, 200, 100), 1);
+        // Same seq, different payload (provider inconsistency) → duplicate, first values kept.
+        $out = $s->apply($this->endorse(), $this->response(999, 199, 100), 1);
+        $this->assertSame('duplicate', $out['outcome']);
+        $this->assertSame(1000, intval($this->endorse()['views']), 'equal-seq duplicate must not overwrite');
+        $this->assertSame(1, $this->logCount());
+    }
+
+    // --- Critical correction 3: null-order contract ---------------------------
+
+    public function testNullOrderCannotOverwriteOrderedData(): void
+    {
+        $this->seedEndorse();
+        $s = new Endorse_sync();
+        $s->apply($this->endorse(), $this->response(1000, 200, 100), 1); // establishes seq=100
+        $out = $s->apply($this->endorse(), $this->response(500, 90, null), 1); // no order supplied
+        $this->assertSame('contract_error', $out['outcome'], 'unordered response must be rejected');
+        $this->assertSame(1000, intval($this->endorse()['views']), 'ordered data must not be overwritten by unordered response');
+    }
+
+    public function testFirstObservationWithoutPriorOrderApplies(): void
+    {
+        $this->seedEndorse();
+        $s = new Endorse_sync();
+        // existing null + incoming valid → apply
+        $this->assertSame('applied_newer', $s->apply($this->endorse(), $this->response(500, 90, 100), 1)['outcome']);
+        $this->assertSame(500, intval($this->endorse()['views']));
+    }
+
+    // --- concurrency: 10 mixed jobs + retries race, newest logical job wins ----
 
     private function runConcurrent(string $script, array $argsets): array
     {
@@ -183,33 +234,31 @@ final class EndorseApplyIdempotencyTest extends TestCase
         return $out;
     }
 
-    public function testConcurrentMixedOrderObservationsRetainNewest(): void
+    public function testConcurrentMixedJobsAndRetriesNewestWins(): void
     {
         $c = self::$cfg;
         $dsn = "mysql:host={$c['host']};port={$c['port']};dbname={$c['db']}";
-        $barrier = microtime(true) + 1.2; // all workers fire the atomic UPDATE together
-
-        // 6 observations, DISTINCT observation times, launched in mixed order. The newest is
-        // 10:05:59 with views=600; whichever commits in whatever order, it must be the winner.
-        $obs = [
-            ['id' => 1, 'views' => 300, 'likes' => 30, 'ts' => '2026-08-03 10:05:30.000000'],
-            ['id' => 1, 'views' => 600, 'likes' => 60, 'ts' => '2026-08-03 10:05:59.000000'], // newest
-            ['id' => 1, 'views' => 100, 'likes' => 10, 'ts' => '2026-08-03 10:05:05.000000'],
-            ['id' => 1, 'views' => 500, 'likes' => 50, 'ts' => '2026-08-03 10:05:50.000000'],
-            ['id' => 1, 'views' => 200, 'likes' => 20, 'ts' => '2026-08-03 10:05:20.000000'],
-            ['id' => 1, 'views' => 400, 'likes' => 40, 'ts' => '2026-08-03 10:05:40.000000'],
-        ];
-        $this->seedEndorse();
-        $args = [];
-        foreach ($obs as $o) {
-            $args[] = [$dsn, $c['user'], $c['pass'], $o['id'], $o['views'], $o['likes'], $o['ts'], $barrier];
+        // Run several times to reduce timing luck.
+        for ($round = 0; $round < 3; $round++) {
+            self::$m->query("TRUNCATE endorse");
+            self::$m->query("TRUNCATE endorse_logs");
+            $this->seedEndorse();
+            $barrier = microtime(true) + 1.0;
+            // 10 observations: jobs seq 101..106 plus RETRIES of older jobs (101,102,103) that
+            // physically start last. Newest logical job is seq 106 (views 6000).
+            $specs = [
+                [101, 1000], [102, 2000], [103, 3000], [104, 4000], [105, 5000], [106, 6000],
+                [101, 1000], [102, 2000], [103, 3000], [104, 4000], // late retries of older jobs
+            ];
+            $args = [];
+            foreach ($specs as $sp) {
+                $args[] = [$dsn, $c['user'], $c['pass'], 1, $sp[1], intval($sp[1] / 10), $sp[0], $barrier];
+            }
+            $this->runConcurrent('apply_worker.php', $args);
+            $e = $this->endorse();
+            $this->assertSame(6000, intval($e['views']), "round $round: newest logical job (seq 106) must win");
+            $this->assertSame(106, intval($e['stats_observation_seq']));
+            $this->assertSame(1, $this->logCount(), "round $round: exactly one log row");
         }
-        $out = $this->runConcurrent('apply_worker.php', $args);
-        $this->assertCount(6, $out);
-
-        $e = $this->endorse();
-        $this->assertSame(600, intval($e['views']), 'newest observation (600) must win the race regardless of commit order');
-        $this->assertSame(60, intval($e['likes']));
-        $this->assertStringStartsWith('2026-08-03 10:05:59', (string) $e['stats_observed_at']);
     }
 }
