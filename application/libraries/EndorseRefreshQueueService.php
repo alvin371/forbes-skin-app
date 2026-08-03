@@ -1132,6 +1132,34 @@ class EndorseRefreshQueueService
      * logged" bug: the true error is recorded as it happens, never masked by resetStuck's
      * generic stall label after a 60s guillotine.
      */
+    /**
+     * Return a chunk of claimed-but-unstarted items to `pending` and delete their up-front
+     * attempt rows — identical to the clean-deferral path in applyResults(), so incremental
+     * draining never strands rows and unstarted work consumes no provider budget/attempt.
+     *
+     * @param array $items claimBatch items (need queue_id, attempt_no, worker_id)
+     */
+    public function releaseUnstartedChunk(array $items): int
+    {
+        $released = 0;
+        foreach ($items as $item) {
+            $queue_id = intval($item['queue_id'] ?? 0);
+            if ($queue_id <= 0) {
+                continue;
+            }
+            $this->db->update('endorse_refresh_queue', [
+                'status' => 'pending', 'worker_id' => null, 'started_at' => null, 'claimed_at' => null,
+            ], ['id' => $queue_id]);
+            $this->db->delete('endorse_refresh_queue_attempts', [
+                'queue_id'   => $queue_id,
+                'attempt_no' => intval($item['attempt_no'] ?? (intval($item['attempts'] ?? 0) + 1)),
+                'worker_id'  => strval($item['worker_id'] ?? ''),
+            ]);
+            $released++;
+        }
+        return $released;
+    }
+
     public function applyResults(array $items, array $responses): array
     {
         if (empty($items)) {
