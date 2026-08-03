@@ -20,6 +20,7 @@ require_once __DIR__ . '/../../application/libraries/Endorse_sync.php';
 final class EndorseApplyIdempotencyTest extends TestCase
 {
     private static ?mysqli $m = null;
+    private static array $cfg = [];
 
     public static function setUpBeforeClass(): void
     {
@@ -35,6 +36,7 @@ final class EndorseApplyIdempotencyTest extends TestCase
             [$k, $v] = array_pad(explode('=', $p, 2), 2, '');
             $c[trim($k)] = trim($v);
         }
+        self::$cfg = $c;
         $m = new mysqli($c['host'], $c['user'], $c['pass'], $c['db'], intval($c['port']));
         if ($m->connect_errno) {
             self::fail('connect: ' . $m->connect_error);
@@ -142,5 +144,72 @@ final class EndorseApplyIdempotencyTest extends TestCase
         $e = $this->endorse();
         $this->assertSame(1000, intval($e['views']), 'a genuinely newer observation must apply');
         $this->assertSame(200, intval($e['likes']));
+    }
+
+    public function testNewerLowerValueStillWinsWhenFresher(): void
+    {
+        // Legitimate decrease (moderation/deletion): a fresher observation with LOWER counts
+        // must win — ordering is by observation freshness, not MAX of the values.
+        $this->seedEndorse();
+        $sync = new Endorse_sync();
+        $this->assertTrue($sync->apply($this->endorse(), $this->response(1000, 200, '2026-08-03 10:00:00.000000'), 1)['status']);
+        $this->assertTrue($sync->apply($this->endorse(), $this->response(700, 150, '2026-08-03 10:05:00.000000'), 1)['status']);
+        $e = $this->endorse();
+        $this->assertSame(700, intval($e['views']), 'a fresher, lower observation must apply (legitimate decrease)');
+        $this->assertSame(150, intval($e['likes']));
+    }
+
+    // --- concurrent race: newest observation must always win ------------------
+
+    private function runConcurrent(string $script, array $argsets): array
+    {
+        $procs = [];
+        foreach ($argsets as $i => $args) {
+            $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__DIR__ . '/' . $script);
+            foreach ($args as $a) {
+                $cmd .= ' ' . escapeshellarg((string) $a);
+            }
+            $procs[$i] = ['p' => proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes), 'pipes' => $pipes];
+        }
+        $out = [];
+        foreach ($procs as $i => $pr) {
+            $out[$i] = stream_get_contents($pr['pipes'][1]);
+            $err = stream_get_contents($pr['pipes'][2]);
+            fclose($pr['pipes'][1]);
+            fclose($pr['pipes'][2]);
+            proc_close($pr['p']);
+            $this->assertStringNotContainsString('Fatal error', $err, "worker stderr: $err");
+        }
+        return $out;
+    }
+
+    public function testConcurrentMixedOrderObservationsRetainNewest(): void
+    {
+        $c = self::$cfg;
+        $dsn = "mysql:host={$c['host']};port={$c['port']};dbname={$c['db']}";
+        $barrier = microtime(true) + 1.2; // all workers fire the atomic UPDATE together
+
+        // 6 observations, DISTINCT observation times, launched in mixed order. The newest is
+        // 10:05:59 with views=600; whichever commits in whatever order, it must be the winner.
+        $obs = [
+            ['id' => 1, 'views' => 300, 'likes' => 30, 'ts' => '2026-08-03 10:05:30.000000'],
+            ['id' => 1, 'views' => 600, 'likes' => 60, 'ts' => '2026-08-03 10:05:59.000000'], // newest
+            ['id' => 1, 'views' => 100, 'likes' => 10, 'ts' => '2026-08-03 10:05:05.000000'],
+            ['id' => 1, 'views' => 500, 'likes' => 50, 'ts' => '2026-08-03 10:05:50.000000'],
+            ['id' => 1, 'views' => 200, 'likes' => 20, 'ts' => '2026-08-03 10:05:20.000000'],
+            ['id' => 1, 'views' => 400, 'likes' => 40, 'ts' => '2026-08-03 10:05:40.000000'],
+        ];
+        $this->seedEndorse();
+        $args = [];
+        foreach ($obs as $o) {
+            $args[] = [$dsn, $c['user'], $c['pass'], $o['id'], $o['views'], $o['likes'], $o['ts'], $barrier];
+        }
+        $out = $this->runConcurrent('apply_worker.php', $args);
+        $this->assertCount(6, $out);
+
+        $e = $this->endorse();
+        $this->assertSame(600, intval($e['views']), 'newest observation (600) must win the race regardless of commit order');
+        $this->assertSame(60, intval($e['likes']));
+        $this->assertStringStartsWith('2026-08-03 10:05:59', (string) $e['stats_observed_at']);
     }
 }

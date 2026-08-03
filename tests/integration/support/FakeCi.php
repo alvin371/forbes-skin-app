@@ -10,6 +10,8 @@ final class FakeDb
 {
     public mysqli $m;
     private array $cols = [];
+    private array $whereStack = [];
+    private int $affected = 0;
 
     public function __construct(mysqli $m)
     {
@@ -36,18 +38,48 @@ final class FakeDb
         return "'" . $this->m->real_escape_string((string) $v) . "'";
     }
 
-    public function update(string $table, array $row, array $where): bool
+    /** CI-compatible escape (adds quotes). */
+    public function escape($v): string
+    {
+        return $this->val($v);
+    }
+
+    public function affected_rows(): int
+    {
+        return $this->affected;
+    }
+
+    /**
+     * CI query-builder where(). $value === null with a raw condition string ($escape=false)
+     * pushes the condition verbatim; otherwise it's a `col`=escaped(value) equality.
+     */
+    public function where($key, $value = null, $escape = true)
+    {
+        if ($value === null && $escape === false) {
+            $this->whereStack[] = '(' . $key . ')';
+        } else {
+            $this->whereStack[] = "`$key`=" . $this->val($value);
+        }
+        return $this;
+    }
+
+    public function update(string $table, array $row, ?array $where = null): bool
     {
         $set = [];
         foreach ($row as $k => $v) {
             $set[] = "`$k`=" . $this->val($v);
         }
-        $w = [];
-        foreach ($where as $k => $v) {
-            $w[] = "`$k`=" . $this->val($v);
+        $w = $this->whereStack;
+        $this->whereStack = [];
+        if (is_array($where)) {
+            foreach ($where as $k => $v) {
+                $w[] = "`$k`=" . $this->val($v);
+            }
         }
         $sql = "UPDATE `$table` SET " . implode(',', $set) . " WHERE " . implode(' AND ', $w);
-        return $this->m->query($sql) !== false;
+        $ok = $this->m->query($sql) !== false;
+        $this->affected = $ok ? $this->m->affected_rows : 0;
+        return $ok;
     }
 
     public function insert(string $table, array $row): bool

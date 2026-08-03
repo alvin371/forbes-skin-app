@@ -97,8 +97,7 @@ namespace {
                 return $this;
             }
         };
-        $ref = new \ReflectionProperty(\Illuminate\Support\Env::class, 'repository');
-        $ref->setAccessible(true);
-        $ref->setValue(null, $repo);
+        // (setAccessible is a no-op / deprecated on PHP 8.1+; setValue works directly.)
+        (new \ReflectionProperty(\Illuminate\Support\Env::class, 'repository'))->setValue(null, $repo);
     }
 }
