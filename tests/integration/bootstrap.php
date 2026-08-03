@@ -74,6 +74,12 @@ namespace PhpOption {
 namespace {
     require_once __DIR__ . '/../../vendor/autoload.php';
 
+    // EndorseRefreshQueueService's constructor references APPPATH; point it at the real
+    // application dir so its optional-library is_file() check behaves as in production.
+    if (! defined('APPPATH')) {
+        define('APPPATH', realpath(__DIR__ . '/../../application') . DIRECTORY_SEPARATOR);
+    }
+
     // illuminate's env() lazily builds a Dotenv RepositoryBuilder (also absent in this dev
     // vendor tree). Inject a minimal getenv-backed repository so env() resolves via process
     // env — matching how the production app's own env() reads configuration.
