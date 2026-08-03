@@ -8,6 +8,7 @@ if (! defined('BASEPATH')) {
 }
 require_once __DIR__ . '/../../application/libraries/EndorseRefreshRateLimiter.php';
 require_once __DIR__ . '/../../application/libraries/EndorseRefreshClaimRepository.php';
+require_once __DIR__ . '/../../application/libraries/Endorse_sync.php';
 
 /**
  * Pure guards for the scoped limiter identity and the shared claim SQL contract.
@@ -125,5 +126,21 @@ final class EndorseRefreshScopeAndClaimTest extends TestCase
         $logger('run', ['run_id' => 'r1']);     // run-level → kept
         $this->assertCount(1, $captured);
         $this->assertStringContainsString('endorse_refresh_run', $captured[0]);
+    }
+
+    // --- out-of-order apply guard (pure) --------------------------------------
+
+    public function testStaleObservationGuard(): void
+    {
+        // first observation (no existing) → always applies
+        $this->assertFalse(Endorse_sync::isStaleObservation('', '2026-08-03 10:00:00.000000'));
+        // strictly newer → applies
+        $this->assertFalse(Endorse_sync::isStaleObservation('2026-08-03 10:00:00.000000', '2026-08-03 10:05:00.000000'));
+        // strictly older → stale (skip)
+        $this->assertTrue(Endorse_sync::isStaleObservation('2026-08-03 10:05:00.000000', '2026-08-03 10:00:00.000000'));
+        // equal → stale (idempotent duplicate no-op)
+        $this->assertTrue(Endorse_sync::isStaleObservation('2026-08-03 10:00:00.000000', '2026-08-03 10:00:00.000000'));
+        // missing incoming → never stale (preserve legacy forward progress)
+        $this->assertFalse(Endorse_sync::isStaleObservation('2026-08-03 10:00:00.000000', ''));
     }
 }

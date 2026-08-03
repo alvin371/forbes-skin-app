@@ -34,6 +34,25 @@ class Endorse_sync
             || $errorClass === self::ERR_EMPTY;
     }
 
+    /**
+     * Ordering guard, single source of truth (unit-tested). An observation is stale when the
+     * row already carries an observation timestamp that is newer than, or equal to, the
+     * incoming one — so a late older/duplicate response cannot overwrite fresher data.
+     * A missing/empty existing timestamp (first observation) or a missing incoming timestamp
+     * is never treated as stale, preserving forward progress and legacy behaviour.
+     *
+     * Both values are 'Y-m-d H:i:s[.u]' in UTC; string comparison is correct for that format.
+     */
+    public static function isStaleObservation(string $existingObservedAt, string $incomingObservedAt): bool
+    {
+        $existingObservedAt = trim($existingObservedAt);
+        $incomingObservedAt = trim($incomingObservedAt);
+        if ($existingObservedAt === '' || $incomingObservedAt === '') {
+            return false;
+        }
+        return $incomingObservedAt <= $existingObservedAt;
+    }
+
     /** @var CI_Controller */
     protected $CI;
 
@@ -242,6 +261,18 @@ class Endorse_sync
                 'status'      => false,
                 'error_class' => $classification['class'],
                 'msg'         => $classification['msg'],
+            ];
+        }
+
+        // Out-of-order guard: a late-arriving OLDER observation must never regress newer
+        // stats (overlapping workers / retries can finish out of order). Compare the incoming
+        // observation time with the one already stored on the row; skip stale writes as an
+        // idempotent no-op. Forward and first-ever observations always apply.
+        if ($this->isStaleObservation(strval($endorse['stats_observed_at'] ?? ''), strval($response['observed_at']))) {
+            return [
+                'status'      => true,
+                'error_class' => self::ERR_OK,
+                'msg'         => 'Stale observation skipped (ordering guard)',
             ];
         }
 
