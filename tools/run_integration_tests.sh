@@ -30,5 +30,5 @@ export FORBES_REQUIRE_DB=1   # integration job must not silently skip
 
 echo "==> unit suite"
 php vendor/bin/phpunit --configuration phpunit.xml --colors=always | tail -3
-echo "==> integration suite (real MySQL, mandatory)"
-php vendor/bin/phpunit --colors=always --testdox tests/integration
+echo "==> integration + e2e suite (real MySQL, mandatory)"
+php vendor/bin/phpunit -c phpunit-integration.xml --colors=always --testdox
