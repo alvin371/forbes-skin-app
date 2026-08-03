@@ -4,9 +4,9 @@
  * Run: php migrations/run.php 20260727090000_add_threads_scraper_queue_state.php
  */
 
-require_once __DIR__ . '/bootstrap.php';
+// Uses the run.php contract: $pdo (PDO) and $direction ('up'|'down') are injected in scope.
 
-if (($argv[1] ?? '') === 'down') {
+if ($direction === 'down') {
     $pdo->exec("UPDATE endorse_refresh_queue SET status = 'pending', provider_job_id = NULL, provider_submitted_at = NULL WHERE status = 'submitted'");
     $pdo->exec("UPDATE endorse_refresh_queue_attempts SET status = 'retrying' WHERE status = 'submitted'");
     $pdo->exec("ALTER TABLE endorse_refresh_queue MODIFY status ENUM('pending','processing','completed','failed') NOT NULL DEFAULT 'pending'");
