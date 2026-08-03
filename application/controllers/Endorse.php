@@ -2311,7 +2311,7 @@ class Endorse extends BaseController
         }
 
         $this->load->library('EndorseRefreshQueueService');
-        $health = $this->endorserefreshqueueservice->computeHealth($id_campaign, 10);
+        $health = $this->endorserefreshqueueservice->computeHealth($id_campaign, 5);
 
         $this->output
             ->set_content_type('application/json')
@@ -2351,7 +2351,7 @@ class Endorse extends BaseController
     public function queue_count()
     {
         $this->load->library('EndorseRefreshQueueService');
-        $health = $this->endorserefreshqueueservice->computeHealth(0, 10);
+        $health = $this->endorserefreshqueueservice->computeHealth(0, 5);
 
         $this->output
             ->set_content_type('application/json')

@@ -616,7 +616,7 @@ class EndorseRefreshQueueService
         ];
     }
 
-    public function computeHealth(int $id_campaign = 0, int $staleMinutes = 10): array
+    public function computeHealth(int $id_campaign = 0, int $staleMinutes = 5): array
     {
         $where = '';
         if ($id_campaign > 0) {
