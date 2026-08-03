@@ -210,6 +210,37 @@ final class EndorseApplyIdempotencyTest extends TestCase
         $this->assertSame(500, intval($this->endorse()['views']));
     }
 
+    // --- Phase 4: authoritative (manual) sync has no order but must not regress -----
+
+    public function testAuthoritativeSyncAppliesWithoutAdvancingSequence(): void
+    {
+        $this->seedEndorse();
+        $s = new Endorse_sync();
+        // A queue generation (seq 100) applies.
+        $s->apply($this->endorse(), $this->response(1000, 200, 100), 1);
+        // Manual "Refresh data" (no seq) marked authoritative → writes current stats but keeps seq.
+        $manual = $this->response(1200, 220, null);
+        $manual['observation_authoritative'] = true;
+        $out = $s->apply($this->endorse(), $manual, 1);
+        $this->assertSame('applied_authoritative', $out['outcome']);
+        $this->assertSame(1200, intval($this->endorse()['views']), 'authoritative manual sync applies current data');
+        $this->assertSame(100, intval($this->endorse()['stats_observation_seq']), 'manual sync must NOT advance the sequence');
+        // A later, genuinely newer queue generation (seq 105) still applies (not blocked).
+        $this->assertSame('applied_newer', $s->apply($this->endorse(), $this->response(900, 150, 105), 1)['outcome']);
+        $this->assertSame(900, intval($this->endorse()['views']));
+    }
+
+    public function testNullOrderWithoutAuthoritativeIsContractError(): void
+    {
+        $this->seedEndorse();
+        $s = new Endorse_sync();
+        $s->apply($this->endorse(), $this->response(1000, 200, 100), 1);
+        $plain = $this->response(500, 90, null); // no seq, NOT authoritative
+        $out = $s->apply($this->endorse(), $plain, 1);
+        $this->assertSame('contract_error', $out['outcome']);
+        $this->assertSame(1000, intval($this->endorse()['views']));
+    }
+
     // --- concurrency: 10 mixed jobs + retries race, newest logical job wins ----
 
     private function runConcurrent(string $script, array $argsets): array

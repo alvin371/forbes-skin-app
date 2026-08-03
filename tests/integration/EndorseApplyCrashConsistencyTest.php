@@ -144,6 +144,23 @@ final class EndorseApplyCrashConsistencyTest extends TestCase
         return (string) (self::$m->query($sql)->fetch_row()[0] ?? '');
     }
 
+    public function testAllTransactionalWritesUseOneConnection(): void
+    {
+        // The transaction is only valid if the service's queue writes AND Endorse_sync's
+        // endorse/log writes travel on the SAME CI db connection. Both resolve to
+        // $this->CI->db (the service sets $this->db = $this->CI->db), so a single connection
+        // id must serve every write in the item.
+        $conn = $this->conn();
+        $svc = $this->makeService($conn);
+        $ci = $GLOBALS['__fake_ci'];
+        $viaService = intval($ci->db->m->query("SELECT CONNECTION_ID()")->fetch_row()[0]);
+        // Endorse_sync uses get_instance()->db === $ci->db (same mysqli) for all its writes.
+        $syncCi = (function () { return $this->CI; })->call($ci->endorse_sync);
+        $viaSync = intval($syncCi->db->m->query("SELECT CONNECTION_ID()")->fetch_row()[0]);
+        $this->assertSame($viaService, $viaSync, 'service and Endorse_sync must share one connection');
+        $this->assertSame($ci->db, $syncCi->db, 'both must reference the same CI db object');
+    }
+
     public function testHappyPathCompletesOnce(): void
     {
         $this->seedQueueRow();
