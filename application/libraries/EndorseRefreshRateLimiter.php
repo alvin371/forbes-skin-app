@@ -141,3 +141,97 @@ final class PdoReservationStore implements EndorseRefreshRateReservationStore
         return $st->rowCount();
     }
 }
+
+/**
+ * Production store backed by the existing CodeIgniter database connection (mysqli). Reuses
+ * the framework connection — no ad-hoc PDO in the fetch loop — and runs the same scoped,
+ * GET_LOCK-guarded reservation as the PDO store. `$db` is a CI_DB_query_builder.
+ */
+final class CiDbReservationStore implements EndorseRefreshRateReservationStore
+{
+    private $db;
+    private string $env;
+    private string $app;
+
+    public function __construct($db, string $env, string $app)
+    {
+        $this->db = $db;
+        $this->env = $env;
+        $this->app = $app;
+    }
+
+    public function reserve(string $scope, int $limit, int $windowSec, array $ctx = []): bool
+    {
+        if ($limit <= 0) {
+            return false;
+        }
+        $lock = EndorseRefreshRateScope::lockNameFor($this->env, $this->app, $scope);
+        $lockQ = $this->db->escape($lock);
+        $got = $this->db->query("SELECT GET_LOCK($lockQ, 5) AS g")->row()->g ?? 0;
+        if (intval($got) !== 1) {
+            return false;
+        }
+        try {
+            if ($this->countInWindow($scope, $windowSec) >= $limit) {
+                return false;
+            }
+            $this->db->query(
+                "INSERT INTO endorse_refresh_rate_tokens (provider_scope, created_at, run_id, queue_id, attempt_no) VALUES (?, NOW(6), ?, ?, ?)",
+                [$scope, $ctx['run_id'] ?? null, isset($ctx['queue_id']) ? intval($ctx['queue_id']) : null, isset($ctx['attempt_no']) ? intval($ctx['attempt_no']) : null]
+            );
+            return true;
+        } finally {
+            $this->db->query("SELECT RELEASE_LOCK($lockQ)");
+        }
+    }
+
+    public function countInWindow(string $scope, int $windowSec): int
+    {
+        $windowSec = max(1, $windowSec);
+        $row = $this->db->query(
+            "SELECT COUNT(*) AS c FROM endorse_refresh_rate_tokens WHERE provider_scope = ? AND created_at > (NOW(6) - INTERVAL $windowSec SECOND)",
+            [$scope]
+        )->row();
+        return intval($row->c ?? 0);
+    }
+
+    public function pruneExpired(int $windowSec, int $graceSec = 60): int
+    {
+        $cutoff = max(1, $windowSec + max(0, $graceSec));
+        $this->db->query("DELETE FROM endorse_refresh_rate_tokens WHERE created_at < (NOW(6) - INTERVAL $cutoff SECOND)");
+        return intval($this->db->affected_rows());
+    }
+}
+
+/**
+ * Minimal structured run/request logger. Emits one compact JSON line per event via
+ * error_log (or an injected sink). Never logs URLs, keys, cookies or bodies.
+ */
+final class EndorseRefreshRunLogger
+{
+    /** @var callable */
+    private $sink;
+    private bool $itemEvents;
+
+    public function __construct(?callable $sink = null, bool $itemEvents = true)
+    {
+        $this->sink = $sink ?? function (string $line) { error_log($line); };
+        $this->itemEvents = $itemEvents;
+    }
+
+    public function __invoke(string $type, array $data): void
+    {
+        if ($type === 'request' && !$this->itemEvents) {
+            return;
+        }
+        $safe = [];
+        foreach ($data as $k => $v) {
+            if (in_array($k, ['url', 'link_upload', 'cookie', 'key', 'authorization', 'body'], true)) {
+                continue;
+            }
+            $safe[$k] = $v;
+        }
+        $safe['evt'] = 'endorse_refresh_' . $type;
+        ($this->sink)(json_encode($safe, JSON_UNESCAPED_SLASHES));
+    }
+}

@@ -95,4 +95,35 @@ final class EndorseRefreshScopeAndClaimTest extends TestCase
         $this->assertStringContainsString("LIMIT 1", $sql); // limit clamped to >=1
         $this->assertStringContainsString("(1 * POW(2", $sql); // base clamped to >=1
     }
+
+    // --- run logger sanitization ----------------------------------------------
+
+    public function testRunLoggerEmitsStructuredJsonWithoutSecrets(): void
+    {
+        $captured = [];
+        $logger = new EndorseRefreshRunLogger(function (string $line) use (&$captured) { $captured[] = $line; }, true);
+        $logger('request', [
+            'run_id' => 'r1', 'queue_id' => 7, 'scope' => 'rapidapi:ab12', 'attempt' => 1,
+            'url' => 'https://secret', 'cookie' => 'x', 'key' => 'topsecret', 'body' => '...',
+        ]);
+        $this->assertCount(1, $captured);
+        $decoded = json_decode($captured[0], true);
+        $this->assertSame('endorse_refresh_request', $decoded['evt']);
+        $this->assertSame('r1', $decoded['run_id']);
+        $this->assertSame(7, $decoded['queue_id']);
+        foreach (['url', 'cookie', 'key', 'body'] as $secret) {
+            $this->assertArrayNotHasKey($secret, $decoded, "$secret must never be logged");
+        }
+        $this->assertStringNotContainsString('topsecret', $captured[0]);
+    }
+
+    public function testRunLoggerCanDisableItemEvents(): void
+    {
+        $captured = [];
+        $logger = new EndorseRefreshRunLogger(function (string $line) use (&$captured) { $captured[] = $line; }, false);
+        $logger('request', ['run_id' => 'r1']); // item-level → suppressed
+        $logger('run', ['run_id' => 'r1']);     // run-level → kept
+        $this->assertCount(1, $captured);
+        $this->assertStringContainsString('endorse_refresh_run', $captured[0]);
+    }
 }
