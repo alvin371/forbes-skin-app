@@ -121,6 +121,72 @@ final class EndorseRefreshParityTest extends TestCase
         $this->assertStringNotContainsString('rapidapi', strtolower($json));
     }
 
+    // --- True incremental drain loop (acceptance #1): multiple chunks per run --
+
+    public function testDrainProcessesMultipleChunksInOneRun(): void
+    {
+        // Fake clock advances 5s per chunk; deadline 45s, per-chunk budget 8s.
+        $t = 0.0;
+        $now = function () use (&$t) { return $t; };
+        $pending = 100; // effectively unlimited
+        $claim = function (int $n) use (&$pending) {
+            $take = min($n, $pending); $pending -= $take;
+            return array_fill(0, $take, ['queue_id' => 1]);
+        };
+        $process = function (array $items) use (&$t) {
+            $t += 5.0; // each chunk takes 5s
+            return ['started' => count($items), 'unique_completed' => count($items), 'deferred' => 0];
+        };
+        $totals = EndorseRefreshQueueService::drainIncrementally(45.0, 20, 8.0, $claim, $process, $now, 2.0);
+        // 45s budget, stop when remaining < 8+2=10 → runs chunks while elapsed <= 35 → ~7 chunks.
+        $this->assertGreaterThan(1, $totals['chunks'], 'incremental run must process more than one chunk');
+        $this->assertSame($totals['claimed'], $totals['unique_completed']);
+        $this->assertSame(0, $totals['deferred_unstarted']);
+    }
+
+    public function testDrainStopsBeforeDeadlineAndDoesNotOverclaim(): void
+    {
+        $t = 0.0; $now = function () use (&$t) { return $t; };
+        $claim = function (int $n) { return array_fill(0, $n, ['queue_id' => 1]); };
+        $process = function (array $items) use (&$t) { $t += 20.0; return ['started' => count($items), 'unique_completed' => count($items), 'deferred' => 0]; };
+        // deadline 45, per-chunk 20, margin 2 → after 1 chunk elapsed=20, remaining 25 >= 22 → 2nd chunk;
+        // after 2nd elapsed=40, remaining 5 < 22 → stop. Exactly 2 chunks, never a 3rd it can't finish.
+        $totals = EndorseRefreshQueueService::drainIncrementally(45.0, 20, 20.0, $claim, $process, $now, 2.0);
+        $this->assertSame(2, $totals['chunks']);
+    }
+
+    public function testDrainStopsWhenQueueEmpty(): void
+    {
+        $t = 0.0; $now = function () use (&$t) { return $t; };
+        $calls = 0;
+        $claim = function (int $n) use (&$calls) { $calls++; return $calls === 1 ? [['queue_id' => 1]] : []; };
+        $process = function (array $items) use (&$t) { $t += 1.0; return ['started' => 1, 'unique_completed' => 1, 'deferred' => 0]; };
+        $totals = EndorseRefreshQueueService::drainIncrementally(45.0, 20, 5.0, $claim, $process, $now);
+        $this->assertSame(1, $totals['chunks']); // stopped when second claim returned empty
+    }
+
+    // --- Chunk-decision + bounded inline retry policy -------------------------
+
+    public function testMayClaimAnotherChunkRespectsSafetyMargin(): void
+    {
+        $this->assertTrue(EndorseRefreshQueueService::mayClaimAnotherChunk(45, 30, 8, 2));   // 15 >= 10
+        $this->assertFalse(EndorseRefreshQueueService::mayClaimAnotherChunk(45, 38, 8, 2));  // 7 < 10
+    }
+
+    public function testInlineRetryOnlyRetriesRetryableClassesWithinBudget(): void
+    {
+        // retryable class, attempts left, budget ok → retry
+        $this->assertTrue(EndorseRefreshQueueService::shouldInlineRetry(Endorse_sync::ERR_TRANSIENT, 1, 3, 30, 20));
+        $this->assertTrue(EndorseRefreshQueueService::shouldInlineRetry(Endorse_sync::ERR_INFRA_STALL, 2, 3, 30, 20));
+        // terminal classes never inline-retry
+        $this->assertFalse(EndorseRefreshQueueService::shouldInlineRetry(Endorse_sync::ERR_PERMANENT, 1, 3, 30, 20));
+        $this->assertFalse(EndorseRefreshQueueService::shouldInlineRetry(Endorse_sync::ERR_EMPTY, 1, 3, 30, 20));
+        // max attempts reached
+        $this->assertFalse(EndorseRefreshQueueService::shouldInlineRetry(Endorse_sync::ERR_TRANSIENT, 3, 3, 30, 20));
+        // insufficient remaining budget for another full attempt
+        $this->assertFalse(EndorseRefreshQueueService::shouldInlineRetry(Endorse_sync::ERR_TRANSIENT, 1, 3, 10, 20));
+    }
+
     // --- Parser parity contract (Phase 3/5): the shared golden corpus ----------
     // Forbes' and bhskin's extract_tiktok_content_id / detect_tiktok_media_type_from_url
     // are semantically identical (verified by source diff: same regex, same order).
