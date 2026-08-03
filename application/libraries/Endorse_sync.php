@@ -352,15 +352,22 @@ class Endorse_sync
         $outcome = 'applied_newer';
 
         if ($hasSeqCol && $incomingSeq === null) {
-            // Contract: a production incremental request must carry an observation order. An
-            // unordered response must never overwrite ordered data.
+            // No queue-derived order. Two legitimate cases:
+            //  - interactive/authoritative sync (manual "Refresh data" button): the user asked
+            //    for CURRENT data now → write the stats but DO NOT advance stats_observation_seq,
+            //    so a later queue generation (whatever its id) still applies and ordering stays
+            //    intact. This is the only sanctioned way to reach apply without an order.
+            //  - first-ever observation on a row that has no order yet → apply.
+            // Anything else (a queue-style caller that failed to supply an order over ORDERED
+            // data) is a contract violation and must not overwrite fresher data.
+            $authoritative = !empty($response['observation_authoritative']);
             $curSeq = $this->currentObservationSeq($id_endorse);
-            if ($curSeq !== null) {
+            if ($curSeq !== null && !$authoritative) {
                 $this->emitContractError($id_endorse, 'missing_observation_seq');
                 return ['status' => true, 'error_class' => self::ERR_OK, 'msg' => 'contract_error: missing observation order', 'outcome' => 'contract_error'];
             }
-            // both null → documented legacy fallback: apply unguarded (no order to compare).
             $db->update('endorse', $endorseUpdate, ['id' => $id_endorse]);
+            $outcome = ($authoritative && $curSeq !== null) ? 'applied_authoritative' : 'applied_newer';
         } elseif ($hasSeqCol) {
             $endorseUpdate['stats_observation_seq'] = $incomingSeq;
             $db->where('id', $id_endorse);
