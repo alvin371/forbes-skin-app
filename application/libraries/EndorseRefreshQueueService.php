@@ -1180,7 +1180,7 @@ class EndorseRefreshQueueService
         }
         $prevStatsMap = $this->CI->endorse_sync->load_prev_stats_batch($endorseIds, $today);
 
-        $completed = 0; $failed = 0; $retrying = 0; $deferred = 0;
+        $completed = 0; $failed = 0; $retrying = 0; $deferred = 0; $exceptioned = 0;
         $touched = [];
 
         foreach ($items as $i => $item) {
@@ -1218,52 +1218,73 @@ class EndorseRefreshQueueService
             $response['observation_seq'] = $queue_id;
 
             $purpose = strval($item['purpose'] ?? 'daily');
-            if ($purpose === 'daily') {
-                $result = $this->CI->endorse_sync->apply(
-                    $endorse, $response, intval($item['enqueued_by'] ?: 0), $prevStatsMap[$id_endorse] ?? null
-                );
-            } else {
-                $result = $this->CI->endorse_sync->apply_snapshot(
-                    $endorse, $response, $purpose, intval($item['enqueued_by'] ?: 0)
-                );
-            }
 
-            if ($result['status']) {
-                $completedAt = date('Y-m-d H:i:s');
-                $this->db->update('endorse_refresh_queue', [
-                    'status' => 'completed', 'attempts' => $attempts, 'error_message' => null,
-                    'worker_id' => null, 'completed_at' => $completedAt,
-                ], ['id' => $queue_id]);
-                $this->finalizeQueueAttempt($queue_id, $attempts, $worker_id, 'completed', null, null, $completedAt);
+            // ONE consistency boundary per item: the business writes (endorse stats + endorse_logs,
+            // inside apply()) AND the queue/attempt state transition commit together or not at all.
+            // A crash/exception anywhere rolls the whole item back, leaving the queue row
+            // 'processing' → stale recovery re-claims and retries it cleanly (the logical
+            // observation sequence is unchanged, so the retry re-applies without regressing data).
+            // The campaign rollup is a derived aggregate and stays OUTSIDE the transaction.
+            $this->db->trans_begin();
+            try {
                 if ($purpose === 'daily') {
-                    $touched[intval($endorse['id_campaign'])] = true;
+                    $result = $this->CI->endorse_sync->apply(
+                        $endorse, $response, intval($item['enqueued_by'] ?: 0), $prevStatsMap[$id_endorse] ?? null
+                    );
+                } else {
+                    $result = $this->CI->endorse_sync->apply_snapshot(
+                        $endorse, $response, $purpose, intval($item['enqueued_by'] ?: 0)
+                    );
                 }
-                $completed++;
-                continue;
-            }
 
-            $errorClass = $result['error_class'] ?? Endorse_sync::ERR_TRANSIENT;
-            $msg = $result['msg'] ?: 'Gagal';
+                if ($result['status']) {
+                    $completedAt = date('Y-m-d H:i:s');
+                    $this->db->update('endorse_refresh_queue', [
+                        'status' => 'completed', 'attempts' => $attempts, 'error_message' => null,
+                        'worker_id' => null, 'completed_at' => $completedAt,
+                    ], ['id' => $queue_id]);
+                    $this->finalizeQueueAttempt($queue_id, $attempts, $worker_id, 'completed', null, null, $completedAt);
+                    $this->commitOrThrow();
+                    if ($purpose === 'daily') {
+                        $touched[intval($endorse['id_campaign'])] = true;
+                    }
+                    $completed++;
+                    continue;
+                }
 
-            // Only genuinely unrecoverable classes fail immediately; transport/infra classes
-            // retry up to max_attempts (one upstream outage must not drain the queue to failed).
-            if (Endorse_sync::is_terminal_class($errorClass)) {
-                $this->markQueueFailed($queue_id, $attempts, $msg, $errorClass, $worker_id);
-                $failed++;
-                continue;
-            }
+                $errorClass = $result['error_class'] ?? Endorse_sync::ERR_TRANSIENT;
+                $msg = $result['msg'] ?: 'Gagal';
 
-            if ($attempts >= $maxAttempts) {
-                $this->markQueueFailed($queue_id, $attempts, "$msg (after $attempts attempts)", $errorClass, $worker_id);
-                $failed++;
-            } else {
-                $finishedAt = date('Y-m-d H:i:s');
-                $this->db->update('endorse_refresh_queue', [
-                    'status' => 'pending', 'attempts' => $attempts, 'error_message' => $msg,
-                    'worker_id' => null, 'started_at' => null, 'claimed_at' => $finishedAt,
-                ], ['id' => $queue_id]);
-                $this->finalizeQueueAttempt($queue_id, $attempts, $worker_id, 'retrying', $errorClass, $msg, $finishedAt);
-                $retrying++;
+                // Only genuinely unrecoverable classes fail immediately; transport/infra classes
+                // retry up to max_attempts (one upstream outage must not drain the queue to failed).
+                if (Endorse_sync::is_terminal_class($errorClass)) {
+                    $this->markQueueFailed($queue_id, $attempts, $msg, $errorClass, $worker_id);
+                    $this->commitOrThrow();
+                    $failed++;
+                    continue;
+                }
+
+                if ($attempts >= $maxAttempts) {
+                    $this->markQueueFailed($queue_id, $attempts, "$msg (after $attempts attempts)", $errorClass, $worker_id);
+                    $this->commitOrThrow();
+                    $failed++;
+                } else {
+                    $finishedAt = date('Y-m-d H:i:s');
+                    $this->db->update('endorse_refresh_queue', [
+                        'status' => 'pending', 'attempts' => $attempts, 'error_message' => $msg,
+                        'worker_id' => null, 'started_at' => null, 'claimed_at' => $finishedAt,
+                    ], ['id' => $queue_id]);
+                    $this->finalizeQueueAttempt($queue_id, $attempts, $worker_id, 'retrying', $errorClass, $msg, $finishedAt);
+                    $this->commitOrThrow();
+                    $retrying++;
+                }
+            } catch (\Throwable $e) {
+                // Crash between side effects (incl. simulated crashes, deadlocks, connection
+                // loss): roll back so no partial business state is visible. The row stays
+                // 'processing' and is safely recovered later. Never leaves duplicated effects.
+                $this->db->trans_rollback();
+                $this->log_apply_exception($queue_id, $attempts, $e);
+                $exceptioned++;
             }
         }
 
@@ -1273,8 +1294,28 @@ class EndorseRefreshQueueService
 
         return [
             'completed' => $completed, 'failed' => $failed, 'retrying' => $retrying,
-            'deferred' => $deferred, 'processed' => count($items),
+            'deferred' => $deferred, 'exceptioned' => $exceptioned, 'processed' => count($items),
         ];
+    }
+
+    /** Commit the per-item transaction, converting a failed transaction into an exception
+     *  so the caller's catch rolls it back (no partial business state ever commits). */
+    private function commitOrThrow(): void
+    {
+        if ($this->db->trans_status() === false) {
+            throw new RuntimeException('endorse apply transaction failed');
+        }
+        $this->db->trans_commit();
+    }
+
+    private function log_apply_exception(int $queue_id, int $attempts, \Throwable $e): void
+    {
+        error_log(json_encode([
+            'evt' => 'endorse_apply_exception',
+            'queue_id' => $queue_id,
+            'attempt' => $attempts,
+            'error' => $e->getMessage(),
+        ], JSON_UNESCAPED_SLASHES));
     }
 
     /**
