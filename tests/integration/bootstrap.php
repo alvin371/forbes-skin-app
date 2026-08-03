@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Integration bootstrap.
  *
@@ -72,6 +73,8 @@ namespace PhpOption {
 }
 
 namespace {
+    use Illuminate\Support\Env;
+
     require_once __DIR__ . '/../../vendor/autoload.php';
 
     // EndorseRefreshQueueService's constructor references APPPATH; point it at the real
@@ -83,27 +86,30 @@ namespace {
     // illuminate's env() lazily builds a Dotenv RepositoryBuilder (also absent in this dev
     // vendor tree). Inject a minimal getenv-backed repository so env() resolves via process
     // env — matching how the production app's own env() reads configuration.
-    if (class_exists(\Illuminate\Support\Env::class)) {
-        $repo = new class {
+    if (class_exists(Env::class)) {
+        $repo = new class () {
             public function get($key)
             {
                 $v = getenv($key);
+
                 return $v === false ? null : $v;
             }
 
             public function set($key, $value = null)
             {
                 putenv($key . '=' . $value);
+
                 return $this;
             }
 
             public function clear($key)
             {
                 putenv($key);
+
                 return $this;
             }
         };
         // (setAccessible is a no-op / deprecated on PHP 8.1+; setValue works directly.)
-        (new \ReflectionProperty(\Illuminate\Support\Env::class, 'repository'))->setValue(null, $repo);
+        (new ReflectionProperty(Env::class, 'repository'))->setValue(null, $repo);
     }
 }

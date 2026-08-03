@@ -1,4 +1,5 @@
 <?php
+
 /**
  * One concurrent apply worker: runs the REAL Endorse_sync::apply() for a single observation
  * against the shared endorse row, carrying a stable LOGICAL observation sequence. Blocks on a
@@ -14,6 +15,7 @@ if (! function_exists('env')) {
     function env($k, $d = null)
     {
         $v = getenv($k);
+
         return $v !== false ? $v : $d;
     }
 }
@@ -24,26 +26,27 @@ require_once __DIR__ . '/../../application/libraries/Endorse_sync.php';
 preg_match('/host=([^;]+)/', $dsn, $h);
 preg_match('/port=([^;]+)/', $dsn, $p);
 preg_match('/dbname=([^;]+)/', $dsn, $d);
-$m = new mysqli($h[1], $user, $pass, $d[1], intval($p[1]));
+$m = new mysqli($h[1], $user, $pass, $d[1], (int) ($p[1]));
 $m->query("SET SESSION sql_mode=''");
 $GLOBALS['__fake_ci'] = new FakeCi($m);
 
-$endorse = $m->query("SELECT * FROM endorse WHERE id=" . intval($id))->fetch_assoc();
+$endorse  = $m->query('SELECT * FROM endorse WHERE id=' . (int) $id)->fetch_assoc();
 $response = [
     'status'          => true,
     'msg'             => '',
-    'data'            => ['like' => intval($likes), 'comment' => 5, 'share' => 1, 'collect' => 1, 'view' => intval($views)],
+    'data'            => ['like' => (int) $likes, 'comment' => 5, 'share' => 1, 'collect' => 1, 'view' => (int) $views],
     'stats_fields'    => ['like', 'comment', 'share', 'collect', 'view'],
     'observed_at'     => '2026-08-03 10:00:00.000000',
-    'observation_seq' => intval($seq),
+    'observation_seq' => (int) $seq,
     'stats_source'    => 'race',
 ];
 
-$target = floatval($barrier);
+$target = (float) $barrier;
+
 while (microtime(true) < $target) {
     usleep(200);
 }
 
 $sync = new Endorse_sync();
-$r = $sync->apply($endorse, $response, 1);
+$r    = $sync->apply($endorse, $response, 1);
 echo 'outcome=' . ($r['outcome'] ?? 'none') . "\n";

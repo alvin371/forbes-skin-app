@@ -70,7 +70,7 @@ final class EndorseRefreshParityTest extends TestCase
         foreach (['success', 'http_429', 'http_5xx', 'timeout', 'invalid', 'app_error'] as $outcome) {
             $this->assertTrue(
                 EndorseRefreshQueueService::consumesRequestToken($outcome),
-                "started request with outcome '$outcome' must consume one token"
+                "started request with outcome '{$outcome}' must consume one token",
             );
         }
     }
@@ -86,7 +86,7 @@ final class EndorseRefreshParityTest extends TestCase
         $this->assertTrue(EndorseRefreshQueueService::reservesAtRequestStart('request_start_reservation'));
         $this->assertSame(
             EndorseRefreshQueueService::LIMITER_REQUEST_START,
-            EndorseRefreshQueueService::limiterMode('  REQUEST_START_RESERVATION ')
+            EndorseRefreshQueueService::limiterMode('  REQUEST_START_RESERVATION '),
         );
     }
 
@@ -107,7 +107,7 @@ final class EndorseRefreshParityTest extends TestCase
     public function testRunSummaryDistinguishesClaimsFromUniqueSuccess(): void
     {
         $json = EndorseRefreshQueueService::buildRunSummary([
-            'run_id' => 'r1', 'claimed' => 400, 'requests_started' => 20,
+            'run_id'           => 'r1', 'claimed' => 400, 'requests_started' => 20,
             'unique_completed' => 16, 'deferred_unstarted' => 380,
         ]);
         $decoded = json_decode($json, true);
@@ -126,15 +126,18 @@ final class EndorseRefreshParityTest extends TestCase
     public function testDrainProcessesMultipleChunksInOneRun(): void
     {
         // Fake clock advances 5s per chunk; deadline 45s, per-chunk budget 8s.
-        $t = 0.0;
-        $now = function () use (&$t) { return $t; };
+        $t       = 0.0;
+        $now     = static function () use (&$t) { return $t; };
         $pending = 100; // effectively unlimited
-        $claim = function (int $n) use (&$pending) {
-            $take = min($n, $pending); $pending -= $take;
+        $claim   = static function (int $n) use (&$pending) {
+            $take = min($n, $pending);
+            $pending -= $take;
+
             return array_fill(0, $take, ['queue_id' => 1]);
         };
-        $process = function (array $items) use (&$t) {
+        $process = static function (array $items) use (&$t) {
             $t += 5.0; // each chunk takes 5s
+
             return ['started' => count($items), 'unique_completed' => count($items), 'deferred' => 0];
         };
         $totals = EndorseRefreshQueueService::drainIncrementally(45.0, 20, 8.0, $claim, $process, $now, 2.0);
@@ -146,9 +149,14 @@ final class EndorseRefreshParityTest extends TestCase
 
     public function testDrainStopsBeforeDeadlineAndDoesNotOverclaim(): void
     {
-        $t = 0.0; $now = function () use (&$t) { return $t; };
-        $claim = function (int $n) { return array_fill(0, $n, ['queue_id' => 1]); };
-        $process = function (array $items) use (&$t) { $t += 20.0; return ['started' => count($items), 'unique_completed' => count($items), 'deferred' => 0]; };
+        $t       = 0.0;
+        $now     = static function () use (&$t) { return $t; };
+        $claim   = static fn (int $n) => array_fill(0, $n, ['queue_id' => 1]);
+        $process = static function (array $items) use (&$t) {
+            $t += 20.0;
+
+            return ['started' => count($items), 'unique_completed' => count($items), 'deferred' => 0];
+        };
         // deadline 45, per-chunk 20, margin 2 → after 1 chunk elapsed=20, remaining 25 >= 22 → 2nd chunk;
         // after 2nd elapsed=40, remaining 5 < 22 → stop. Exactly 2 chunks, never a 3rd it can't finish.
         $totals = EndorseRefreshQueueService::drainIncrementally(45.0, 20, 20.0, $claim, $process, $now, 2.0);
@@ -157,10 +165,19 @@ final class EndorseRefreshParityTest extends TestCase
 
     public function testDrainStopsWhenQueueEmpty(): void
     {
-        $t = 0.0; $now = function () use (&$t) { return $t; };
+        $t     = 0.0;
+        $now   = static function () use (&$t) { return $t; };
         $calls = 0;
-        $claim = function (int $n) use (&$calls) { $calls++; return $calls === 1 ? [['queue_id' => 1]] : []; };
-        $process = function (array $items) use (&$t) { $t += 1.0; return ['started' => 1, 'unique_completed' => 1, 'deferred' => 0]; };
+        $claim = static function (int $n) use (&$calls) {
+            $calls++;
+
+            return $calls === 1 ? [['queue_id' => 1]] : [];
+        };
+        $process = static function (array $items) use (&$t) {
+            $t += 1.0;
+
+            return ['started' => 1, 'unique_completed' => 1, 'deferred' => 0];
+        };
         $totals = EndorseRefreshQueueService::drainIncrementally(45.0, 20, 5.0, $claim, $process, $now);
         $this->assertSame(1, $totals['chunks']); // stopped when second claim returned empty
     }
@@ -195,17 +212,31 @@ final class EndorseRefreshParityTest extends TestCase
 
     private static function contentId(string $url): string
     {
-        if ($url === '') return '';
-        if (preg_match('/\/video\/(\d+)/', $url, $m)) return $m[1];
-        if (preg_match('/\/photo\/(\d+)/', $url, $m)) return $m[1];
-        if (preg_match('/(\d{10,25})/', $url, $m)) return $m[1];
+        if ($url === '') {
+            return '';
+        }
+        if (preg_match('/\/video\/(\d+)/', $url, $m)) {
+            return $m[1];
+        }
+        if (preg_match('/\/photo\/(\d+)/', $url, $m)) {
+            return $m[1];
+        }
+        if (preg_match('/(\d{10,25})/', $url, $m)) {
+            return $m[1];
+        }
+
         return '';
     }
 
     private static function mediaType(string $url): string
     {
-        if (stripos($url, '/photo/') !== false) return 'photo';
-        if (stripos($url, '/video/') !== false) return 'video';
+        if (str_contains(strtolower($url), strtolower('/photo/'))) {
+            return 'photo';
+        }
+        if (str_contains(strtolower($url), strtolower('/video/'))) {
+            return 'video';
+        }
+
         return '';
     }
 
@@ -215,6 +246,7 @@ final class EndorseRefreshParityTest extends TestCase
         $this->assertFileExists($path);
         $corpus = json_decode(file_get_contents($path), true);
         $this->assertNotEmpty($corpus['items']);
+
         foreach ($corpus['items'] as $item) {
             $this->assertSame($item['content_id'], self::contentId($item['url']), "content_id parity for shape {$item['shape']}");
             $this->assertSame($item['media_type'], self::mediaType($item['url']), "media_type parity for shape {$item['shape']}");

@@ -1,4 +1,5 @@
 <?php
+
 /**
  * One concurrent request-start reservation worker. Calls the REAL scoped
  * PdoReservationStore::reserve() in a tight loop, simulating a worker that keeps starting
@@ -13,14 +14,15 @@ if (! defined('BASEPATH')) {
 require_once __DIR__ . '/../../application/libraries/EndorseRefreshRateLimiter.php';
 
 [$_, $dsn, $user, $pass, $scope, $limit, $window, $attempts, $env, $app] = array_pad($argv, 10, null);
-$pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-$store = new PdoReservationStore($pdo, $env ?: 'test', $app ?: 'forbes');
+$pdo                                                                     = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$store                                                                   = new PdoReservationStore($pdo, $env ?: 'test', $app ?: 'forbes');
 
 $granted = 0;
-for ($i = 0; $i < intval($attempts); $i++) {
-    if ($store->reserve((string) $scope, intval($limit), intval($window), ['run_id' => 'itest'])) {
+
+for ($i = 0; $i < (int) $attempts; $i++) {
+    if ($store->reserve((string) $scope, (int) $limit, (int) $window, ['run_id' => 'itest'])) {
         $granted++;
     }
     usleep(1000);
 }
-echo "granted=$granted\n";
+echo "granted={$granted}\n";

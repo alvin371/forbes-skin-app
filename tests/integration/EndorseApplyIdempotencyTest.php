@@ -1,5 +1,6 @@
 <?php
 
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../../vendor/autoload.php';
@@ -14,9 +15,9 @@ require_once __DIR__ . '/../../application/libraries/Endorse_sync.php';
  * endorse/endorse_logs schema. Ordering authority is `stats_observation_seq` (the stable
  * queue-generation id), NOT any request/apply timestamp. Only the DB adapter is a thin shim.
  *
- * @group integration
  * @internal
  */
+#[Group('integration')]
 final class EndorseApplyIdempotencyTest extends TestCase
 {
     private static ?mysqli $m = null;
@@ -29,29 +30,32 @@ final class EndorseApplyIdempotencyTest extends TestCase
             if (getenv('FORBES_REQUIRE_DB') === '1') {
                 self::fail('FORBES_REQUIRE_DB=1 but FORBES_TEST_DB unset.');
             }
+
             return;
         }
         $c = [];
+
         foreach (explode(';', $spec) as $p) {
-            [$k, $v] = array_pad(explode('=', $p, 2), 2, '');
+            [$k, $v]     = array_pad(explode('=', $p, 2), 2, '');
             $c[trim($k)] = trim($v);
         }
         self::$cfg = $c;
-        $m = new mysqli($c['host'], $c['user'], $c['pass'], $c['db'], intval($c['port']));
+        $m         = new mysqli($c['host'], $c['user'], $c['pass'], $c['db'], (int) ($c['port']));
         if ($m->connect_errno) {
             self::fail('connect: ' . $m->connect_error);
         }
         $m->query("SET SESSION sql_mode=''");
-        $m->query("DROP TABLE IF EXISTS endorse");
-        $m->query("DROP TABLE IF EXISTS endorse_logs");
+        $m->query('DROP TABLE IF EXISTS endorse');
+        $m->query('DROP TABLE IF EXISTS endorse_logs');
         $ddl = file_get_contents(__DIR__ . '/schema/endorse_real_schema.sql');
+
         foreach (array_filter(array_map('trim', explode(";\n", $ddl))) as $stmt) {
             if ($stmt !== '' && $m->query($stmt) === false) {
                 self::fail('schema load failed: ' . $m->error);
             }
         }
         // Apply the real migration (up) to add stats_observation_seq, then EXPLAIN-check unused.
-        $pdo = new PDO("mysql:host={$c['host']};port={$c['port']};dbname={$c['db']}", $c['user'], $c['pass'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $pdo       = new PDO("mysql:host={$c['host']};port={$c['port']};dbname={$c['db']}", $c['user'], $c['pass'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
         $direction = 'up';
         require __DIR__ . '/../../migrations/20260803130000_add_stats_observation_seq.php';
         self::$m = $m;
@@ -62,8 +66,8 @@ final class EndorseApplyIdempotencyTest extends TestCase
         if (self::$m === null) {
             $this->markTestSkipped('FORBES_TEST_DB not set.');
         }
-        self::$m->query("TRUNCATE endorse");
-        self::$m->query("TRUNCATE endorse_logs");
+        self::$m->query('TRUNCATE endorse');
+        self::$m->query('TRUNCATE endorse_logs');
         $GLOBALS['__fake_ci'] = new FakeCi(self::$m);
     }
 
@@ -72,12 +76,15 @@ final class EndorseApplyIdempotencyTest extends TestCase
         self::$m->query("INSERT INTO endorse
             (id, id_campaign, platform, link_upload, total_cost, status, status_campaign, brand, influencer,
              views, likes, comment, share_save, is_fyp, pengajuan_payment_logs, task, logs)
-            VALUES ($id, 100, 'Tiktok', 'https://www.tiktok.com/@c/video/7500000000000000001', 0,
+            VALUES ({$id}, 100, 'Tiktok', 'https://www.tiktok.com/@c/video/7500000000000000001', 0,
              'Aktif', 'Aktif', 'B1', '0', 0,0,0,0,0, '', '', '')");
-        return self::$m->query("SELECT * FROM endorse WHERE id=$id")->fetch_assoc();
+
+        return self::$m->query("SELECT * FROM endorse WHERE id={$id}")->fetch_assoc();
     }
 
-    /** $seq = logical observation order; null = no order supplied (contract). */
+    /**
+     * $seq = logical observation order; null = no order supplied (contract).
+     */
     private function response(int $views, int $likes, ?int $seq): array
     {
         $r = [
@@ -91,17 +98,18 @@ final class EndorseApplyIdempotencyTest extends TestCase
         if ($seq !== null) {
             $r['observation_seq'] = $seq;
         }
+
         return $r;
     }
 
     private function endorse(int $id = 1): array
     {
-        return self::$m->query("SELECT * FROM endorse WHERE id=$id")->fetch_assoc();
+        return self::$m->query("SELECT * FROM endorse WHERE id={$id}")->fetch_assoc();
     }
 
     private function logCount(int $id = 1): int
     {
-        return intval(self::$m->query("SELECT COUNT(*) c FROM endorse_logs WHERE id_endorse=$id")->fetch_assoc()['c']);
+        return (int) (self::$m->query("SELECT COUNT(*) c FROM endorse_logs WHERE id_endorse={$id}")->fetch_assoc()['c']);
     }
 
     // --- basic ordering by logical sequence -----------------------------------
@@ -112,7 +120,7 @@ final class EndorseApplyIdempotencyTest extends TestCase
         $s = new Endorse_sync();
         $this->assertSame('applied_newer', $s->apply($this->endorse(), $this->response(500, 90, 100), 1)['outcome']);
         $this->assertSame('applied_newer', $s->apply($this->endorse(), $this->response(1000, 200, 105), 1)['outcome']);
-        $this->assertSame(1000, intval($this->endorse()['views']));
+        $this->assertSame(1000, (int) ($this->endorse()['views']));
     }
 
     public function testOlderSequenceDoesNotOverwrite(): void
@@ -121,7 +129,7 @@ final class EndorseApplyIdempotencyTest extends TestCase
         $s = new Endorse_sync();
         $s->apply($this->endorse(), $this->response(1000, 200, 105), 1);
         $this->assertSame('stale', $s->apply($this->endorse(), $this->response(500, 90, 100), 1)['outcome']);
-        $this->assertSame(1000, intval($this->endorse()['views']), 'older sequence must not regress newer stats');
+        $this->assertSame(1000, (int) ($this->endorse()['views']), 'older sequence must not regress newer stats');
     }
 
     public function testNewerLowerValueStillWinsWhenFresher(): void
@@ -130,7 +138,7 @@ final class EndorseApplyIdempotencyTest extends TestCase
         $s = new Endorse_sync();
         $s->apply($this->endorse(), $this->response(1000, 200, 100), 1);
         $s->apply($this->endorse(), $this->response(700, 150, 105), 1);
-        $this->assertSame(700, intval($this->endorse()['views']), 'fresher lower observation must apply (legitimate decrease)');
+        $this->assertSame(700, (int) ($this->endorse()['views']), 'fresher lower observation must apply (legitimate decrease)');
     }
 
     // --- Critical correction 1: retry must not outrank a newer job -------------
@@ -144,7 +152,7 @@ final class EndorseApplyIdempotencyTest extends TestCase
         $s->apply($this->endorse(), $this->response(1000, 200, 105), 1);
         $retry = $s->apply($this->endorse(), $this->response(500, 90, 100), 1); // A's late retry
         $this->assertSame('stale', $retry['outcome'], 'A retry (older seq) must be stale vs newer B');
-        $this->assertSame(1000, intval($this->endorse()['views']), 'newer job B must remain');
+        $this->assertSame(1000, (int) ($this->endorse()['views']), 'newer job B must remain');
     }
 
     public function testMultipleRetriesShareOneLogicalOrder(): void
@@ -167,14 +175,14 @@ final class EndorseApplyIdempotencyTest extends TestCase
         $s->apply($this->endorse(), $this->response(1000, 200, 100), 1);
         $this->assertSame(1, $this->logCount());
         // Simulate a crash AFTER the endorse update but BEFORE the log write: remove the log.
-        self::$m->query("DELETE FROM endorse_logs WHERE id_endorse=1");
+        self::$m->query('DELETE FROM endorse_logs WHERE id_endorse=1');
         $this->assertSame(0, $this->logCount());
         // The queue retries with the SAME logical order (seq 100). Duplicate branch must repair
         // the missing log without rewriting the (already correct) endorse stats.
         $out = $s->apply($this->endorse(), $this->response(1000, 200, 100), 1);
         $this->assertSame('duplicate', $out['outcome']);
         $this->assertSame(1, $this->logCount(), 'missing log recovered exactly once');
-        $this->assertSame(1000, intval($this->endorse()['views']));
+        $this->assertSame(1000, (int) ($this->endorse()['views']));
     }
 
     public function testEqualSequenceConflictingPayloadKeepsFirst(): void
@@ -185,7 +193,7 @@ final class EndorseApplyIdempotencyTest extends TestCase
         // Same seq, different payload (provider inconsistency) → duplicate, first values kept.
         $out = $s->apply($this->endorse(), $this->response(999, 199, 100), 1);
         $this->assertSame('duplicate', $out['outcome']);
-        $this->assertSame(1000, intval($this->endorse()['views']), 'equal-seq duplicate must not overwrite');
+        $this->assertSame(1000, (int) ($this->endorse()['views']), 'equal-seq duplicate must not overwrite');
         $this->assertSame(1, $this->logCount());
     }
 
@@ -198,7 +206,7 @@ final class EndorseApplyIdempotencyTest extends TestCase
         $s->apply($this->endorse(), $this->response(1000, 200, 100), 1); // establishes seq=100
         $out = $s->apply($this->endorse(), $this->response(500, 90, null), 1); // no order supplied
         $this->assertSame('contract_error', $out['outcome'], 'unordered response must be rejected');
-        $this->assertSame(1000, intval($this->endorse()['views']), 'ordered data must not be overwritten by unordered response');
+        $this->assertSame(1000, (int) ($this->endorse()['views']), 'ordered data must not be overwritten by unordered response');
     }
 
     public function testFirstObservationWithoutPriorOrderApplies(): void
@@ -207,7 +215,7 @@ final class EndorseApplyIdempotencyTest extends TestCase
         $s = new Endorse_sync();
         // existing null + incoming valid → apply
         $this->assertSame('applied_newer', $s->apply($this->endorse(), $this->response(500, 90, 100), 1)['outcome']);
-        $this->assertSame(500, intval($this->endorse()['views']));
+        $this->assertSame(500, (int) ($this->endorse()['views']));
     }
 
     // --- Phase 4: authoritative (manual) sync has no order but must not regress -----
@@ -219,15 +227,15 @@ final class EndorseApplyIdempotencyTest extends TestCase
         // A queue generation (seq 100) applies.
         $s->apply($this->endorse(), $this->response(1000, 200, 100), 1);
         // Manual "Refresh data" (no seq) marked authoritative → writes current stats but keeps seq.
-        $manual = $this->response(1200, 220, null);
+        $manual                              = $this->response(1200, 220, null);
         $manual['observation_authoritative'] = true;
-        $out = $s->apply($this->endorse(), $manual, 1);
+        $out                                 = $s->apply($this->endorse(), $manual, 1);
         $this->assertSame('applied_authoritative', $out['outcome']);
-        $this->assertSame(1200, intval($this->endorse()['views']), 'authoritative manual sync applies current data');
-        $this->assertSame(100, intval($this->endorse()['stats_observation_seq']), 'manual sync must NOT advance the sequence');
+        $this->assertSame(1200, (int) ($this->endorse()['views']), 'authoritative manual sync applies current data');
+        $this->assertSame(100, (int) ($this->endorse()['stats_observation_seq']), 'manual sync must NOT advance the sequence');
         // A later, genuinely newer queue generation (seq 105) still applies (not blocked).
         $this->assertSame('applied_newer', $s->apply($this->endorse(), $this->response(900, 150, 105), 1)['outcome']);
-        $this->assertSame(900, intval($this->endorse()['views']));
+        $this->assertSame(900, (int) ($this->endorse()['views']));
     }
 
     public function testNullOrderWithoutAuthoritativeIsContractError(): void
@@ -236,9 +244,9 @@ final class EndorseApplyIdempotencyTest extends TestCase
         $s = new Endorse_sync();
         $s->apply($this->endorse(), $this->response(1000, 200, 100), 1);
         $plain = $this->response(500, 90, null); // no seq, NOT authoritative
-        $out = $s->apply($this->endorse(), $plain, 1);
+        $out   = $s->apply($this->endorse(), $plain, 1);
         $this->assertSame('contract_error', $out['outcome']);
-        $this->assertSame(1000, intval($this->endorse()['views']));
+        $this->assertSame(1000, (int) ($this->endorse()['views']));
     }
 
     // --- concurrency: 10 mixed jobs + retries race, newest logical job wins ----
@@ -246,33 +254,38 @@ final class EndorseApplyIdempotencyTest extends TestCase
     private function runConcurrent(string $script, array $argsets): array
     {
         $procs = [];
+
         foreach ($argsets as $i => $args) {
             $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__DIR__ . '/' . $script);
+
             foreach ($args as $a) {
                 $cmd .= ' ' . escapeshellarg((string) $a);
             }
             $procs[$i] = ['p' => proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes), 'pipes' => $pipes];
         }
         $out = [];
+
         foreach ($procs as $i => $pr) {
             $out[$i] = stream_get_contents($pr['pipes'][1]);
-            $err = stream_get_contents($pr['pipes'][2]);
+            $err     = stream_get_contents($pr['pipes'][2]);
             fclose($pr['pipes'][1]);
             fclose($pr['pipes'][2]);
             proc_close($pr['p']);
-            $this->assertStringNotContainsString('Fatal error', $err, "worker stderr: $err");
+            $this->assertStringNotContainsString('Fatal error', $err, "worker stderr: {$err}");
         }
+
         return $out;
     }
 
     public function testConcurrentMixedJobsAndRetriesNewestWins(): void
     {
-        $c = self::$cfg;
+        $c   = self::$cfg;
         $dsn = "mysql:host={$c['host']};port={$c['port']};dbname={$c['db']}";
+
         // Run several times to reduce timing luck.
         for ($round = 0; $round < 3; $round++) {
-            self::$m->query("TRUNCATE endorse");
-            self::$m->query("TRUNCATE endorse_logs");
+            self::$m->query('TRUNCATE endorse');
+            self::$m->query('TRUNCATE endorse_logs');
             $this->seedEndorse();
             $barrier = microtime(true) + 1.0;
             // 10 observations: jobs seq 101..106 plus RETRIES of older jobs (101,102,103) that
@@ -282,14 +295,15 @@ final class EndorseApplyIdempotencyTest extends TestCase
                 [101, 1000], [102, 2000], [103, 3000], [104, 4000], // late retries of older jobs
             ];
             $args = [];
+
             foreach ($specs as $sp) {
-                $args[] = [$dsn, $c['user'], $c['pass'], 1, $sp[1], intval($sp[1] / 10), $sp[0], $barrier];
+                $args[] = [$dsn, $c['user'], $c['pass'], 1, $sp[1], (int) ($sp[1] / 10), $sp[0], $barrier];
             }
             $this->runConcurrent('apply_worker.php', $args);
             $e = $this->endorse();
-            $this->assertSame(6000, intval($e['views']), "round $round: newest logical job (seq 106) must win");
-            $this->assertSame(106, intval($e['stats_observation_seq']));
-            $this->assertSame(1, $this->logCount(), "round $round: exactly one log row");
+            $this->assertSame(6000, (int) ($e['views']), "round {$round}: newest logical job (seq 106) must win");
+            $this->assertSame(106, (int) ($e['stats_observation_seq']));
+            $this->assertSame(1, $this->logCount(), "round {$round}: exactly one log row");
         }
     }
 }
