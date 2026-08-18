@@ -79,6 +79,12 @@
       state: directory
       mode: "0755"
 
+  - name: create resource monitor script directory
+    ansible.builtin.file:
+      path: /home/forbes/artifact/forbes-skin/tools/monitoring
+      state: directory
+      mode: "0755"
+
   - name: install resource monitor files
     ansible.builtin.copy:
       src: "{{ item.src }}"
