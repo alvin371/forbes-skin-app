@@ -15,24 +15,27 @@ log_file="$MONITOR_LOG_DIR/resource-$today.jsonl"
 state_file="$MONITOR_STATE_DIR/high-samples"
 
 json_value() {
-  printf '%s' "$1" | php -r 'echo json_encode(stream_get_contents(STDIN), JSON_UNESCAPED_SLASHES);'
+  printf '%s' "$1" | python3 -c 'import json, sys; print(json.dumps(sys.stdin.read(), ensure_ascii=False))'
 }
 
 container_json() {
-  printf '%s\n' "$1" | php -r '
-    $rows = [];
-    foreach (file("php://stdin", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
-      $parts = explode("|", $line);
-      if (count($parts) !== 4) continue;
-      $rows[] = [
-        "name" => $parts[0],
-        "cpu_percent" => (float) rtrim($parts[1], "%"),
-        "memory_percent" => (float) rtrim($parts[2], "%"),
-        "pids" => (int) $parts[3],
-      ];
-    }
-    echo json_encode($rows, JSON_UNESCAPED_SLASHES);
-  '
+  printf '%s\n' "$1" | python3 -c '
+import json
+import sys
+
+rows = []
+for line in sys.stdin:
+    parts = line.rstrip("\n").split("|")
+    if len(parts) != 4:
+        continue
+    rows.append({
+        "name": parts[0],
+        "cpu_percent": float(parts[1].rstrip("%")),
+        "memory_percent": float(parts[2].rstrip("%")),
+        "pids": int(parts[3]),
+    })
+print(json.dumps(rows, ensure_ascii=False))
+'
 }
 
 stats="$(docker stats --no-stream --format '{{.Name}}|{{.CPUPerc}}|{{.MemPerc}}|{{.PIDs}}' 2>/dev/null || true)"
