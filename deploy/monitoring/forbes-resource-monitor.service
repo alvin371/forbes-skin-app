@@ -1,0 +1,7 @@
+[Unit]
+Description=Forbes container resource snapshot
+
+[Service]
+Type=oneshot
+EnvironmentFile=-%h/.config/forbes-monitor.env
+ExecStart=%h/artifact/forbes-skin/tools/monitoring/resource_snapshot.sh

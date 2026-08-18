@@ -371,6 +371,22 @@ class Api_v2 extends CI_Controller
 
         monitoring_fail_job($monitor, $exception, $payload);
     }
+
+    /**
+     * MySQL advisory locks are connection-scoped, so they are released even if
+     * a legacy endpoint ends with die(). This protects against duplicate HTTP
+     * cron invocations as well as overlapping host scheduler entries.
+     */
+    private function cron_try_lock(string $name): bool
+    {
+        try {
+            $row = $this->db->query('SELECT GET_LOCK(?, 0) AS acquired', array($name))->row_array();
+            return intval($row['acquired'] ?? 0) === 1;
+        } catch (Throwable $e) {
+            log_message('error', 'cron_lock_failed name=' . $name . ' msg=' . $e->getMessage());
+            return false;
+        }
+    }
     function interpolateVar($value, $env)
     {
         foreach ($env as $key => $val) {
@@ -8152,7 +8168,9 @@ class Api_v2 extends CI_Controller
     }
 
     /**
-     * Worker for endorse_refresh_queue. Designed for parallel staggered cron entries.
+     * Worker for endorse_refresh_queue. A global advisory lock makes repeated
+     * scheduler/manual requests safe; Threads work is handled by its dedicated
+     * endpoint so this request only owns refresh-queue work.
      *
      * Per tick:
      *   1. Reset stale rows (processing > 5 min) — handles crashed previous workers
@@ -8162,7 +8180,7 @@ class Api_v2 extends CI_Controller
      *   5. Apply each result via Endorse_sync::apply
      *   6. Update queue rows and roll up touched campaigns once
      *
-     * Three cron entries staggered (0s/20s/40s) → ~90 items/min → 2,000 items in ~22 min.
+     * Keep one host schedule; the lock is the second line of defence.
      */
     function cronjob_endorse_refresh()
     {
@@ -8170,16 +8188,21 @@ class Api_v2 extends CI_Controller
         header('Content-Type: application/json; charset=utf-8');
         @set_time_limit(55);
 
+        if (!$this->cron_try_lock('forbes:cronjob_endorse_refresh')) {
+            echo json_encode([
+                'status'  => true,
+                'skipped' => true,
+                'reason'  => 'already_running',
+                'msg'     => 'Endorse refresh is already running',
+            ]);
+            $this->cron_monitor_finish($monitor, array('status' => 'ok', 'skipped' => true, 'note' => 'already_running'));
+            die;
+        }
+
         $this->load->model('mymodel');
         $this->load->library('template');
         $this->load->library('endorse_sync');
         $this->load->library('EndorseRefreshQueueService');
-        // Threads uses a separate remote async job lifecycle. Run it on this existing
-        // cron tick so production needs no additional scheduler entry.
-        $this->load->library('ThreadsEndorseScraperService');
-        $threadsSummary = $this->threadsendorsescraperservice->run(
-            max(1, min(200, intval(env('SOCIAL_SCRAPER_BATCH_SIZE', 40))))
-        );
 
         // Driver gate: when the long-lived Rust consumer owns draining
         // (ENDORSE_REFRESH_DRIVER=rust) the per-minute cron stands down; only the manual
@@ -8193,7 +8216,6 @@ class Api_v2 extends CI_Controller
                 'status'    => true,
                 'processed' => 0,
                 'driver'    => 'rust',
-                'threads'   => $threadsSummary,
                 'msg'       => 'Rust consumer owns draining — cron standing down',
             ]);
             $this->cron_monitor_finish($monitor, array(
@@ -8207,21 +8229,20 @@ class Api_v2 extends CI_Controller
 
         // Concurrent-fetch knobs stay on the cron (the fetch happens here); the claim,
         // rate caps and apply logic are shared with the Rust path via the queue service.
-        $PARALLEL_HTTP = intval(env('ENDORSE_REFRESH_PARALLEL_HTTP', 10));
-        if ($PARALLEL_HTTP < 1) {
-            $PARALLEL_HTTP = 1;
-        } elseif ($PARALLEL_HTTP > 20) {
-            $PARALLEL_HTTP = 20;
-        }
+        $PARALLEL_HTTP = EndorseRefreshQueueService::boundedWorkerSetting(
+            env('ENDORSE_REFRESH_PARALLEL_HTTP', 10), 10, 10
+        );
         // Wall-clock budget so the run always returns before the cron curl --max-time /
         // nginx 60s timeout. Leftover items are deferred back to the queue by applyResults.
         $DEADLINE_SEC = floatval(env('ENDORSE_REFRESH_DEADLINE_SEC', 45));
 
         // Manual force run claims a larger batch and bypasses the daily + per-minute caps
         // (claimBatch honours the 'force' flag). Cron uses the normal batch size.
-        $limit = $force
-            ? intval(env('ENDORSE_REFRESH_FORCE_BATCH', 250))
-            : intval(env('ENDORSE_REFRESH_BATCH_SIZE', 40));
+        $limit = EndorseRefreshQueueService::boundedWorkerSetting(
+            $force ? env('ENDORSE_REFRESH_FORCE_BATCH', 50) : env('ENDORSE_REFRESH_BATCH_SIZE', 20),
+            $force ? 50 : 20,
+            $force ? 100 : 50
+        );
 
         // Incremental drain path (default OFF). When enabled, one run drains multiple
         // slot-sized chunks (claim→reserve-per-request→fetch→apply→next chunk) via the
@@ -8369,7 +8390,6 @@ class Api_v2 extends CI_Controller
             'failed'    => $summary['failed'],
             'retrying'  => $summary['retrying'],
             'deferred'  => $summary['deferred'],
-            'threads'   => $threadsSummary,
             'msg'       => $summary['processed'] . " items: {$summary['completed']} ok, {$summary['failed']} failed, {$summary['retrying']} retrying, {$summary['deferred']} deferred",
         ]);
         $this->cron_monitor_finish($monitor, array(
@@ -8392,8 +8412,13 @@ class Api_v2 extends CI_Controller
     function cronjob_threads_scraper()
     {
         header('Content-Type: application/json; charset=utf-8');
+        if (!$this->cron_try_lock('forbes:cronjob_threads_scraper')) {
+            echo json_encode(['status' => true, 'skipped' => true, 'reason' => 'already_running']);
+            return;
+        }
+        $this->load->library('EndorseRefreshQueueService');
         $this->load->library('ThreadsEndorseScraperService');
-        $limit = max(1, min(200, intval(env('SOCIAL_SCRAPER_BATCH_SIZE', 40))));
+        $limit = EndorseRefreshQueueService::boundedWorkerSetting(env('SOCIAL_SCRAPER_BATCH_SIZE', 10), 10, 50);
         $result = $this->threadsendorsescraperservice->run($limit);
         echo json_encode($result);
         die;

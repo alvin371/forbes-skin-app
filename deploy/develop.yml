@@ -10,6 +10,9 @@
     container_version: "{{ CI_COMMIT_SHORT_SHA | default(lookup('env', 'GITHUB_SHA') | regex_replace('^(.{8}).*$', '\\1'), true) }}"
     container_image: "gilangp/forbes-app:develop{{ container_version }}"
     worker_container_image: "gilangp/forbes-endorse-refresh-worker:develop{{ container_version }}"
+    # PHP cron is the default and sole owner. Set ENDORSE_REFRESH_DRIVER=rust in
+    # the deployment environment only as part of an explicit worker migration.
+    endorse_refresh_driver: "{{ lookup('env', 'ENDORSE_REFRESH_DRIVER') | default('cron', true) }}"
 
   tasks:
   - name: update app docker image
@@ -43,6 +46,64 @@
         - --with-registry-auth
         - "{{ stack_name }}_endorse-refresh-worker"
     when: endorse_refresh_worker_service.rc == 0
+
+  - name: enforce endorse refresh worker ownership
+    ansible.builtin.command:
+      argv:
+        - docker
+        - service
+        - scale
+        - "{{ stack_name }}_endorse-refresh-worker={{ 1 if endorse_refresh_driver | lower == 'rust' else 0 }}"
+    when: endorse_refresh_worker_service.rc == 0
+
+  - name: retain bounded Docker logs for Dozzle investigation
+    ansible.builtin.command:
+      argv:
+        - docker
+        - service
+        - update
+        - --log-driver
+        - json-file
+        - --log-opt
+        - max-size=25m
+        - --log-opt
+        - max-file=14
+        - "{{ item }}"
+    loop:
+      - "{{ stack_name }}_app"
+      - mysql-8_mysql
+
+  - name: create user systemd configuration directory
+    ansible.builtin.file:
+      path: /home/forbes/.config/systemd/user
+      state: directory
+      mode: "0755"
+
+  - name: install resource monitor files
+    ansible.builtin.copy:
+      src: "{{ item.src }}"
+      dest: "{{ item.dest }}"
+      mode: "{{ item.mode }}"
+    loop:
+      - { src: "../tools/monitoring/resource_snapshot.sh", dest: "/home/forbes/artifact/forbes-skin/tools/monitoring/resource_snapshot.sh", mode: "0755" }
+      - { src: "monitoring/forbes-resource-monitor.service", dest: "/home/forbes/.config/systemd/user/forbes-resource-monitor.service", mode: "0644" }
+      - { src: "monitoring/forbes-resource-monitor.timer", dest: "/home/forbes/.config/systemd/user/forbes-resource-monitor.timer", mode: "0644" }
+
+  - name: enable resource monitor timer
+    ansible.builtin.command:
+      argv:
+        - systemctl
+        - --user
+        - daemon-reload
+
+  - name: start resource monitor timer
+    ansible.builtin.command:
+      argv:
+        - systemctl
+        - --user
+        - enable
+        - --now
+        - forbes-resource-monitor.timer
 
  # - name: waiting nextjs-app ready
  #   ansible.builtin.uri:

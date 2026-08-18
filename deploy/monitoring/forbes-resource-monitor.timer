@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Forbes resource snapshot every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=true
+Unit=forbes-resource-monitor.service
+
+[Install]
+WantedBy=timers.target
