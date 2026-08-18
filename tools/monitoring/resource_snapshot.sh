@@ -7,6 +7,8 @@ MONITOR_STATE_DIR="${MONITOR_STATE_DIR:-/home/forbes/.local/state/forbes-monitor
 MONITOR_CPU_THRESHOLD="${MONITOR_CPU_THRESHOLD:-80}"
 MONITOR_MEMORY_THRESHOLD="${MONITOR_MEMORY_THRESHOLD:-85}"
 MONITOR_CONSECUTIVE_SAMPLES="${MONITOR_CONSECUTIVE_SAMPLES:-3}"
+MONITOR_RETENTION_DAYS="${MONITOR_RETENTION_DAYS:-30}"
+MONITOR_SPIKE_COOLDOWN_SECONDS="${MONITOR_SPIKE_COOLDOWN_SECONDS:-600}"
 MYSQL_MONITOR_COMMAND="${MYSQL_MONITOR_COMMAND:-}"
 
 mkdir -p "$MONITOR_LOG_DIR" "$MONITOR_STATE_DIR"
@@ -61,10 +63,19 @@ else
 fi
 printf '%s\n' "$count" > "$state_file"
 
-printf '{"ts":"%s","type":"resource_snapshot","high":%s,"consecutive_high":%s,"host_load":%s,"host_memory":%s,"containers":%s}\n' \
-  "$timestamp" "$high" "$count" "$(json_value "$load")" "$(json_value "$memory")" "$(container_json "$stats")" >> "$log_file"
+snapshot="$(printf '{"ts":"%s","type":"resource_snapshot","high":%s,"consecutive_high":%s,"host_load":%s,"host_memory":%s,"containers":%s}' "$timestamp" "$high" "$count" "$(json_value "$load")" "$(json_value "$memory")" "$(container_json "$stats")")"
+printf '%s\n' "$snapshot" >> "$log_file"
+app_container="$(docker ps --format '{{.ID}} {{.Names}}' | awk '$2 ~ /^forbes_app\./ {print $1; exit}')"
+if [ -n "$app_container" ]; then
+  printf '%s\n' "$snapshot" | docker exec -i "$app_container" php /var/www/html/tools/monitoring/ingest_resource_snapshot.php >/dev/null 2>&1 || true
+fi
 
-if [ "$count" -eq "$MONITOR_CONSECUTIVE_SAMPLES" ]; then
+last_spike_file="$MONITOR_STATE_DIR/last-spike-at"
+last_spike=0
+[ -r "$last_spike_file" ] && last_spike="$(cat "$last_spike_file" 2>/dev/null || printf 0)"
+case "$last_spike" in ''|*[!0-9]*) last_spike=0 ;; esac
+now_epoch="$(date +%s)"
+if [ "$count" -ge "$MONITOR_CONSECUTIVE_SAMPLES" ] && [ $((now_epoch - last_spike)) -ge "$MONITOR_SPIKE_COOLDOWN_SECONDS" ]; then
   evidence="$MONITOR_LOG_DIR/spike-$(date -u +%Y%m%dT%H%M%SZ).txt"
   {
     echo "timestamp=$timestamp"
@@ -82,10 +93,12 @@ if [ "$count" -eq "$MONITOR_CONSECUTIVE_SAMPLES" ]; then
       sh -c "$MYSQL_MONITOR_COMMAND" 2>&1
     fi
   } > "$evidence"
-  printf '{"ts":"%s","type":"resource_spike","evidence_file":%s,"consecutive_high":%s}\n' \
-    "$timestamp" "$(json_value "$evidence")" "$count" >> "$log_file"
+  spike="$(printf '{"ts":"%s","type":"resource_spike","source":"host","severity":"critical","summary":"Sustained container resource threshold exceeded","evidence_file":%s,"consecutive_high":%s}' "$timestamp" "$(json_value "$evidence")" "$count")"
+  printf '%s\n' "$spike" >> "$log_file"
+  printf '%s\n' "$now_epoch" > "$last_spike_file"
+  if [ -n "$app_container" ]; then printf '%s\n' "$spike" | docker exec -i "$app_container" php /var/www/html/tools/monitoring/ingest_resource_snapshot.php >/dev/null 2>&1 || true; fi
 fi
 
 # Retain 14 days, compressing completed daily JSONL files after one day.
 find "$MONITOR_LOG_DIR" -maxdepth 1 -type f -name 'resource-*.jsonl' -mtime +1 -exec gzip -f {} \;
-find "$MONITOR_LOG_DIR" -maxdepth 1 -type f \( -name 'resource-*.jsonl.gz' -o -name 'spike-*.txt' \) -mtime +14 -delete
+find "$MONITOR_LOG_DIR" -maxdepth 1 -type f \( -name 'resource-*.jsonl.gz' -o -name 'spike-*.txt' \) -mtime +"$MONITOR_RETENTION_DAYS" -delete

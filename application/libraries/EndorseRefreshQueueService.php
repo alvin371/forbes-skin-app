@@ -340,7 +340,9 @@ class EndorseRefreshQueueService
             ];
         }
 
-        $stats = $this->enqueueRows($rows, $user_id);
+        $runId = $this->startDiagnosticRun('manual_campaign', $user_id, $id_campaign, count($rows));
+        $stats = $this->enqueueRows($rows, $user_id, $runId, 'manual_campaign');
+        $this->finishDiagnosticRun($runId, array_merge($stats, array('candidate_count' => count($rows))));
         $msg = $this->buildEnqueueMessage($stats['enqueued'], $stats['skipped_duplicates'], $stats['excluded_known_url']);
 
         return [
@@ -385,7 +387,9 @@ class EndorseRefreshQueueService
             ];
         }
 
-        $stats = $this->enqueueRows($rows, $user_id);
+        $runId = $this->startDiagnosticRun('manual_all', $user_id, 0, count($rows));
+        $stats = $this->enqueueRows($rows, $user_id, $runId, 'manual_all');
+        $this->finishDiagnosticRun($runId, array_merge($stats, array('candidate_count' => count($rows))));
 
         return [
             'status' => true,
@@ -442,6 +446,7 @@ class EndorseRefreshQueueService
         }
 
         $priority = $priority > 0 ? $priority : 50;
+        $runId = $this->startDiagnosticRun('snapshot_' . $purpose, $user_id, intval($row['id_campaign'] ?? 0), 1);
         $this->db->insert('endorse_refresh_queue', [
             'id_endorse'   => $id_endorse,
             'id_campaign'  => intval($row['id_campaign'] ?? 0),
@@ -453,8 +458,11 @@ class EndorseRefreshQueueService
             'attempts'     => 0,
             'max_attempts' => self::DEFAULT_MAX_ATTEMPTS,
             'enqueued_by'  => $user_id,
+            'enqueue_run_id' => $runId,
+            'enqueue_source' => 'snapshot_' . $purpose,
             'created_at'   => date('Y-m-d H:i:s'),
         ]);
+        $this->finishDiagnosticRun($runId, ['enqueued' => 1, 'skipped_duplicates' => 0, 'excluded_known_url' => 0]);
 
         return ['status' => true, 'msg' => 'Snapshot ditambahkan ke antrian.', 'enqueued' => 1, 'purpose' => $purpose];
     }
@@ -550,9 +558,13 @@ class EndorseRefreshQueueService
             ];
         }
 
+        $runId = $this->startDiagnosticRun('manual_retry', $user_id, 0, count($rows));
+        foreach ($batch as &$queued) { $queued['enqueue_run_id'] = $runId; $queued['enqueue_source'] = 'manual_retry'; }
+        unset($queued);
         if (!empty($batch)) {
             $this->db->insert_batch('endorse_refresh_queue', $batch);
         }
+        $this->finishDiagnosticRun($runId, ['enqueued' => count($batch), 'skipped_duplicates' => $skipped, 'excluded_known_url' => 0]);
 
         return [
             'status' => true,
@@ -564,6 +576,13 @@ class EndorseRefreshQueueService
 
     public function clearAll(): array
     {
+        $user = $_SESSION['user'] ?? array();
+        $reason = isset($_POST['reason']) ? trim((string) $_POST['reason']) : 'manual_clear';
+        if (is_file(APPPATH . 'libraries/EndorseRefreshDiagnostics.php')) {
+            $this->CI->load->library('EndorseRefreshDiagnostics');
+            $archived = $this->CI->endorserefreshdiagnostics->archiveAndClear(intval($user['id'] ?? 0), $reason);
+            return ['status' => true, 'msg' => $archived['queue'] . ' data antrian dan ' . $archived['attempts'] . ' riwayat percobaan diarsipkan selama 30 hari.', 'deleted_queue' => $archived['queue'], 'deleted_attempts' => $archived['attempts'], 'archive_reason' => $archived['reason']];
+        }
         $attemptRows = $this->CI->mymodel->selectWithQuery("SELECT COUNT(*) AS c FROM endorse_refresh_queue_attempts");
         $queueRows = $this->CI->mymodel->selectWithQuery("SELECT COUNT(*) AS c FROM endorse_refresh_queue");
         $attemptCount = !empty($attemptRows) ? intval($attemptRows[0]['c']) : 0;
@@ -778,7 +797,7 @@ class EndorseRefreshQueueService
         return $active;
     }
 
-    protected function enqueueRows(array $rows, int $user_id): array
+    protected function enqueueRows(array $rows, int $user_id, string $runId = '', string $source = 'manual_campaign'): array
     {
         $candidateIds = array_map(function ($row) {
             return intval($row['id']);
@@ -827,6 +846,8 @@ class EndorseRefreshQueueService
                 'attempts' => 0,
                 'max_attempts' => self::DEFAULT_MAX_ATTEMPTS,
                 'enqueued_by' => $user_id,
+                'enqueue_run_id' => $runId !== '' ? $runId : null,
+                'enqueue_source' => $source,
                 'created_at' => $now,
             ];
 
@@ -848,6 +869,21 @@ class EndorseRefreshQueueService
             'skipped_duplicates' => $skipped,
             'excluded_known_url' => $excludedKnownUrl,
         ];
+    }
+
+    protected function startDiagnosticRun(string $source, int $userId, int $campaignId, int $candidates): string
+    {
+        if (!is_file(APPPATH . 'libraries/EndorseRefreshDiagnostics.php')) return '';
+        try {
+            $this->CI->load->library('EndorseRefreshDiagnostics');
+            return $this->CI->endorserefreshdiagnostics->startRun($source, $userId, $campaignId, array('driver' => env('ENDORSE_REFRESH_DRIVER', 'cron'), 'batch_size' => env('ENDORSE_REFRESH_BATCH_SIZE', 20), 'parallel_http' => env('ENDORSE_REFRESH_PARALLEL_HTTP', 10), 'rate_per_min' => env('ENDORSE_REFRESH_RATE_PER_MIN', 0), 'candidate_count' => $candidates));
+        } catch (Throwable $e) { log_message('error', 'refresh diagnostic enqueue start failed: ' . get_class($e)); return ''; }
+    }
+
+    protected function finishDiagnosticRun(string $runId, array $stats): void
+    {
+        if ($runId === '' || !isset($this->CI->endorserefreshdiagnostics)) return;
+        $this->CI->endorserefreshdiagnostics->finishRun($runId, array('candidate_count' => intval($stats['candidate_count'] ?? 0), 'enqueued_count' => intval($stats['enqueued'] ?? 0), 'skipped_duplicate_count' => intval($stats['skipped_duplicates'] ?? 0), 'excluded_count' => intval($stats['excluded_known_url'] ?? 0)));
     }
 
     protected function buildEnqueueMessage(int $enqueued, int $skipped, int $excludedKnownUrl): string

@@ -31,6 +31,10 @@ class Endorse extends BaseController
             'queue' => 'view',
             'queue_data' => 'view',
             'queue_history' => 'view',
+            'queue_diagnostics' => 'view',
+            'queue_diagnostics_data' => 'view',
+            'queue_diagnostics_run' => 'view',
+            'queue_diagnostics_spike' => 'view',
             'queue_count' => 'view',
             'clear_queue' => 'edit',
             'get_tiktok_photo_images' => 'view',
@@ -2370,6 +2374,53 @@ class Endorse extends BaseController
         return $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode($result));
+    }
+
+    public function queue_diagnostics()
+    {
+        $data['template'] = $this->template;
+        $data['title'] = 'Diagnostik Refresh Endorse - ' . $this->template->title();
+        $data['content'] = $this->load->view('endorse/queue_diagnostics', $data, true);
+        $this->load->view('TemplateDashboard', $data);
+    }
+
+    public function queue_diagnostics_data()
+    {
+        $range = strtolower((string) $this->input->get('range'));
+        $hours = $range === '30d' ? 720 : ($range === '7d' ? 168 : 24);
+        $interval = intval($hours) . ' HOUR';
+        $queueSource = '(SELECT id_endorse,purpose,created_at,status,attempts FROM endorse_refresh_queue UNION ALL SELECT id_endorse,purpose,created_at,status,attempts FROM endorse_refresh_queue_archive) q';
+        $summary = $this->mymodel->selectWithQuery("SELECT COUNT(*) queue_rows, COUNT(DISTINCT CONCAT(id_endorse, ':', purpose)) unique_scopes, SUM(status='completed') completed, SUM(status='failed') failed, SUM(status IN ('pending','processing','submitted')) active, ROUND(AVG(attempts),2) avg_attempts FROM $queueSource WHERE created_at >= NOW() - INTERVAL $interval");
+        $daily = $this->mymodel->selectWithQuery("SELECT DATE(created_at) day, COUNT(*) queue_rows, COUNT(DISTINCT CONCAT(id_endorse, ':', purpose)) unique_scopes, SUM(status='completed') completed, SUM(status='failed') failed FROM $queueSource WHERE created_at >= NOW() - INTERVAL $interval GROUP BY DATE(created_at) ORDER BY day");
+        $errors = $this->mymodel->selectWithQuery("SELECT COALESCE(error_class,'none') error_class, status, COUNT(*) attempts FROM (SELECT error_class,status,started_at FROM endorse_refresh_queue_attempts UNION ALL SELECT error_class,status,started_at FROM endorse_refresh_queue_attempt_archive) a WHERE started_at >= NOW() - INTERVAL $interval GROUP BY COALESCE(error_class,'none'),status ORDER BY attempts DESC LIMIT 20");
+        $runs = $this->mymodel->selectWithQuery("SELECT id,source,initiator_user_id,id_campaign,status,candidate_count,enqueued_count,skipped_duplicate_count,excluded_count,claimed_count,completed_count,retrying_count,failed_count,deferred_count,note,started_at,finished_at FROM endorse_refresh_runs WHERE started_at >= NOW() - INTERVAL $interval ORDER BY started_at DESC LIMIT 200");
+        $resources = $this->mymodel->selectWithQuery("SELECT captured_at,app_cpu_percent,mysql_cpu_percent,worker_cpu_percent,queue_pending,queue_processing,queue_completed,queue_failed FROM endorse_refresh_resource_snapshots WHERE captured_at >= NOW() - INTERVAL $interval ORDER BY captured_at ASC");
+        $spikes = $this->mymodel->selectWithQuery("SELECT id,captured_at,source,severity,summary FROM endorse_refresh_spikes WHERE captured_at >= NOW() - INTERVAL $interval ORDER BY captured_at DESC LIMIT 100");
+        $s = $summary[0] ?? array(); $total = intval($s['queue_rows'] ?? 0); $unique = intval($s['unique_scopes'] ?? 0);
+        $duplicateRate = $total > 0 ? round((($total - $unique) * 100) / $total, 2) : 0.0; $transient = 0; $allAttempts = 0;
+        foreach ($errors as $error) { $allAttempts += intval($error['attempts']); if (($error['error_class'] ?? '') === 'transient') $transient += intval($error['attempts']); }
+        $signals = array();
+        if ($duplicateRate >= 5) $signals[] = array('level' => 'critical', 'code' => 'duplicate_enqueue', 'message' => 'Duplicate queue rate ' . $duplicateRate . '% melebihi ambang 5%.');
+        if ($allAttempts > 0 && ($transient * 100 / $allAttempts) >= 10) $signals[] = array('level' => 'critical', 'code' => 'transient_retry', 'message' => 'Transient retry/failure ' . round($transient * 100 / $allAttempts, 1) . '% melebihi ambang 10%.');
+        $latest = !empty($resources) ? $resources[count($resources) - 1] : array();
+        if (floatval($latest['mysql_cpu_percent'] ?? 0) >= 80) $signals[] = array('level' => 'critical', 'code' => 'mysql_cpu', 'message' => 'CPU MySQL terakhir di atas 80%.');
+        if (empty($signals)) $signals[] = array('level' => 'ok', 'code' => 'healthy', 'message' => 'Tidak ada ambang diagnostik yang terlampaui pada rentang ini.');
+        $this->output->set_content_type('application/json')->set_output(json_encode(array('range' => $range ?: '24h', 'summary' => $s, 'duplicate_rate' => $duplicateRate, 'daily' => $daily, 'errors' => $errors, 'runs' => $runs, 'resources' => $resources, 'spikes' => $spikes, 'signals' => $signals)));
+    }
+
+    public function queue_diagnostics_run()
+    {
+        $id = preg_replace('/[^a-f0-9-]/i', '', (string) $this->input->get('id'));
+        $run = $this->mymodel->selectWithQuery("SELECT * FROM endorse_refresh_runs WHERE id=" . $this->db->escape($id) . ' LIMIT 1');
+        $items = $this->mymodel->selectWithQuery("SELECT id,id_endorse,id_campaign,purpose,platform,status,attempts,error_message,created_at,started_at,completed_at FROM endorse_refresh_queue WHERE enqueue_run_id=" . $this->db->escape($id) . " UNION ALL SELECT id,id_endorse,id_campaign,purpose,platform,status,attempts,error_message,created_at,started_at,completed_at FROM endorse_refresh_queue_archive WHERE enqueue_run_id=" . $this->db->escape($id) . ' ORDER BY created_at DESC LIMIT 500');
+        $this->output->set_content_type('application/json')->set_output(json_encode(array('run' => $run[0] ?? null, 'items' => $items)));
+    }
+
+    public function queue_diagnostics_spike()
+    {
+        $id = intval($this->input->get('id'));
+        $row = $this->mymodel->selectWithQuery("SELECT id,captured_at,source,severity,summary,evidence_json FROM endorse_refresh_spikes WHERE id='$id' LIMIT 1");
+        $this->output->set_content_type('application/json')->set_output(json_encode(array('spike' => $row[0] ?? null)));
     }
 
     /**
