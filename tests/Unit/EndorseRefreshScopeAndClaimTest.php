@@ -77,22 +77,22 @@ final class EndorseRefreshScopeAndClaimTest extends TestCase
 
     public function testClaimSqlContract(): void
     {
-        $sql = EndorseRefreshClaimRepository::buildClaimSql('w_test', '2026-08-03 10:00:00', 20, 60);
-        $this->assertStringContainsString('UPDATE endorse_refresh_queue', $sql);
-        $this->assertStringContainsString("SET status = 'processing'", $sql);
-        $this->assertStringContainsString("worker_id = 'w_test'", $sql);
-        $this->assertStringContainsString("status = 'pending'", $sql);
-        $this->assertStringContainsString("platform != 'Threads'", $sql);
-        $this->assertStringContainsString('worker_id IS NULL', $sql);
-        $this->assertStringContainsString('ORDER BY priority DESC, attempts ASC, created_at ASC', $sql);
+        $sql = EndorseRefreshClaimRepository::buildSelectForUpdateSql(20, 60);
+        $this->assertStringContainsString('SELECT q.*', $sql);
+        $this->assertStringContainsString('MAX(a.attempt_no)', $sql);
+        $this->assertStringContainsString("q.status = 'pending'", $sql);
+        $this->assertStringContainsString("q.platform != 'Threads'", $sql);
+        $this->assertStringContainsString('q.worker_id IS NULL', $sql);
+        $this->assertStringContainsString('q.attempts < q.max_attempts', $sql);
+        $this->assertStringContainsString('ORDER BY q.priority DESC, q.attempts ASC, q.created_at ASC, q.id ASC', $sql);
         $this->assertStringContainsString('LIMIT 20', $sql);
-        // cooldown expression present
-        $this->assertStringContainsString('TIMESTAMPDIFF(SECOND, claimed_at, NOW())', $sql);
+        $this->assertStringContainsString('FOR UPDATE SKIP LOCKED', $sql);
+        $this->assertStringContainsString('TIMESTAMPDIFF(SECOND, q.claimed_at, NOW(6))', $sql);
     }
 
     public function testClaimSqlClampsLimitAndBase(): void
     {
-        $sql = EndorseRefreshClaimRepository::buildClaimSql('w', 'now', 0, 0);
+        $sql = EndorseRefreshClaimRepository::buildSelectForUpdateSql(0, 0);
         $this->assertStringContainsString('LIMIT 1', $sql); // limit clamped to >=1
         $this->assertStringContainsString('(1 * POW(2', $sql); // base clamped to >=1
     }

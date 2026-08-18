@@ -169,6 +169,8 @@ struct SocialResponse {
     error_class: String,
     #[serde(skip_serializing_if = "str::is_empty")]
     reason_code: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retry_after: Option<u64>,
     stats_found: bool,
     stats_complete: bool,
     stats_fields: Vec<String>,
@@ -200,8 +202,10 @@ struct FallbackResponse {
     msg: String,
     #[serde(default)]
     error_class: String,
-    #[serde(default)]
+    #[serde(default, alias = "reason_code")]
     reason: String,
+    #[serde(default)]
+    retry_after: Option<u64>,
     #[serde(default)]
     stats_found: bool,
     #[serde(default)]
@@ -226,6 +230,7 @@ impl FallbackResponse {
             msg: self.msg,
             error_class: self.error_class,
             reason_code: self.reason,
+            retry_after: self.retry_after,
             stats_found: self.stats_found,
             stats_complete: self.stats_complete,
             stats_fields: self.stats_fields,
@@ -265,6 +270,7 @@ impl SocialResponse {
             msg: msg.into(),
             error_class: error_class.to_string(),
             reason_code: String::new(),
+            retry_after: Some(60),
             stats_found: false,
             stats_complete: false,
             stats_fields: vec![],
@@ -337,9 +343,12 @@ async fn health(State(state): State<AppState>) -> Json<Value> {
 
 async fn run_loop(client: Client, cfg: Config, heartbeat: Arc<AtomicI64>) {
     let sem = Arc::new(Semaphore::new(cfg.concurrency));
+    let claim_limit = effective_claim_limit(cfg.claim_limit, cfg.concurrency);
 
     loop {
-        let claimed = match claim(&client, &cfg).await {
+        // Never lease work that cannot start immediately. A large pre-claim batch
+        // waits behind the semaphore, expires its lease, and creates avoidable churn.
+        let claimed = match claim(&client, &cfg, claim_limit).await {
             Ok(claimed) => claimed,
             Err(e) => {
                 warn!("claim failed: {} — backing off", e);
@@ -444,14 +453,18 @@ fn auth(req: reqwest::RequestBuilder, cfg: &Config) -> reqwest::RequestBuilder {
     }
 }
 
-async fn claim(client: &Client, cfg: &Config) -> Result<ClaimResponse, String> {
+fn effective_claim_limit(configured: u32, concurrency: usize) -> u32 {
+    configured.max(1).min(concurrency.max(1) as u32)
+}
+
+async fn claim(client: &Client, cfg: &Config, limit: u32) -> Result<ClaimResponse, String> {
     let url = format!("{}/api/endorse-refresh/claim", cfg.api_base);
     let req = auth(
         client.post(&url).json(&serde_json::json!({
             "contract_version": 2,
             "worker_id": cfg.worker_id,
             "task_identity": cfg.task_identity,
-            "limit": cfg.claim_limit
+            "limit": limit
         })),
         cfg,
     )
@@ -740,6 +753,7 @@ async fn fetch_fallback(client: &Client, cfg: &Config, item: &ClaimItem) -> Soci
                 .and_then(Value::as_str)
                 .unwrap_or("circuit_open")
                 .to_string(),
+            retry_after: body.get("retry_after").and_then(Value::as_u64),
             stats_found: false,
             stats_complete: false,
             stats_fields: vec![],
@@ -750,7 +764,15 @@ async fn fetch_fallback(client: &Client, cfg: &Config, item: &ClaimItem) -> Soci
         };
     }
     if !resp.status().is_success() {
-        return SocialResponse::failure("transient", format!("fallback HTTP {}", resp.status()));
+        let status = resp.status();
+        if status.as_u16() == 429 {
+            return resp
+                .json::<FallbackResponse>()
+                .await
+                .map(FallbackResponse::into_social_response)
+                .unwrap_or_else(|_| SocialResponse::failure("rate_limited", "fallback HTTP 429"));
+        }
+        return SocialResponse::failure("transient", format!("fallback HTTP {}", status));
     }
 
     match resp.json::<FallbackResponse>().await {
@@ -912,6 +934,7 @@ fn map_item(item: &Value, url: &str) -> SocialResponse {
         msg: String::new(),
         error_class: String::new(),
         reason_code: String::new(),
+        retry_after: None,
         stats_found: true,
         stats_complete: like_present
             && share_present
@@ -1075,6 +1098,7 @@ mod tests {
             msg: "Data ditemukan".to_string(),
             error_class: String::new(),
             reason: String::new(),
+            retry_after: None,
             stats_found: true,
             stats_complete: true,
             stats_fields: vec![
@@ -1115,6 +1139,7 @@ mod tests {
             msg: "RapidAPI unavailable".to_string(),
             error_class: "infra_connect".to_string(),
             reason: "fallback_timeout".to_string(),
+            retry_after: Some(60),
             stats_found: false,
             stats_complete: false,
             stats_fields: vec![],
@@ -1127,5 +1152,13 @@ mod tests {
         assert_eq!(mapped.error_class, "infra_connect");
         assert_eq!(mapped.reason_code, "fallback_timeout");
         assert_eq!(mapped.msg, "RapidAPI unavailable");
+        assert_eq!(mapped.retry_after, Some(60));
+    }
+
+    #[test]
+    fn claim_limit_never_exceeds_available_concurrency() {
+        assert_eq!(effective_claim_limit(500, 10), 10);
+        assert_eq!(effective_claim_limit(5, 10), 5);
+        assert_eq!(effective_claim_limit(0, 0), 1);
     }
 }

@@ -50,6 +50,123 @@ class EndorseRefreshQueueService
         return $baseSeconds * (2 ** $exponent);
     }
 
+    /**
+     * Stable jitter avoids a retry thundering herd while keeping tests and incident
+     * reconstruction deterministic. Provider Retry-After is always a lower bound.
+     */
+    public static function retryDelayWithJitter(int $queueId, int $attempts, int $baseSeconds = 60, int $retryAfterSeconds = 0): int
+    {
+        $base = self::retryDelaySeconds($attempts, $baseSeconds);
+        $jitterWindow = max(1, intdiv(max(1, $baseSeconds), 2));
+        $jitter = abs(crc32($queueId . ':' . $attempts)) % ($jitterWindow + 1);
+
+        return max(0, $retryAfterSeconds, $base + $jitter);
+    }
+
+    // -------------------------------------------------------------------------
+    // SCHEDULING-TIME CONTRACT (single authority).
+    //
+    // Every scheduling column — lease_expires_at, claimed_at, started_at,
+    // next_attempt_at, completed_at, finished_at — is written AND compared using the
+    // MySQL server clock via NOW(6). Nothing schedules from the PHP clock.
+    //
+    // Why the database and not UTC-in-PHP: the cron driver (the only enabled driver)
+    // has always written these columns with PHP's Asia/Jakarta clock and read them back
+    // with NOW(6), so on a Jakarta-clocked server the existing rows already mean
+    // "server local time". Rewriting them as UTC would reinterpret live data and needs
+    // a reconciliation pass. NOW(6) keeps legacy rows meaningful and removes the
+    // cross-path skew, because the V2 path stops writing gmdate()/UTC_TIMESTAMP into
+    // the same columns.
+    //
+    // Deadlines are computed with database-side arithmetic rather than "read NOW(),
+    // parse a zone-less string in PHP, add seconds, write it back later": that round
+    // trip re-introduces a process clock and a parse ambiguity for no benefit.
+    // -------------------------------------------------------------------------
+
+    /** Close the still-open attempt as timed_out, then release the parent. */
+    public const RECOVERY_CLOSE_OPEN_ATTEMPT = 'close_open_attempt';
+    /** Parent owns no attempt row at all: record one reconciled timeout, then release. */
+    public const RECOVERY_SYNTHESIZE_ATTEMPT = 'synthesize_attempt';
+    /** Attempt is already closed (failed/timed_out/cancelled): release the parent only. */
+    public const RECOVERY_RELEASE_ONLY = 'release_only';
+    /** Ambiguous or already-successful state: observe it, never retry it. */
+    public const RECOVERY_INCONSISTENT = 'inconsistent';
+
+    /**
+     * Recovery policy for an expired lease, keyed on the ACTIVE ATTEMPT's state.
+     *
+     * The dangerous cases are 'completed' and a dangling pointer. A completed attempt is
+     * written in the same transaction as its business write, so a completed attempt under a
+     * still-processing parent cannot be re-run without risking a duplicate provider request
+     * for work that already succeeded; and a pointer to a row that no longer exists carries
+     * no evidence at all. Both are reported rather than normalised.
+     *
+     * @param string $attemptStatus  status of the parent's active attempt, '' when unjoined
+     * @param int    $activeAttemptId parent's active_attempt_id (0 when NULL)
+     * @param int    $attemptId       id of the joined attempt row (0 when it did not join)
+     */
+    public static function recoveryDecision(string $attemptStatus, int $activeAttemptId, int $attemptId): string
+    {
+        if ($activeAttemptId <= 0) {
+            return self::RECOVERY_SYNTHESIZE_ATTEMPT;
+        }
+        if ($attemptId <= 0) {
+            // Parent points at an attempt row that did not join: unexplainable history.
+            return self::RECOVERY_INCONSISTENT;
+        }
+
+        switch ($attemptStatus) {
+            case 'processing':
+                return self::RECOVERY_CLOSE_OPEN_ATTEMPT;
+
+            case 'failed':
+            case 'timed_out':
+            case 'cancelled':
+            case 'retrying':
+                return self::RECOVERY_RELEASE_ONLY;
+
+            case 'completed':
+            case 'submitted':
+            default:
+                // 'submitted' is an in-flight provider job whose outcome is still unknown,
+                // 'completed' already succeeded, anything else violates the state machine.
+                return self::RECOVERY_INCONSISTENT;
+        }
+    }
+
+    /** The one clock every scheduling comparison and write uses. */
+    public static function schedulingNowSql(): string
+    {
+        return 'NOW(6)';
+    }
+
+    /**
+     * A future scheduling deadline, evaluated by the database. $seconds is clamped and
+     * cast so the expression can never carry caller-controlled SQL.
+     */
+    public static function schedulingDeadlineSql(int $seconds, int $maxSeconds = 86400): string
+    {
+        $seconds = max(0, min($maxSeconds, $seconds));
+
+        return 'DATE_ADD(NOW(6), INTERVAL ' . $seconds . ' SECOND)';
+    }
+
+    public static function retryAfterSeconds(array $response): int
+    {
+        $meta = is_array($response['error_meta'] ?? null) ? $response['error_meta'] : [];
+        $raw = $response['retry_after'] ?? $meta['retry_after'] ?? $meta['retry_after_seconds'] ?? 0;
+        if (is_numeric($raw)) {
+            return max(0, min(86400, intval(ceil((float) $raw))));
+        }
+
+        $timestamp = strtotime((string) $raw);
+        if ($timestamp === false) {
+            return 0;
+        }
+
+        return max(0, min(86400, $timestamp - time()));
+    }
+
     // ---------------------------------------------------------------------------
     // Provider-parity fix (fix/endorse-refresh-provider-parity).
     //
@@ -447,7 +564,7 @@ class EndorseRefreshQueueService
 
         $priority = $priority > 0 ? $priority : 50;
         $runId = $this->startDiagnosticRun('snapshot_' . $purpose, $user_id, intval($row['id_campaign'] ?? 0), 1);
-        $this->db->insert('endorse_refresh_queue', [
+        $inserted = $this->insertQueueRowsIgnoringDuplicates([[
             'id_endorse'   => $id_endorse,
             'id_campaign'  => intval($row['id_campaign'] ?? 0),
             'platform'     => $platform,
@@ -461,8 +578,12 @@ class EndorseRefreshQueueService
             'enqueue_run_id' => $runId,
             'enqueue_source' => 'snapshot_' . $purpose,
             'created_at'   => date('Y-m-d H:i:s'),
-        ]);
-        $this->finishDiagnosticRun($runId, ['enqueued' => 1, 'skipped_duplicates' => 0, 'excluded_known_url' => 0]);
+        ]]);
+        $this->finishDiagnosticRun($runId, ['enqueued' => $inserted, 'skipped_duplicates' => $inserted === 0 ? 1 : 0, 'excluded_known_url' => 0]);
+
+        if ($inserted === 0) {
+            return ['status' => false, 'msg' => 'Snapshot sudah ada di antrian.', 'enqueued' => 0, 'purpose' => $purpose];
+        }
 
         return ['status' => true, 'msg' => 'Snapshot ditambahkan ke antrian.', 'enqueued' => 1, 'purpose' => $purpose];
     }
@@ -562,14 +683,17 @@ class EndorseRefreshQueueService
         foreach ($batch as &$queued) { $queued['enqueue_run_id'] = $runId; $queued['enqueue_source'] = 'manual_retry'; }
         unset($queued);
         if (!empty($batch)) {
-            $this->db->insert_batch('endorse_refresh_queue', $batch);
+            $inserted = $this->insertQueueRowsIgnoringDuplicates($batch);
+            $skipped += count($batch) - $inserted;
+        } else {
+            $inserted = 0;
         }
-        $this->finishDiagnosticRun($runId, ['enqueued' => count($batch), 'skipped_duplicates' => $skipped, 'excluded_known_url' => 0]);
+        $this->finishDiagnosticRun($runId, ['enqueued' => $inserted, 'skipped_duplicates' => $skipped, 'excluded_known_url' => 0]);
 
         return [
             'status' => true,
-            'msg' => count($batch) . ' baris dijadwalkan ulang.' . ($skipped > 0 ? " $skipped dilewati karena masih aktif di antrian." : ''),
-            'updated' => count($batch),
+            'msg' => $inserted . ' baris dijadwalkan ulang.' . ($skipped > 0 ? " $skipped dilewati karena masih aktif di antrian." : ''),
+            'updated' => $inserted,
             'skipped_duplicates' => $skipped,
         ];
     }
@@ -611,43 +735,196 @@ class EndorseRefreshQueueService
     }
 
     /**
-     * Release rows whose worker claimed them but never finished: reset stale
-     * `processing` rows back to `pending` (and mark their open attempt rows as
-     * `retrying`) so the cron picks them up again. Shared by the worker (run on
-     * every invocation, before the rate caps) and the manual "Reset Macet" button.
+     * Fence expired leases, close their active attempts as timed_out, then apply
+     * backoff or max-attempt failure. The locked identity makes repeated recovery
+     * idempotent and prevents a slow old worker from owning the new claim.
      */
     public function resetStuck(int $staleMinutes = 5): array
     {
         $staleMinutes = max(1, intval($staleMinutes));
         $now = date('Y-m-d H:i:s');
+        $schedulingNow = self::schedulingNowSql();
+        $retryBase = max(1, min(3600, intval(env('ENDORSE_REFRESH_RETRY_BASE_SEC', 60))));
 
-        $this->db->query("
-            UPDATE endorse_refresh_queue_attempts a
-            INNER JOIN endorse_refresh_queue q ON q.id = a.queue_id
-            SET a.status = 'retrying',
-                a.error_class = 'transient',
-                a.error_message = 'Worker stalled; item returned to pending queue',
-                a.finished_at = '$now'
-            WHERE a.status = 'processing'
-              AND q.status = 'processing'
-              AND q.started_at < (NOW() - INTERVAL $staleMinutes MINUTE)
-        ");
+        $this->db->trans_begin();
+        try {
+            $result = $this->db->query("
+                SELECT q.*,
+                       a.id AS current_attempt_id,
+                       a.attempt_no AS current_attempt_no,
+                       a.status AS current_attempt_status,
+                       COALESCE((
+                           SELECT MAX(history.attempt_no)
+                           FROM endorse_refresh_queue_attempts history
+                           WHERE history.queue_id = q.id
+                       ), 0) AS history_attempt_sequence,
+                       COALESCE((
+                           SELECT SUM(CASE WHEN consumed.status <> 'cancelled' THEN 1 ELSE 0 END)
+                           FROM endorse_refresh_queue_attempts consumed
+                           WHERE consumed.queue_id = q.id
+                       ), 0) AS history_consumed_attempts
+                FROM endorse_refresh_queue q
+                LEFT JOIN endorse_refresh_queue_attempts a
+                  ON a.id = q.active_attempt_id
+                 AND a.queue_id = q.id
+                WHERE q.status = 'processing'
+                  AND q.started_at IS NOT NULL
+                  AND COALESCE(
+                        q.lease_expires_at,
+                        DATE_ADD(q.started_at, INTERVAL {$staleMinutes} MINUTE)
+                      ) < NOW(6)
+                ORDER BY q.id ASC
+                LIMIT 250
+                FOR UPDATE SKIP LOCKED
+            ");
+            $rows = $this->resultRowsOrThrow($result, 'select stale queue rows');
 
-        $this->db->query("
-            UPDATE endorse_refresh_queue
-            SET status = 'pending', worker_id = NULL, started_at = NULL, claimed_at = '$now'
-            WHERE status = 'processing'
-              AND started_at < (NOW() - INTERVAL $staleMinutes MINUTE)
-        ");
-        $reset = $this->db->affected_rows();
+            $reset = 0;
+            $failed = 0;
+            $inconsistent = [];
+            foreach ($rows as $row) {
+                $queueId = intval($row['id']);
+                $workerId = strval($row['worker_id'] ?? '');
+                $attemptId = intval($row['current_attempt_id'] ?? 0);
+                $attemptNo = intval($row['current_attempt_no'] ?? 0);
+                $historySequence = intval($row['history_attempt_sequence'] ?? 0);
+                $attemptStatus = strval($row['current_attempt_status'] ?? '');
+                // The parent's own active_attempt_id is the fencing key for the release
+                // below; it must be used verbatim, including when the attempt it points
+                // at has already been closed by another writer.
+                $activeAttemptId = intval($row['active_attempt_id'] ?? 0);
+                // Consumption is DERIVED from history, never incremented blind, so running
+                // recovery twice cannot charge the same attempt twice. 'cancelled' rows are
+                // allocations that never started a provider request and never count.
+                $consumedFromHistory = intval($row['history_consumed_attempts'] ?? 0);
 
-        return [
-            'status'      => true,
-            'reset_count' => $reset,
-            'msg'         => $reset > 0
-                ? "$reset item macet dikembalikan ke antrian (menunggu)."
-                : 'Tidak ada item macet untuk direset.',
-        ];
+                $decision = self::recoveryDecision($attemptStatus, $activeAttemptId, $attemptId);
+
+                if ($decision === self::RECOVERY_INCONSISTENT) {
+                    // Never silently retry an ambiguous state: a completed attempt means the
+                    // provider work and its business write already committed, and a dangling
+                    // active_attempt_id means history we cannot interpret. Surface it instead.
+                    $inconsistent[] = [
+                        'queue_id' => $queueId,
+                        'active_attempt_id' => $activeAttemptId,
+                        'attempt_status' => $attemptStatus !== '' ? $attemptStatus : 'missing',
+                    ];
+
+                    continue;
+                }
+
+                if ($decision === self::RECOVERY_CLOSE_OPEN_ATTEMPT) {
+                    $this->db->set('finished_at', $schedulingNow, false);
+                    $this->dbWriteOrThrow($this->db->update('endorse_refresh_queue_attempts', [
+                        'status' => 'timed_out',
+                        'error_class' => Endorse_sync::ERR_INFRA_STALL,
+                        'error_message' => 'Claim lease expired; stale worker fenced',
+                    ], [
+                        'id' => $attemptId,
+                        'queue_id' => $queueId,
+                        'worker_id' => $workerId,
+                        'status' => 'processing',
+                    ]), 'close stale attempt', 1);
+                    // The attempt was already non-cancelled, so it is already counted.
+                } elseif ($decision === self::RECOVERY_SYNTHESIZE_ATTEMPT) {
+                    // Legacy claim may have reached the provider after its attempt insert
+                    // failed. Preserve that unknown request as an explicitly reconciled
+                    // timed-out attempt so it is never mistaken for a real provider success.
+                    // Bounded: the parent leaves 'processing' in the same transaction.
+                    $attemptNo = max(intval($row['attempt_sequence'] ?? 0), $historySequence) + 1;
+                    $this->db->set('finished_at', $schedulingNow, false);
+                    $this->dbWriteOrThrow($this->db->insert('endorse_refresh_queue_attempts', [
+                        'queue_id' => $queueId,
+                        'attempt_no' => $attemptNo,
+                        'worker_id' => $workerId !== '' ? $workerId : null,
+                        'status' => 'timed_out',
+                        'error_class' => Endorse_sync::ERR_INFRA_STALL,
+                        'error_message' => 'internal_reconciled: recovered claim without active attempt history',
+                        'started_at' => strval($row['started_at'] ?? $now),
+                        'created_at' => strval($row['started_at'] ?? $now),
+                    ]), 'insert recovered timed-out attempt');
+                    $consumedFromHistory++;
+                } else {
+                    // RECOVERY_RELEASE_ONLY: the attempt is already closed (failed, timed_out
+                    // or cancelled). Its history is authoritative; only the parent needs
+                    // releasing, and no second timeout record is created.
+                    $attemptNo = max($attemptNo, $historySequence);
+                }
+
+                $maxAttempts = max(1, intval($row['max_attempts'] ?? self::DEFAULT_MAX_ATTEMPTS));
+                $consumedAttempts = max(intval($row['attempts'] ?? 0), $consumedFromHistory);
+                $isExhausted = $consumedAttempts >= $maxAttempts;
+
+                $queueUpdate = [
+                    'status' => $isExhausted ? 'failed' : 'pending',
+                    'attempts' => $consumedAttempts,
+                    'attempt_sequence' => max(intval($row['attempt_sequence'] ?? 0), $historySequence, $attemptNo),
+                    'active_attempt_id' => null,
+                    'worker_id' => null,
+                    'claim_owner' => null,
+                    'started_at' => null,
+                    'lease_expires_at' => null,
+                    'error_message' => $isExhausted
+                        ? 'Claim lease expired and maximum attempts were exhausted'
+                        : 'Claim lease expired; scheduled for retry',
+                ];
+                $rawUpdate = ['claimed_at' => $schedulingNow];
+                if ($isExhausted) {
+                    $queueUpdate['next_attempt_at'] = null;
+                    $rawUpdate['completed_at'] = $schedulingNow;
+                } else {
+                    $queueUpdate['completed_at'] = null;
+                    $rawUpdate['next_attempt_at'] = self::schedulingDeadlineSql(
+                        self::retryDelayWithJitter($queueId, $consumedAttempts, $retryBase)
+                    );
+                }
+
+                // Fence on the parent's own ownership triple. active_attempt_id is taken
+                // from the locked row, so it matches whether or not the attempt it points
+                // at is still open; asserting one affected row turns a predicate that can
+                // no longer match into a loud failure instead of a silent no-op.
+                $where = [
+                    'id' => $queueId,
+                    'status' => 'processing',
+                    'worker_id' => $workerId,
+                    'active_attempt_id' => $activeAttemptId > 0 ? $activeAttemptId : null,
+                ];
+
+                foreach ($rawUpdate as $column => $expression) {
+                    $this->db->set($column, $expression, false);
+                }
+                $this->dbWriteOrThrow($this->db->update('endorse_refresh_queue', $queueUpdate, $where), 'release stale queue', 1);
+                $reset++;
+                $failed += $isExhausted ? 1 : 0;
+            }
+
+            $this->commitOrThrow();
+
+            if (! empty($inconsistent)) {
+                // Observable, not silently normalised: these rows need reconciliation and
+                // are deliberately left untouched by automatic recovery.
+                log_message('error', 'endorse_refresh_recovery_inconsistent: ' . json_encode($inconsistent, JSON_UNESCAPED_SLASHES));
+            }
+
+            return [
+                'status' => true,
+                'reset_count' => $reset,
+                'failed_count' => $failed,
+                'inconsistent_count' => count($inconsistent),
+                'inconsistent' => $inconsistent,
+                'msg' => $reset > 0
+                    ? "$reset item macet ditutup dengan fencing dan dijadwalkan ulang."
+                    : 'Tidak ada claim kedaluwarsa untuk dipulihkan.',
+            ];
+        } catch (\Throwable $e) {
+            $this->db->trans_rollback();
+            log_message('error', 'endorse_refresh_reset_stuck_failed: ' . $e->getMessage());
+
+            return [
+                'status' => false, 'reset_count' => 0, 'failed_count' => 0,
+                'inconsistent_count' => 0, 'inconsistent' => [], 'msg' => 'Stale recovery gagal.',
+            ];
+        }
     }
 
     public function computeHealth(int $id_campaign = 0, int $staleMinutes = 5): array
@@ -797,6 +1074,38 @@ class EndorseRefreshQueueService
         return $active;
     }
 
+    /**
+     * Database-enforced idempotency for concurrent enqueue callers. The no-op
+     * duplicate-key branch preserves the already-active queue row.
+     */
+    private function insertQueueRowsIgnoringDuplicates(array $rows): int
+    {
+        if (empty($rows)) {
+            return 0;
+        }
+        $columns = array_keys($rows[0]);
+        $columnSql = implode(', ', array_map(static function ($column) {
+            return '`' . str_replace('`', '``', (string) $column) . '`';
+        }, $columns));
+        $values = [];
+        foreach ($rows as $row) {
+            $encoded = [];
+            foreach ($columns as $column) {
+                $encoded[] = $this->db->escape($row[$column] ?? null);
+            }
+            $values[] = '(' . implode(', ', $encoded) . ')';
+        }
+        $ok = $this->db->query(
+            'INSERT INTO `endorse_refresh_queue` (' . $columnSql . ') VALUES ' . implode(', ', $values)
+            . ' ON DUPLICATE KEY UPDATE `id` = `id`'
+        );
+        if ($ok === false) {
+            throw new RuntimeException('enqueue insert failed');
+        }
+
+        return intval($this->db->affected_rows());
+    }
+
     protected function enqueueRows(array $rows, int $user_id, string $runId = '', string $source = 'manual_campaign'): array
     {
         $candidateIds = array_map(function ($row) {
@@ -852,15 +1161,17 @@ class EndorseRefreshQueueService
             ];
 
             if (count($batch) >= self::INSERT_CHUNK_SIZE) {
-                $this->db->insert_batch('endorse_refresh_queue', $batch);
-                $enqueued += count($batch);
+                $inserted = $this->insertQueueRowsIgnoringDuplicates($batch);
+                $enqueued += $inserted;
+                $skipped += count($batch) - $inserted;
                 $batch = [];
             }
         }
 
         if (!empty($batch)) {
-            $this->db->insert_batch('endorse_refresh_queue', $batch);
-            $enqueued += count($batch);
+            $inserted = $this->insertQueueRowsIgnoringDuplicates($batch);
+            $enqueued += $inserted;
+            $skipped += count($batch) - $inserted;
         }
 
         return [
@@ -1005,18 +1316,28 @@ class EndorseRefreshQueueService
         // can early-return. Otherwise orphaned 'processing' rows keep the per-minute
         // counter pinned, every run skips, and recovery never runs: the stall sustains
         // itself. Recovery is two cheap UPDATEs, safe to always run.
-        $this->resetStuck($staleMinutes);
+        $recovery = $this->resetStuck($staleMinutes);
+        if (empty($recovery['status'])) {
+            return [
+                'status' => false,
+                'claimed' => 0,
+                'items' => [],
+                'worker_id' => '',
+                'error' => 'stale_recovery_failed',
+                'msg' => strval($recovery['msg'] ?? 'Stale recovery failed.'),
+            ];
+        }
 
         $worker_id = uniqid('w_', true);
 
-        // Daily request cap — protect the shared upstream budget. Counts this brand's own
-        // attempt rows (each attempt = one request); each brand has its own DB. 0 = off.
+        // Legacy cron safety cap. Counts consumed post attempts, excluding clean
+        // cancellations. V2 fallback additionally reserves every actual RapidAPI start.
         $dailyCap = intval($opts['daily_cap'] ?? env('ENDORSE_REFRESH_DAILY_CAP', 0));
         if (!$force && $dailyCap > 0) {
             $startOfDay = date('Y-m-d') . ' 00:00:00';
             $usedRow = $this->CI->mymodel->selectWithQuery("
                 SELECT COUNT(*) AS c FROM endorse_refresh_queue_attempts
-                WHERE started_at >= '$startOfDay'
+                WHERE started_at >= '$startOfDay' AND status != 'cancelled'
             ");
             $usedToday = intval($usedRow[0]['c'] ?? 0);
             $remaining = $dailyCap - $usedToday;
@@ -1034,14 +1355,13 @@ class EndorseRefreshQueueService
             }
         }
 
-        // Per-minute rate cap — protect the shared upstream pool (e.g. 250 of a 500/min
-        // limit). Counting attempts started in the last 60s bounds the combined rate of
-        // all overlapping worker runs (cron ticks OR Rust claim calls). 0 = off.
+        // Legacy cron post-attempt cap. It is intentionally separate from HTTP
+        // concurrency and from the V2 request-start reservation store. 0 = off.
         $ratePerMin = intval($opts['rate_per_min'] ?? env('ENDORSE_REFRESH_RATE_PER_MIN', 0));
         if (!$force && $ratePerMin > 0) {
             $usedRow = $this->CI->mymodel->selectWithQuery("
                 SELECT COUNT(*) AS c FROM endorse_refresh_queue_attempts
-                WHERE started_at >= (NOW() - INTERVAL 60 SECOND)
+                WHERE started_at >= (NOW() - INTERVAL 60 SECOND) AND status != 'cancelled'
             ");
             $usedMinute = intval($usedRow[0]['c'] ?? 0);
             $remainingMinute = $ratePerMin - $usedMinute;
@@ -1071,21 +1391,71 @@ class EndorseRefreshQueueService
         $retryBaseSeconds = intval($opts['retry_base_seconds'] ?? env('ENDORSE_REFRESH_RETRY_BASE_SEC', 60));
         $retryBaseSeconds = max(1, min(3600, $retryBaseSeconds));
 
-        // Atomic claim (single UPDATE serialized by MySQL). `attempts ASC` after priority
-        // drains never-tried rows before re-queued transient retries. The statement is built
-        // by the shared repository so the MySQL concurrency tests exercise this exact SQL.
-        $this->db->query(
-            EndorseRefreshClaimRepository::buildClaimSql($worker_id, $now, $limit, $retryBaseSeconds)
-        );
-        $claimed = $this->db->affected_rows();
-        if ($claimed <= 0) {
-            return ['status' => true, 'claimed' => 0, 'items' => [], 'worker_id' => $worker_id];
+        // Parent claim, attempt allocation and active-attempt identity are one transaction.
+        // MAX(attempt_no) self-heals legacy rows whose attempt_sequence was not backfilled.
+        $httpTimeoutForLease = max(1, intval(env('ENDORSE_REFRESH_HTTP_TIMEOUT', 30)));
+        $leaseSeconds = intval(env('ENDORSE_REFRESH_LEASE_SEC', max(120, ($httpTimeoutForLease * 2) + 30)));
+        $leaseSeconds = max(60, min(900, $leaseSeconds));
+        $leaseExpiresAtSql = self::schedulingDeadlineSql($leaseSeconds);
+        $schedulingNow = self::schedulingNowSql();
+        $rows = [];
+        $poison = [];
+        $candidateIds = [];
+
+        $this->db->trans_begin();
+        try {
+            $locked = $this->db->query(
+                EndorseRefreshClaimRepository::buildSelectForUpdateSql($limit, $retryBaseSeconds)
+            );
+            $candidates = $this->resultRowsOrThrow($locked, 'select claim candidates');
+            $candidateIds = array_map(static function ($row) {
+                return intval($row['id']);
+            }, $candidates);
+
+            foreach ($candidates as $row) {
+                $rows[] = $this->activateClaimRow($row, $worker_id, $schedulingNow, $leaseExpiresAtSql, $now);
+            }
+
+            $this->commitOrThrow();
+        } catch (\Throwable $e) {
+            // One structurally inconsistent row must not cost the healthy rows. Roll the
+            // batch back, then retry each candidate in its own transaction so the failure
+            // is attributed to the row that actually caused it. Exactly one isolation pass
+            // runs per call — no recursion, no unbounded retry.
+            $this->db->trans_rollback();
+            log_message('error', 'endorse_refresh_claim_batch_failed: ' . $e->getMessage());
+            $rows = [];
+
+            $isolation = $this->claimCandidatesIndividually(
+                $candidateIds,
+                $worker_id,
+                $schedulingNow,
+                $leaseExpiresAtSql,
+                $now,
+                $retryBaseSeconds
+            );
+            $rows = $isolation['rows'];
+            $poison = $isolation['poison'];
+
+            if (empty($rows) && empty($poison)) {
+                return [
+                    'status' => false,
+                    'claimed' => 0,
+                    'items' => [],
+                    'worker_id' => $worker_id,
+                    'error' => 'atomic_claim_failed',
+                    'msg' => 'Queue claim failed before provider request.',
+                ];
+            }
         }
 
-        $rows = $this->CI->mymodel->selectWithQuery("
-            SELECT * FROM endorse_refresh_queue
-            WHERE worker_id = '$worker_id' AND status = 'processing'
-        ");
+        $claimed = count($rows);
+        if ($claimed === 0) {
+            return [
+                'status' => true, 'claimed' => 0, 'items' => [], 'worker_id' => $worker_id,
+                'poison' => $poison, 'poison_count' => count($poison),
+            ];
+        }
         $endorseMeta = [];
         $endorseIds = array_values(array_unique(array_map(function ($row) {
             return intval($row['id_endorse'] ?? 0);
@@ -1118,24 +1488,6 @@ class EndorseRefreshQueueService
             }
         }
 
-        // One 'processing' attempt row per claimed item, inserted up front so the rate
-        // caps above see it immediately. finalize on outcome (applyResults); resetStuck
-        // is the safety-net if the worker dies before finalizing.
-        $attemptRows = [];
-        foreach ($rows as $r) {
-            $attemptRows[] = [
-                'queue_id' => intval($r['id']),
-                'attempt_no' => intval($r['attempts']) + 1,
-                'worker_id' => $worker_id,
-                'status' => 'processing',
-                'started_at' => $now,
-                'created_at' => $now,
-            ];
-        }
-        if (!empty($attemptRows)) {
-            $this->db->insert_batch('endorse_refresh_queue_attempts', $attemptRows);
-        }
-
         $httpTimeout = intval(env('ENDORSE_REFRESH_HTTP_TIMEOUT', 30));
         if ($httpTimeout < 1) {
             $httpTimeout = 30;
@@ -1157,7 +1509,8 @@ class EndorseRefreshQueueService
                 'purpose'      => strval($r['purpose'] ?? 'daily'),
                 'enqueued_by'  => intval($r['enqueued_by'] ?: 0),
                 'attempts'     => intval($r['attempts']),
-                'attempt_no'   => intval($r['attempts']) + 1,
+                'attempt_no'   => intval($r['attempt_sequence']),
+                'active_attempt_id' => intval($r['active_attempt_id']),
                 'max_attempts' => intval($r['max_attempts']),
                 'worker_id'    => $worker_id,
                 'rescue_lane'  => $isRescue,
@@ -1168,7 +1521,10 @@ class EndorseRefreshQueueService
             ];
         }
 
-        return ['status' => true, 'claimed' => $claimed, 'items' => $items, 'worker_id' => $worker_id];
+        return [
+            'status' => true, 'claimed' => $claimed, 'items' => $items, 'worker_id' => $worker_id,
+            'poison' => $poison, 'poison_count' => count($poison),
+        ];
     }
 
     /**
@@ -1184,11 +1540,182 @@ class EndorseRefreshQueueService
      * generic stall label after a 60s guillotine.
      */
     /**
-     * Return a chunk of claimed-but-unstarted items to `pending` and delete their up-front
-     * attempt rows — identical to the clean-deferral path in applyResults(), so incremental
-     * draining never strands rows and unstarted work consumes no provider budget/attempt.
+     * Allocate the attempt and activate the parent for ONE candidate. Caller owns the
+     * transaction, so this is identical whether it runs inside the batch or the
+     * per-row isolation pass — the two paths can never drift.
+     */
+    private function activateClaimRow(array $row, string $workerId, string $schedulingNow, string $leaseExpiresAtSql, string $now): array
+    {
+        $queueId = intval($row['id']);
+        $attemptNo = max(
+            intval($row['attempt_sequence'] ?? 0),
+            intval($row['history_attempt_sequence'] ?? 0)
+        ) + 1;
+
+        // Attempt start time feeds the per-minute/daily provider caps, which compare
+        // against the database clock, so it is stamped by the database too.
+        $this->db->set('started_at', $schedulingNow, false);
+        $this->db->set('created_at', $schedulingNow, false);
+        $this->dbWriteOrThrow($this->db->insert('endorse_refresh_queue_attempts', [
+            'queue_id' => $queueId,
+            'attempt_no' => $attemptNo,
+            'worker_id' => $workerId,
+            'status' => 'processing',
+        ]), 'insert active attempt');
+        $attemptId = intval($this->db->insert_id());
+        if ($attemptId <= 0) {
+            throw new RuntimeException('insert active attempt returned no id');
+        }
+
+        $this->db->set('claimed_at', $schedulingNow, false);
+        $this->db->set('started_at', $schedulingNow, false);
+        $this->db->set('lease_expires_at', $leaseExpiresAtSql, false);
+        $this->dbWriteOrThrow($this->db->update('endorse_refresh_queue', [
+            'status' => 'processing',
+            'worker_id' => $workerId,
+            'claim_owner' => 'cron',
+            'attempt_sequence' => $attemptNo,
+            'active_attempt_id' => $attemptId,
+            'next_attempt_at' => null,
+        ], [
+            'id' => $queueId,
+            'status' => 'pending',
+            'worker_id' => null,
+        ]), 'activate queue claim', 1);
+
+        $row['status'] = 'processing';
+        $row['worker_id'] = $workerId;
+        $row['claim_owner'] = 'cron';
+        $row['attempt_sequence'] = $attemptNo;
+        $row['active_attempt_id'] = $attemptId;
+        $row['started_at'] = $now;
+
+        return $row;
+    }
+
+    /**
+     * Isolation pass: claim each candidate in its own transaction so a poison row is
+     * attributed precisely and healthy rows still make progress.
      *
-     * @param array $items claimBatch items (need queue_id, attempt_no, worker_id)
+     * @param int[] $candidateIds
+     *
+     * @return array{rows: array<int,array>, poison: array<int,array>}
+     */
+    private function claimCandidatesIndividually(
+        array $candidateIds,
+        string $workerId,
+        string $schedulingNow,
+        string $leaseExpiresAtSql,
+        string $now,
+        int $retryBaseSeconds
+    ): array {
+        $rows = [];
+        $poison = [];
+
+        foreach ($candidateIds as $queueId) {
+            $this->db->trans_begin();
+
+            try {
+                $locked = $this->db->query(
+                    EndorseRefreshClaimRepository::buildSelectOneForUpdateSql($queueId, $retryBaseSeconds)
+                );
+                $candidate = $this->resultRowsOrThrow($locked, 'reselect claim candidate');
+                if (empty($candidate)) {
+                    // Another worker took it, or it stopped being eligible. Not poison.
+                    $this->db->trans_rollback();
+
+                    continue;
+                }
+
+                $rows[] = $this->activateClaimRow($candidate[0], $workerId, $schedulingNow, $leaseExpiresAtSql, $now);
+                $this->commitOrThrow();
+            } catch (\Throwable $e) {
+                // Classify BEFORE rolling back: a successful ROLLBACK clears the driver's
+                // last-error slot, which would mask the real cause as a generic failure.
+                $reason = self::classifyClaimFailure($this->claimFailureCode($e));
+                $this->db->trans_rollback();
+                $poison[] = ['queue_id' => $queueId, 'reason' => $reason];
+                log_message('error', 'endorse_refresh_claim_poison queue=' . $queueId . ' reason=' . $reason . ': ' . $e->getMessage());
+                $this->deferPoisonRow($queueId, $reason, $retryBaseSeconds);
+            }
+        }
+
+        return ['rows' => $rows, 'poison' => $poison];
+    }
+
+    /**
+     * Hold a structurally broken row off the queue for a bounded window. It stays
+     * `pending` with no fabricated attempt history — it is neither completed, failed by
+     * fiat, nor deleted — and the backoff stops a permanently corrupt row from being
+     * retried on every poll while still letting a transient cause self-heal.
+     */
+    private function deferPoisonRow(int $queueId, string $reason, int $retryBaseSeconds): void
+    {
+        $this->db->trans_begin();
+
+        try {
+            $this->db->set('next_attempt_at', self::schedulingDeadlineSql(max(60, $retryBaseSeconds), 3600), false);
+            $this->db->update('endorse_refresh_queue', [
+                'error_message' => 'claim isolation deferred: ' . $reason,
+            ], [
+                'id' => $queueId,
+                'status' => 'pending',
+                'worker_id' => null,
+            ]);
+            $this->commitOrThrow();
+        } catch (\Throwable $e) {
+            $this->db->trans_rollback();
+            log_message('error', 'endorse_refresh_claim_defer_failed queue=' . $queueId . ': ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Stable, secret-free classification of a failed single-row claim. Only genuine
+     * database invariant violations are poison; anything else stays generic so a
+     * transient infrastructure fault is never mislabelled as a corrupt row.
+     */
+    public static function classifyClaimFailure(int $mysqlErrorCode): string
+    {
+        switch ($mysqlErrorCode) {
+            case 1062: // ER_DUP_ENTRY
+                return 'attempt_identity_conflict';
+
+            case 1452: // ER_NO_REFERENCED_ROW_2
+            case 1451: // ER_ROW_IS_REFERENCED_2
+                return 'referential_conflict';
+
+            case 1264: // ER_WARN_DATA_OUT_OF_RANGE
+            case 1406: // ER_DATA_TOO_LONG
+                return 'column_range_conflict';
+
+            default:
+                return 'claim_write_failed';
+        }
+    }
+
+    /**
+     * The MySQL error number behind a failed claim. The driver may surface it either on
+     * the connection (query returned false) or on a thrown mysqli/PDO exception.
+     */
+    private function claimFailureCode(\Throwable $e): int
+    {
+        $code = intval($e->getCode());
+        if ($code > 0) {
+            return $code;
+        }
+        if (! method_exists($this->db, 'error')) {
+            return 0;
+        }
+        $error = $this->db->error();
+
+        return is_array($error) ? intval($error['code'] ?? 0) : 0;
+    }
+
+    /**
+     * Return claimed-but-unstarted items without destroying audit history.
+     * A cancelled allocation advances attempt_sequence but not consumed attempts.
+     *
+     * @param array $items claimBatch items
      */
     public function releaseUnstartedChunk(array $items): int
     {
@@ -1198,16 +1725,33 @@ class EndorseRefreshQueueService
             if ($queue_id <= 0) {
                 continue;
             }
-            $this->db->update('endorse_refresh_queue', [
-                'status' => 'pending', 'worker_id' => null, 'started_at' => null, 'claimed_at' => null,
-            ], ['id' => $queue_id]);
-            $this->db->delete('endorse_refresh_queue_attempts', [
-                'queue_id'   => $queue_id,
-                'attempt_no' => intval($item['attempt_no'] ?? (intval($item['attempts'] ?? 0) + 1)),
-                'worker_id'  => strval($item['worker_id'] ?? ''),
-            ]);
-            $released++;
+            $this->db->trans_begin();
+            try {
+                $claim = $this->lockActiveClaim($item);
+                if ($claim === null) {
+                    $this->db->trans_rollback();
+                    continue;
+                }
+                $this->finalizeActiveAttemptOrThrow($claim, 'cancelled', 'unstarted', 'Claim released before request start');
+                $this->updateActiveQueueOrThrow($claim, [
+                    'status' => 'pending',
+                    'worker_id' => null,
+                    'claim_owner' => null,
+                    'active_attempt_id' => null,
+                    'started_at' => null,
+                    'lease_expires_at' => null,
+                    'claimed_at' => null,
+                    'next_attempt_at' => null,
+                    'error_message' => null,
+                ]);
+                $this->commitOrThrow();
+                $released++;
+            } catch (\Throwable $e) {
+                $this->db->trans_rollback();
+                log_message('error', 'endorse_refresh_release_failed queue=' . $queue_id . ': ' . $e->getMessage());
+            }
         }
+
         return $released;
     }
 
@@ -1231,36 +1775,26 @@ class EndorseRefreshQueueService
         }
         $prevStatsMap = $this->CI->endorse_sync->load_prev_stats_batch($endorseIds, $today);
 
-        $completed = 0; $failed = 0; $retrying = 0; $deferred = 0; $exceptioned = 0;
+        $completed = 0; $failed = 0; $retrying = 0; $deferred = 0; $exceptioned = 0; $conflicts = 0;
         $touched = [];
 
         foreach ($items as $i => $item) {
             $queue_id    = intval($item['queue_id']);
             $id_endorse  = intval($item['id_endorse']);
             $endorse     = $endorseMap[$id_endorse] ?? null;
-            $attempts    = intval($item['attempts']) + 1;
             $maxAttempts = intval($item['max_attempts']);
-            $worker_id   = strval($item['worker_id'] ?? '');
             $response    = $responses[$i] ?? ['status' => false, 'msg' => 'No response', 'data' => []];
 
-            // Wall-clock deferral (cron only): return untouched, DELETE the up-front attempt
-            // (a deferral is not a real request, so it must not burn the caps or spam history).
+            // A clean deferral preserves the cancelled allocation for audit but consumes
+            // no request attempt and can never release a newer worker's claim.
             if (!empty($response['deferred'])) {
-                $this->db->update('endorse_refresh_queue', [
-                    'status' => 'pending', 'worker_id' => null, 'started_at' => null, 'claimed_at' => null,
-                ], ['id' => $queue_id]);
-                $this->db->delete('endorse_refresh_queue_attempts', [
-                    'queue_id' => $queue_id, 'attempt_no' => $attempts, 'worker_id' => $worker_id,
-                ]);
-                $deferred++;
+                $released = $this->releaseUnstartedChunk([$item]);
+                $deferred += $released;
+                $conflicts += $released === 0 ? 1 : 0;
                 continue;
             }
 
-            if (!$endorse) {
-                $this->markQueueFailed($queue_id, $attempts, 'Endorse row no longer exists', Endorse_sync::ERR_PERMANENT, $worker_id);
-                $failed++;
-                continue;
-            }
+            $this->logProviderRequestOutcome($item, $response);
 
             // Stamp the stable LOGICAL observation order for every path (legacy batch AND
             // incremental runner). The queue-row id is monotonic and constant across all
@@ -1278,6 +1812,28 @@ class EndorseRefreshQueueService
             // The campaign rollup is a derived aggregate and stays OUTSIDE the transaction.
             $this->db->trans_begin();
             try {
+                $claim = $this->lockActiveClaim($item);
+                if ($claim === null) {
+                    $this->db->trans_rollback();
+                    $conflicts++;
+                    continue;
+                }
+                $attemptNo = intval($claim['attempt_sequence']);
+                $attempts = intval($claim['attempts']) + 1;
+                $maxAttempts = intval($claim['max_attempts']);
+
+                if (! $endorse) {
+                    $this->failActiveClaimOrThrow(
+                        $claim,
+                        $attempts,
+                        'Endorse row no longer exists',
+                        Endorse_sync::ERR_PERMANENT
+                    );
+                    $this->commitOrThrow();
+                    $failed++;
+                    continue;
+                }
+
                 if ($purpose === 'daily') {
                     $result = $this->CI->endorse_sync->apply(
                         $endorse, $response, intval($item['enqueued_by'] ?: 0), $prevStatsMap[$id_endorse] ?? null
@@ -1289,12 +1845,12 @@ class EndorseRefreshQueueService
                 }
 
                 if ($result['status']) {
-                    $completedAt = date('Y-m-d H:i:s');
-                    $this->db->update('endorse_refresh_queue', [
+                    $this->updateActiveQueueOrThrow($claim, [
                         'status' => 'completed', 'attempts' => $attempts, 'error_message' => null,
-                        'worker_id' => null, 'completed_at' => $completedAt,
-                    ], ['id' => $queue_id]);
-                    $this->finalizeQueueAttempt($queue_id, $attempts, $worker_id, 'completed', null, null, $completedAt);
+                        'worker_id' => null, 'claim_owner' => null, 'active_attempt_id' => null,
+                        'lease_expires_at' => null, 'started_at' => null, 'next_attempt_at' => null,
+                    ], ['completed_at' => self::schedulingNowSql()]);
+                    $this->finalizeActiveAttemptOrThrow($claim, 'completed', null, null);
                     $this->commitOrThrow();
                     if ($purpose === 'daily') {
                         $touched[intval($endorse['id_campaign'])] = true;
@@ -1309,23 +1865,29 @@ class EndorseRefreshQueueService
                 // Only genuinely unrecoverable classes fail immediately; transport/infra classes
                 // retry up to max_attempts (one upstream outage must not drain the queue to failed).
                 if (Endorse_sync::is_terminal_class($errorClass)) {
-                    $this->markQueueFailed($queue_id, $attempts, $msg, $errorClass, $worker_id);
+                    $this->failActiveClaimOrThrow($claim, $attempts, $msg, $errorClass);
                     $this->commitOrThrow();
                     $failed++;
                     continue;
                 }
 
                 if ($attempts >= $maxAttempts) {
-                    $this->markQueueFailed($queue_id, $attempts, "$msg (after $attempts attempts)", $errorClass, $worker_id);
+                    $this->failActiveClaimOrThrow($claim, $attempts, "$msg (after $attempts attempts)", $errorClass);
                     $this->commitOrThrow();
                     $failed++;
                 } else {
-                    $finishedAt = date('Y-m-d H:i:s');
-                    $this->db->update('endorse_refresh_queue', [
+                    $retryAfter = self::retryAfterSeconds($response);
+                    $retryBase = intval(env('ENDORSE_REFRESH_RETRY_BASE_SEC', 60));
+                    $delay = self::retryDelayWithJitter($queue_id, $attempts, $retryBase, $retryAfter);
+                    $this->updateActiveQueueOrThrow($claim, [
                         'status' => 'pending', 'attempts' => $attempts, 'error_message' => $msg,
-                        'worker_id' => null, 'started_at' => null, 'claimed_at' => $finishedAt,
-                    ], ['id' => $queue_id]);
-                    $this->finalizeQueueAttempt($queue_id, $attempts, $worker_id, 'retrying', $errorClass, $msg, $finishedAt);
+                        'worker_id' => null, 'claim_owner' => null, 'active_attempt_id' => null,
+                        'started_at' => null, 'lease_expires_at' => null,
+                    ], [
+                        'claimed_at' => self::schedulingNowSql(),
+                        'next_attempt_at' => self::schedulingDeadlineSql($delay),
+                    ]);
+                    $this->finalizeActiveAttemptOrThrow($claim, 'retrying', $errorClass, $msg);
                     $this->commitOrThrow();
                     $retrying++;
                 }
@@ -1334,7 +1896,7 @@ class EndorseRefreshQueueService
                 // loss): roll back so no partial business state is visible. The row stays
                 // 'processing' and is safely recovered later. Never leaves duplicated effects.
                 $this->db->trans_rollback();
-                $this->log_apply_exception($queue_id, $attempts, $e);
+                $this->log_apply_exception($queue_id, intval($item['attempt_no'] ?? 0), $e);
                 $exceptioned++;
             }
         }
@@ -1345,7 +1907,8 @@ class EndorseRefreshQueueService
 
         return [
             'completed' => $completed, 'failed' => $failed, 'retrying' => $retrying,
-            'deferred' => $deferred, 'exceptioned' => $exceptioned, 'processed' => count($items),
+            'deferred' => $deferred, 'exceptioned' => $exceptioned, 'conflicts' => $conflicts,
+            'processed' => count($items),
         ];
     }
 
@@ -1359,6 +1922,119 @@ class EndorseRefreshQueueService
         $this->db->trans_commit();
     }
 
+    private function resultRowsOrThrow($result, string $context): array
+    {
+        if ($result === false || $this->db->trans_status() === false) {
+            throw new RuntimeException($context . ' failed');
+        }
+        if (! is_object($result) || ! method_exists($result, 'result_array')) {
+            throw new RuntimeException($context . ' returned no result set');
+        }
+
+        return $result->result_array();
+    }
+
+    private function dbWriteOrThrow($result, string $context, ?int $expectedAffected = null): void
+    {
+        if ($result === false || $this->db->trans_status() === false) {
+            $detail = '';
+            if (method_exists($this->db, 'error')) {
+                $error = $this->db->error();
+                $detail = is_array($error) && ! empty($error['message']) ? ': ' . $error['message'] : '';
+            }
+            throw new RuntimeException($context . ' failed' . $detail);
+        }
+        if ($expectedAffected !== null && intval($this->db->affected_rows()) !== $expectedAffected) {
+            throw new RuntimeException($context . ' affected an unexpected number of rows');
+        }
+    }
+
+    /**
+     * Lock and validate the complete fencing identity before any business write.
+     * A missing row is a normal stale-result conflict, not an internal error.
+     */
+    private function lockActiveClaim(array $item): ?array
+    {
+        $queueId = intval($item['queue_id'] ?? 0);
+        $attemptNo = intval($item['attempt_no'] ?? 0);
+        $attemptId = intval($item['active_attempt_id'] ?? 0);
+        $workerId = trim((string) ($item['worker_id'] ?? ''));
+        if ($queueId <= 0 || $attemptNo <= 0 || $attemptId <= 0 || $workerId === '') {
+            return null;
+        }
+
+        $result = $this->db->query("
+            SELECT q.*, a.id AS locked_attempt_id
+            FROM endorse_refresh_queue q
+            INNER JOIN endorse_refresh_queue_attempts a
+              ON a.id = q.active_attempt_id
+             AND a.queue_id = q.id
+             AND a.attempt_no = " . intval($attemptNo) . "
+             AND a.worker_id = " . $this->db->escape($workerId) . "
+             AND a.status = 'processing'
+            WHERE q.id = " . intval($queueId) . "
+              AND q.status = 'processing'
+              AND q.worker_id = " . $this->db->escape($workerId) . "
+              AND q.attempt_sequence = " . intval($attemptNo) . "
+              AND q.active_attempt_id = " . intval($attemptId) . "
+            LIMIT 1
+            FOR UPDATE
+        ");
+        $rows = $this->resultRowsOrThrow($result, 'lock active claim');
+
+        return $rows[0] ?? null;
+    }
+
+    /**
+     * @param array<string,string> $rawData columns written from a database expression
+     *                                      (scheduling timestamps), never from PHP time
+     */
+    private function updateActiveQueueOrThrow(array $claim, array $data, array $rawData = []): void
+    {
+        foreach ($rawData as $column => $expression) {
+            $this->db->set($column, $expression, false);
+        }
+        $this->dbWriteOrThrow($this->db->update('endorse_refresh_queue', $data, [
+            'id' => intval($claim['id']),
+            'status' => 'processing',
+            'worker_id' => strval($claim['worker_id']),
+            'attempt_sequence' => intval($claim['attempt_sequence']),
+            'active_attempt_id' => intval($claim['active_attempt_id']),
+        ]), 'fenced queue update', 1);
+    }
+
+    private function finalizeActiveAttemptOrThrow(array $claim, string $status, ?string $errorClass, ?string $msg): void
+    {
+        $this->db->set('finished_at', self::schedulingNowSql(), false);
+        $this->dbWriteOrThrow($this->db->update('endorse_refresh_queue_attempts', [
+            'status' => $status,
+            'error_class' => $errorClass,
+            'error_message' => $msg,
+        ], [
+            'id' => intval($claim['active_attempt_id']),
+            'queue_id' => intval($claim['id']),
+            'attempt_no' => intval($claim['attempt_sequence']),
+            'worker_id' => strval($claim['worker_id']),
+            'status' => 'processing',
+        ]), 'fenced attempt update', 1);
+    }
+
+    private function failActiveClaimOrThrow(array $claim, int $attempts, string $msg, ?string $errorClass): void
+    {
+        $this->updateActiveQueueOrThrow($claim, [
+            'status' => 'failed',
+            'attempts' => $attempts,
+            'error_message' => $msg,
+            'worker_id' => null,
+            'claim_owner' => null,
+            'active_attempt_id' => null,
+            'lease_expires_at' => null,
+            'started_at' => null,
+            'next_attempt_at' => null,
+        ], ['completed_at' => self::schedulingNowSql()]);
+        $this->finalizeActiveAttemptOrThrow($claim, 'failed', $errorClass, $msg);
+    }
+
     private function log_apply_exception(int $queue_id, int $attempts, \Throwable $e): void
     {
         error_log(json_encode([
@@ -1366,6 +2042,27 @@ class EndorseRefreshQueueService
             'queue_id' => $queue_id,
             'attempt' => $attempts,
             'error' => $e->getMessage(),
+        ], JSON_UNESCAPED_SLASHES));
+    }
+
+    private function logProviderRequestOutcome(array $item, array $response): void
+    {
+        $meta = is_array($response['request_meta'] ?? null)
+            ? $response['request_meta']
+            : (is_array($response['error_meta'] ?? null) ? $response['error_meta'] : []);
+        error_log(json_encode([
+            'evt' => 'endorse_refresh_request',
+            'queue_id' => intval($item['queue_id'] ?? 0),
+            'attempt_no' => intval($item['attempt_no'] ?? 0),
+            'provider' => strval($meta['provider'] ?? 'unknown'),
+            'requests_started' => max(1, intval($meta['requests_started'] ?? 1)),
+            'ok' => ! empty($response['status']),
+            'http_code' => intval($meta['http_code'] ?? 0),
+            'total_time_ms' => (int) round(doubleval($meta['total_time'] ?? 0) * 1000),
+            'error_class' => strval($response['error_class'] ?? ''),
+            'retry_after' => strval($meta['retry_after'] ?? ''),
+            'rate_remaining' => strval($meta['rate_remaining'] ?? ''),
+            'request_id' => strval($meta['request_id'] ?? ''),
         ], JSON_UNESCAPED_SLASHES));
     }
 
@@ -1420,33 +2117,9 @@ class EndorseRefreshQueueService
         );
     }
 
-    protected function markQueueFailed(int $queue_id, int $attempts, string $msg, ?string $errorClass = null, ?string $worker_id = null): void
-    {
-        $completedAt = date('Y-m-d H:i:s');
-        $this->db->update('endorse_refresh_queue', [
-            'status'        => 'failed',
-            'attempts'      => $attempts,
-            'error_message' => $msg,
-            'worker_id'     => null,
-            'completed_at'  => $completedAt,
-        ], ['id' => $queue_id]);
-        $this->finalizeQueueAttempt($queue_id, $attempts, $worker_id, 'failed', $errorClass, $msg, $completedAt);
-    }
-
-    protected function finalizeQueueAttempt(int $queue_id, int $attemptNo, ?string $worker_id, string $status, ?string $errorClass, ?string $msg, string $finishedAt): void
-    {
-        $where = [
-            'queue_id' => $queue_id,
-            'attempt_no' => $attemptNo,
-        ];
-        if (!empty($worker_id)) {
-            $where['worker_id'] = $worker_id;
-        }
-        $this->db->update('endorse_refresh_queue_attempts', [
-            'status' => $status,
-            'error_class' => $errorClass,
-            'error_message' => $msg,
-            'finished_at' => $finishedAt,
-        ], $where);
-    }
+    // markQueueFailed()/finalizeQueueAttempt() were removed here. They wrote queue status,
+    // attempt status and ownership with no fencing predicate and no affected-row check, so
+    // a superseded worker could have overwritten a reassigned or completed row. A repo-wide
+    // search found no caller and no subclass of this class; every failure path now goes
+    // through failActiveClaimOrThrow(), which validates the full claim identity first.
 }

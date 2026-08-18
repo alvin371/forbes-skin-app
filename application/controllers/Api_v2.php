@@ -8209,8 +8209,8 @@ class Api_v2 extends CI_Controller
         // Driver gate: when the long-lived Rust consumer owns draining
         // (ENDORSE_REFRESH_DRIVER=rust) the per-minute cron stands down; only the manual
         // "Proses Sekarang" button (force=1) still runs inline. Flip the env back to
-        // 'cron' for instant rollback to this path — the claim/apply logic is identical
-        // (both go through EndorseRefreshQueueService), so the fallback is behavior-safe.
+        // 'cron' for rollback to the bounded web path. Both paths preserve the same
+        // business-write semantics, while V2 adds pull-worker fencing and request limiting.
         $force = ($this->input->get_post('force') === '1');
         $driver = strtolower(trim((string) env('ENDORSE_REFRESH_DRIVER', 'cron')));
         if ($driver === 'rust' && !$force) {
@@ -8277,6 +8277,9 @@ class Api_v2 extends CI_Controller
                 'sleep'                   => function ($s) { usleep((int) ($s * 1000000)); },
                 'claim' => function (int $n) use ($svc, $rapidKey) {
                     $c = $svc->claimBatch(['limit' => $n, 'stale_minutes' => 5]);
+                    if (empty($c['status'])) {
+                        throw new RuntimeException(strval($c['error'] ?? 'atomic_claim_failed'));
+                    }
                     if (!empty($c['skipped']) || empty($c['items'])) {
                         return [];
                     }
@@ -8299,8 +8302,10 @@ class Api_v2 extends CI_Controller
                     if (is_array($resp)) {
                         $resp['observed_at'] = $observedAt;
                     }
-                    $cls = $svc->classify_response($resp, strval($o['platform']), strval($o['url']));
-                    return ['ok' => $cls['class'] === Endorse_sync::ERR_OK, 'error_class' => $cls['class'], '_resp' => $resp, 'path' => 'rapidapi'];
+                    // applyResults() owns the canonical response classification. This
+                    // callback only tells the drain runner whether it can proceed; do
+                    // not call a non-existent service classifier and abort the worker.
+                    return ['ok' => !empty($resp['status']), 'error_class' => !empty($resp['status']) ? Endorse_sync::ERR_OK : Endorse_sync::ERR_TRANSIENT, '_resp' => $resp, 'path' => 'rapidapi'];
                 },
                 'apply' => function (array $item, array $resp) use ($svc) {
                     $svc->applyResults([$item['orig']], [$resp['_resp'] ?? ['status' => false, 'msg' => 'No response', 'data' => []]]);
@@ -8317,7 +8322,6 @@ class Api_v2 extends CI_Controller
                 'status' => 'ok', 'processed_count' => $summary['requests_started'] ?? 0,
                 'completed_count' => $summary['unique_completed'] ?? 0, 'note' => $summary['stop_reason'] ?? '',
             ));
-            $this->endorserefreshdiagnostics->finishRun($diagnosticRunId, array('note' => $skip['reason'] ?? 'capped'));
             die;
         }
 
@@ -8327,6 +8331,22 @@ class Api_v2 extends CI_Controller
             'force'         => $force,
             'stale_minutes' => 5,
         ]);
+
+        if (empty($claim['status'])) {
+            http_response_code(500);
+            $reason = strval($claim['error'] ?? 'atomic_claim_failed');
+            echo json_encode([
+                'status' => false,
+                'processed' => 0,
+                'reason' => $reason,
+                'msg' => strval($claim['msg'] ?? 'Queue claim failed before provider request.'),
+            ]);
+            $this->cron_monitor_finish($monitor, array(
+                'status' => 'error', 'processed_count' => 0, 'queue_count' => 0, 'note' => $reason,
+            ));
+            $this->endorserefreshdiagnostics->finishRun($diagnosticRunId, array('note' => $reason));
+            die;
+        }
 
         // A cap blocked the run — report why and stop.
         if (!empty($claim['skipped'])) {
@@ -8344,7 +8364,7 @@ class Api_v2 extends CI_Controller
                 'queue_count'     => 0,
                 'note'            => $skip['reason'] ?? 'capped',
             ));
-            $this->endorserefreshdiagnostics->finishRun($diagnosticRunId, array('note' => 'empty_queue'));
+            $this->endorserefreshdiagnostics->finishRun($diagnosticRunId, array('note' => $skip['reason'] ?? 'capped'));
             die;
         }
 
@@ -8364,6 +8384,7 @@ class Api_v2 extends CI_Controller
                 'queue_count'     => 0,
                 'worker'          => $worker_id,
             ));
+            $this->endorserefreshdiagnostics->finishRun($diagnosticRunId, array('note' => 'empty_queue'));
             die;
         }
 
@@ -8437,8 +8458,8 @@ class Api_v2 extends CI_Controller
      * endorse_refresh_result. Shares the exact claim + rate-cap logic the cron uses.
      *
      * Auth: WORKER_SHARED_SECRET header + optional WORKER_IP_ALLOWLIST (worker_auth_guard).
-     * The per-minute rate cap lives inside claimBatch, so the worker physically cannot
-     * exceed the shared upstream budget regardless of how fast it polls.
+     * RapidAPI fallback reserves a distributed token at request start. Claim size and
+     * HTTP concurrency remain independent controls.
      */
     function endorse_refresh_claim()
     {
@@ -8453,6 +8474,20 @@ class Api_v2 extends CI_Controller
         $error = $this->endorserefreshv2coordinator->validateV2Request($payload, true);
         if ($error !== null) {
             $this->json_response($error['http_status'], $error['body']);
+        }
+
+        // V2 has no cron request to run stale recovery while Rust owns draining.
+        // Use the same lease-aware, fenced recovery before allocating more work.
+        $this->load->library('EndorseRefreshQueueService');
+        $recovery = $this->endorserefreshqueueservice->resetStuck(
+            intval(env('ENDORSE_REFRESH_STALE_MINUTES', 5))
+        );
+        if (empty($recovery['status'])) {
+            $this->json_response(503, [
+                'status' => false,
+                'reason' => 'stale_recovery_failed',
+                'msg' => strval($recovery['msg'] ?? 'Stale recovery failed.'),
+            ]);
         }
 
         $claim = $this->endorserefreshv2coordinator->claimBatchV2(

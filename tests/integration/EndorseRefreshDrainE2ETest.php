@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../vendor/autoload.php';
 if (! defined('BASEPATH')) {
     define('BASEPATH', __DIR__);
 }
+require_once __DIR__ . '/support/QueueSchema.php';
 require_once __DIR__ . '/../../application/libraries/Endorse_sync.php';
 require_once __DIR__ . '/../../application/libraries/EndorseRefreshClaimRepository.php';
 require_once __DIR__ . '/../../application/libraries/EndorseRefreshRateLimiter.php';
@@ -41,8 +42,12 @@ final class EndorseRefreshDrainE2ETest extends TestCase
             [$k, $v]             = array_pad(explode('=', $pair, 2), 2, '');
             self::$cfg[trim($k)] = trim($v);
         }
-        $c         = self::$cfg;
-        self::$pdo = new PDO("mysql:host={$c['host']};port={$c['port']};dbname={$c['db']}", $c['user'], $c['pass'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $c = self::$cfg;
+        // This suite drives a behaviour SIMULATOR table (it carries a `behavior` column the
+        // production schema has no concept of), so it runs in its own database rather than
+        // replacing the canonical queue table other suites depend on.
+        $database  = QueueSchema::isolatedDatabase($c, 'drain');
+        self::$pdo = new PDO("mysql:host={$c['host']};port={$c['port']};dbname={$database}", $c['user'], $c['pass'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
         self::$pdo->exec('DROP TABLE IF EXISTS endorse_refresh_queue');
         self::$pdo->exec("
             CREATE TABLE endorse_refresh_queue (

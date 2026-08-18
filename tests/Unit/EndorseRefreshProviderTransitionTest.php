@@ -75,7 +75,6 @@ final class EndorseRefreshProviderTransitionTest extends TestCase
     {
         $coordinator = (new ReflectionClass(EndorseRefreshV2Coordinator::class))->newInstanceWithoutConstructor();
         $method      = new ReflectionMethod(EndorseRefreshV2Coordinator::class, 'providerTransitionForResponse');
-        $method->setAccessible(true);
 
         return $method->invoke($coordinator, $response, $providerKey);
     }

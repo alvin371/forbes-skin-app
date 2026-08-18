@@ -1,9 +1,12 @@
 <?php
 
 /**
- * One concurrent claim worker. Builds the claim UPDATE from the SAME shared repository
- * that production `claimBatch()` uses (EndorseRefreshClaimRepository::buildClaimSql), so
- * the concurrency test can never drift from shipped SQL.
+ * Legacy single-UPDATE claim worker for the drain simulator.
+ *
+ * NOTE: buildClaimSql() is NOT the production claim path — production uses
+ * EndorseRefreshQueueService::claimBatch() (see atomic_claim_worker.php, which drives the
+ * real code). This script only exercises the deprecated UPDATE against the simulator's own
+ * disposable database.
  *
  * argv: dsn user pass worker_id limit retry_base
  * prints: claimed=<n>

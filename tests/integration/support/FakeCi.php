@@ -9,11 +9,14 @@
 final class FakeDb
 {
     public mysqli $m;
-    private array $cols               = [];
-    private array $whereStack         = [];
-    private int $affected             = 0;
-    private bool $transStatus         = true;
-    private ?string $crashBeforeTable = null;
+    private array $cols                = [];
+    private array $whereStack          = [];
+    private array $setStack            = [];
+    private int $affected              = 0;
+    private bool $transStatus          = true;
+    private ?string $crashBeforeTable  = null;
+    private ?string $zeroAffectedTable = null;
+    private int $zeroAffectedTimes     = 0;
 
     public function __construct(mysqli $m)
     {
@@ -28,10 +31,26 @@ final class FakeDb
         $this->crashBeforeTable = $table;
     }
 
+    /**
+     * Test seam: make the next UPDATE on $table match nothing, exactly as it would if a
+     * concurrent transaction had already changed the row out from under the predicate.
+     * The statement still succeeds — only its affected-row count is zero — which is the
+     * condition an expected-affected-rows assertion exists to catch.
+     */
+    public function forceZeroAffectedOn(?string $table, int $times = 1): void
+    {
+        $this->zeroAffectedTable = $table;
+        $this->zeroAffectedTimes = max(1, $times);
+    }
+
     private function maybeCrash(string $table): void
     {
         if ($this->crashBeforeTable !== null && $table === $this->crashBeforeTable) {
             $this->crashBeforeTable = null; // one-shot
+            // Discard pending builder state, exactly as CodeIgniter does when a query
+            // completes. Leaking it would apply this statement's columns to the next one.
+            $this->setStack   = [];
+            $this->whereStack = [];
 
             throw new RuntimeException("simulated crash before writing {$table}");
         }
@@ -65,7 +84,7 @@ final class FakeDb
         $w = [];
 
         foreach ($where as $k => $v) {
-            $w[] = "`{$k}`=" . $this->val($v);
+            $w[] = $this->predicate($k, $v);
         }
         $sql               = "DELETE FROM `{$table}`" . (empty($w) ? '' : ' WHERE ' . implode(' AND ', $w));
         $ok                = $this->m->query($sql) !== false;
@@ -73,6 +92,13 @@ final class FakeDb
         $this->transStatus = $this->transStatus && $ok;
 
         return $ok;
+    }
+
+    public function table_exists(string $table): bool
+    {
+        $r = $this->m->query('SHOW TABLES LIKE ' . $this->val($table));
+
+        return $r !== false && $r->num_rows > 0;
     }
 
     public function field_exists(string $col, string $table): bool
@@ -99,6 +125,22 @@ final class FakeDb
     }
 
     /**
+     * CodeIgniter renders a null WHERE value as `col IS NULL`, never `col = NULL`
+     * (system/database/DB_query_builder.php: "value appears not to have been set,
+     * assign the test to IS NULL"). Emitting `= NULL` here would make every fenced
+     * predicate that releases ownership match zero rows, so the double must follow
+     * the framework exactly or the tests validate SQL production never runs.
+     *
+     * @param mixed $value
+     */
+    private function predicate(string $column, $value): string
+    {
+        return $value === null
+            ? "`{$column}` IS NULL"
+            : "`{$column}`=" . $this->val($value);
+    }
+
+    /**
      * CI-compatible escape (adds quotes).
      *
      * @param mixed $v
@@ -111,6 +153,16 @@ final class FakeDb
     public function affected_rows(): int
     {
         return $this->affected;
+    }
+
+    public function insert_id(): int
+    {
+        return (int) $this->m->insert_id;
+    }
+
+    public function error(): array
+    {
+        return ['code' => $this->m->errno, 'message' => $this->m->error];
     }
 
     /**
@@ -138,8 +190,21 @@ final class FakeDb
         if ($value === null && $escape === false) {
             $this->whereStack[] = '(' . $key . ')';
         } else {
-            $this->whereStack[] = "`{$key}`=" . $this->val($value);
+            $this->whereStack[] = $this->predicate($key, $value);
         }
+
+        return $this;
+    }
+
+    /**
+     * CI query-builder set(). $escape === false stores the value as a raw SQL expression,
+     * which is how scheduling deadlines are computed database-side.
+     *
+     * @param mixed $value
+     */
+    public function set(string $key, $value = null, bool $escape = true)
+    {
+        $this->setStack[$key] = $escape ? $this->val($value) : (string) $value;
 
         return $this;
     }
@@ -149,6 +214,11 @@ final class FakeDb
         $this->maybeCrash($table);
         $set = [];
 
+        foreach ($this->setStack as $k => $expr) {
+            $set[] = "`{$k}`={$expr}";
+        }
+        $this->setStack = [];
+
         foreach ($row as $k => $v) {
             $set[] = "`{$k}`=" . $this->val($v);
         }
@@ -156,8 +226,14 @@ final class FakeDb
         $this->whereStack = [];
         if (is_array($where)) {
             foreach ($where as $k => $v) {
-                $w[] = "`{$k}`=" . $this->val($v);
+                $w[] = $this->predicate($k, $v);
             }
+        }
+        if ($this->zeroAffectedTable !== null && $table === $this->zeroAffectedTable) {
+            if (--$this->zeroAffectedTimes <= 0) {
+                $this->zeroAffectedTable = null;
+            }
+            $w[] = '0=1';
         }
         $sql               = "UPDATE `{$table}` SET " . implode(',', $set) . ' WHERE ' . implode(' AND ', $w);
         $ok                = $this->m->query($sql) !== false;
@@ -170,8 +246,10 @@ final class FakeDb
     public function insert(string $table, array $row): bool
     {
         $this->maybeCrash($table);
-        $cols              = array_map(static fn ($k) => "`{$k}`", array_keys($row));
-        $vals              = array_map(fn ($v) => $this->val($v), array_values($row));
+        $raw               = $this->setStack;
+        $this->setStack    = [];
+        $cols              = array_map(static fn ($k) => "`{$k}`", array_merge(array_keys($raw), array_keys($row)));
+        $vals              = array_merge(array_values($raw), array_map(fn ($v) => $this->val($v), array_values($row)));
         $sql               = "INSERT INTO `{$table}` (" . implode(',', $cols) . ') VALUES (' . implode(',', $vals) . ')';
         $ok                = $this->m->query($sql) !== false;
         $this->affected    = $ok ? $this->m->affected_rows : 0;
@@ -313,5 +391,14 @@ if (! function_exists('get_instance')) {
     function &get_instance()
     {
         return $GLOBALS['__fake_ci'];
+    }
+}
+
+// CodeIgniter's logger. The claim/recovery failure branches call it, so the double must
+// provide it or a rollback path fatals instead of returning its error envelope.
+if (! function_exists('log_message')) {
+    function log_message($level, $message)
+    {
+        $GLOBALS['__fake_ci_log'][] = [$level, $message];
     }
 }

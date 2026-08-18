@@ -10,19 +10,28 @@
  * Variables injected by run.php: $pdo (PDO), $direction (string 'up'|'down')
  */
 
-function hasTable(PDO $pdo, string $table): bool
-{
-    return !empty($pdo->query("SHOW TABLES LIKE " . $pdo->quote($table))->fetchAll());
+// Guarded so the file can be included more than once in one process (the disposable
+// integration database rebuilds the canonical schema by running these migrations
+// directly). run.php includes each migration once, so production behaviour is unchanged.
+if (! function_exists('hasTable')) {
+    function hasTable(PDO $pdo, string $table): bool
+    {
+        return !empty($pdo->query("SHOW TABLES LIKE " . $pdo->quote($table))->fetchAll());
+    }
 }
 
-function hasColumn(PDO $pdo, string $table, string $column): bool
-{
-    return !empty($pdo->query("SHOW COLUMNS FROM `{$table}` LIKE " . $pdo->quote($column))->fetchAll());
+if (! function_exists('hasColumn')) {
+    function hasColumn(PDO $pdo, string $table, string $column): bool
+    {
+        return !empty($pdo->query("SHOW COLUMNS FROM `{$table}` LIKE " . $pdo->quote($column))->fetchAll());
+    }
 }
 
-function hasIndex(PDO $pdo, string $table, string $index): bool
-{
-    return !empty($pdo->query("SHOW INDEX FROM `{$table}` WHERE Key_name = " . $pdo->quote($index))->fetchAll());
+if (! function_exists('hasIndex')) {
+    function hasIndex(PDO $pdo, string $table, string $index): bool
+    {
+        return !empty($pdo->query("SHOW INDEX FROM `{$table}` WHERE Key_name = " . $pdo->quote($index))->fetchAll());
+    }
 }
 
 if ($direction === 'down') {

@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../vendor/autoload.php';
 if (! defined('BASEPATH')) {
     define('BASEPATH', __DIR__);
 }
+require_once __DIR__ . '/support/QueueSchema.php';
 require_once __DIR__ . '/../../application/libraries/Endorse_sync.php';
 require_once __DIR__ . '/../../application/libraries/EndorseRefreshClaimRepository.php';
 require_once __DIR__ . '/../../application/libraries/EndorseRefreshRateLimiter.php';
@@ -44,36 +45,7 @@ final class EndorseRefreshMysqlConcurrencyTest extends TestCase
         }
         $c         = self::$cfg;
         self::$pdo = new PDO("mysql:host={$c['host']};port={$c['port']};dbname={$c['db']}", $c['user'], $c['pass'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-        self::runMigrations(self::$pdo);
-    }
-
-    /**
-     * Apply the real migrations against the disposable DB (queue + rate tokens).
-     */
-    private static function runMigrations(PDO $pdo): void
-    {
-        $pdo->exec('DROP TABLE IF EXISTS endorse_refresh_queue');
-        $pdo->exec("
-            CREATE TABLE endorse_refresh_queue (
-              id INT UNSIGNED NOT NULL AUTO_INCREMENT,
-              id_endorse INT UNSIGNED NOT NULL DEFAULT 0,
-              id_campaign INT UNSIGNED NOT NULL DEFAULT 0,
-              platform VARCHAR(20) NOT NULL DEFAULT 'Tiktok',
-              link_upload TEXT NOT NULL,
-              status ENUM('pending','processing','completed','failed') NOT NULL DEFAULT 'pending',
-              priority TINYINT NOT NULL DEFAULT 10,
-              attempts TINYINT NOT NULL DEFAULT 0,
-              max_attempts TINYINT NOT NULL DEFAULT 3,
-              worker_id CHAR(36) NULL, claimed_at DATETIME NULL, started_at DATETIME NULL,
-              completed_at DATETIME NULL, created_at DATETIME NOT NULL,
-              PRIMARY KEY (id), KEY idx_pop (status, priority, created_at)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        ");
-        // The real reservation migration.
-        $direction = 'down';
-        require __DIR__ . '/../../migrations/20260803120000_create_endorse_refresh_rate_tokens.php';
-        $direction = 'up';
-        require __DIR__ . '/../../migrations/20260803120000_create_endorse_refresh_rate_tokens.php';
+        QueueSchema::build(self::$pdo);
     }
 
     protected function setUp(): void
@@ -88,6 +60,16 @@ final class EndorseRefreshMysqlConcurrencyTest extends TestCase
         $c = self::$cfg;
 
         return ["mysql:host={$c['host']};port={$c['port']};dbname={$c['db']}", $c['user'], $c['pass']];
+    }
+
+    /**
+     * Connection parts in the order atomic_claim_worker.php expects them.
+     */
+    private function claimWorkerDsn(): array
+    {
+        $c = self::$cfg;
+
+        return [$c['host'], $c['port'], $c['user'], $c['pass'], $c['db']];
     }
 
     private function runConcurrent(string $script, array $argsets): array
@@ -118,12 +100,24 @@ final class EndorseRefreshMysqlConcurrencyTest extends TestCase
 
     private function seedPending(int $n): void
     {
-        self::$pdo->exec('TRUNCATE endorse_refresh_queue');
-        $now  = (new DateTime())->format('Y-m-d H:i:s');
-        $stmt = self::$pdo->prepare('INSERT INTO endorse_refresh_queue (link_upload, created_at) VALUES (?, ?)');
+        QueueSchema::reset(self::$pdo);
+        $now = (new DateTime())->format('Y-m-d H:i:s');
+        self::$pdo->exec("INSERT INTO endorse_campaign (id, status) VALUES (100, 'Aktif')");
+        $stmt = self::$pdo->prepare(
+            'INSERT INTO endorse_refresh_queue (id_endorse, id_campaign, platform, link_upload, created_at)
+             VALUES (?, 100, ?, ?, ?)',
+        );
+        $endorse = self::$pdo->prepare(
+            "INSERT INTO endorse (id, id_campaign, platform, link_upload, total_cost, status, status_campaign,
+                                  brand, influencer, views, likes, comment, share_save, is_fyp,
+                                  pengajuan_payment_logs, task, logs)
+             VALUES (?, 100, 'Tiktok', ?, 0, 'Aktif', 'Aktif', 'B1', '0', 0, 0, 0, 0, 0, '', '', '')",
+        );
 
         for ($i = 0; $i < $n; $i++) {
-            $stmt->execute(['https://www.tiktok.com/@c/video/' . (7500000000000000000 + $i), $now]);
+            $url = 'https://www.tiktok.com/@c/video/' . (7500000000000000000 + $i);
+            $endorse->execute([$i + 1, $url]);
+            $stmt->execute([$i + 1, 'Tiktok', $url, $now]);
         }
     }
 
@@ -142,11 +136,12 @@ final class EndorseRefreshMysqlConcurrencyTest extends TestCase
     public function testThreeWorkersNeverDoubleClaimSameRowUsingProductionSql(): void
     {
         $this->seedPending(90);
-        [$dsn, $u, $p] = $this->dsn();
-        $out           = $this->runConcurrent('claim_worker.php', [
-            [$dsn, $u, $p, 'w_A', 40, 60],
-            [$dsn, $u, $p, 'w_B', 40, 60],
-            [$dsn, $u, $p, 'w_C', 40, 60],
+        $conn    = $this->claimWorkerDsn();
+        $barrier = microtime(true) + 0.5;
+        $out     = $this->runConcurrent('atomic_claim_worker.php', [
+            array_merge($conn, ['w_A', 40, 60, $barrier]),
+            array_merge($conn, ['w_B', 40, 60, $barrier]),
+            array_merge($conn, ['w_C', 40, 60, $barrier]),
         ]);
         $claimedTotal = 0;
 
@@ -154,13 +149,76 @@ final class EndorseRefreshMysqlConcurrencyTest extends TestCase
             $this->assertMatchesRegularExpression('/claimed=\d+/', $line);
             $claimedTotal += (int) (explode('=', trim($line))[1]);
         }
-        $dup = self::$pdo->query("SELECT MAX(c) FROM (SELECT id, COUNT(DISTINCT worker_id) c FROM endorse_refresh_queue WHERE status='processing' GROUP BY id) t")->fetchColumn();
-        $this->assertLessThanOrEqual(1, (int) $dup, 'a row was claimed by more than one worker');
+        // Grouping the parent by its own primary key can only ever yield one worker, so
+        // the real double-claim signal is on the attempt table: two workers allocating
+        // against the same queue row both leave an open attempt behind.
+        $dup = (int) self::$pdo->query("
+            SELECT COUNT(*) FROM (
+                SELECT queue_id FROM endorse_refresh_queue_attempts
+                WHERE status='processing' GROUP BY queue_id HAVING COUNT(*) > 1
+            ) t
+        ")->fetchColumn();
+        $this->assertSame(0, $dup, 'a queue row was claimed by more than one worker');
+        $distinctAttempts = (int) self::$pdo->query('SELECT COUNT(DISTINCT queue_id, attempt_no) FROM endorse_refresh_queue_attempts')->fetchColumn();
+        $totalAttempts    = (int) self::$pdo->query('SELECT COUNT(*) FROM endorse_refresh_queue_attempts')->fetchColumn();
+        $this->assertSame($totalAttempts, $distinctAttempts, 'an attempt number was allocated twice for the same queue row');
         $this->assertLessThanOrEqual(90, $claimedTotal);
         $processing = (int) (self::$pdo->query("SELECT COUNT(*) FROM endorse_refresh_queue WHERE status='processing'")->fetchColumn());
         $this->assertSame($processing, $claimedTotal, 'claimed count must equal processing rows (no loss/over-claim)');
         $orphan = (int) (self::$pdo->query("SELECT COUNT(*) FROM endorse_refresh_queue WHERE status='processing' AND worker_id IS NULL")->fetchColumn());
         $this->assertSame(0, $orphan);
+        $withoutAttempt = (int) (self::$pdo->query("SELECT COUNT(*) FROM endorse_refresh_queue q LEFT JOIN endorse_refresh_queue_attempts a ON a.id=q.active_attempt_id AND a.status='processing' WHERE q.status='processing' AND a.id IS NULL")->fetchColumn());
+        $this->assertSame(0, $withoutAttempt, 'every committed claim must own one active attempt');
+        $attempts = (int) (self::$pdo->query("SELECT COUNT(*) FROM endorse_refresh_queue_attempts WHERE status='processing'")->fetchColumn());
+        $this->assertSame($processing, $attempts);
+    }
+
+    public function testLegacyCounterMismatchAllocatesNextUniqueAttempt(): void
+    {
+        $this->seedPending(1);
+        self::$pdo->exec("INSERT INTO endorse_refresh_queue_attempts (queue_id,attempt_no,worker_id,status,started_at,finished_at,created_at) VALUES (1,1,'old','retrying',NOW(),NOW(),NOW())");
+        $out = $this->runConcurrent('atomic_claim_worker.php', [array_merge($this->claimWorkerDsn(), ['w_new', 1, 60])]);
+        $this->assertStringContainsString('claimed=1', $out[0]);
+        $this->assertSame(2, (int) self::$pdo->query('SELECT attempt_sequence FROM endorse_refresh_queue WHERE id=1')->fetchColumn());
+        $this->assertSame('1,2', self::$pdo->query('SELECT GROUP_CONCAT(attempt_no ORDER BY attempt_no) FROM endorse_refresh_queue_attempts WHERE queue_id=1')->fetchColumn());
+    }
+
+    /**
+     * A crash between the attempt insert and the parent activation must never leave partial
+     * state. Since poison-batch isolation was added the batch no longer fails outright: the
+     * transaction still rolls back, then the row is retried on its own. Either way the
+     * durable invariant is the same — never an orphan attempt, never a half-claimed parent.
+     */
+    public function testCrashAfterAttemptInsertNeverLeavesPartialState(): void
+    {
+        $this->seedPending(1);
+        $out = $this->runConcurrent('atomic_claim_worker.php', [array_merge($this->claimWorkerDsn(), ['w_crash', 1, 60, 0, 'after_attempt_insert'])]);
+
+        $status   = (string) self::$pdo->query('SELECT status FROM endorse_refresh_queue WHERE id=1')->fetchColumn();
+        $attempts = (int) self::$pdo->query('SELECT COUNT(*) FROM endorse_refresh_queue_attempts')->fetchColumn();
+
+        if (str_contains($out[0], 'rolled_back=1')) {
+            // Whole claim abandoned: nothing may survive the rollback.
+            $this->assertSame('pending', $status);
+            $this->assertSame(0, $attempts);
+
+            return;
+        }
+
+        // Isolation recovered the row: exactly one open attempt, owned by a processing parent.
+        $this->assertStringContainsString('claimed=1', $out[0]);
+        $this->assertSame('processing', $status);
+        $this->assertSame(1, $attempts);
+        $this->assertSame(
+            0,
+            (int) self::$pdo->query("
+                SELECT COUNT(*) FROM endorse_refresh_queue_attempts a
+                LEFT JOIN endorse_refresh_queue q
+                  ON q.id = a.queue_id AND q.active_attempt_id = a.id AND q.status = 'processing'
+                WHERE a.status = 'processing' AND q.id IS NULL
+            ")->fetchColumn(),
+            'no orphan attempt may survive a crash',
+        );
     }
 
     public function testThreeWorkersCannotExceedScopedRollingLimit(): void
