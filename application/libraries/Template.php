@@ -310,7 +310,7 @@ class Template
             }
             if ($this->isRapidApiFailureResponse($lastResponse)) {
                 $errorClass = strval($lastResponse['error_class'] ?? '');
-                if (in_array($errorClass, ['config', 'infra', 'infra_dns', 'infra_connect', 'infra_tls', 'permanent'], true)) {
+                if (in_array($errorClass, ['config', 'infra', 'infra_dns', 'infra_connect', 'infra_tls', 'permanent', 'rate_limited'], true)) {
                     return $lastResponse;
                 }
             }
@@ -371,6 +371,9 @@ class Template
                 'request_id' => '',
                 'region' => '',
                 'rate_remaining' => '',
+                'rate_limit' => '',
+                'rate_reset' => '',
+                'retry_after' => '',
                 'cf_ray' => '',
             ],
         ];
@@ -395,6 +398,9 @@ class Template
             'request_id' => '',
             'region' => '',
             'rate_remaining' => '',
+            'rate_limit' => '',
+            'rate_reset' => '',
+            'retry_after' => '',
             'cf_ray' => '',
         ], $meta);
 
@@ -410,6 +416,9 @@ class Template
         $meta['request_id'] = strval($meta['request_id']);
         $meta['region'] = strval($meta['region']);
         $meta['rate_remaining'] = strval($meta['rate_remaining']);
+        $meta['rate_limit'] = strval($meta['rate_limit']);
+        $meta['rate_reset'] = strval($meta['rate_reset']);
+        $meta['retry_after'] = strval($meta['retry_after']);
         $meta['cf_ray'] = strval($meta['cf_ray']);
         $meta['body_snippet'] = $this->summarizeBodySnippet($body);
 
@@ -450,7 +459,15 @@ class Template
             );
         }
 
-        if ($meta['http_code'] === 429 || $meta['http_code'] >= 500) {
+        if ($meta['http_code'] === 429) {
+            return $this->rapidApiFailureResponse(
+                'rate_limited',
+                $this->buildGenericRapidApiFailureMessage('RapidAPI rate limit tercapai', $meta),
+                $meta
+            );
+        }
+
+        if ($meta['http_code'] >= 500) {
             return $this->rapidApiFailureResponse(
                 'transient',
                 $this->buildGenericRapidApiFailureMessage('RapidAPI sementara tidak sehat', $meta),
@@ -615,6 +632,9 @@ class Template
             'request_id' => strval($headers['x-rapidapi-request-id'] ?? ''),
             'region' => strval($headers['x-rapidapi-region'] ?? ''),
             'rate_remaining' => strval($headers['x-ratelimit-request-remaining'] ?? ''),
+            'rate_limit' => strval($headers['x-ratelimit-request-limit'] ?? ''),
+            'rate_reset' => strval($headers['x-ratelimit-request-reset'] ?? ''),
+            'retry_after' => strval($headers['retry-after'] ?? ''),
             'cf_ray' => strval($headers['cf-ray'] ?? ''),
         ];
     }
@@ -728,6 +748,9 @@ class Template
             'request_id' => '',
             'region' => '',
             'rate_remaining' => '',
+            'rate_limit' => '',
+            'rate_reset' => '',
+            'retry_after' => '',
             'cf_ray' => '',
         ];
         $errorClass = 'transient';
@@ -1510,8 +1533,9 @@ class Template
         ];
     }
 
-    function get_social_media($type, $url, $fetch_media_assets = true, $influencer_id = null, $preferRapidApi = false, $known_content_id = null)
+    function get_social_media($type, $url, $fetch_media_assets = true, $influencer_id = null, $preferRapidApi = false, $known_content_id = null, int $maxProviderRequests = 2)
     {
+        $maxProviderRequests = max(1, min(2, $maxProviderRequests));
         $response = $this->buildTiktokBaseResponse((string) $url);
         if ($type == "Tiktok") {
             if ($url) {
@@ -1535,9 +1559,11 @@ class Template
                 if (!$scrapeEnabled || $prefer) {
                     $apiResp = $this->curlRequestWithRetry($detailUrl, [], function ($resp) {
                         return $this->isValidRapidApiTiktokDetailResponse($resp);
-                    });
+                    }, $maxProviderRequests);
                     if ($this->isValidRapidApiTiktokDetailResponse($apiResp)) {
-                        return $this->mapRapidApiTiktokDetailToResponse($response, $apiResp['data'] ?? [], $fetch_media_assets);
+                        $mapped = $this->mapRapidApiTiktokDetailToResponse($response, $apiResp['data'] ?? [], $fetch_media_assets);
+                        $mapped['request_meta'] = array_merge(['provider' => 'rapidapi', 'requests_started' => 1], $apiResp['_transport'] ?? []);
+                        return $mapped;
                     }
                 }
 
@@ -1552,7 +1578,7 @@ class Template
                 if ($apiResp === null) {
                     $apiResp = $this->curlRequestWithRetry($detailUrl, [], function ($resp) {
                         return $this->isValidRapidApiTiktokDetailResponse($resp);
-                    });
+                    }, $maxProviderRequests);
                 }
 
                 if (!$this->isValidRapidApiTiktokDetailResponse($apiResp)) {
@@ -1560,6 +1586,7 @@ class Template
                 }
 
                 $response = $this->mapRapidApiTiktokDetailToResponse($response, $apiResp['data'] ?? [], $fetch_media_assets);
+                $response['request_meta'] = array_merge(['provider' => 'rapidapi', 'requests_started' => 1], $apiResp['_transport'] ?? []);
             } else {
                 $response["status"] = false;
                 $response["msg"] = "URL tidak ditemukan";
@@ -1688,18 +1715,28 @@ class Template
                             "images" => [],
                         ],
                     ];
-                    $results[$idx] = $this->mapDirectTiktokItemToResponse($response, $pageScrapes[$idx], true);
+                    $mapped = $this->mapDirectTiktokItemToResponse($response, $pageScrapes[$idx], true);
+                    $mapped['request_meta'] = $pageScrapes[$idx]['_request_meta'] ?? ['provider' => 'direct_scrape', 'requests_started' => 1];
+                    $results[$idx] = $mapped;
                     continue;
                 }
 
-                $results[$idx] = $this->get_social_media(
+                $fallback = $this->get_social_media(
                     $platform,
                     $url,
                     true,
                     intval($task['influencer_id'] ?? 0) ?: null,
-                    false,
-                    strval($task['content_id'] ?? '')
+                    true,
+                    strval($task['content_id'] ?? ''),
+                    1
                 );
+                $fallbackMeta = is_array($fallback['request_meta'] ?? null) ? $fallback['request_meta'] : [];
+                $fallback['request_meta'] = array_merge($fallbackMeta, [
+                    'provider' => 'direct_scrape+rapidapi',
+                    'requests_started' => 1 + intval($fallbackMeta['requests_started'] ?? 1),
+                    'direct_total_time' => doubleval($pageScrapes[$idx]['_request_meta']['total_time'] ?? 0),
+                ]);
+                $results[$idx] = $fallback;
             }
         }
 
@@ -1765,7 +1802,14 @@ class Template
 
         foreach ($handles as $idx => $curl) {
             $html = curl_multi_getcontent($curl);
-            $results[$idx] = $this->extractTiktokItemStructFromHtml($html);
+            $item = $this->extractTiktokItemStructFromHtml($html);
+            $item['_request_meta'] = [
+                'provider' => 'direct_scrape',
+                'requests_started' => 1,
+                'http_code' => intval(curl_getinfo($curl, CURLINFO_HTTP_CODE)),
+                'total_time' => doubleval(curl_getinfo($curl, CURLINFO_TOTAL_TIME)),
+            ];
+            $results[$idx] = $item;
             curl_multi_remove_handle($multiHandle, $curl);
             curl_close($curl);
         }
@@ -1945,7 +1989,9 @@ class Template
                     'multi_result' => $multiResult,
                 ] + $this->captureRapidApiHeaderMeta($h['headers'] ?? []));
                 if ($this->isValidRapidApiTiktokDetailResponse($apiResp)) {
-                    $results[$idx] = $this->mapRapidApiTiktokDetailToResponse($base, $apiResp['data'], true);
+                    $mapped = $this->mapRapidApiTiktokDetailToResponse($base, $apiResp['data'], true);
+                    $mapped['request_meta'] = array_merge(['provider' => 'rapidapi', 'requests_started' => 1], $apiResp['_transport'] ?? []);
+                    $results[$idx] = $mapped;
                 } else {
                     $failure = $this->buildTiktokRapidApiFailureResponse($h['content_id'], $apiResp);
                     $canInlineRetry = $inlineRetryLimit > 0

@@ -20,6 +20,8 @@ class Endorse_sync
     const ERR_INFRA_TLS = 'infra_tls';
     const ERR_INFRA_STALL = 'infra_stall';
     const ERR_CONFIG    = 'config';
+    const ERR_RATE_LIMIT = 'rate_limited';
+    const ERR_INTERNAL  = 'internal';
 
     /**
      * Retry policy, single source of truth. Only genuinely unrecoverable classes
