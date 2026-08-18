@@ -185,61 +185,79 @@ class EndorseRefreshV2Coordinator
             }
 
             $rows = $this->queryRows("
-                SELECT *
-                FROM `endorse_refresh_queue`
+                SELECT q.*,
+                       COALESCE((SELECT MAX(a.attempt_no) FROM endorse_refresh_queue_attempts a WHERE a.queue_id = q.id), 0) AS history_attempt_sequence
+                FROM `endorse_refresh_queue` q
                 WHERE `status` = 'pending'
                   AND `platform` != 'Threads'
                   AND `worker_id` IS NULL
-                  AND (`next_attempt_at` IS NULL OR `next_attempt_at` <= UTC_TIMESTAMP(6))
+                  AND `attempts` < `max_attempts`
+                  AND (`next_attempt_at` IS NULL OR `next_attempt_at` <= NOW(6))
                 ORDER BY `priority` DESC, `attempts` ASC, `created_at` ASC, `id` ASC
                 LIMIT {$limit}
-                FOR UPDATE
+                FOR UPDATE SKIP LOCKED
             ");
 
             $claimed = [];
             $finalized = 0;
             $now = $this->nowUtc();
+            $httpTimeout = max(1, intval(env('ENDORSE_REFRESH_HTTP_TIMEOUT', 30)));
+            $leaseSeconds = intval(env('ENDORSE_REFRESH_LEASE_SEC', max(120, ($httpTimeout * 2) + 30)));
+            $leaseSeconds = max(60, min(900, $leaseSeconds));
+            // Same scheduling-time contract as the cron path: every scheduling column is
+            // written and compared with the database clock, never gmdate()/UTC_TIMESTAMP.
+            $schedulingNow = EndorseRefreshQueueService::schedulingNowSql();
+            $leaseExpiresAtSql = EndorseRefreshQueueService::schedulingDeadlineSql($leaseSeconds);
 
             foreach ($rows as $row) {
                 $queueId = intval($row['id']);
                 if ($this->isQuarantinedContent(intval($row['id_endorse']), strval($row['platform']), strval($row['link_upload']))) {
-                    $this->db->update('endorse_refresh_queue', [
+                    $this->db->set('completed_at', $schedulingNow, false);
+                    $this->writeOrThrowV2($this->db->update('endorse_refresh_queue', [
                         'status' => 'failed',
                         'error_message' => 'item_quarantined',
-                        'completed_at' => $now,
                         'worker_id' => null,
                         'claim_owner' => null,
                         'active_attempt_id' => null,
                         'started_at' => null,
-                    ], ['id' => $queueId]);
+                    ], ['id' => $queueId, 'status' => 'pending', 'worker_id' => null]), 'quarantine queue row', 1);
                     $finalized++;
                     continue;
                 }
 
-                $attemptNo = intval($row['attempt_sequence']) + 1;
-                $this->db->update('endorse_refresh_queue', [
-                    'status' => 'processing',
-                    'worker_id' => $workerId,
-                    'claim_owner' => $owner,
-                    'attempt_sequence' => $attemptNo,
-                    'claimed_at' => $now,
-                    'started_at' => $now,
-                    'next_attempt_at' => null,
-                ], ['id' => $queueId]);
-
-                $attempt = [
+                // Allocate from the highest of the parent counter and real attempt history,
+                // identically to the cron allocator, so a legacy row cannot reuse a number.
+                $attemptNo = max(intval($row['attempt_sequence']), intval($row['history_attempt_sequence'] ?? 0)) + 1;
+                $this->db->set('started_at', $schedulingNow, false);
+                $this->db->set('created_at', $schedulingNow, false);
+                $this->writeOrThrowV2($this->db->insert('endorse_refresh_queue_attempts', [
                     'queue_id' => $queueId,
                     'attempt_no' => $attemptNo,
                     'worker_id' => $workerId,
                     'status' => 'processing',
-                    'started_at' => $now,
-                    'created_at' => $now,
-                ];
-                $this->db->insert('endorse_refresh_queue_attempts', $attempt);
+                ]), 'insert active attempt');
                 $attemptId = intval($this->db->insert_id());
-                $this->db->update('endorse_refresh_queue', [
+                if ($attemptId <= 0) {
+                    throw new RuntimeException('insert active attempt returned no id');
+                }
+
+                // One conditional activation carrying the attempt identity: the parent must
+                // still be an unowned pending row, and exactly one row must change.
+                $this->db->set('claimed_at', $schedulingNow, false);
+                $this->db->set('started_at', $schedulingNow, false);
+                $this->db->set('lease_expires_at', $leaseExpiresAtSql, false);
+                $this->writeOrThrowV2($this->db->update('endorse_refresh_queue', [
+                    'status' => 'processing',
+                    'worker_id' => $workerId,
+                    'claim_owner' => $owner,
+                    'attempt_sequence' => $attemptNo,
                     'active_attempt_id' => $attemptId,
-                ], ['id' => $queueId]);
+                    'next_attempt_at' => null,
+                ], [
+                    'id' => $queueId,
+                    'status' => 'pending',
+                    'worker_id' => null,
+                ]), 'activate queue claim', 1);
 
                 $claimed[] = [
                     'queue_id' => $queueId,
@@ -257,7 +275,7 @@ class EndorseRefreshV2Coordinator
                 ];
             }
 
-            $this->db->trans_commit();
+            $this->commitOrThrowV2();
 
             return [
                 'http_status' => 200,
@@ -308,6 +326,41 @@ class EndorseRefreshV2Coordinator
             return $lease['response'];
         }
 
+        // One fallback call now performs exactly one RapidAPI request, so reserve
+        // its distributed token immediately before starting that request.
+        $ratePerMinute = intval(env('ENDORSE_REFRESH_RATE_PER_MIN', 0));
+        if ($ratePerMinute > 0) {
+            $scope = EndorseRefreshRateScope::scope(
+                EndorseRefreshRateScope::PROVIDER_RAPIDAPI,
+                strval(env('RAPIDAPI_KEY', ''))
+            );
+            $store = new CiDbReservationStore(
+                $this->db,
+                strtolower(strval(env('APP_ENV', 'prod'))),
+                strtolower(strval(env('APP_NAME', 'forbes')))
+            );
+            $reserved = $store->reserve($scope, $ratePerMinute, 60, [
+                'run_id' => strval($identity['attempt']['worker_id'] ?? ''),
+                'queue_id' => intval($identity['queue']['id']),
+                'attempt_no' => intval($identity['attempt']['attempt_no']),
+            ]);
+            if (! $reserved) {
+                $limited = [
+                    'status' => false,
+                    'msg' => 'RapidAPI request-start budget exhausted.',
+                    'data' => [],
+                    'error_class' => Endorse_sync::ERR_RATE_LIMIT,
+                    'reason_code' => 'local_rate_limit',
+                    'retry_after' => 60,
+                    'http_status' => 429,
+                ];
+                $transition = $this->providerTransitionForResponse($limited, $providerKey);
+                $this->completeFallbackLease($lease, $limited, $transition, $providerKey);
+
+                return ['http_status' => 429, 'body' => $limited];
+            }
+        }
+
         $threadsColumn = $this->db->field_exists('threads_media_id', 'endorse') ? ', threads_media_id' : '';
         $endorse = $this->singleRow("SELECT influencer{$threadsColumn} FROM endorse WHERE id = " . intval($identity['queue']['id_endorse'] ?? 0) . " LIMIT 1");
         $knownContentId = strval($endorse['threads_media_id'] ?? '');
@@ -317,7 +370,8 @@ class EndorseRefreshV2Coordinator
             true,
             intval($endorse['influencer'] ?? 0) ?: null,
             true,
-            $knownContentId
+            $knownContentId,
+            1
         );
         $normalized = $this->CI->endorse_sync->normalize_response(
             $response,
@@ -336,6 +390,7 @@ class EndorseRefreshV2Coordinator
                     'status' => false,
                     'reason' => $providerTransition['reason_code'],
                     'msg' => strval($normalized['msg'] ?? 'Provider unavailable'),
+                    'retry_after' => EndorseRefreshQueueService::retryAfterSeconds($normalized),
                     'active_circuits' => $this->activeCircuitReasons(false),
                 ],
             ];
@@ -406,25 +461,27 @@ class EndorseRefreshV2Coordinator
                 $item = $byQueue[$queueId];
                 $reasonCode = trim((string) ($item['reason_code'] ?? 'released'));
                 $msg = trim((string) ($item['msg'] ?? 'Released back to queue.'));
+                $schedulingNow = EndorseRefreshQueueService::schedulingNowSql();
+                $this->db->set('claimed_at', $schedulingNow, false);
+                $this->db->set('next_attempt_at', $schedulingNow, false);
                 $this->db->update('endorse_refresh_queue', [
                     'status' => 'pending',
                     'worker_id' => null,
                     'claim_owner' => null,
                     'active_attempt_id' => null,
                     'started_at' => null,
-                    'claimed_at' => $now,
-                    'next_attempt_at' => $now,
+                    'lease_expires_at' => null,
                     'error_message' => $msg,
                 ], ['id' => $queueId]);
+                $this->db->set('finished_at', $schedulingNow, false);
                 $this->db->update('endorse_refresh_queue_attempts', [
                     'status' => 'cancelled',
                     'error_class' => $reasonCode,
                     'error_message' => $msg,
-                    'finished_at' => $now,
                 ], ['id' => intval($queue['active_attempt_id'])]);
             }
 
-            $this->db->trans_commit();
+            $this->commitOrThrowV2();
 
             return [
                 'http_status' => 200,
@@ -552,20 +609,22 @@ class EndorseRefreshV2Coordinator
                 $errorClass = strval($result['error_class'] ?? Endorse_sync::ERR_TRANSIENT);
                 $msg = strval($result['msg'] ?? 'Gagal');
 
+                $schedulingNow = EndorseRefreshQueueService::schedulingNowSql();
                 if (!empty($result['status'])) {
+                    $this->db->set('completed_at', $schedulingNow, false);
                     $this->db->update('endorse_refresh_queue', [
                         'status' => 'completed',
-                        'attempts' => max(intval($queue['attempts']), $attemptNo),
+                        'attempts' => intval($queue['attempts']) + 1,
                         'worker_id' => null,
                         'claim_owner' => null,
                         'active_attempt_id' => null,
+                        'lease_expires_at' => null,
                         'error_message' => null,
-                        'completed_at' => $now,
                         'started_at' => null,
                     ], ['id' => $queueId]);
+                    $this->db->set('finished_at', $schedulingNow, false);
                     $this->db->update('endorse_refresh_queue_attempts', [
                         'status' => 'completed',
-                        'finished_at' => $now,
                         'error_class' => null,
                         'error_message' => null,
                     ], ['id' => $attemptId]);
@@ -576,28 +635,32 @@ class EndorseRefreshV2Coordinator
                     continue;
                 }
 
-                if (Endorse_sync::is_terminal_class($errorClass) || $attemptNo >= intval($queue['max_attempts'])) {
+                if (Endorse_sync::is_terminal_class($errorClass) || (intval($queue['attempts']) + 1) >= intval($queue['max_attempts'])) {
                     $this->finalizeQueueAsFailed($queue, $attemptNo, $msg, $errorClass, $now);
                     $failed++;
                     continue;
                 }
 
-                $delay = self::deterministicRetryDelaySeconds($queueId, $attemptNo, $retryBase);
-                $nextAttemptAt = gmdate('Y-m-d H:i:s', time() + $delay) . '.000000';
+                $retryAfter = EndorseRefreshQueueService::retryAfterSeconds($response);
+                $delay = max(
+                    self::deterministicRetryDelaySeconds($queueId, $attemptNo, $retryBase),
+                    $retryAfter
+                );
+                $this->db->set('claimed_at', $schedulingNow, false);
+                $this->db->set('next_attempt_at', EndorseRefreshQueueService::schedulingDeadlineSql($delay), false);
                 $this->db->update('endorse_refresh_queue', [
                     'status' => 'pending',
-                    'attempts' => max(intval($queue['attempts']), $attemptNo),
+                    'attempts' => intval($queue['attempts']) + 1,
                     'worker_id' => null,
                     'claim_owner' => null,
                     'active_attempt_id' => null,
                     'started_at' => null,
-                    'claimed_at' => $now,
-                    'next_attempt_at' => $nextAttemptAt,
+                    'lease_expires_at' => null,
                     'error_message' => $msg,
                 ], ['id' => $queueId]);
+                $this->db->set('finished_at', $schedulingNow, false);
                 $this->db->update('endorse_refresh_queue_attempts', [
                     'status' => 'retrying',
-                    'finished_at' => $now,
                     'error_class' => $errorClass,
                     'error_message' => $msg,
                 ], ['id' => $attemptId]);
@@ -608,7 +671,7 @@ class EndorseRefreshV2Coordinator
                 $this->CI->endorse_sync->update_campaign_parent($campaignId, 0);
             }
 
-            $this->db->trans_commit();
+            $this->commitOrThrowV2();
 
             return [
                 'http_status' => 200,
@@ -1102,16 +1165,42 @@ class EndorseRefreshV2Coordinator
         return $json;
     }
 
+    private function commitOrThrowV2(): void
+    {
+        if ($this->db->trans_status() === false) {
+            throw new RuntimeException('endorse refresh v2 transaction failed');
+        }
+        $this->db->trans_commit();
+    }
+
+    /**
+     * Parity with EndorseRefreshQueueService::dbWriteOrThrow: a critical write must both
+     * succeed and touch the number of rows its predicate promised. A zero-row activation
+     * is a lost race, never a claim.
+     *
+     * @param mixed $result
+     */
+    private function writeOrThrowV2($result, string $context, ?int $expectedAffected = null): void
+    {
+        if ($result === false || $this->db->trans_status() === false) {
+            throw new RuntimeException($context . ' failed');
+        }
+        if ($expectedAffected !== null && intval($this->db->affected_rows()) !== $expectedAffected) {
+            throw new RuntimeException($context . ' affected an unexpected number of rows');
+        }
+    }
+
     protected function finalizeQueueAsFailed(array $queue, int $attemptNo, string $msg, string $errorClass, string $now): void
     {
+        $this->db->set('completed_at', EndorseRefreshQueueService::schedulingNowSql(), false);
         $this->db->update('endorse_refresh_queue', [
             'status' => 'failed',
-            'attempts' => max(intval($queue['attempts']), $attemptNo),
+            'attempts' => intval($queue['attempts']) + 1,
             'worker_id' => null,
             'claim_owner' => null,
             'active_attempt_id' => null,
+            'lease_expires_at' => null,
             'error_message' => $msg,
-            'completed_at' => $now,
             'started_at' => null,
         ], ['id' => intval($queue['id'])]);
         $this->db->update('endorse_refresh_queue_attempts', [
