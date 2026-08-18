@@ -74,6 +74,7 @@ $campaigns = isset($campaigns) ? $campaigns : [];
             <small class="text-muted">Status proses sinkronisasi data sosial media untuk endorse content.</small>
         </div>
         <div class="queue-page-actions">
+            <a class="btn btn-outline-primary btn-sm me-2" href="<?= base_url() ?>endorse/queue-diagnostics"><i class="fa fa-chart-line"></i> Diagnostik</a>
             <button class="btn btn-primary btn-sm me-2" id="btnRunWorker">
                 <i class="fa fa-play"></i> Proses Sekarang
             </button>
@@ -463,7 +464,8 @@ $campaigns = isset($campaigns) ? $campaigns : [];
     });
 
     $('#btnClearQueue').on('click', function() {
-        if (!confirm('Hapus semua data queue dan riwayat percobaan? Data baru akan dibuat lagi saat ada proses refresh yang masuk.')) {
+        const reason = prompt('Alasan clear queue (akan disimpan sebagai audit selama 30 hari):', 'manual_clear');
+        if (reason === null || !confirm('Arsipkan lalu hapus queue aktif? Riwayat akan tetap tersedia untuk diagnostik selama 30 hari.')) {
             return;
         }
 
@@ -471,6 +473,7 @@ $campaigns = isset($campaigns) ? $campaigns : [];
         $.ajax({
             url: baseUrl + 'endorse/clear-queue',
             method: 'POST',
+            data: { reason: reason },
             dataType: 'json',
             success: function(resp) {
                 alert(resp.msg || 'Data antrian berhasil dihapus.');

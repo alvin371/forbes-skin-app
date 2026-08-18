@@ -8203,6 +8203,8 @@ class Api_v2 extends CI_Controller
         $this->load->library('template');
         $this->load->library('endorse_sync');
         $this->load->library('EndorseRefreshQueueService');
+        $this->load->library('EndorseRefreshDiagnostics');
+        $diagnosticRunId = $this->endorserefreshdiagnostics->startRun('cron_worker', 0, 0, array('driver' => env('ENDORSE_REFRESH_DRIVER', 'cron'), 'batch_size' => env('ENDORSE_REFRESH_BATCH_SIZE', 20), 'parallel_http' => env('ENDORSE_REFRESH_PARALLEL_HTTP', 10)));
 
         // Driver gate: when the long-lived Rust consumer owns draining
         // (ENDORSE_REFRESH_DRIVER=rust) the per-minute cron stands down; only the manual
@@ -8308,12 +8310,14 @@ class Api_v2 extends CI_Controller
                 },
             ]);
             $summary = $runner->run();
+            $this->endorserefreshdiagnostics->finishRun($diagnosticRunId, array('claimed_count' => intval($summary['requests_started'] ?? 0), 'completed_count' => intval($summary['unique_completed'] ?? 0), 'note' => strval($summary['stop_reason'] ?? '')));
             header('Content-Type: application/json; charset=utf-8');
             echo json_encode(['status' => true, 'mode' => 'incremental', 'summary' => $summary]);
             $this->cron_monitor_finish($monitor, array(
                 'status' => 'ok', 'processed_count' => $summary['requests_started'] ?? 0,
                 'completed_count' => $summary['unique_completed'] ?? 0, 'note' => $summary['stop_reason'] ?? '',
             ));
+            $this->endorserefreshdiagnostics->finishRun($diagnosticRunId, array('note' => $skip['reason'] ?? 'capped'));
             die;
         }
 
@@ -8340,6 +8344,7 @@ class Api_v2 extends CI_Controller
                 'queue_count'     => 0,
                 'note'            => $skip['reason'] ?? 'capped',
             ));
+            $this->endorserefreshdiagnostics->finishRun($diagnosticRunId, array('note' => 'empty_queue'));
             die;
         }
 
@@ -8381,6 +8386,7 @@ class Api_v2 extends CI_Controller
         // Step 5+6 — apply outcomes (mark completed/retrying/failed, finalize each attempt
         // with its REAL error, roll up touched campaigns) via the shared service.
         $summary = $this->endorserefreshqueueservice->applyResults($items, $responses);
+        $this->endorserefreshdiagnostics->finishRun($diagnosticRunId, array('claimed_count' => intval($claim['claimed'] ?? count($items)), 'completed_count' => intval($summary['completed'] ?? 0), 'failed_count' => intval($summary['failed'] ?? 0), 'retrying_count' => intval($summary['retrying'] ?? 0), 'deferred_count' => intval($summary['deferred'] ?? 0)));
 
         echo json_encode([
             'status'    => true,
