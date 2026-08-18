@@ -14,6 +14,21 @@ class EndorseRefreshQueueService
     const INSERT_CHUNK_SIZE = 250;
 
     /**
+     * Keep deployment configuration from turning one cron request into an
+     * unbounded worker. The production scheduler may invoke this endpoint more
+     * than once, so these are deliberately conservative hard ceilings.
+     */
+    public static function boundedWorkerSetting($value, int $default, int $max): int
+    {
+        $value = intval($value);
+        if ($value <= 0) {
+            $value = $default;
+        }
+
+        return max(1, min($max, $value));
+    }
+
+    /**
      * The HTTP claim endpoint is allowed to drain only when the Rust driver is
      * explicitly selected. Keep this pure so the ownership rule cannot drift
      * from its regression test.

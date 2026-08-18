@@ -265,3 +265,30 @@ if (!function_exists('monitoring_db_query_list')) {
         return array_slice($rows, 0, max(1, (int) $limit));
     }
 }
+
+if (!function_exists('monitoring_sql_fingerprint')) {
+    /** Preserve query shape without retaining request-specific literals. */
+    function monitoring_sql_fingerprint($sql)
+    {
+        $sql = (string) $sql;
+        $sql = preg_replace("/'(?:''|\\\\.|[^'])*'/s", '?', $sql);
+        $sql = preg_replace('/"(?:""|\\\\.|[^"])*"/s', '?', $sql);
+        $sql = preg_replace('/\\b\\d+(?:\\.\\d+)?\\b/', '?', $sql);
+        $sql = preg_replace('/\\s+/', ' ', trim($sql));
+
+        return strlen($sql) > 600 ? substr($sql, 0, 600) : $sql;
+    }
+}
+
+if (!function_exists('monitoring_redacted_query_list')) {
+    function monitoring_redacted_query_list($limit = 50)
+    {
+        $rows = monitoring_db_query_list($limit);
+        foreach ($rows as &$row) {
+            $row['sql'] = monitoring_sql_fingerprint($row['sql'] ?? '');
+        }
+        unset($row);
+
+        return $rows;
+    }
+}

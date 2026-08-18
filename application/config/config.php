@@ -105,7 +105,9 @@ $config['charset'] = 'UTF-8';
 | setting this variable to TRUE (boolean).  See the user guide for details.
 |
 */
-$config['enable_hooks'] = FALSE;
+$config['enable_hooks'] = function_exists('bootstrap_env_bool')
+    ? bootstrap_env_bool('MONITOR_REQUEST_LOGGING', false)
+    : FALSE;
 
 /*
 |--------------------------------------------------------------------------

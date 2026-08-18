@@ -33,6 +33,13 @@ final class EndorseRefreshQueuePolicyTest extends TestCase
         $this->assertSame(1, EndorseRefreshQueueService::retryDelaySeconds(0, 0));
     }
 
+    public function testWorkerSettingsAreConservativelyBounded(): void
+    {
+        $this->assertSame(20, EndorseRefreshQueueService::boundedWorkerSetting(0, 20, 50));
+        $this->assertSame(50, EndorseRefreshQueueService::boundedWorkerSetting(400, 20, 50));
+        $this->assertSame(5, EndorseRefreshQueueService::boundedWorkerSetting(5, 20, 50));
+    }
+
     public function testTikTokUrlNormalizationAddsMissingScheme(): void
     {
         $this->assertSame(

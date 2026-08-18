@@ -1,0 +1,6 @@
+# Replace the three existing forbes endorse-refresh entries (:08/:28/:48) with
+# this one entry. Do not overwrite the full production crontab with this file.
+* * * * * flock -n /tmp/forbes-endorse-refresh.lock /home/forbes/artifact/forbes-skin/tools/monitoring/cron_probe.sh forbes endorse-refresh https://acnenosystem.com/api/cronjob/endorse-refresh --max-time 55
+
+# Run the separate Threads queue worker once per minute, offset from refresh.
+* * * * * sleep 30; flock -n /tmp/forbes-threads-scraper.lock /home/forbes/artifact/forbes-skin/tools/monitoring/cron_probe.sh forbes threads-scraper https://acnenosystem.com/api/cronjob/threads-scraper --max-time 55
