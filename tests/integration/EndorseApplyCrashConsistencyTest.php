@@ -8,6 +8,7 @@ if (! defined('BASEPATH')) {
     define('BASEPATH', __DIR__);
 }
 require_once __DIR__ . '/support/FakeCi.php';
+require_once __DIR__ . '/support/QueueSchema.php';
 require_once __DIR__ . '/../../application/libraries/Endorse_sync.php';
 require_once __DIR__ . '/../../application/libraries/EndorseRefreshClaimRepository.php';
 require_once __DIR__ . '/../../application/libraries/EndorseRefreshRateLimiter.php';
@@ -25,6 +26,7 @@ require_once __DIR__ . '/../../application/libraries/EndorseRefreshQueueService.
 final class EndorseApplyCrashConsistencyTest extends TestCase
 {
     private static ?mysqli $m = null;
+    private static ?PDO $pdo  = null;
     private static array $cfg = [];
 
     public static function setUpBeforeClass(): void
@@ -43,47 +45,15 @@ final class EndorseApplyCrashConsistencyTest extends TestCase
             self::$cfg[trim($k)] = trim($v);
         }
         $c = self::$cfg;
+        // Canonical schema: built by the real migration up() path, shared by every
+        // integration class, so no test can prove an invariant against a schema
+        // production does not run.
+        self::$pdo = new PDO("mysql:host={$c['host']};port={$c['port']};dbname={$c['db']}", $c['user'], $c['pass'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        QueueSchema::build(self::$pdo);
+
         $m = new mysqli($c['host'], $c['user'], $c['pass'], $c['db'], (int) ($c['port']));
         $m->query("SET SESSION sql_mode=''");
-
-        foreach (['endorse', 'endorse_logs', 'endorse_campaign', 'endorse_campaign_logs', 'endorse_refresh_queue', 'endorse_refresh_queue_attempts'] as $t) {
-            $m->query("DROP TABLE IF EXISTS `{$t}`");
-        }
-        self::loadSql($m, file_get_contents(__DIR__ . '/schema/endorse_real_schema.sql'));
-        self::loadSql($m, file_get_contents(__DIR__ . '/schema/campaign_real_schema.sql'));
-        $pdo       = new PDO("mysql:host={$c['host']};port={$c['port']};dbname={$c['db']}", $c['user'], $c['pass'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-        $direction = 'up';
-        require __DIR__ . '/../../migrations/20260803130000_add_stats_observation_seq.php';
-        // Queue table with the full column set applyResults/finalize use (base migration
-        // predates worker_id/claimed_at/purpose; create it complete here).
-        $m->query("CREATE TABLE endorse_refresh_queue (
-            id INT UNSIGNED NOT NULL AUTO_INCREMENT, id_endorse INT UNSIGNED NOT NULL,
-            id_campaign INT UNSIGNED NOT NULL, platform VARCHAR(20) NOT NULL, link_upload TEXT NOT NULL,
-            purpose VARCHAR(20) NOT NULL DEFAULT 'daily',
-            status ENUM('pending','processing','completed','failed') NOT NULL DEFAULT 'pending',
-            priority TINYINT NOT NULL DEFAULT 10, attempts TINYINT NOT NULL DEFAULT 0,
-            max_attempts TINYINT NOT NULL DEFAULT 3, error_message TEXT NULL, enqueued_by INT UNSIGNED NULL,
-            worker_id CHAR(36) NULL, claimed_at DATETIME NULL, started_at DATETIME NULL,
-            completed_at DATETIME NULL, created_at DATETIME NOT NULL,
-            PRIMARY KEY(id), KEY idx_pop (status, priority, created_at)) ENGINE=InnoDB");
-        // Minimal attempts table (columns applyResults/finalizeQueueAttempt use).
-        $m->query("CREATE TABLE endorse_refresh_queue_attempts (
-            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, queue_id INT UNSIGNED NOT NULL,
-            attempt_no TINYINT NOT NULL, worker_id CHAR(36) NULL,
-            status ENUM('processing','submitted','retrying','completed','failed','cancelled') NOT NULL DEFAULT 'processing',
-            error_class VARCHAR(32) NULL, error_message TEXT NULL,
-            started_at DATETIME NULL, finished_at DATETIME NULL, created_at DATETIME NOT NULL,
-            PRIMARY KEY(id), KEY idx_q (queue_id, attempt_no)) ENGINE=InnoDB");
         self::$m = $m;
-    }
-
-    private static function loadSql(mysqli $m, string $ddl): void
-    {
-        foreach (array_filter(array_map('trim', explode(";\n", $ddl))) as $stmt) {
-            if ($stmt !== '' && $m->query($stmt) === false) {
-                self::fail('schema load failed: ' . $m->error . ' :: ' . substr($stmt, 0, 60));
-            }
-        }
     }
 
     protected function setUp(): void
@@ -91,10 +61,7 @@ final class EndorseApplyCrashConsistencyTest extends TestCase
         if (self::$m === null) {
             $this->markTestSkipped('FORBES_TEST_DB not set.');
         }
-
-        foreach (['endorse', 'endorse_logs', 'endorse_campaign', 'endorse_campaign_logs', 'endorse_refresh_queue', 'endorse_refresh_queue_attempts'] as $t) {
-            self::$m->query("TRUNCATE `{$t}`");
-        }
+        QueueSchema::reset(self::$pdo);
         self::$m->query("INSERT INTO endorse (id, id_campaign, platform, link_upload, total_cost, status, status_campaign, brand, influencer, views, likes, comment, share_save, is_fyp, pengajuan_payment_logs, task, logs)
             VALUES (1, 100, 'Tiktok', 'https://www.tiktok.com/@c/video/7500000000000000001', 0, 'Aktif', 'Aktif', 'B1', '0', 0,0,0,0,0,'','','')");
         self::$m->query("INSERT INTO endorse_campaign (id, status) VALUES (100, 'Aktif')");
@@ -123,18 +90,25 @@ final class EndorseApplyCrashConsistencyTest extends TestCase
 
     private function seedQueueRow(int $queueId = 1, int $attempts = 0): void
     {
-        $now = date('Y-m-d H:i:s');
-        self::$m->query("INSERT INTO endorse_refresh_queue (id, id_endorse, id_campaign, platform, link_upload, status, attempts, max_attempts, worker_id, started_at, created_at)
-            VALUES ({$queueId}, 1, 100, 'Tiktok', 'https://x/video/1', 'processing', {$attempts}, 3, 'w1', '{$now}', '{$now}')");
+        $now       = date('Y-m-d H:i:s');
+        $attemptNo = $attempts + 1;
+        self::$m->query("INSERT INTO endorse_refresh_queue (id, id_endorse, id_campaign, platform, link_upload, status, attempts, attempt_sequence, max_attempts, worker_id, claim_owner, started_at, claimed_at, lease_expires_at, created_at)
+            VALUES ({$queueId}, 1, 100, 'Tiktok', 'https://x/video/1', 'processing', {$attempts}, {$attemptNo}, 3, 'w1', 'cron', '{$now}', '{$now}', DATE_ADD('{$now}', INTERVAL 3 MINUTE), '{$now}')");
         self::$m->query("INSERT INTO endorse_refresh_queue_attempts (queue_id, attempt_no, worker_id, status, started_at, created_at)
-            VALUES ({$queueId}, " . ($attempts + 1) . ", 'w1', 'processing', '{$now}', '{$now}')");
+            VALUES ({$queueId}, {$attemptNo}, 'w1', 'processing', '{$now}', '{$now}')");
+        $attemptId = (int) self::$m->insert_id;
+        self::$m->query("UPDATE endorse_refresh_queue SET active_attempt_id={$attemptId} WHERE id={$queueId}");
     }
 
     private function items(int $queueId = 1, int $attempts = 0): array
     {
+        $attemptNo = $attempts + 1;
+        $attemptId = (int) $this->col("SELECT active_attempt_id FROM endorse_refresh_queue WHERE id={$queueId}");
+
         return [[
-            'queue_id'  => $queueId, 'id_endorse' => 1, 'attempts' => $attempts, 'max_attempts' => 3,
-            'worker_id' => 'w1', 'purpose' => 'daily', 'enqueued_by' => 0,
+            'queue_id'   => $queueId, 'id_endorse' => 1, 'attempts' => $attempts, 'max_attempts' => 3,
+            'attempt_no' => $attemptNo, 'active_attempt_id' => $attemptId,
+            'worker_id'  => 'w1', 'purpose' => 'daily', 'enqueued_by' => 0,
         ]];
     }
 
@@ -240,5 +214,121 @@ final class EndorseApplyCrashConsistencyTest extends TestCase
         $svc2->resetStuck(0); // aggressive: treat everything as stale
         $this->assertSame('completed', $this->col('SELECT status FROM endorse_refresh_queue WHERE id=1'), 'stale recovery must not reopen a completed row');
         $this->assertSame('1', $this->col('SELECT COUNT(*) FROM endorse_logs WHERE id_endorse=1'), 'no duplicate log from stale recovery');
+    }
+
+    public function testStuckRecoveryIsIdempotent(): void
+    {
+        $this->seedQueueRow();
+        self::$m->query('UPDATE endorse_refresh_queue SET lease_expires_at=DATE_SUB(NOW(), INTERVAL 1 MINUTE), started_at=DATE_SUB(NOW(), INTERVAL 5 MINUTE) WHERE id=1');
+        $svc    = $this->makeService($this->conn());
+        $first  = $svc->resetStuck(1);
+        $second = $svc->resetStuck(1);
+
+        $this->assertTrue($first['status']);
+        $this->assertSame(1, $first['reset_count']);
+        $this->assertSame(0, $second['reset_count']);
+        $this->assertSame('pending', $this->col('SELECT status FROM endorse_refresh_queue WHERE id=1'));
+        $this->assertSame('1', $this->col('SELECT attempts FROM endorse_refresh_queue WHERE id=1'));
+        $this->assertSame('timed_out', $this->col('SELECT status FROM endorse_refresh_queue_attempts WHERE queue_id=1 AND attempt_no=1'));
+        $this->assertSame('1', $this->col('SELECT COUNT(*) FROM endorse_refresh_queue_attempts WHERE queue_id=1'));
+    }
+
+    public function testStaleWorkerCannotCompleteAfterReassignment(): void
+    {
+        $this->seedQueueRow();
+        $oldItem = $this->items()[0];
+        self::$m->query('UPDATE endorse_refresh_queue SET lease_expires_at=DATE_SUB(NOW(), INTERVAL 1 MINUTE), started_at=DATE_SUB(NOW(), INTERVAL 5 MINUTE) WHERE id=1');
+        $svc = $this->makeService($this->conn());
+        $svc->resetStuck(1);
+
+        $now = date('Y-m-d H:i:s');
+        self::$m->query("INSERT INTO endorse_refresh_queue_attempts (queue_id,attempt_no,worker_id,status,started_at,created_at) VALUES (1,2,'w2','processing','{$now}','{$now}')");
+        $attemptId = (int) self::$m->insert_id;
+        self::$m->query("UPDATE endorse_refresh_queue SET status='processing', worker_id='w2', claim_owner='cron', attempt_sequence=2, active_attempt_id={$attemptId}, started_at='{$now}', claimed_at='{$now}', lease_expires_at=DATE_ADD('{$now}', INTERVAL 3 MINUTE), next_attempt_at=NULL WHERE id=1");
+
+        $stale = $svc->applyResults([$oldItem], [$this->response(500)]);
+        $this->assertSame(1, $stale['conflicts']);
+        $this->assertSame('0', $this->col('SELECT views FROM endorse WHERE id=1'));
+        $this->assertSame('processing', $this->col('SELECT status FROM endorse_refresh_queue WHERE id=1'));
+
+        $newItem                      = $oldItem;
+        $newItem['attempts']          = 1;
+        $newItem['attempt_no']        = 2;
+        $newItem['active_attempt_id'] = $attemptId;
+        $newItem['worker_id']         = 'w2';
+        $fresh                        = $svc->applyResults([$newItem], [$this->response(1000)]);
+        $this->assertSame(1, $fresh['completed']);
+        $this->assertSame('1000', $this->col('SELECT views FROM endorse WHERE id=1'));
+    }
+
+    /**
+     * A parent may point at an attempt that is no longer 'processing' (legacy rows, the
+     * unfenced markQueueFailed/finalizeQueueAttempt writers, a partially applied repair).
+     * Recovery must release that parent exactly once and must never manufacture a new
+     * attempt row per invocation — otherwise the row is stuck forever, never exhausts,
+     * and every cron minute and every worker poll appends another audit row.
+     */
+    public function testStuckRecoveryReleasesParentWhoseActiveAttemptIsNoLongerProcessing(): void
+    {
+        $now = date('Y-m-d H:i:s');
+        self::$m->query("INSERT INTO endorse_refresh_queue_attempts (queue_id, attempt_no, worker_id, status, started_at, finished_at, created_at)
+            VALUES (1, 1, 'w1', 'retrying', '{$now}', '{$now}', '{$now}')");
+        $attemptId = (int) self::$m->insert_id;
+        self::$m->query("INSERT INTO endorse_refresh_queue (id, id_endorse, id_campaign, platform, link_upload, status, attempts, attempt_sequence, active_attempt_id, max_attempts, worker_id, claim_owner, started_at, claimed_at, lease_expires_at, created_at)
+            VALUES (1, 1, 100, 'Tiktok', 'https://x/video/1', 'processing', 0, 1, {$attemptId}, 3, 'w1', 'cron', DATE_SUB(NOW(), INTERVAL 10 MINUTE), DATE_SUB(NOW(), INTERVAL 10 MINUTE), DATE_SUB(NOW(), INTERVAL 5 MINUTE), '{$now}')");
+
+        $svc   = $this->makeService($this->conn());
+        $first = $svc->resetStuck(1);
+
+        $this->assertTrue($first['status']);
+        $this->assertSame(1, $first['reset_count']);
+        $this->assertSame('pending', $this->col('SELECT status FROM endorse_refresh_queue WHERE id=1'), 'an expired claim must be released, not left processing');
+        $this->assertSame('1', $this->col('SELECT attempts FROM endorse_refresh_queue WHERE id=1'), 'the consumed attempt must be counted so the row can eventually exhaust');
+        $this->assertSame('', $this->col('SELECT IFNULL(active_attempt_id, "") FROM endorse_refresh_queue WHERE id=1'));
+        $this->assertSame('retrying', $this->col('SELECT status FROM endorse_refresh_queue_attempts WHERE id=' . $attemptId), 'an already-closed attempt must not be relabelled');
+
+        // Idempotent, and above all NOT a per-invocation attempt-row generator.
+        $second = $svc->resetStuck(1);
+        $this->assertSame(0, $second['reset_count']);
+        $this->assertSame('1', $this->col('SELECT COUNT(*) FROM endorse_refresh_queue_attempts WHERE queue_id=1'), 'recovery must not append an attempt row on every run');
+    }
+
+    /**
+     * The lease deadline is compared against the database clock (resetStuck uses NOW(6)),
+     * so it must be expressed in that clock. PHP runs in Asia/Jakarta (index.php) and the
+     * V2 path used gmdate(); if the database clock differs from either, a claim that still
+     * holds a full lease is fenced immediately and burns max_attempts within a few polls.
+     */
+    public function testFreshClaimSurvivesWhenDatabaseClockDiffersFromPhpClock(): void
+    {
+        $previousTimezone = date_default_timezone_get();
+        date_default_timezone_set('Asia/Jakarta');
+
+        try {
+            $now = date('Y-m-d H:i:s');
+            self::$m->query("INSERT INTO endorse_refresh_queue (id, id_endorse, id_campaign, platform, link_upload, status, attempts, attempt_sequence, max_attempts, created_at)
+                VALUES (1, 1, 100, 'Tiktok', 'https://www.tiktok.com/@c/video/7500000000000000001', 'pending', 0, 0, 3, '{$now}')");
+
+            $conn = $this->conn();
+            // A database whose clock is ahead of Asia/Jakarta. Any offset must be safe;
+            // this direction is the one that silently expires a brand-new lease.
+            $conn->query("SET SESSION time_zone='+13:00'");
+            $svc = $this->makeService($conn);
+
+            $claim = $svc->claimBatch(['limit' => 5, 'retry_base_seconds' => 60]);
+            $this->assertTrue($claim['status'], 'claim must succeed');
+            $this->assertSame(1, $claim['claimed']);
+            $this->assertSame('processing', $this->col('SELECT status FROM endorse_refresh_queue WHERE id=1'));
+
+            // The lease was just issued, so nothing is stale yet.
+            $recovery = $svc->resetStuck(5);
+            $this->assertTrue($recovery['status']);
+            $this->assertSame(0, $recovery['reset_count'], 'a freshly issued lease must not be fenced by the database clock');
+            $this->assertSame('processing', $this->col('SELECT status FROM endorse_refresh_queue WHERE id=1'));
+            $this->assertSame('0', $this->col('SELECT attempts FROM endorse_refresh_queue WHERE id=1'), 'a live claim must not consume an attempt');
+            $this->assertSame('processing', $this->col('SELECT status FROM endorse_refresh_queue_attempts WHERE queue_id=1'));
+        } finally {
+            date_default_timezone_set($previousTimezone);
+        }
     }
 }
