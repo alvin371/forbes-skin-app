@@ -25,10 +25,8 @@ final class ThreadsOAuthSecurityTest extends TestCase
         $signature  = $this->encode(hash_hmac('sha256', $payload, $secret, true));
         $controller = (new ReflectionClass(Api_v2::class))->newInstanceWithoutConstructor();
         $property   = new ReflectionProperty(Api_v2::class, 'app_secret_threads');
-        $property->setAccessible(true);
         $property->setValue($controller, $secret);
         $method = new ReflectionMethod(Api_v2::class, 'parse_threads_signed_request');
-        $method->setAccessible(true);
 
         $valid   = $method->invoke($controller, $signature . '.' . $payload);
         $invalid = $method->invoke($controller, $this->encode('tampered') . '.' . $payload);
