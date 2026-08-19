@@ -729,6 +729,34 @@ class Template
         return false;
     }
 
+    /**
+     * Does a well-formed RapidAPI body say "I cannot resolve this post"?
+     *
+     * Deliberately narrow: it matches only messages that name the CONTENT as the problem.
+     * A quota error, an auth error or a 5xx must stay retryable, so anything not on this
+     * list keeps the existing transient default. Being wrong in this direction costs one
+     * wasted retry; being wrong the other way permanently drops a live post.
+     */
+    protected function rapidApiItemIsUnresolvable($response): bool
+    {
+        if (!is_array($response) || intval($response['code'] ?? 0) === 0) {
+            return false;
+        }
+
+        $msg = strtolower($this->normalizeRapidApiMessage($response['msg'] ?? ''));
+        if ($msg === '') {
+            return false;
+        }
+
+        foreach (['url parsing is failed', 'video not found', 'item not found', 'content not found'] as $needle) {
+            if (strpos($msg, $needle) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     protected function buildTiktokRapidApiFailureResponse(string $contentId, $response): array
     {
         $meta = [
@@ -765,7 +793,20 @@ class Template
             $meta = array_merge($meta, $transport);
             $meta['rapidapi_code'] = strval($response['code'] ?? $meta['rapidapi_code']);
             $meta['rapidapi_msg'] = $this->normalizeRapidApiMessage($response['msg'] ?? $meta['rapidapi_msg']);
-            $msg = 'RapidAPI returned an unusable TikTok detail payload';
+
+            // A transport-clean HTTP 200 whose body says the post cannot be resolved is a
+            // property of the CONTENT, not of the connection, so retrying it is pure waste.
+            // Verified against production: live posts return code:0 for every URL form
+            // (vt.tiktok.com short-link, /photo/, /video/), including photo-slideshow posts;
+            // only deleted/private/author-only posts answer code:-1 "Url parsing is failed".
+            // Left as 'transient' this burned max_attempts (3) x ~2 requests on every dead
+            // post, on every enqueue cycle, forever.
+            if ($this->rapidApiItemIsUnresolvable($response)) {
+                $errorClass = 'permanent';
+                $msg = 'RapidAPI cannot resolve this post (deleted, private, or invalid URL)';
+            } else {
+                $msg = 'RapidAPI returned an unusable TikTok detail payload';
+            }
         } else {
             $msg = 'RapidAPI returned an unusable TikTok detail payload';
         }
