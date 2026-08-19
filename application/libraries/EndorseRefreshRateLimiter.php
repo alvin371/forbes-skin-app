@@ -57,6 +57,20 @@ interface EndorseRefreshRateReservationStore
     /** Atomically reserve one token for $scope if the rolling window has room. */
     public function reserve(string $scope, int $limit, int $windowSec, array $ctx = []): bool;
 
+    /**
+     * As reserve(), but returns the token row id (or null when denied).
+     *
+     * The row this INSERTs is simultaneously the rate-limit token AND the opening half of the
+     * request ledger entry: it is written immediately before the request starts, so it already
+     * records that a request was attempted regardless of how it ends. Handing the id back lets
+     * the caller complete that same row with the outcome instead of writing a second row —
+     * which is what keeps "requests started" and "requests observed" the same number by
+     * construction rather than by reconciliation.
+     *
+     * Recognised $ctx keys: run_id, queue_id, attempt_no, leg, worker_id, test_run_id.
+     */
+    public function reserveToken(string $scope, int $limit, int $windowSec, array $ctx = []): ?int;
+
     /** Count reservations for $scope inside the last $windowSec. */
     public function countInWindow(string $scope, int $windowSec): int;
 
@@ -74,6 +88,8 @@ final class PdoReservationStore implements EndorseRefreshRateReservationStore
     private PDO $pdo;
     private string $env;
     private string $app;
+    /** null = not yet probed. See hasLedgerColumns(). */
+    private ?bool $hasLedger = null;
 
     public function __construct(PDO $pdo, string $env = 'test', string $app = 'forbes')
     {
@@ -92,31 +108,77 @@ final class PdoReservationStore implements EndorseRefreshRateReservationStore
 
     public function reserve(string $scope, int $limit, int $windowSec, array $ctx = []): bool
     {
+        return $this->reserveToken($scope, $limit, $windowSec, $ctx) !== null;
+    }
+
+    public function reserveToken(string $scope, int $limit, int $windowSec, array $ctx = []): ?int
+    {
         if ($limit <= 0) {
-            return false;
+            return null;
         }
         $lock = EndorseRefreshRateScope::lockNameFor($this->env, $this->app, $scope);
         if (intval($this->scalar("SELECT GET_LOCK(" . $this->pdo->quote($lock) . ", 5)")) !== 1) {
-            return false;
+            return null;
         }
         try {
             if ($this->countInWindow($scope, $windowSec) >= $limit) {
-                return false;
+                return null;
             }
-            $st = $this->pdo->prepare(
-                "INSERT INTO endorse_refresh_rate_tokens (provider_scope, created_at, run_id, queue_id, attempt_no)
-                 VALUES (?, NOW(6), ?, ?, ?)"
-            );
-            $st->execute([
-                $scope,
-                $ctx['run_id'] ?? null,
-                isset($ctx['queue_id']) ? intval($ctx['queue_id']) : null,
-                isset($ctx['attempt_no']) ? intval($ctx['attempt_no']) : null,
-            ]);
-            return true;
+            if ($this->hasLedgerColumns()) {
+                $st = $this->pdo->prepare(
+                    "INSERT INTO endorse_refresh_rate_tokens (provider_scope, created_at, run_id, queue_id, attempt_no, leg, worker_id, test_run_id)
+                     VALUES (?, NOW(6), ?, ?, ?, ?, ?, ?)"
+                );
+                $st->execute([
+                    $scope,
+                    $ctx['run_id'] ?? null,
+                    isset($ctx['queue_id']) ? intval($ctx['queue_id']) : null,
+                    isset($ctx['attempt_no']) ? intval($ctx['attempt_no']) : null,
+                    $ctx['leg'] ?? null,
+                    $ctx['worker_id'] ?? null,
+                    $ctx['test_run_id'] ?? null,
+                ]);
+            } else {
+                $st = $this->pdo->prepare(
+                    "INSERT INTO endorse_refresh_rate_tokens (provider_scope, created_at, run_id, queue_id, attempt_no)
+                     VALUES (?, NOW(6), ?, ?, ?)"
+                );
+                $st->execute([
+                    $scope,
+                    $ctx['run_id'] ?? null,
+                    isset($ctx['queue_id']) ? intval($ctx['queue_id']) : null,
+                    isset($ctx['attempt_no']) ? intval($ctx['attempt_no']) : null,
+                ]);
+            }
+            return (int) $this->pdo->lastInsertId();
         } finally {
             $this->scalar("SELECT RELEASE_LOCK(" . $this->pdo->quote($lock) . ")");
         }
+    }
+
+    /**
+     * Whether migration 20260820120000 has landed, probed once per process.
+     *
+     * This is not defensive clutter — it is a deploy-ordering requirement. docker-entrypoint.sh
+     * runs `migrations/run.php --pending` under `timeout 120` and deliberately does NOT fail
+     * the container when it errors, so the application genuinely can start against a schema
+     * that predates the ALTER. Without this probe every reserve() would throw, and because
+     * the limiter fails CLOSED, the result would be a total denial of provider fallback
+     * requests — a far worse outcome than not recording ledger columns for a few minutes.
+     */
+    private function hasLedgerColumns(): bool
+    {
+        if ($this->hasLedger === null) {
+            try {
+                $this->hasLedger = $this->pdo
+                    ->query("SHOW COLUMNS FROM endorse_refresh_rate_tokens LIKE 'leg'")
+                    ->fetchColumn() !== false;
+            } catch (Throwable $e) {
+                $this->hasLedger = false;
+            }
+        }
+
+        return $this->hasLedger;
     }
 
     public function countInWindow(string $scope, int $windowSec): int
@@ -152,6 +214,8 @@ final class CiDbReservationStore implements EndorseRefreshRateReservationStore
     private $db;
     private string $env;
     private string $app;
+    /** null = not yet probed. See PdoReservationStore::hasLedgerColumns() for why. */
+    private ?bool $hasLedger = null;
 
     public function __construct($db, string $env, string $app)
     {
@@ -162,27 +226,54 @@ final class CiDbReservationStore implements EndorseRefreshRateReservationStore
 
     public function reserve(string $scope, int $limit, int $windowSec, array $ctx = []): bool
     {
+        return $this->reserveToken($scope, $limit, $windowSec, $ctx) !== null;
+    }
+
+    public function reserveToken(string $scope, int $limit, int $windowSec, array $ctx = []): ?int
+    {
         if ($limit <= 0) {
-            return false;
+            return null;
         }
         $lock = EndorseRefreshRateScope::lockNameFor($this->env, $this->app, $scope);
         $lockQ = $this->db->escape($lock);
         $got = $this->db->query("SELECT GET_LOCK($lockQ, 5) AS g")->row()->g ?? 0;
         if (intval($got) !== 1) {
-            return false;
+            return null;
         }
         try {
             if ($this->countInWindow($scope, $windowSec) >= $limit) {
-                return false;
+                return null;
             }
-            $this->db->query(
-                "INSERT INTO endorse_refresh_rate_tokens (provider_scope, created_at, run_id, queue_id, attempt_no) VALUES (?, NOW(6), ?, ?, ?)",
-                [$scope, $ctx['run_id'] ?? null, isset($ctx['queue_id']) ? intval($ctx['queue_id']) : null, isset($ctx['attempt_no']) ? intval($ctx['attempt_no']) : null]
-            );
-            return true;
+            if ($this->hasLedgerColumns()) {
+                $this->db->query(
+                    "INSERT INTO endorse_refresh_rate_tokens (provider_scope, created_at, run_id, queue_id, attempt_no, leg, worker_id, test_run_id) VALUES (?, NOW(6), ?, ?, ?, ?, ?, ?)",
+                    [$scope, $ctx['run_id'] ?? null, isset($ctx['queue_id']) ? intval($ctx['queue_id']) : null, isset($ctx['attempt_no']) ? intval($ctx['attempt_no']) : null, $ctx['leg'] ?? null, $ctx['worker_id'] ?? null, $ctx['test_run_id'] ?? null]
+                );
+            } else {
+                $this->db->query(
+                    "INSERT INTO endorse_refresh_rate_tokens (provider_scope, created_at, run_id, queue_id, attempt_no) VALUES (?, NOW(6), ?, ?, ?)",
+                    [$scope, $ctx['run_id'] ?? null, isset($ctx['queue_id']) ? intval($ctx['queue_id']) : null, isset($ctx['attempt_no']) ? intval($ctx['attempt_no']) : null]
+                );
+            }
+            return (int) $this->db->insert_id();
         } finally {
             $this->db->query("SELECT RELEASE_LOCK($lockQ)");
         }
+    }
+
+    /** See PdoReservationStore::hasLedgerColumns() — same deploy-ordering requirement. */
+    private function hasLedgerColumns(): bool
+    {
+        if ($this->hasLedger === null) {
+            try {
+                $row = $this->db->query("SHOW COLUMNS FROM endorse_refresh_rate_tokens LIKE 'leg'")->row();
+                $this->hasLedger = !empty($row);
+            } catch (Throwable $e) {
+                $this->hasLedger = false;
+            }
+        }
+
+        return $this->hasLedger;
     }
 
     public function countInWindow(string $scope, int $windowSec): int

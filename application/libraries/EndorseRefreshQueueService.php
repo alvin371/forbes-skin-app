@@ -14,6 +14,15 @@ class EndorseRefreshQueueService
     const INSERT_CHUNK_SIZE = 250;
 
     /**
+     * When this process last ran stale recovery, for the claim-time cadence guard.
+     *
+     * Per-process, deliberately. The cron gets a fresh process per tick so it always reads
+     * 0.0 and recovers exactly as before; only a long-lived worker accumulates state here.
+     * Cross-process throttling is the GET_LOCK's job, not this field's.
+     */
+    private $lastRecoveryAt = 0.0;
+
+    /**
      * Keep deployment configuration from turning one cron request into an
      * unbounded worker. The production scheduler may invoke this endpoint more
      * than once, so these are deliberately conservative hard ceilings.
@@ -39,6 +48,46 @@ class EndorseRefreshQueueService
     }
 
     /**
+     * Drivers under which a long-lived external consumer owns draining, so the per-minute
+     * cron must stand down.
+     *
+     * Deliberately a different question from allowsRustClaims(): that one gates the HTTP
+     * claim endpoint used by the Rust pull-worker, whereas the PHP worker claims directly
+     * against the database and never touches that endpoint. Sharing one predicate would
+     * hand the PHP worker an HTTP claim path it does not need.
+     *
+     * Running cron and an external consumer together is *safe* — SKIP LOCKED prevents any
+     * double-claim — but the cron re-enables the serial RapidAPI fallback in
+     * Template::get_social_media_batch and spends provider budget outside the worker's
+     * reservation accounting, so throughput and amplification measurements stop meaning
+     * anything. Standing down is about measurability, not correctness.
+     */
+    const EXTERNAL_DRAIN_DRIVERS = array('rust', 'php_worker');
+
+    public static function driverOwnsDraining(string $driver): bool
+    {
+        return in_array(strtolower(trim($driver)), self::EXTERNAL_DRAIN_DRIVERS, true);
+    }
+
+    /**
+     * Whether stale recovery should run on this claim.
+     *
+     * Pure apart from the clock, so the cadence policy is testable without a database.
+     * An interval of 0.0 means "every claim" — the historical cron behaviour, and the
+     * default, so this can never silently change how production recovers.
+     */
+    public function recoveryIsDue(float $minIntervalSeconds, ?float $now = null): bool
+    {
+        if ($minIntervalSeconds <= 0.0) {
+            return true;
+        }
+
+        $now = $now ?? microtime(true);
+
+        return ($now - $this->lastRecoveryAt) >= $minIntervalSeconds;
+    }
+
+    /**
      * Queue-level exponential retry delay. Clamp the exponent because
      * max_attempts is configurable and malformed rows must not overflow it.
      */
@@ -57,7 +106,14 @@ class EndorseRefreshQueueService
     public static function retryDelayWithJitter(int $queueId, int $attempts, int $baseSeconds = 60, int $retryAfterSeconds = 0): int
     {
         $base = self::retryDelaySeconds($attempts, $baseSeconds);
-        $jitterWindow = max(1, intdiv(max(1, $baseSeconds), 2));
+
+        // Spread PROPORTIONALLY to the backoff, not by a fixed fraction of the base interval.
+        // A flat window keeps later attempts tightly bunched: at attempt 3 the delay is 240s
+        // but a baseSeconds/2 window spreads it over only 30s, so a cohort that failed
+        // together retries together. Measured in the 30-minute run, attempt-2 and attempt-3
+        // cohorts each arrived as a single-minute wave that consumed the entire request budget
+        // (docs/loadtest/ISSUES.md#issue-19).
+        $jitterWindow = max(1, intdiv($base, 2));
         $jitter = abs(crc32($queueId . ':' . $attempts)) % ($jitterWindow + 1);
 
         return max(0, $retryAfterSeconds, $base + $jitter);
@@ -66,9 +122,19 @@ class EndorseRefreshQueueService
     // -------------------------------------------------------------------------
     // SCHEDULING-TIME CONTRACT (single authority).
     //
-    // Every scheduling column — lease_expires_at, claimed_at, started_at,
-    // next_attempt_at, completed_at, finished_at — is written AND compared using the
-    // MySQL server clock via NOW(6). Nothing schedules from the PHP clock.
+    // A column is a SCHEDULING column when some comparison against "now" decides
+    // behaviour: lease_expires_at, claimed_at, started_at, next_attempt_at,
+    // completed_at, finished_at on the queue tables, plus lease_expires_at on
+    // endorse_refresh_fallback_calls and open_until on the two *_health tables.
+    // Every one of those is written AND compared using the MySQL server clock via
+    // NOW(6). None of them is written or compared from the PHP clock.
+    //
+    // The rule is about the comparison, not the write. These columns are DATETIME and
+    // carry no offset, so reading one back into PHP and comparing it there re-parses it
+    // in the process timezone (Asia/Jakarta) no matter which zone wrote it — which is
+    // how a lease could read as hours expired the instant it was issued. Pure audit
+    // timestamps that nothing compares against now (created_at/updated_at on the
+    // control-plane tables) are exempt; they are records, not decisions.
     //
     // Why the database and not UTC-in-PHP: the cron driver (the only enabled driver)
     // has always written these columns with PHP's Asia/Jakarta clock and read them back
@@ -91,6 +157,23 @@ class EndorseRefreshQueueService
     public const RECOVERY_RELEASE_ONLY = 'release_only';
     /** Ambiguous or already-successful state: observe it, never retry it. */
     public const RECOVERY_INCONSISTENT = 'inconsistent';
+
+    /**
+     * Prefix marking a row that automatic recovery has deliberately given up on.
+     * Grep-able for operators and, more importantly, the predicate that keeps a
+     * quarantined row out of the recovery window.
+     */
+    public const RECONCILIATION_MARKER = 'needs_reconciliation';
+
+    /**
+     * The diagnostic left on a quarantined row: what was observed, and which attempt
+     * to look at. No secrets, and stable enough to alert on.
+     */
+    public static function reconciliationMessage(string $observedAttemptStatus, int $activeAttemptId): string
+    {
+        return self::RECONCILIATION_MARKER . ': active attempt ' . $activeAttemptId
+            . ' is ' . $observedAttemptStatus . ' under a processing parent; recovery stopped, manual review required';
+    }
 
     /**
      * Recovery policy for an expired lease, keyed on the ACTIVE ATTEMPT's state.
@@ -773,6 +856,12 @@ class EndorseRefreshQueueService
                         q.lease_expires_at,
                         DATE_ADD(q.started_at, INTERVAL {$staleMinutes} MINUTE)
                       ) < NOW(6)
+                  -- Already-quarantined rows are excluded, and this is load-bearing rather
+                  -- than cosmetic. An inconsistent row is deliberately never mutated into a
+                  -- recoverable state, so without this it stays in the window forever; 250
+                  -- of them at low ids would permanently fill the LIMIT and ordinary stale
+                  -- work behind them would silently stop being recovered altogether.
+                  AND COALESCE(q.error_message, '') NOT LIKE '" . self::RECONCILIATION_MARKER . "%'
                 ORDER BY q.id ASC
                 LIMIT 250
                 FOR UPDATE SKIP LOCKED
@@ -803,11 +892,26 @@ class EndorseRefreshQueueService
                 if ($decision === self::RECOVERY_INCONSISTENT) {
                     // Never silently retry an ambiguous state: a completed attempt means the
                     // provider work and its business write already committed, and a dangling
-                    // active_attempt_id means history we cannot interpret. Surface it instead.
+                    // active_attempt_id means history we cannot interpret.
+                    //
+                    // Quarantine rather than merely observe. Leaving the row untouched keeps
+                    // it fail-closed but also keeps it in the recovery window forever, so it
+                    // is re-read and re-logged every poll and crowds out rows that CAN be
+                    // recovered. The marker persists the diagnostic, takes the row out of the
+                    // window, and changes nothing else — status, attempts and history stay
+                    // exactly as found, so a human still sees the original evidence.
+                    $observedStatus = $attemptStatus !== '' ? $attemptStatus : 'missing';
+                    $this->dbWriteOrThrow($this->db->update('endorse_refresh_queue', [
+                        'error_message' => self::reconciliationMessage($observedStatus, $activeAttemptId),
+                    ], [
+                        'id' => $queueId,
+                        'status' => 'processing',
+                    ]), 'quarantine inconsistent queue row', 1);
+
                     $inconsistent[] = [
                         'queue_id' => $queueId,
                         'active_attempt_id' => $activeAttemptId,
-                        'attempt_status' => $attemptStatus !== '' ? $attemptStatus : 'missing',
+                        'attempt_status' => $observedStatus,
                     ];
 
                     continue;
@@ -982,6 +1086,20 @@ class EndorseRefreshQueueService
 
         $stall = $isStalled ? $this->diagnoseStall() : null;
 
+        // Rows automatic recovery has given up on. Both are invisible in the status
+        // counts above — a quarantined row still reads as 'processing' and a terminal
+        // poison row as 'failed' — so without these two they look like ordinary work and
+        // nobody is told a human has to intervene.
+        $attentionRows = $this->CI->mymodel->selectWithQuery("
+            SELECT
+                SUM(status = 'processing' AND error_message LIKE '" . self::RECONCILIATION_MARKER . "%') AS needs_reconciliation,
+                SUM(status = 'failed' AND error_message LIKE 'poison:%') AS poison_terminal
+            FROM endorse_refresh_queue
+            WHERE 1 = 1
+            $where
+        ");
+        $attention = !empty($attentionRows) ? $attentionRows[0] : [];
+
         return [
             'active_total' => $pending + $processing + $submitted,
             'pending_total' => $pending,
@@ -993,6 +1111,8 @@ class EndorseRefreshQueueService
             'is_stalled' => $isStalled,
             'stall_reason' => $stall['reason'] ?? null,
             'stall_label' => $stall['label'] ?? null,
+            'needs_reconciliation_total' => intval($attention['needs_reconciliation'] ?? 0),
+            'poison_terminal_total' => intval($attention['poison_terminal'] ?? 0),
         ];
     }
 
@@ -1316,16 +1436,48 @@ class EndorseRefreshQueueService
         // can early-return. Otherwise orphaned 'processing' rows keep the per-minute
         // counter pinned, every run skips, and recovery never runs: the stall sustains
         // itself. Recovery is two cheap UPDATEs, safe to always run.
-        $recovery = $this->resetStuck($staleMinutes);
-        if (empty($recovery['status'])) {
-            return [
-                'status' => false,
-                'claimed' => 0,
-                'items' => [],
-                'worker_id' => '',
-                'error' => 'stale_recovery_failed',
-                'msg' => strval($recovery['msg'] ?? 'Stale recovery failed.'),
-            ];
+        //
+        // "Safe to always run" holds for the cron, which claims once a minute. It does NOT
+        // hold for a continuous worker: resetStuck() scans `processing` under
+        // ORDER BY id LIMIT 250 FOR UPDATE SKIP LOCKED, and N replicas claiming every few
+        // hundred ms would run it tens of times per second, taking X-locks across rows that
+        // are legitimately in flight elsewhere. `recovery_min_interval_sec` throttles that;
+        // the non-blocking GET_LOCK additionally ensures only one replica recovers at a time.
+        //
+        // Default 0.0 keeps the cron path byte-for-byte unchanged.
+        $recoveryMinInterval = floatval($opts['recovery_min_interval_sec'] ?? 0.0);
+        if ($this->recoveryIsDue($recoveryMinInterval)) {
+            $recoveryLock = 'endorse-recovery:'
+                . strtolower(trim((string) env('APP_ENV', 'prod')) ?: 'prod') . ':'
+                . strtolower(trim((string) env('APP_NAME', 'forbes')) ?: 'forbes');
+            $recoveryLockQ = $this->db->escape($recoveryLock);
+
+            // Timeout 0: a replica that loses the race skips recovery this tick rather than
+            // queueing behind it. Worst case a stale row waits one interval longer, against
+            // a lease measured in minutes.
+            $holdsLock = $recoveryMinInterval <= 0.0
+                || intval($this->db->query("SELECT GET_LOCK($recoveryLockQ, 0) AS g")->row()->g ?? 0) === 1;
+
+            if ($holdsLock) {
+                try {
+                    $recovery = $this->resetStuck($staleMinutes);
+                    if (empty($recovery['status'])) {
+                        return [
+                            'status' => false,
+                            'claimed' => 0,
+                            'items' => [],
+                            'worker_id' => '',
+                            'error' => 'stale_recovery_failed',
+                            'msg' => strval($recovery['msg'] ?? 'Stale recovery failed.'),
+                        ];
+                    }
+                } finally {
+                    if ($recoveryMinInterval > 0.0) {
+                        $this->db->query("SELECT RELEASE_LOCK($recoveryLockQ)");
+                    }
+                    $this->lastRecoveryAt = microtime(true);
+                }
+            }
         }
 
         $worker_id = uniqid('w_', true);
@@ -1405,7 +1557,12 @@ class EndorseRefreshQueueService
         $this->db->trans_begin();
         try {
             $locked = $this->db->query(
-                EndorseRefreshClaimRepository::buildSelectForUpdateSql($limit, $retryBaseSeconds)
+                EndorseRefreshClaimRepository::buildSelectForUpdateSql(
+                    $limit,
+                    $retryBaseSeconds,
+                    // Default 0 keeps the cron's claim ordering byte-for-byte unchanged.
+                    intval($opts['retry_priority_demotion'] ?? 0)
+                )
             );
             $candidates = $this->resultRowsOrThrow($locked, 'select claim candidates');
             $candidateIds = array_map(static function ($row) {
@@ -1644,24 +1801,101 @@ class EndorseRefreshQueueService
     }
 
     /**
-     * Hold a structurally broken row off the queue for a bounded window. It stays
-     * `pending` with no fabricated attempt history — it is neither completed, failed by
-     * fiat, nor deleted — and the backoff stops a permanently corrupt row from being
-     * retried on every poll while still letting a transient cause self-heal.
+     * Isolations a row may accumulate before it is treated as permanently broken.
+     * Reached only after the backoff has already grown to its one-hour cap, so a
+     * transient cause has had hours to clear before anything becomes terminal.
+     */
+    public const POISON_MAX_ISOLATIONS = 8;
+
+    /**
+     * How many times this row has already been isolated, read back from its own
+     * diagnostic. Losing the marker (another writer overwrites error_message) only
+     * restarts the count — it can delay termination, never cause it early.
+     */
+    public static function isolationCount(string $errorMessage): int
+    {
+        return preg_match('/\bisolations=(\d+)/', $errorMessage, $m) ? intval($m[1]) : 0;
+    }
+
+    /**
+     * Escalating, capped deferral. A flat window means a permanently broken row costs a
+     * failed transaction and a log line on every single poll for the life of the queue;
+     * doubling drops that to once an hour within a few cycles.
+     */
+    public static function isolationBackoffSeconds(int $isolations, int $baseSeconds): int
+    {
+        $base = max(60, $baseSeconds);
+        $shift = max(0, min(16, $isolations - 1));
+
+        return min(3600, $base * (2 ** $shift));
+    }
+
+    /**
+     * Stable and secret-free: the classification, the count, and — once terminal —
+     * an explicit statement that automatic recovery has stopped.
+     */
+    public static function poisonMessage(string $reason, int $isolations, bool $terminal): string
+    {
+        return $terminal
+            ? 'poison: ' . $reason . ' (isolations=' . $isolations . ', manual requeue required)'
+            : 'claim isolation deferred: ' . $reason . ' (isolations=' . $isolations . ')';
+    }
+
+    /**
+     * Hold a structurally broken row off the queue, escalating each time, and give up on
+     * it after POISON_MAX_ISOLATIONS.
+     *
+     * Deferral alone is not a lifecycle: a bounded backoff still means unbounded retries,
+     * because nothing here consumes an attempt (no provider request ever started, so
+     * charging one would both corrupt the consumption metric and be a lie). Without a
+     * terminal state the row is re-isolated once per window forever and never becomes
+     * visible as work that needs a human.
+     *
+     * Terminal is plain `failed` with a diagnostic, deliberately: it is an existing state
+     * every dashboard already surfaces, and cloneFailedRows() is the operator's
+     * already-built manual requeue path once the underlying data is reconciled.
      */
     private function deferPoisonRow(int $queueId, string $reason, int $retryBaseSeconds): void
     {
         $this->db->trans_begin();
 
         try {
-            $this->db->set('next_attempt_at', self::schedulingDeadlineSql(max(60, $retryBaseSeconds), 3600), false);
-            $this->db->update('endorse_refresh_queue', [
-                'error_message' => 'claim isolation deferred: ' . $reason,
-            ], [
-                'id' => $queueId,
-                'status' => 'pending',
-                'worker_id' => null,
-            ]);
+            $locked = $this->resultRowsOrThrow($this->db->query(
+                'SELECT error_message FROM endorse_refresh_queue WHERE id = ' . intval($queueId)
+                . " AND status = 'pending' AND worker_id IS NULL FOR UPDATE",
+            ), 'lock poison row');
+            if (empty($locked)) {
+                // Somebody else already moved it. Not ours to reclassify.
+                $this->db->trans_rollback();
+
+                return;
+            }
+
+            $isolations = self::isolationCount(strval($locked[0]['error_message'] ?? '')) + 1;
+            $terminal = $isolations >= self::POISON_MAX_ISOLATIONS;
+            $where = ['id' => $queueId, 'status' => 'pending', 'worker_id' => null];
+
+            if ($terminal) {
+                $this->db->set('completed_at', self::schedulingNowSql(), false);
+                $this->dbWriteOrThrow($this->db->update('endorse_refresh_queue', [
+                    'status' => 'failed',
+                    // No future schedule: terminal must mean terminal.
+                    'next_attempt_at' => null,
+                    'error_message' => self::poisonMessage($reason, $isolations, true),
+                ], $where), 'terminate poison row', 1);
+                log_message('error', 'endorse_refresh_claim_poison_terminal queue=' . $queueId . ' reason=' . $reason
+                    . ' isolations=' . $isolations);
+            } else {
+                $this->db->set(
+                    'next_attempt_at',
+                    self::schedulingDeadlineSql(self::isolationBackoffSeconds($isolations, $retryBaseSeconds), 3600),
+                    false,
+                );
+                $this->dbWriteOrThrow($this->db->update('endorse_refresh_queue', [
+                    'error_message' => self::poisonMessage($reason, $isolations, false),
+                ], $where), 'defer poison row', 1);
+            }
+
             $this->commitOrThrow();
         } catch (\Throwable $e) {
             $this->db->trans_rollback();
@@ -1755,10 +1989,10 @@ class EndorseRefreshQueueService
         return $released;
     }
 
-    public function applyResults(array $items, array $responses): array
+    public function applyResults(array $items, array $responses, array $opts = []): array
     {
         if (empty($items)) {
-            return ['completed' => 0, 'failed' => 0, 'retrying' => 0, 'deferred' => 0, 'processed' => 0];
+            return ['completed' => 0, 'failed' => 0, 'retrying' => 0, 'deferred' => 0, 'processed' => 0, 'touched_campaigns' => []];
         }
 
         $this->CI->load->library('endorse_sync');
@@ -1901,14 +2135,31 @@ class EndorseRefreshQueueService
             }
         }
 
-        foreach (array_keys($touched) as $cid) {
-            $this->CI->endorse_sync->update_campaign_parent($cid, 0);
+        // The campaign rollup is a pure recompute from current state, and it was ALREADY
+        // outside the per-item transaction (see the boundary comment above), so deferring it
+        // changes timing, never atomicity.
+        //
+        // Why it can be deferred at all: update_campaign_parent() runs ~11 statements
+        // including four unbounded aggregates over `endorse` and `endorse_logs`. Batched over
+        // 20 items touching ~5 campaigns that is ~55 statements per run — fine. Called
+        // per-item at 400 completions/min it becomes ~4,400 aggregate statements/min, mostly
+        // recomputing the same handful of campaigns over and over. That, not the provider,
+        // is the next bottleneck at target throughput.
+        //
+        // A caller that opts in owns the flush: it must union `touched_campaigns` and call
+        // update_campaign_parent() on a timer AND unconditionally at shutdown, or the
+        // campaign totals silently stop converging.
+        if (empty($opts['defer_campaign_rollup'])) {
+            foreach (array_keys($touched) as $cid) {
+                $this->CI->endorse_sync->update_campaign_parent($cid, 0);
+            }
         }
 
         return [
             'completed' => $completed, 'failed' => $failed, 'retrying' => $retrying,
             'deferred' => $deferred, 'exceptioned' => $exceptioned, 'conflicts' => $conflicts,
             'processed' => count($items),
+            'touched_campaigns' => array_values(array_map('intval', array_keys($touched))),
         ];
     }
 

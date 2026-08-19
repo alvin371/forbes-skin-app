@@ -1,0 +1,7 @@
+{
+  "seed": "scenario-F", "correlation": 1.0, "quota_remaining": 2166666,
+  "scrape":   {"success_rate": 0.5, "latency": {"p50_ms": 600, "p95_ms": 1500, "p99_ms": 3000},
+               "failures": {"http_404": 0.5, "no_script_tag": 0.5}},
+  "rapidapi": {"success_rate": 0.9, "latency": {"p50_ms": 500, "p95_ms": 1200, "p99_ms": 3000},
+               "failures": {"code_nonzero": 1.0}}
+}

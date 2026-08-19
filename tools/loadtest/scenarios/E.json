@@ -1,0 +1,7 @@
+{
+  "seed": "scenario-E", "correlation": 0.5, "quota_remaining": 2166666,
+  "scrape":   {"success_rate": 0.85, "latency": {"p50_ms": 1000, "p95_ms": 3000, "p99_ms": 6000},
+               "failures": {"timeout": 1.0}},
+  "rapidapi": {"success_rate": 0.9, "latency": {"p50_ms": 800, "p95_ms": 2000, "p99_ms": 5000},
+               "failures": {"timeout": 1.0}}
+}

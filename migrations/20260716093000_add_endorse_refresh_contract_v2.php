@@ -13,67 +13,73 @@
 // Guarded so the file can be included more than once in one process (the disposable
 // integration database rebuilds the canonical schema by running these migrations
 // directly). run.php includes each migration once, so production behaviour is unchanged.
-if (! function_exists('hasTable')) {
-    function hasTable(PDO $pdo, string $table): bool
+//
+// The names carry this migration's own prefix on purpose. `run.php --pending` loads
+// every migration into ONE process, so migrations share a single global function
+// namespace: with a generic name like hasColumn(), a later migration defining its own
+// hasColumn() would be silently skipped by the guard and would run THIS file's
+// implementation instead. A unique prefix makes that collision impossible.
+if (! function_exists('contractV2HasTable')) {
+    function contractV2HasTable(PDO $pdo, string $table): bool
     {
         return !empty($pdo->query("SHOW TABLES LIKE " . $pdo->quote($table))->fetchAll());
     }
 }
 
-if (! function_exists('hasColumn')) {
-    function hasColumn(PDO $pdo, string $table, string $column): bool
+if (! function_exists('contractV2HasColumn')) {
+    function contractV2HasColumn(PDO $pdo, string $table, string $column): bool
     {
         return !empty($pdo->query("SHOW COLUMNS FROM `{$table}` LIKE " . $pdo->quote($column))->fetchAll());
     }
 }
 
-if (! function_exists('hasIndex')) {
-    function hasIndex(PDO $pdo, string $table, string $index): bool
+if (! function_exists('contractV2HasIndex')) {
+    function contractV2HasIndex(PDO $pdo, string $table, string $index): bool
     {
         return !empty($pdo->query("SHOW INDEX FROM `{$table}` WHERE Key_name = " . $pdo->quote($index))->fetchAll());
     }
 }
 
 if ($direction === 'down') {
-    if (hasTable($pdo, 'endorse_refresh_campaign_log_duplicate_report')) {
+    if (contractV2HasTable($pdo, 'endorse_refresh_campaign_log_duplicate_report')) {
         $pdo->exec("DROP TABLE `endorse_refresh_campaign_log_duplicate_report`");
         echo "Dropped table endorse_refresh_campaign_log_duplicate_report.\n";
     }
-    if (hasTable($pdo, 'endorse_refresh_campaign_log_duplicate_archive')) {
+    if (contractV2HasTable($pdo, 'endorse_refresh_campaign_log_duplicate_archive')) {
         $pdo->exec("DROP TABLE `endorse_refresh_campaign_log_duplicate_archive`");
         echo "Dropped table endorse_refresh_campaign_log_duplicate_archive.\n";
     }
-    if (hasTable($pdo, 'endorse_refresh_quarantine')) {
+    if (contractV2HasTable($pdo, 'endorse_refresh_quarantine')) {
         $pdo->exec("DROP TABLE `endorse_refresh_quarantine`");
         echo "Dropped table endorse_refresh_quarantine.\n";
     }
-    if (hasTable($pdo, 'endorse_refresh_fallback_calls')) {
+    if (contractV2HasTable($pdo, 'endorse_refresh_fallback_calls')) {
         $pdo->exec("DROP TABLE `endorse_refresh_fallback_calls`");
         echo "Dropped table endorse_refresh_fallback_calls.\n";
     }
-    if (hasTable($pdo, 'endorse_refresh_worker_health')) {
+    if (contractV2HasTable($pdo, 'endorse_refresh_worker_health')) {
         $pdo->exec("DROP TABLE `endorse_refresh_worker_health`");
         echo "Dropped table endorse_refresh_worker_health.\n";
     }
-    if (hasTable($pdo, 'endorse_refresh_provider_health')) {
+    if (contractV2HasTable($pdo, 'endorse_refresh_provider_health')) {
         $pdo->exec("DROP TABLE `endorse_refresh_provider_health`");
         echo "Dropped table endorse_refresh_provider_health.\n";
     }
-    if (hasTable($pdo, 'endorse_refresh_runtime_control')) {
+    if (contractV2HasTable($pdo, 'endorse_refresh_runtime_control')) {
         $pdo->exec("DROP TABLE `endorse_refresh_runtime_control`");
         echo "Dropped table endorse_refresh_runtime_control.\n";
     }
 
-    if (hasTable($pdo, 'endorse_refresh_queue_attempts')) {
-        if (hasIndex($pdo, 'endorse_refresh_queue_attempts', 'idx_attempt_active')) {
+    if (contractV2HasTable($pdo, 'endorse_refresh_queue_attempts')) {
+        if (contractV2HasIndex($pdo, 'endorse_refresh_queue_attempts', 'idx_attempt_active')) {
             $pdo->exec("ALTER TABLE `endorse_refresh_queue_attempts` DROP INDEX `idx_attempt_active`");
             echo "Dropped index endorse_refresh_queue_attempts.idx_attempt_active.\n";
         }
-        if (hasIndex($pdo, 'endorse_refresh_queue_attempts', 'uq_queue_attempt')) {
+        if (contractV2HasIndex($pdo, 'endorse_refresh_queue_attempts', 'uq_queue_attempt')) {
             $pdo->exec("ALTER TABLE `endorse_refresh_queue_attempts` DROP INDEX `uq_queue_attempt`");
             echo "Dropped index endorse_refresh_queue_attempts.uq_queue_attempt.\n";
         }
-        if (hasColumn($pdo, 'endorse_refresh_queue_attempts', 'status')) {
+        if (contractV2HasColumn($pdo, 'endorse_refresh_queue_attempts', 'status')) {
             $pdo->exec("
                 ALTER TABLE `endorse_refresh_queue_attempts`
                 MODIFY COLUMN `status` ENUM('processing','retrying','completed','failed') NOT NULL DEFAULT 'processing'
@@ -82,18 +88,18 @@ if ($direction === 'down') {
         }
     }
 
-    if (hasTable($pdo, 'endorse_refresh_queue')) {
-        if (hasIndex($pdo, 'endorse_refresh_queue', 'idx_processing_owner')) {
+    if (contractV2HasTable($pdo, 'endorse_refresh_queue')) {
+        if (contractV2HasIndex($pdo, 'endorse_refresh_queue', 'idx_processing_owner')) {
             $pdo->exec("ALTER TABLE `endorse_refresh_queue` DROP INDEX `idx_processing_owner`");
             echo "Dropped index endorse_refresh_queue.idx_processing_owner.\n";
         }
-        if (hasIndex($pdo, 'endorse_refresh_queue', 'idx_claim_ready')) {
+        if (contractV2HasIndex($pdo, 'endorse_refresh_queue', 'idx_claim_ready')) {
             $pdo->exec("ALTER TABLE `endorse_refresh_queue` DROP INDEX `idx_claim_ready`");
             echo "Dropped index endorse_refresh_queue.idx_claim_ready.\n";
         }
         $dropColumns = [];
         foreach (['claim_owner', 'attempt_sequence', 'active_attempt_id', 'next_attempt_at'] as $column) {
-            if (hasColumn($pdo, 'endorse_refresh_queue', $column)) {
+            if (contractV2HasColumn($pdo, 'endorse_refresh_queue', $column)) {
                 $dropColumns[] = "DROP COLUMN `{$column}`";
             }
         }
@@ -109,7 +115,7 @@ if ($direction === 'down') {
     ] as $table => $columns) {
         $dropColumns = [];
         foreach ($columns as $column) {
-            if (hasColumn($pdo, $table, $column)) {
+            if (contractV2HasColumn($pdo, $table, $column)) {
                 $dropColumns[] = "DROP COLUMN `{$column}`";
             }
         }
@@ -122,7 +128,7 @@ if ($direction === 'down') {
     return;
 }
 
-if (!hasTable($pdo, 'endorse_refresh_runtime_control')) {
+if (!contractV2HasTable($pdo, 'endorse_refresh_runtime_control')) {
     $pdo->exec("
         CREATE TABLE `endorse_refresh_runtime_control` (
             `id` TINYINT UNSIGNED NOT NULL,
@@ -144,7 +150,7 @@ $pdo->exec("
 ");
 echo "Seeded endorse_refresh_runtime_control row.\n";
 
-if (!hasTable($pdo, 'endorse_refresh_provider_health')) {
+if (!contractV2HasTable($pdo, 'endorse_refresh_provider_health')) {
     $pdo->exec("
         CREATE TABLE `endorse_refresh_provider_health` (
             `provider_key` VARCHAR(32) NOT NULL,
@@ -181,7 +187,7 @@ $pdo->exec("
 ");
 echo "Seeded endorse_refresh_provider_health row.\n";
 
-if (!hasTable($pdo, 'endorse_refresh_worker_health')) {
+if (!contractV2HasTable($pdo, 'endorse_refresh_worker_health')) {
     $pdo->exec("
         CREATE TABLE `endorse_refresh_worker_health` (
             `owner_key` VARCHAR(16) NOT NULL,
@@ -216,7 +222,7 @@ $pdo->exec("
 ");
 echo "Seeded endorse_refresh_worker_health rows.\n";
 
-if (!hasTable($pdo, 'endorse_refresh_fallback_calls')) {
+if (!contractV2HasTable($pdo, 'endorse_refresh_fallback_calls')) {
     $pdo->exec("
         CREATE TABLE `endorse_refresh_fallback_calls` (
             `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -240,7 +246,7 @@ if (!hasTable($pdo, 'endorse_refresh_fallback_calls')) {
     echo "Created table endorse_refresh_fallback_calls.\n";
 }
 
-if (!hasTable($pdo, 'endorse_refresh_quarantine')) {
+if (!contractV2HasTable($pdo, 'endorse_refresh_quarantine')) {
     $pdo->exec("
         CREATE TABLE `endorse_refresh_quarantine` (
             `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -267,19 +273,19 @@ if (!hasTable($pdo, 'endorse_refresh_quarantine')) {
     echo "Created table endorse_refresh_quarantine.\n";
 }
 
-if (!hasColumn($pdo, 'endorse_refresh_queue', 'claim_owner')) {
+if (!contractV2HasColumn($pdo, 'endorse_refresh_queue', 'claim_owner')) {
     $pdo->exec("ALTER TABLE `endorse_refresh_queue` ADD COLUMN `claim_owner` ENUM('cron','rust') NULL AFTER `worker_id`");
     echo "Added endorse_refresh_queue.claim_owner.\n";
 }
-if (!hasColumn($pdo, 'endorse_refresh_queue', 'attempt_sequence')) {
+if (!contractV2HasColumn($pdo, 'endorse_refresh_queue', 'attempt_sequence')) {
     $pdo->exec("ALTER TABLE `endorse_refresh_queue` ADD COLUMN `attempt_sequence` INT UNSIGNED NOT NULL DEFAULT 0 AFTER `attempts`");
     echo "Added endorse_refresh_queue.attempt_sequence.\n";
 }
-if (!hasColumn($pdo, 'endorse_refresh_queue', 'active_attempt_id')) {
+if (!contractV2HasColumn($pdo, 'endorse_refresh_queue', 'active_attempt_id')) {
     $pdo->exec("ALTER TABLE `endorse_refresh_queue` ADD COLUMN `active_attempt_id` BIGINT UNSIGNED NULL AFTER `attempt_sequence`");
     echo "Added endorse_refresh_queue.active_attempt_id.\n";
 }
-if (!hasColumn($pdo, 'endorse_refresh_queue', 'next_attempt_at')) {
+if (!contractV2HasColumn($pdo, 'endorse_refresh_queue', 'next_attempt_at')) {
     $pdo->exec("ALTER TABLE `endorse_refresh_queue` ADD COLUMN `next_attempt_at` DATETIME(6) NULL AFTER `claimed_at`");
     echo "Added endorse_refresh_queue.next_attempt_at.\n";
 }
@@ -294,14 +300,14 @@ $pdo->exec("
     WHERE q.attempt_sequence = 0
 ");
 echo "Backfilled endorse_refresh_queue.attempt_sequence.\n";
-if (!hasIndex($pdo, 'endorse_refresh_queue', 'idx_claim_ready')) {
+if (!contractV2HasIndex($pdo, 'endorse_refresh_queue', 'idx_claim_ready')) {
     $pdo->exec("
         ALTER TABLE `endorse_refresh_queue`
         ADD INDEX `idx_claim_ready` (`status`, `worker_id`, `next_attempt_at`, `priority`, `attempts`, `created_at`)
     ");
     echo "Added endorse_refresh_queue.idx_claim_ready.\n";
 }
-if (!hasIndex($pdo, 'endorse_refresh_queue', 'idx_processing_owner')) {
+if (!contractV2HasIndex($pdo, 'endorse_refresh_queue', 'idx_processing_owner')) {
     $pdo->exec("
         ALTER TABLE `endorse_refresh_queue`
         ADD INDEX `idx_processing_owner` (`status`, `claim_owner`, `active_attempt_id`)
@@ -309,22 +315,22 @@ if (!hasIndex($pdo, 'endorse_refresh_queue', 'idx_processing_owner')) {
     echo "Added endorse_refresh_queue.idx_processing_owner.\n";
 }
 
-if (hasTable($pdo, 'endorse_refresh_queue_attempts')) {
+if (contractV2HasTable($pdo, 'endorse_refresh_queue_attempts')) {
     $pdo->exec("
         ALTER TABLE `endorse_refresh_queue_attempts`
         MODIFY COLUMN `worker_id` CHAR(36) NULL,
         MODIFY COLUMN `status` ENUM('processing','retrying','completed','failed','cancelled') NOT NULL DEFAULT 'processing'
     ");
     echo "Updated endorse_refresh_queue_attempts columns for v2.\n";
-    if (hasIndex($pdo, 'endorse_refresh_queue_attempts', 'idx_queue_attempt')) {
+    if (contractV2HasIndex($pdo, 'endorse_refresh_queue_attempts', 'idx_queue_attempt')) {
         $pdo->exec("ALTER TABLE `endorse_refresh_queue_attempts` DROP INDEX `idx_queue_attempt`");
         echo "Dropped endorse_refresh_queue_attempts.idx_queue_attempt.\n";
     }
-    if (!hasIndex($pdo, 'endorse_refresh_queue_attempts', 'uq_queue_attempt')) {
+    if (!contractV2HasIndex($pdo, 'endorse_refresh_queue_attempts', 'uq_queue_attempt')) {
         $pdo->exec("ALTER TABLE `endorse_refresh_queue_attempts` ADD UNIQUE KEY `uq_queue_attempt` (`queue_id`, `attempt_no`)");
         echo "Added endorse_refresh_queue_attempts.uq_queue_attempt.\n";
     }
-    if (!hasIndex($pdo, 'endorse_refresh_queue_attempts', 'idx_attempt_active')) {
+    if (!contractV2HasIndex($pdo, 'endorse_refresh_queue_attempts', 'idx_attempt_active')) {
         $pdo->exec("ALTER TABLE `endorse_refresh_queue_attempts` ADD INDEX `idx_attempt_active` (`queue_id`, `id`, `worker_id`, `status`)");
         echo "Added endorse_refresh_queue_attempts.idx_attempt_active.\n";
     }
@@ -334,25 +340,25 @@ foreach ([
     'endorse' => 'updated_by',
     'endorse_logs' => 'updated_by',
 ] as $table => $afterColumn) {
-    if (!hasColumn($pdo, $table, 'stats_completeness')) {
+    if (!contractV2HasColumn($pdo, $table, 'stats_completeness')) {
         $pdo->exec("ALTER TABLE `{$table}` ADD COLUMN `stats_completeness` ENUM('complete','partial') NULL AFTER `{$afterColumn}`");
         echo "Added {$table}.stats_completeness.\n";
     }
-    if (!hasColumn($pdo, $table, 'stats_fields')) {
+    if (!contractV2HasColumn($pdo, $table, 'stats_fields')) {
         $pdo->exec("ALTER TABLE `{$table}` ADD COLUMN `stats_fields` JSON NULL AFTER `stats_completeness`");
         echo "Added {$table}.stats_fields.\n";
     }
-    if (!hasColumn($pdo, $table, 'stats_source')) {
+    if (!contractV2HasColumn($pdo, $table, 'stats_source')) {
         $pdo->exec("ALTER TABLE `{$table}` ADD COLUMN `stats_source` VARCHAR(32) NULL AFTER `stats_fields`");
         echo "Added {$table}.stats_source.\n";
     }
-    if (!hasColumn($pdo, $table, 'stats_observed_at')) {
+    if (!contractV2HasColumn($pdo, $table, 'stats_observed_at')) {
         $pdo->exec("ALTER TABLE `{$table}` ADD COLUMN `stats_observed_at` DATETIME(6) NULL AFTER `stats_source`");
         echo "Added {$table}.stats_observed_at.\n";
     }
 }
 
-if (!hasTable($pdo, 'endorse_refresh_campaign_log_duplicate_archive')) {
+if (!contractV2HasTable($pdo, 'endorse_refresh_campaign_log_duplicate_archive')) {
     $pdo->exec("
         CREATE TABLE `endorse_refresh_campaign_log_duplicate_archive` (
             `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -370,7 +376,7 @@ if (!hasTable($pdo, 'endorse_refresh_campaign_log_duplicate_archive')) {
     echo "Created table endorse_refresh_campaign_log_duplicate_archive.\n";
 }
 
-if (!hasTable($pdo, 'endorse_refresh_campaign_log_duplicate_report')) {
+if (!contractV2HasTable($pdo, 'endorse_refresh_campaign_log_duplicate_report')) {
     $pdo->exec("
         CREATE TABLE `endorse_refresh_campaign_log_duplicate_report` (
             `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

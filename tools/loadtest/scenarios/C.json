@@ -1,0 +1,7 @@
+{
+  "seed": "scenario-C", "correlation": 0.3, "quota_remaining": 2166666,
+  "scrape":   {"success_rate": 0.8, "latency": {"p50_ms": 1000, "p95_ms": 3000, "p99_ms": 8000},
+               "failures": {"http_500": 0.4, "no_script_tag": 0.4, "truncated_html": 0.2}},
+  "rapidapi": {"success_rate": 0.95, "latency": {"p50_ms": 800, "p95_ms": 2500, "p99_ms": 6000},
+               "failures": {"http_500": 1.0}}
+}

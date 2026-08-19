@@ -1,0 +1,5 @@
+{
+  "seed": "scenario-B", "correlation": 0.6, "quota_remaining": 2166666,
+  "scrape":   {"success_rate": 1.0, "latency": {"p50_ms": 3000, "p95_ms": 8000, "p99_ms": 25000}},
+  "rapidapi": {"success_rate": 1.0, "latency": {"p50_ms": 2000, "p95_ms": 6000, "p99_ms": 20000}}
+}

@@ -23,6 +23,23 @@ final class EndorseRefreshQueuePolicyTest extends TestCase
         $this->assertTrue(EndorseRefreshQueueService::allowsRustClaims(' RUST '));
         $this->assertFalse(EndorseRefreshQueueService::allowsRustClaims('cron'));
         $this->assertFalse(EndorseRefreshQueueService::allowsRustClaims(''));
+
+        // The PHP worker claims straight from the database, so widening the cron stand-down
+        // gate must NOT hand it the Rust pull-worker's HTTP claim endpoint.
+        $this->assertFalse(EndorseRefreshQueueService::allowsRustClaims('php_worker'));
+    }
+
+    public function testExternalDriversStandTheCronDown(): void
+    {
+        $this->assertTrue(EndorseRefreshQueueService::driverOwnsDraining('rust'));
+        $this->assertTrue(EndorseRefreshQueueService::driverOwnsDraining('php_worker'));
+        $this->assertTrue(EndorseRefreshQueueService::driverOwnsDraining(' PHP_Worker '));
+
+        // Default and rollback value: the cron must keep draining. Getting this wrong stops
+        // endorse refresh entirely, so it is asserted rather than assumed.
+        $this->assertFalse(EndorseRefreshQueueService::driverOwnsDraining('cron'));
+        $this->assertFalse(EndorseRefreshQueueService::driverOwnsDraining(''));
+        $this->assertFalse(EndorseRefreshQueueService::driverOwnsDraining('php-worker'));
     }
 
     public function testRetryDelayUsesExponentialCooldown(): void
@@ -39,6 +56,33 @@ final class EndorseRefreshQueuePolicyTest extends TestCase
         $this->assertSame($first, EndorseRefreshQueueService::retryDelayWithJitter(42, 2, 60));
         $this->assertGreaterThanOrEqual(120, $first);
         $this->assertSame(300, EndorseRefreshQueueService::retryDelayWithJitter(42, 2, 60, 300));
+    }
+
+    /**
+     * Jitter must scale with the backoff. A fixed window keeps later attempts bunched: at
+     * attempt 3 the delay is 240s, so a 30s window spreads a cohort over 12% of its interval
+     * and it retries as one wave (docs/loadtest/ISSUES.md#issue-19).
+     */
+    public function testRetryJitterScalesWithTheBackoff(): void
+    {
+        $spread = static function (int $attempts): int {
+            $delays = [];
+
+            for ($queueId = 1; $queueId <= 400; $queueId++) {
+                $delays[] = EndorseRefreshQueueService::retryDelayWithJitter($queueId, $attempts, 60);
+            }
+
+            return max($delays) - min($delays);
+        };
+
+        // attempt 1 -> base 60, window 30; attempt 3 -> base 240, window 120.
+        $this->assertGreaterThan($spread(1), $spread(3), 'later attempts must spread wider');
+        $this->assertGreaterThan(100, $spread(3));
+
+        // The delay still never dips below its exponential floor.
+        for ($queueId = 1; $queueId <= 50; $queueId++) {
+            $this->assertGreaterThanOrEqual(240, EndorseRefreshQueueService::retryDelayWithJitter($queueId, 3, 60));
+        }
     }
 
     public function testSchedulingDeadlinesAreDatabaseSideAndBounded(): void
@@ -134,6 +178,57 @@ final class EndorseRefreshQueuePolicyTest extends TestCase
         $this->assertSame(
             'https://www.tiktok.com/@creator/video/1234567890',
             EndorseRefreshQueueService::normalizeTiktokUrl('https://www.tiktok.com/@creator/video/1234567890'),
+        );
+    }
+
+    public function testIsolationCountIsReadBackFromItsOwnDiagnostic(): void
+    {
+        $this->assertSame(0, EndorseRefreshQueueService::isolationCount(''));
+        $this->assertSame(0, EndorseRefreshQueueService::isolationCount('some unrelated error'));
+        $this->assertSame(
+            3,
+            EndorseRefreshQueueService::isolationCount('claim isolation deferred: attempt_identity_conflict (isolations=3)'),
+        );
+        $this->assertSame(
+            8,
+            EndorseRefreshQueueService::isolationCount('poison: referential_conflict (isolations=8, manual requeue required)'),
+        );
+        // A number that is not the isolation counter must not be mistaken for one.
+        $this->assertSame(0, EndorseRefreshQueueService::isolationCount('attempts=7 failures=2'));
+    }
+
+    public function testIsolationBackoffEscalatesAndStaysCapped(): void
+    {
+        $this->assertSame(60, EndorseRefreshQueueService::isolationBackoffSeconds(1, 60));
+        $this->assertSame(120, EndorseRefreshQueueService::isolationBackoffSeconds(2, 60));
+        $this->assertSame(240, EndorseRefreshQueueService::isolationBackoffSeconds(3, 60));
+        // Capped at one hour, and the cap holds however far the counter runs.
+        $this->assertSame(3600, EndorseRefreshQueueService::isolationBackoffSeconds(7, 60));
+        $this->assertSame(3600, EndorseRefreshQueueService::isolationBackoffSeconds(99, 60));
+        // A base below the floor is raised, never used to spin faster than once a minute.
+        $this->assertSame(60, EndorseRefreshQueueService::isolationBackoffSeconds(1, 0));
+        $this->assertSame(60, EndorseRefreshQueueService::isolationBackoffSeconds(1, -30));
+    }
+
+    /**
+     * The terminal message is the operator's only signal, so it must round-trip: the
+     * count it writes has to be the count the next reader parses back.
+     */
+    public function testPoisonMessageIsStableAndRoundTrips(): void
+    {
+        $deferred = EndorseRefreshQueueService::poisonMessage('attempt_identity_conflict', 2, false);
+        $this->assertStringContainsString('attempt_identity_conflict', $deferred);
+        $this->assertStringNotContainsString('manual requeue required', $deferred);
+        $this->assertSame(2, EndorseRefreshQueueService::isolationCount($deferred));
+
+        $terminal = EndorseRefreshQueueService::poisonMessage('attempt_identity_conflict', 8, true);
+        $this->assertStringContainsString('manual requeue required', $terminal);
+        $this->assertSame(8, EndorseRefreshQueueService::isolationCount($terminal));
+
+        // Termination must not be reachable before the backoff has hit its cap.
+        $this->assertSame(
+            3600,
+            EndorseRefreshQueueService::isolationBackoffSeconds(EndorseRefreshQueueService::POISON_MAX_ISOLATIONS - 1, 60),
         );
     }
 }

@@ -18,10 +18,37 @@ final class EndorseRefreshClaimRepository
      * Select and lock eligible parent rows. Attempt allocation and the parent
      * transition are performed in the same transaction by QueueService.
      */
-    public static function buildSelectForUpdateSql(int $limit, int $retryBaseSeconds): string
+    /**
+     * @param int $retryDemotion priority bands a row drops per consumed attempt. 0 (the
+     *                           default) reproduces the historical ordering exactly, so the
+     *                           cron path is unchanged unless a caller opts in.
+     *
+     * Why the option exists: `ORDER BY priority DESC` is absolute and has no starvation guard.
+     * Within one band `attempts ASC` correctly serves fresh rows before retries, but ACROSS
+     * bands a failing high-priority cohort outranks every fresh row beneath it. When those
+     * failures are deterministic — a deleted or private video fails identically on every
+     * attempt — the cohort consumes the entire provider budget while lower-priority rows that
+     * would have succeeded wait for it to exhaust max_attempts.
+     *
+     * Measured in the 30-minute run: two separate minutes spent their whole request budget on
+     * attempt-2 and attempt-3 cohorts and completed ZERO posts, against 11,366 eligible fresh
+     * rows (docs/loadtest/ISSUES.md#issue-19).
+     *
+     * Demoting by attempt keeps priority meaningful for fresh work while bounding how long a
+     * failing cohort can hold the head of the queue: it can only outrank rows within
+     * `max_attempts` bands of itself.
+     */
+    public static function buildSelectForUpdateSql(int $limit, int $retryBaseSeconds, int $retryDemotion = 0): string
     {
         $limit = max(1, min(500, $limit));
         $retryBaseSeconds = max(1, min(3600, $retryBaseSeconds));
+        $retryDemotion = max(0, min(100, $retryDemotion));
+
+        // Demotion 0 emits the ORIGINAL string, not an arithmetically-equivalent one, so the
+        // cron's claim SQL is byte-identical and the shape contract test still pins it.
+        $effectivePriority = $retryDemotion === 0
+            ? 'q.priority'
+            : "(q.priority - q.attempts * {$retryDemotion})";
 
         return "
             SELECT q.*,
@@ -46,7 +73,7 @@ final class EndorseRefreshClaimRepository
                         )
                     )
               )
-            ORDER BY q.priority DESC, q.attempts ASC, q.created_at ASC, q.id ASC
+            ORDER BY {$effectivePriority} DESC, q.attempts ASC, q.created_at ASC, q.id ASC
             LIMIT $limit
             FOR UPDATE SKIP LOCKED
         ";

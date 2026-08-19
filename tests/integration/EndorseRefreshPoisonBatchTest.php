@@ -217,6 +217,133 @@ final class EndorseRefreshPoisonBatchTest extends TestCase
     }
 
     /**
+     * Drive the queue the way a real deployment does: poll, let the deferral window
+     * elapse, poll again. A bounded BACKOFF is not a bounded RETRY COUNT — without a
+     * terminal condition this loop runs for the life of the row, once per window,
+     * forever.
+     */
+    private function pollPastBackoff(int $polls): array
+    {
+        $observed = [];
+
+        for ($i = 0; $i < $polls; $i++) {
+            $claim      = $this->service($this->conn())->claimBatch(['limit' => 50, 'retry_base_seconds' => 60]);
+            $observed[] = [
+                'poison'  => $claim['poison_count'] ?? 0,
+                'status'  => $this->col('SELECT status FROM endorse_refresh_queue WHERE id=' . self::POISON_QUEUE_ID),
+                'backoff' => (int) $this->col(
+                    'SELECT IFNULL(TIMESTAMPDIFF(SECOND, NOW(6), next_attempt_at), -1) FROM endorse_refresh_queue WHERE id='
+                    . self::POISON_QUEUE_ID,
+                ),
+            ];
+            // Simulate the deferral window elapsing, so the next poll sees the row
+            // as eligible again exactly as production would after the backoff.
+            self::$pdo->exec(
+                'UPDATE endorse_refresh_queue SET next_attempt_at = NULL WHERE id = ' . self::POISON_QUEUE_ID
+                . " AND status = 'pending'",
+            );
+        }
+
+        return $observed;
+    }
+
+    public function testPoisonRowReachesATerminalStateInsteadOfRetryingForever(): void
+    {
+        $observed = $this->pollPastBackoff(12);
+
+        $finalStatus = $this->col('SELECT status FROM endorse_refresh_queue WHERE id=' . self::POISON_QUEUE_ID);
+        $this->assertSame(
+            'failed',
+            $finalStatus,
+            'a deterministically poisoned row must stop being retried and become terminal',
+        );
+
+        // Terminal means terminal: it is no longer eligible for any future poll.
+        $this->assertSame(
+            '',
+            $this->col('SELECT IFNULL(next_attempt_at, "") FROM endorse_refresh_queue WHERE id=' . self::POISON_QUEUE_ID),
+            'a terminal row must not carry a future retry schedule',
+        );
+        $after = $this->service($this->conn())->claimBatch(['limit' => 50, 'retry_base_seconds' => 60]);
+        $this->assertSame(0, $after['poison_count'] ?? 0, 'a terminal row must never be isolated again');
+
+        // The whole point of terminating is to stop the spin: isolation must have
+        // happened a bounded number of times, not once per poll.
+        $isolations = array_sum(array_column($observed, 'poison'));
+        $this->assertLessThan(12, $isolations, 'isolation must be bounded, not once per poll');
+    }
+
+    /**
+     * Termination must not be bought with fabricated provider history.
+     */
+    public function testTerminalPoisonRowStillHasNoFabricatedAttempts(): void
+    {
+        $this->pollPastBackoff(12);
+
+        $this->assertSame(
+            '0',
+            $this->col('SELECT attempts FROM endorse_refresh_queue WHERE id=' . self::POISON_QUEUE_ID),
+            'no provider request ever started, so no attempt may be consumed',
+        );
+        $this->assertSame(
+            '1',
+            $this->col('SELECT COUNT(*) FROM endorse_refresh_queue_attempts WHERE queue_id=' . self::POISON_QUEUE_ID),
+            'only the pre-existing ghost attempt may exist',
+        );
+        // Stable, secret-free, and explicit that a human has to act.
+        $message = $this->col('SELECT error_message FROM endorse_refresh_queue WHERE id=' . self::POISON_QUEUE_ID);
+        $this->assertStringContainsString('attempt_identity_conflict', $message);
+        $this->assertStringContainsString('manual requeue required', $message);
+    }
+
+    /**
+     * A terminal poison row reads as an ordinary 'failed' row, which is exactly how a
+     * permanently broken item disappears into the noise. Health must call it out.
+     */
+    public function testTerminalPoisonRowIsVisibleInHealth(): void
+    {
+        $service = $this->service($this->conn());
+        $this->assertSame(0, $service->computeHealth()['poison_terminal_total']);
+
+        $this->pollPastBackoff(12);
+
+        $health = $this->service($this->conn())->computeHealth();
+        $this->assertSame(1, $health['poison_terminal_total'], 'a terminal poison row must be reported to operators');
+        $this->assertSame(0, $health['needs_reconciliation_total']);
+    }
+
+    /**
+     * Backoff must grow between isolations, so a row that cannot be claimed stops
+     * costing a failed transaction every single poll while it walks to terminal.
+     */
+    public function testIsolationBackoffEscalates(): void
+    {
+        $observed = $this->pollPastBackoff(4);
+        $backoffs = array_values(array_filter(array_column($observed, 'backoff'), static fn (int $b) => $b > 0));
+
+        $this->assertGreaterThanOrEqual(3, count($backoffs), 'expected several deferrals to compare');
+        $this->assertGreaterThan($backoffs[0], $backoffs[2], 'the deferral window must escalate');
+
+        foreach ($backoffs as $backoff) {
+            $this->assertLessThanOrEqual(3600, $backoff, 'escalation must stay capped at one hour');
+        }
+    }
+
+    /**
+     * Healthy work must keep draining the entire time a poison row walks to terminal.
+     */
+    public function testHealthyRowsAreUnaffectedWhileThePoisonRowTerminates(): void
+    {
+        $this->pollPastBackoff(12);
+
+        $this->assertSame(
+            (string) self::HEALTHY_ROWS,
+            $this->col("SELECT COUNT(*) FROM endorse_refresh_queue WHERE status='processing'"),
+            'every healthy row must still have been claimed',
+        );
+    }
+
+    /**
      * Two workers polling at once must not both try to isolate the same row.
      */
     public function testSecondWorkerCannotClaimAHalfIsolatedRow(): void
