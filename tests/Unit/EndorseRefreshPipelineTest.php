@@ -87,9 +87,11 @@ final class EndorseRefreshPipelineTest extends TestCase
                 $this->log['rollups'][] = $ids;
             },
             'ledger' => new EndorseRefreshLedger(new PipelineNullDb(), 1000, 3600.0),
-            'kit'    => new EndorseRefreshFetchKit(),
-            'now'    => static fn (): float => microtime(true),
-            'log'    => function (string $event, array $fields = []): void {
+            // Explicit config: the kit must never reach for a global env() helper, which in
+            // this project resolves to illuminate/support's and fatals on a missing phpoption.
+            'kit' => new EndorseRefreshFetchKit(['host' => 'provider-mock.local', 'key' => 'test-key']),
+            'now' => static fn (): float => microtime(true),
+            'log' => function (string $event, array $fields = []): void {
                 $this->log['events'][] = $event;
             },
         ];

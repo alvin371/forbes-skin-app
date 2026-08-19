@@ -96,6 +96,36 @@ final class EndorseRefreshFetchKit extends Template
 
     const DEFAULT_MAX_BODY_BYTES = 2097152; // 2 MB — comfortably above a real detail page
 
+    /** @var array{host: string, key: string}|null resolved by the caller, never from env */
+    private ?array $rapidApiConfig = null;
+
+    /**
+     * @param array{host?: string, key?: string} $rapidApiConfig
+     *
+     * Template::getRapidApiConfig() reads env('RAPIDAPI_HOST') and env('RAPIDAPI_KEY') on every
+     * call. That is wrong for a long-lived worker twice over: it re-reads the environment
+     * hundreds of times a second to produce a constant, and it makes the class depend on
+     * whichever global env() helper is loaded — illuminate/support ships one whose Env::get()
+     * needs phpoption/phpoption, a package this project does not install, so it fatals outright.
+     *
+     * Passing the config in keeps the worker free of that dependency. Omitting it preserves the
+     * inherited env-reading behaviour exactly, so every existing caller is unaffected.
+     */
+    public function __construct(array $rapidApiConfig = array())
+    {
+        if (isset($rapidApiConfig['host']) || isset($rapidApiConfig['key'])) {
+            $this->rapidApiConfig = array(
+                'host' => trim((string) ($rapidApiConfig['host'] ?? '')),
+                'key' => trim((string) ($rapidApiConfig['key'] ?? '')),
+            );
+        }
+    }
+
+    protected function getRapidApiConfig(): array
+    {
+        return $this->rapidApiConfig ?? parent::getRapidApiConfig();
+    }
+
     /** Leg 1: direct tiktok.com page scrape. Mirrors Template::fetchTiktokDetailPagesBatch. */
     public function newScrapeHandle(string $url, int $timeoutSec, int $connectTimeoutSec, EndorseRefreshResponseBuffer $buffer)
     {

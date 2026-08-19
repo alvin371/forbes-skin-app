@@ -87,7 +87,12 @@ class EndorseRefreshWorker extends CI_Controller
 
         $cfg = $this->workerConfig();
         $svc = $this->endorserefreshqueueservice;
-        $kit = new EndorseRefreshFetchKit();
+        // Resolve the provider config once, here, where reading the environment is this
+        // class's job. The kit then never touches a global env() helper on the fetch path.
+        $kit = new EndorseRefreshFetchKit(array(
+            'host' => (string) env('RAPIDAPI_HOST', 'tiktok-video-no-watermark10.p.rapidapi.com'),
+            'key' => (string) env('RAPIDAPI_KEY', ''),
+        ));
         $ledger = new EndorseRefreshLedger($this->db, (int) $cfg['ledger_flush_rows'], (float) $cfg['ledger_flush_sec']);
         $store = new CiDbReservationStore($this->db, $cfg['app_env'], $cfg['app_name']);
 
