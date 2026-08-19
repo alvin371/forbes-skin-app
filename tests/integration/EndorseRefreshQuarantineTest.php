@@ -121,7 +121,9 @@ final class EndorseRefreshQuarantineTest extends TestCase
         ]];
     }
 
-    /** What the provider actually returns for a post that no longer resolves. */
+    /**
+     * What the provider actually returns for a post that no longer resolves.
+     */
     private function permanentResponse(): array
     {
         return [
@@ -131,7 +133,9 @@ final class EndorseRefreshQuarantineTest extends TestCase
         ];
     }
 
-    /** Terminal for the queue, but NOT proof the post is gone. */
+    /**
+     * Terminal for the queue, but NOT proof the post is gone.
+     */
     private function emptyResponse(): array
     {
         return [
@@ -151,7 +155,9 @@ final class EndorseRefreshQuarantineTest extends TestCase
         return (int) $this->col('SELECT COUNT(*) FROM endorse_refresh_quarantine');
     }
 
-    /** Seed one claimable pending row and return the ids the claim SELECT yields. */
+    /**
+     * Seed one claimable pending row and return the ids the claim SELECT yields.
+     */
     private function claimableIds(string $url = self::ENDORSE_URL, bool $excludeQuarantined = true): array
     {
         self::$m->query('DELETE FROM endorse_refresh_queue');
@@ -292,7 +298,9 @@ final class EndorseRefreshQuarantineTest extends TestCase
         );
     }
 
-    /** Clearing a quarantine row must take effect on the very next claim. */
+    /**
+     * Clearing a quarantine row must take effect on the very next claim.
+     */
     public function testClearingAQuarantineRowReopensTheRow(): void
     {
         $this->seedQueueRow();

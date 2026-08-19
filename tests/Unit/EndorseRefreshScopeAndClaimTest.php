@@ -170,7 +170,9 @@ final class EndorseRefreshScopeAndClaimTest extends TestCase
         $this->assertStringContainsString('z.url_snapshot = q.link_upload', $sql);
     }
 
-    /** The exclusion narrows the WHERE; it must never disturb ordering or locking. */
+    /**
+     * The exclusion narrows the WHERE; it must never disturb ordering or locking.
+     */
     public function testQuarantineExclusionComposesWithDemotionAndKeepsClaimShape(): void
     {
         $sql = EndorseRefreshClaimRepository::buildSelectForUpdateSql(20, 60, 1, true);
