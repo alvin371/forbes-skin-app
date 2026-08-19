@@ -16,41 +16,59 @@ Measured 2026-08-19 unless stated.
 
 ---
 
-## RISK 1 — the schedule does not fit at measured throughput (HIGH)
+## RISK 1 — the 04:00 start leaves no margin; 05:00 fits (MEDIUM)
 
-This is the headline problem. The plan assumes forbes finishes inside 3 h 55 m.
-
-```
-forbes corpus              24.551 post
-throughput terukur         ~60 completion/menit  (concurrency 5, latensi provider ~3,3 s)
-
-24.551 / 60  =  409 menit  =  6 jam 49 menit
-00:05 + 6:49 =  06:54      →  masih jalan saat sec-forbes mulai 04:00
-```
-
-**Overlap 04:00–06:54, hampir tiga jam.** To finish by 04:00 forbes needs ~104/min, which is
-1.7× what it currently achieves.
-
-sec-forbes, for reference, fits its own windows:
+**Corrected 2026-08-19.** An earlier version of this document put the forbes corpus at 24.551
+and concluded the schedule was impossible. That was wrong: it filtered only on
+`e.status='Aktif'`, while `enqueueAllActive` also joins `endorse_campaign` and requires
+`c.status='Aktif'` **and** `e.status_campaign='Aktif'`.
 
 ```
-12.530 / 60 = 209 menit = 3 jam 29 menit
-04:00 → 07:29     16:00 → 19:29
+filter salah (e.status saja)        24.551
+enqueueAllActive sebenarnya         16.430   (16.283 di antaranya Tiktok)
 ```
 
-Total provider time per day ≈ 13 h 47 m, which does fit inside 24 h — but only if the three
-runs are actually sequential.
+Recomputed against measured throughput — median **62 completion/min**, range 4–94:
 
-**Ways to close the gap**
+```
+16.283 / 62  =  263 menit = 4 j 23 m   →  00:05 + 4:23 = 04:28   (tipikal)
+16.283 / 50  =  326 menit = 5 j 26 m   →  05:31                  (malam buruk)
+16.283 / 85  =  192 menit = 3 j 12 m   →  03:17                  (forbes sendirian)
+```
+
+Plus a retry tail of roughly 10–20 minutes (6–9 % of attempts retry on a 60–90 s backoff).
+
+So the honest picture:
+
+| Start sec-forbes | Buffer di throughput tipikal | Aman di malam buruk? |
+|---|---|---|
+| 04:00 | **−28 menit (bentrok)** | tidak |
+| 05:00 | +32 menit | tidak (selesai 05:31) |
+| 06:00 | +1 j 32 m | ya |
+
+**05:00 is a reasonable choice and clearly better than 04:00**, but the margin is thin: one slow
+night eats it. Note the 62/min figure was measured *while sec-forbes was also draining*; alone,
+forbes should be faster, which is why 05:00 is defensible rather than reckless.
+
+The reliable fix is not a bigger buffer — it is RISK 2's run lock, which turns an overrun into
+"the second tenant waits" instead of "both tenants collapse the provider". With that in place,
+05:00 is safe even on a bad night.
+
+sec-forbes, for reference:
+
+```
+12.530 / 62 = 202 menit = 3 j 22 m
+05:00 → 08:22     16:00 → 19:22
+```
+
+Total provider time per day ≈ 11 h, comfortably inside 24 h once the runs are sequential.
+
+**Ways to widen the margin further**
 
 1. Route `/video/` back to the scrape. 35 % of the corpus leaves RapidAPI entirely (free,
-   ~1 s, verified 12/12 alive). forbes' RapidAPI load drops by a third, letting the same
-   provider budget carry more posts per minute.
-2. Move the sec-forbes morning run to **07:00** instead of 04:00.
-3. Raise concurrency — but see RISK 6; the provider collapsed at 30 and the safe ceiling is
-   not yet known.
-
-Options 1 and 2 are free. Option 3 requires careful stepping.
+   ~1 s, verified 12/12 alive), so the same provider budget carries more posts per minute.
+2. Raise concurrency — but see RISK 6; the provider collapsed at 30 and the safe ceiling
+   between 6 and 29 is unmeasured.
 
 ## RISK 2 — nothing enforces the separation, and it is already being violated (HIGH)
 
