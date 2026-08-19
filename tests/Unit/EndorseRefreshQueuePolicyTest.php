@@ -231,4 +231,54 @@ final class EndorseRefreshQueuePolicyTest extends TestCase
             EndorseRefreshQueueService::isolationBackoffSeconds(EndorseRefreshQueueService::POISON_MAX_ISOLATIONS - 1, 60),
         );
     }
+
+    // --- quarantine reason codes ----------------------------------------------
+
+    /**
+     * The reason code is what makes the quarantine table queryable ("how many posts did the
+     * provider refuse to resolve today?"). It is derived from the classifier's message, so it
+     * must stay stable as those messages are reworded — hence assertions on the mapping rather
+     * than on the wording.
+     */
+    public function testQuarantineReasonCodeClassifiesTheKnownPermanentSignals(): void
+    {
+        $this->assertSame(
+            'rapidapi_unresolvable',
+            QuarantineReasonProbe::reason('RapidAPI cannot resolve this post (deleted, private, or invalid URL)'),
+        );
+        $this->assertSame(
+            'tiktok_status_10204',
+            QuarantineReasonProbe::reason('TikTok returned statusCode 10204 (status_self_see)'),
+        );
+        $this->assertSame(
+            'url_unresolvable',
+            QuarantineReasonProbe::reason('Video id tidak ditemukan pada URL'),
+        );
+    }
+
+    /**
+     * An unrecognised permanent message must still produce a usable bucket rather than an
+     * empty string: `reason_code` is NOT NULL, and a write that fails would roll back the
+     * whole item — turning a dead post into a stuck row.
+     */
+    public function testQuarantineReasonCodeFallsBackRatherThanReturningEmpty(): void
+    {
+        $this->assertSame('provider_permanent', QuarantineReasonProbe::reason('something nobody has seen before'));
+        $this->assertSame('provider_permanent', QuarantineReasonProbe::reason(''));
+    }
+}
+
+/**
+ * The mapping is protected because nothing outside the writer should choose reason codes.
+ * Exposing it through a subclass keeps the production surface unchanged while still pinning
+ * behaviour that the table's readers depend on.
+ *
+ * @internal
+ */
+final class QuarantineReasonProbe extends EndorseRefreshQueueService
+{
+    public static function reason(string $msg): string
+    {
+        return self::quarantineReasonCode($msg);
+    }
 }

@@ -64,6 +64,12 @@ class EndorseRefreshWorker extends CI_Controller
         exit(0);
     }
 
+    /** Whether THIS process currently holds the shared-provider lease. */
+    private $providerLeaseHeld = false;
+
+    /** Last time a "another tenant holds it" line was written, for log throttling. */
+    private $providerLeaseLoggedAt = 0.0;
+
     public function run()
     {
         $this->load->model('mymodel');
@@ -105,6 +111,10 @@ class EndorseRefreshWorker extends CI_Controller
 
         $totals = $pipeline->run();
 
+        // Explicit, though MySQL would release it when this connection closes a moment later.
+        // Being explicit keeps the hand-over immediate rather than dependent on teardown order.
+        $this->releaseProviderLease($cfg);
+
         $elapsed = max(0.001, microtime(true) - $startedAt);
         $totals['elapsed_sec'] = round($elapsed, 2);
         $totals['completions_per_min'] = round($totals['completed'] / ($elapsed / 60), 2);
@@ -144,6 +154,13 @@ class EndorseRefreshWorker extends CI_Controller
              * override", not "worker".
              */
             'claim' => function (int $limit) use ($svc, $cfg) {
+                // Gate the claim, not the fetch. Taking the lease here means a tenant that
+                // cannot have it never claims a row, so it also never holds a lease-fenced
+                // 'processing' row while waiting — the other tenant's run stays unaffected.
+                if (! $this->acquireProviderLease($cfg)) {
+                    return array();
+                }
+
                 $claim = $svc->claimBatch(array(
                     'limit' => $limit,
                     'rate_per_min' => 0,
@@ -159,7 +176,13 @@ class EndorseRefreshWorker extends CI_Controller
                     return array();
                 }
 
-                return (!empty($claim['skipped']) || empty($claim['items'])) ? array() : $claim['items'];
+                $items = (!empty($claim['skipped']) || empty($claim['items'])) ? array() : $claim['items'];
+                if ($items === array()) {
+                    // Nothing left for this tenant: hand the provider to whoever is waiting.
+                    $this->releaseProviderLease($cfg);
+                }
+
+                return $items;
             },
 
             'release' => function (array $items) use ($svc) {
@@ -266,6 +289,14 @@ class EndorseRefreshWorker extends CI_Controller
             'app_env'     => strtolower((string) env('APP_ENV', 'loadtest')),
             'app_name'    => strtolower((string) env('APP_NAME', 'forbes')),
 
+            // Cross-tenant mutual exclusion on a SHARED provider key. Off by default so a
+            // single-tenant deployment behaves exactly as before; see acquireProviderLease().
+            'provider_lock'          => self::truthy(env('ENDORSE_REFRESH_PROVIDER_LOCK', 0)),
+            'provider_lock_name'     => 'endorse-provider:' . EndorseRefreshRateScope::fingerprint(
+                (string) env('RAPIDAPI_KEY', '')
+            ),
+            'provider_lock_log_sec'  => (float) self::clamp(env('ENDORSE_REFRESH_PROVIDER_LOCK_LOG_SEC', 60), 1, 3600),
+
             'max_in_flight'   => self::clamp(env('ENDORSE_REFRESH_MAX_IN_FLIGHT', 10), 1, 200),
             'claim_chunk_max' => self::clamp(env('ENDORSE_REFRESH_CLAIM_CHUNK_MAX', 40), 1, 500),
             'claim_min_batch' => self::clamp(env('ENDORSE_REFRESH_CLAIM_MIN_BATCH', 1), 1, 100),
@@ -329,11 +360,96 @@ class EndorseRefreshWorker extends CI_Controller
             'rapidapi_rate_per_min' => $cfg['rapidapi_rate_per_min'],
             'scrape_timeout_sec' => $cfg['scrape_timeout_sec'],
             'rapidapi_timeout_sec' => $cfg['rapidapi_timeout_sec'],
+            'app_name' => $cfg['app_name'],
+            // The lock NAME, which is a key fingerprint — never the key. Recorded so a run can
+            // be attributed to a tenant afterwards, and so "was the lease even on?" is
+            // answerable from the run row rather than from whoever edited .env.
+            'provider_lock' => $cfg['provider_lock'] ? $cfg['provider_lock_name'] : 'off',
         );
     }
 
     private static function clamp($value, int $min, int $max): int
     {
         return max($min, min($max, intval($value)));
+    }
+
+    private static function truthy($value): bool
+    {
+        return in_array(strtolower(trim((string) $value)), array('1', 'true', 'yes', 'on'), true);
+    }
+
+    // ------------------------------------------------------- provider lease
+
+    /**
+     * Take the shared-provider lease, or report that another tenant holds it.
+     *
+     * WHY THIS EXISTS. Two apps (forbes and sec-forbes) run against separate schemas on one
+     * MySQL instance and deliberately share one RapidAPI key. Each tenant's reservation store
+     * counts tokens in ITS OWN schema, so neither can see the other's requests: two workers
+     * each correctly configured at 240/min put 480/min on a key that collapsed at roughly 250
+     * (docs/loadtest/WORKER-PRODUCTION.md §3). Both sides would report themselves inside budget
+     * while together breaking it.
+     *
+     * A schedule alone cannot fix that, because it depends on runs never overrunning — and the
+     * measured forbes run finishes only ~30 minutes before sec-forbes is due to start.
+     *
+     * MySQL user-level locks are per-SERVER, not per-schema, which is exactly the scope we
+     * need. The lease is keyed on a FINGERPRINT OF THE API KEY, so tenants that share a key
+     * exclude each other, tenants given separate keys run in parallel automatically, and the
+     * behaviour stays correct if a third tenant appears — with no shared configuration to drift.
+     *
+     * Non-blocking (timeout 0) and non-fatal: a worker that cannot get the lease keeps running
+     * and returns an empty claim, which the pipeline treats as an idle tick and retries a second
+     * later. It must NOT exit — Swarm restarts are not a retry mechanism, and an exiting worker
+     * would never come back on its own once the other tenant finished.
+     */
+    private function acquireProviderLease(array $cfg): bool
+    {
+        if (empty($cfg['provider_lock']) || $this->providerLeaseHeld) {
+            return true;
+        }
+
+        $row = $this->db->query(
+            'SELECT GET_LOCK(' . $this->db->escape((string) $cfg['provider_lock_name']) . ', 0) AS got'
+        )->row_array();
+
+        if (intval($row['got'] ?? 0) === 1) {
+            $this->providerLeaseHeld = true;
+            log_message('info', 'endorse_refresh_provider_lease_acquired: ' . $cfg['provider_lock_name']);
+
+            return true;
+        }
+
+        // Throttled: the pipeline asks roughly once a second while idle, and an unthrottled
+        // line here would bury every other worker log during a legitimate multi-hour wait.
+        $now = microtime(true);
+        if (($now - $this->providerLeaseLoggedAt) >= (float) $cfg['provider_lock_log_sec']) {
+            $this->providerLeaseLoggedAt = $now;
+            log_message('info', 'endorse_refresh_provider_busy: another tenant holds ' . $cfg['provider_lock_name']);
+        }
+
+        return false;
+    }
+
+    /**
+     * Give the lease back the moment this tenant has nothing left to do.
+     *
+     * Released on an empty claim rather than at process exit, because the worker is a
+     * continuous service: holding until exit would mean whichever tenant started first owned
+     * the provider all day. Handing it back on an empty queue is what makes the two tenants
+     * take turns without any clock being involved.
+     *
+     * A dropped connection releases the lock too, so a crashed worker cannot deadlock the
+     * other tenant.
+     */
+    private function releaseProviderLease(array $cfg): void
+    {
+        if (! $this->providerLeaseHeld) {
+            return;
+        }
+
+        $this->db->query('SELECT RELEASE_LOCK(' . $this->db->escape((string) $cfg['provider_lock_name']) . ')');
+        $this->providerLeaseHeld = false;
+        log_message('info', 'endorse_refresh_provider_lease_released: ' . $cfg['provider_lock_name']);
     }
 }

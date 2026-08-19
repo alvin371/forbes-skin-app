@@ -23,6 +23,14 @@ class EndorseRefreshQueueService
     private $lastRecoveryAt = 0.0;
 
     /**
+     * Whether this tenant's schema carries `endorse_refresh_quarantine`. NULL = not yet probed.
+     *
+     * One worker binary serves schemas at different migration levels (see
+     * docs/loadtest/MULTI-TENANCY.md), so quarantine has to degrade to "off" rather than error.
+     */
+    private $quarantineTableExists = null;
+
+    /**
      * Keep deployment configuration from turning one cron request into an
      * unbounded worker. The production scheduler may invoke this endpoint more
      * than once, so these are deliberately conservative hard ceilings.
@@ -1384,6 +1392,122 @@ class EndorseRefreshQueueService
     }
 
     /**
+     * Is `endorse_refresh_quarantine` present on THIS tenant's schema?
+     *
+     * Cached per instance: the worker asks once per claim and once per terminal item, and the
+     * answer cannot change inside a process. Tenants whose migrations have not landed simply
+     * get the pre-quarantine behaviour instead of a SQL error, which is what lets one worker
+     * binary serve schemas at different migration levels.
+     */
+    protected function quarantineTableExists(): bool
+    {
+        if ($this->quarantineTableExists === null) {
+            try {
+                $this->quarantineTableExists = $this->CI->db->table_exists('endorse_refresh_quarantine');
+            } catch (\Throwable $e) {
+                $this->quarantineTableExists = false;
+            }
+        }
+
+        return $this->quarantineTableExists;
+    }
+
+    /**
+     * Record that a post is permanently gone, so it is never claimed again.
+     *
+     * The table, its unique key and FOUR readers have existed since contract v2; only the
+     * writer was missing, so a deleted or private post was re-enqueued and re-attempted on
+     * every pass. That is thousands of guaranteed-wasted provider requests per day.
+     *
+     * Deliberately narrow:
+     *  - ERR_PERMANENT only. ERR_EMPTY is also terminal for the queue, but "no stats in the
+     *    payload" is not proof the post is gone — quarantining on it would permanently retire
+     *    posts over a provider hiccup, and quarantine has no automatic expiry.
+     *  - `url_snapshot` pins the exact URL we disproved. Re-pointing the endorse at a new post
+     *    changes `link_upload`, the claim-time NOT EXISTS stops matching, and the row becomes
+     *    claimable again with no operator action. This mirrors the content_key intent in a form
+     *    the claim SELECT can evaluate in SQL (URL normalisation lives in PHP).
+     *  - `content_key` still uses the coordinator's helper so this writer and the four existing
+     *    readers agree on the key, and the unique (id_endorse, content_key) actually bites.
+     *
+     * The URL and the endorse id are taken from the QUEUE row, not from `endorse`. The claim
+     * predicate compares `z.url_snapshot = q.link_upload`, so writing the endorse's current URL
+     * here would silently never match whenever the two have drifted — the exclusion would look
+     * implemented and do nothing. Same column on both sides, by construction.
+     *
+     * Runs INSIDE the caller's per-item transaction, so the quarantine row and the queue row's
+     * transition to `failed` commit together or not at all.
+     */
+    protected function quarantineTerminalContent(array $claim, array $endorse, string $errorClass, string $msg): void
+    {
+        if ($errorClass !== Endorse_sync::ERR_PERMANENT || ! $this->quarantineTableExists()) {
+            return;
+        }
+
+        $endorseId = intval($claim['id_endorse'] ?? 0) ?: intval($endorse['id'] ?? 0);
+        $platform  = strval($claim['platform'] ?? '') ?: strval($endorse['platform'] ?? '');
+        $url       = strval($claim['link_upload'] ?? '') ?: strval($endorse['link_upload'] ?? '');
+        if ($endorseId <= 0 || $url === '') {
+            return;
+        }
+
+        $contentKey = '';
+        if (!empty($this->CI->endorserefreshv2coordinator)) {
+            $contentKey = $this->CI->endorserefreshv2coordinator->extractContentKey($platform, $url);
+        }
+        if ($contentKey === '') {
+            $contentKey = strtolower(trim($platform)) . ':' . hash('sha256', $url);
+        }
+
+        $db = $this->CI->db;
+        $sql = "INSERT INTO endorse_refresh_quarantine
+                    (id_endorse, platform, content_key, canonical_url_hash, url_snapshot,
+                     reason_code, detail, source, source_queue_id, source_attempt_id,
+                     confirmed_at, confirmed_by)
+                VALUES (" . $endorseId . ", " . $db->escape($platform) . ", " . $db->escape($contentKey) . ",
+                        " . $db->escape(hash('sha256', $url)) . ", " . $db->escape(substr($url, 0, 1024)) . ",
+                        " . $db->escape(self::quarantineReasonCode($msg)) . ", " . $db->escape(substr($msg, 0, 512)) . ",
+                        'provider_permanent_item', " . intval($claim['id'] ?? 0) . ",
+                        " . (intval($claim['active_attempt_id'] ?? 0) ?: 'NULL') . ",
+                        NOW(6), 'endorse-refresh-worker')
+                ON DUPLICATE KEY UPDATE
+                    url_snapshot      = VALUES(url_snapshot),
+                    canonical_url_hash= VALUES(canonical_url_hash),
+                    reason_code       = VALUES(reason_code),
+                    detail            = VALUES(detail),
+                    source_queue_id   = VALUES(source_queue_id),
+                    source_attempt_id = VALUES(source_attempt_id),
+                    confirmed_at      = VALUES(confirmed_at),
+                    cleared_at        = NULL,
+                    cleared_by        = NULL,
+                    clear_reason      = NULL";
+
+        $db->query($sql);
+    }
+
+    /**
+     * Machine-readable reason for a quarantine row, derived from the classifier's message.
+     * Kept coarse on purpose: it exists to make the table queryable ("how many posts did
+     * RapidAPI refuse to resolve today?"), not to reproduce the provider's wording.
+     */
+    protected static function quarantineReasonCode(string $msg): string
+    {
+        $lower = strtolower($msg);
+
+        if (strpos($lower, 'rapidapi') !== false) {
+            return 'rapidapi_unresolvable';
+        }
+        if (strpos($lower, '10204') !== false || strpos($lower, 'status_self_see') !== false) {
+            return 'tiktok_status_10204';
+        }
+        if (strpos($lower, 'url tidak ditemukan') !== false || strpos($lower, 'video id tidak ditemukan') !== false) {
+            return 'url_unresolvable';
+        }
+
+        return 'provider_permanent';
+    }
+
+    /**
      * Atomically claim a batch of pending rows and return them ready to fetch.
      *
      * Extracted from Api_v2::cronjob_endorse_refresh so the per-minute cron AND the
@@ -1561,7 +1685,9 @@ class EndorseRefreshQueueService
                     $limit,
                     $retryBaseSeconds,
                     // Default 0 keeps the cron's claim ordering byte-for-byte unchanged.
-                    intval($opts['retry_priority_demotion'] ?? 0)
+                    intval($opts['retry_priority_demotion'] ?? 0),
+                    // Only reference the quarantine table on tenants that actually have it.
+                    $this->quarantineTableExists()
                 )
             );
             $candidates = $this->resultRowsOrThrow($locked, 'select claim candidates');
@@ -2099,6 +2225,11 @@ class EndorseRefreshQueueService
                 // Only genuinely unrecoverable classes fail immediately; transport/infra classes
                 // retry up to max_attempts (one upstream outage must not drain the queue to failed).
                 if (Endorse_sync::is_terminal_class($errorClass)) {
+                    // A permanent class means the post itself is gone (deleted, private, or the
+                    // URL never resolved), so record it before failing the row: otherwise the
+                    // next enqueueAllActive re-queues it and it burns the same requests again.
+                    // Inside this transaction on purpose — quarantine and 'failed' are one fact.
+                    $this->quarantineTerminalContent($claim, $endorse, $errorClass, $msg);
                     $this->failActiveClaimOrThrow($claim, $attempts, $msg, $errorClass);
                     $this->commitOrThrow();
                     $failed++;

@@ -37,9 +37,30 @@ final class EndorseRefreshClaimRepository
      * Demoting by attempt keeps priority meaningful for fresh work while bounding how long a
      * failing cohort can hold the head of the queue: it can only outrank rows within
      * `max_attempts` bands of itself.
+     *
+     * @param bool $excludeQuarantined skip rows whose exact URL was already proven gone.
+     *                                 Default false: off unless the caller has confirmed the
+     *                                 quarantine table exists on THIS tenant's schema, and
+     *                                 byte-identical to the historical string when off.
+     *
+     * Why the exclusion belongs HERE and not only at enqueue: `enqueueRows` already filters
+     * quarantined content, but that only protects rows this codebase enqueued. sec-forbes runs
+     * its own older enqueue path against the same tables (docs/loadtest/MULTI-TENANCY.md), so
+     * an enqueue-side filter alone would let a known-dead post be claimed and re-attempted on
+     * every pass. The claim is the one gate every row passes through, whoever queued it.
+     *
+     * Matching is on `url_snapshot`, not on the normalised content key, because URL
+     * normalisation lives in PHP and this predicate has to be evaluable in SQL. The practical
+     * difference is narrow and in the safe direction: two spellings of the same dead post each
+     * cost one attempt before both are quarantined, and re-pointing an endorse at a fresh post
+     * changes `link_upload`, stops the match, and re-opens the row with no operator action.
      */
-    public static function buildSelectForUpdateSql(int $limit, int $retryBaseSeconds, int $retryDemotion = 0): string
-    {
+    public static function buildSelectForUpdateSql(
+        int $limit,
+        int $retryBaseSeconds,
+        int $retryDemotion = 0,
+        bool $excludeQuarantined = false
+    ): string {
         $limit = max(1, min(500, $limit));
         $retryBaseSeconds = max(1, min(3600, $retryBaseSeconds));
         $retryDemotion = max(0, min(100, $retryDemotion));
@@ -49,6 +70,16 @@ final class EndorseRefreshClaimRepository
         $effectivePriority = $retryDemotion === 0
             ? 'q.priority'
             : "(q.priority - q.attempts * {$retryDemotion})";
+
+        $quarantineClause = $excludeQuarantined
+            ? "
+              AND NOT EXISTS (
+                    SELECT 1 FROM endorse_refresh_quarantine z
+                    WHERE z.id_endorse = q.id_endorse
+                      AND z.cleared_at IS NULL
+                      AND z.url_snapshot = q.link_upload
+              )"
+            : '';
 
         return "
             SELECT q.*,
@@ -72,7 +103,7 @@ final class EndorseRefreshClaimRepository
                                ($retryBaseSeconds * POW(2, LEAST(10, GREATEST(q.attempts - 1, 0))))
                         )
                     )
-              )
+              ){$quarantineClause}
             ORDER BY {$effectivePriority} DESC, q.attempts ASC, q.created_at ASC, q.id ASC
             LIMIT $limit
             FOR UPDATE SKIP LOCKED
