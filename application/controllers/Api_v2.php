@@ -8231,15 +8231,8 @@ class Api_v2 extends CI_Controller
 
         // Concurrent-fetch knobs stay on the cron (the fetch happens here); the claim,
         // rate caps and apply logic are shared with the Rust path via the queue service.
-        // Ceiling raised from 10 to 30 so ENDORSE_REFRESH_PARALLEL_HTTP is actually tunable:
-        // the old max equalled the default, so setting the env var could only ever LOWER it.
-        // The default stays 10, so this is inert until an operator opts in.
-        //
-        // Safe to raise only because the fallback leg is now parallel too
-        // (Template::get_social_media_batch). While it was a blocking per-item call, extra
-        // leg-1 concurrency just piled more work onto a serialised second leg.
         $PARALLEL_HTTP = EndorseRefreshQueueService::boundedWorkerSetting(
-            env('ENDORSE_REFRESH_PARALLEL_HTTP', 10), 10, 30
+            env('ENDORSE_REFRESH_PARALLEL_HTTP', 10), 10, 10
         );
         // Wall-clock budget so the run always returns before the cron curl --max-time /
         // nginx 60s timeout. Leftover items are deferred back to the queue by applyResults.

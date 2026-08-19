@@ -1687,12 +1687,11 @@ class Template
             }
 
             $pageScrapes = $this->fetchTiktokDetailPagesBatch($chunk);
-            $fallbackTasks = [];
             foreach ($chunk as $idx => $task) {
                 $platform = $task['platform'] ?? '';
                 $url = $task['url'] ?? '';
 
-                // The leg-1 batch above can itself have consumed the remaining budget.
+                // Budget can be exhausted mid-chunk by slow sequential fallbacks below.
                 if ($overBudget()) {
                     $results[$idx] = $this->deferredBatchResult();
                     continue;
@@ -1722,54 +1721,22 @@ class Template
                     continue;
                 }
 
-                // Leg 1 failed for this item: queue it for the PARALLEL fallback below rather
-                // than blocking the loop on it. See the batch call after this foreach.
-                $fallbackTasks[$idx] = $task;
-            }
-
-            // --- fallback leg, run in parallel -------------------------------------------
-            //
-            // This used to be a blocking get_social_media() call per item inside the loop
-            // above, which collapsed effective concurrency to ~1 and did two harmful things
-            // per failed item:
-            //   * up to 12s of RapidAPI latency, serialised; and
-            //   * a third leg, scrapeTiktokDetailFromPage(), issuing a BYTE-IDENTICAL request
-            //     to the leg-1 scrape that had just failed milliseconds earlier in this same
-            //     tick (same URL, UA, cookie, CONNECTTIMEOUT 5 / TIMEOUT 20).
-            // Worst case that is ~32s of wall clock for ONE item against a 45s tick budget,
-            // so two bad items consumed the entire tick and every remaining row was deferred.
-            //
-            // Routing through fetchRapidApiTiktokBatch() — the same already-shipped parallel
-            // path the scrape-disabled branch uses — fixes both at once: the fallback runs
-            // concurrently, and the redundant third leg is simply never issued. Retrying a
-            // just-failed scrape is the queue's job, which does it with a real attempt row,
-            // honest classification and Retry-After support.
-            if ($fallbackTasks !== []) {
-                $batchOptions['remaining_budget_seconds'] = $deadlineSeconds > 0
-                    ? max(0, $deadlineSeconds - (microtime(true) - $startedAt))
-                    : 0.0;
-                $fallbackBatch = $this->fetchRapidApiTiktokBatch($fallbackTasks, $batchOptions);
-
-                foreach ($fallbackTasks as $idx => $task) {
-                    $fallback = $fallbackBatch[$idx] ?? ['status' => false, 'msg' => 'No response', 'data' => []];
-                    $fallbackMeta = is_array($fallback['request_meta'] ?? null) ? $fallback['request_meta'] : [];
-                    $fallback['request_meta'] = array_merge($fallbackMeta, [
-                        'provider' => 'direct_scrape+rapidapi',
-                        'requests_started' => 1 + intval($fallbackMeta['requests_started'] ?? 1),
-                        'direct_total_time' => doubleval($pageScrapes[$idx]['_request_meta']['total_time'] ?? 0),
-                    ]);
-                    $results[$idx] = $fallback;
-                }
-
-                // Same brownout policy as the scrape-disabled branch: back off on a degraded
-                // upstream, recover additively, so one slow chunk cannot serialise the run.
-                if (!empty($fallbackBatch['_meta']['brownout'])) {
-                    $effectiveConcurrency = max($brownoutFloor, intdiv($effectiveConcurrency, 2));
-                    $batchOptions['inline_retry_limit'] = 0;
-                } elseif ($effectiveConcurrency < $maxConcurrent) {
-                    $effectiveConcurrency = min($maxConcurrent, $effectiveConcurrency + 2);
-                    $batchOptions['inline_retry_limit'] = $baseInlineRetryLimit;
-                }
+                $fallback = $this->get_social_media(
+                    $platform,
+                    $url,
+                    true,
+                    intval($task['influencer_id'] ?? 0) ?: null,
+                    true,
+                    strval($task['content_id'] ?? ''),
+                    1
+                );
+                $fallbackMeta = is_array($fallback['request_meta'] ?? null) ? $fallback['request_meta'] : [];
+                $fallback['request_meta'] = array_merge($fallbackMeta, [
+                    'provider' => 'direct_scrape+rapidapi',
+                    'requests_started' => 1 + intval($fallbackMeta['requests_started'] ?? 1),
+                    'direct_total_time' => doubleval($pageScrapes[$idx]['_request_meta']['total_time'] ?? 0),
+                ]);
+                $results[$idx] = $fallback;
             }
         }
 
