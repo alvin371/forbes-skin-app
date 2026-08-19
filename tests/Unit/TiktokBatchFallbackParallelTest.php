@@ -36,9 +36,10 @@ final class TiktokBatchFallbackParallelTest extends TestCase
 {
     private function tasks(int $n): array
     {
-        $tasks = array();
+        $tasks = [];
+
         for ($i = 1; $i <= $n; $i++) {
-            $tasks[$i] = array('platform' => 'Tiktok', 'url' => 'https://www.tiktok.com/@a/video/' . $i);
+            $tasks[$i] = ['platform' => 'Tiktok', 'url' => 'https://www.tiktok.com/@a/video/' . $i];
         }
 
         return $tasks;
@@ -48,26 +49,26 @@ final class TiktokBatchFallbackParallelTest extends TestCase
     {
         $probe = new BatchFallbackProbe();
         // Items 2 and 4 fail leg 1; 1, 3, 5 succeed.
-        $probe->scrapeFailures = array(2, 4);
+        $probe->scrapeFailures = [2, 4];
 
         $probe->get_social_media_batch($this->tasks(5), 10, 45.0);
 
         $this->assertSame(
             1,
             $probe->fallbackBatchCalls,
-            'the fallback must be ONE parallel batch per chunk, not one blocking call per item'
+            'the fallback must be ONE parallel batch per chunk, not one blocking call per item',
         );
         $this->assertSame(
-            array(2, 4),
+            [2, 4],
             $probe->fallbackBatchTaskKeys,
-            'only the items whose leg 1 failed may be sent to the fallback'
+            'only the items whose leg 1 failed may be sent to the fallback',
         );
     }
 
     public function testRedundantThirdScrapeLegIsNeverIssued(): void
     {
-        $probe = new BatchFallbackProbe();
-        $probe->scrapeFailures = array(1, 2, 3);
+        $probe                 = new BatchFallbackProbe();
+        $probe->scrapeFailures = [1, 2, 3];
 
         $probe->get_social_media_batch($this->tasks(3), 10, 45.0);
 
@@ -80,14 +81,15 @@ final class TiktokBatchFallbackParallelTest extends TestCase
 
     public function testSuccessfulScrapesNeverReachTheFallback(): void
     {
-        $probe = new BatchFallbackProbe();
-        $probe->scrapeFailures = array();
+        $probe                 = new BatchFallbackProbe();
+        $probe->scrapeFailures = [];
 
         $results = $probe->get_social_media_batch($this->tasks(4), 10, 45.0);
 
         $this->assertSame(0, $probe->fallbackBatchCalls, 'no fallback when every scrape succeeds');
         $this->assertCount(4, $results);
-        foreach (array(1, 2, 3, 4) as $idx) {
+
+        foreach ([1, 2, 3, 4] as $idx) {
             $this->assertTrue($results[$idx]['status'], "item {$idx} should be satisfied by the scrape");
             $this->assertSame('direct_scrape', $results[$idx]['request_meta']['provider'] ?? null);
         }
@@ -97,8 +99,8 @@ final class TiktokBatchFallbackParallelTest extends TestCase
     {
         // A mis-keyed result would attribute one post's metrics to another — silent data
         // corruption that no throughput measurement would reveal.
-        $probe = new BatchFallbackProbe();
-        $probe->scrapeFailures = array(2, 3);
+        $probe                 = new BatchFallbackProbe();
+        $probe->scrapeFailures = [2, 3];
 
         $results = $probe->get_social_media_batch($this->tasks(4), 10, 45.0);
 
@@ -113,7 +115,7 @@ final class TiktokBatchFallbackParallelTest extends TestCase
 
     public function testChunkingIssuesOneFallbackBatchPerChunk(): void
     {
-        $probe = new BatchFallbackProbe();
+        $probe                 = new BatchFallbackProbe();
         $probe->scrapeFailures = range(1, 6);
 
         // Concurrency 3 over 6 tasks = 2 chunks, so 2 fallback batches — never 6 calls.
@@ -128,13 +130,15 @@ final class TiktokBatchFallbackParallelTest extends TestCase
  */
 final class BatchFallbackProbe extends Template
 {
-    /** @var int[] task keys whose leg-1 scrape should fail */
-    public $scrapeFailures = array();
+    /**
+     * @var list<int> task keys whose leg-1 scrape should fail
+     */
+    public $scrapeFailures = [];
 
-    public $fallbackBatchCalls = 0;
-    public $fallbackBatchTaskKeys = array();
-    public $thirdLegScrapeCalls = 0;
-    public $getSocialMediaCalls = 0;
+    public $fallbackBatchCalls    = 0;
+    public $fallbackBatchTaskKeys = [];
+    public $thirdLegScrapeCalls   = 0;
+    public $getSocialMediaCalls   = 0;
 
     public function __construct()
     {
@@ -147,14 +151,15 @@ final class BatchFallbackProbe extends Template
 
     protected function fetchTiktokDetailPagesBatch(array $tasks): array
     {
-        $out = array();
+        $out = [];
+
         foreach ($tasks as $idx => $task) {
             $out[$idx] = in_array($idx, $this->scrapeFailures, true)
-                ? array()
-                : array(
-                    'stats' => array('diggCount' => 1),
-                    '_request_meta' => array('provider' => 'direct_scrape', 'requests_started' => 1, 'total_time' => 0.5),
-                );
+                ? []
+                : [
+                    'stats'         => ['diggCount' => 1],
+                    '_request_meta' => ['provider' => 'direct_scrape', 'requests_started' => 1, 'total_time' => 0.5],
+                ];
         }
 
         return $out;
@@ -162,7 +167,7 @@ final class BatchFallbackProbe extends Template
 
     protected function isValidTiktokScrapeItem($item)
     {
-        return is_array($item) && $item !== array();
+        return is_array($item) && $item !== [];
     }
 
     protected function mapDirectTiktokItemToResponse(array $response, array $item, bool $fetch_media_assets): array
@@ -172,22 +177,24 @@ final class BatchFallbackProbe extends Template
         return $response;
     }
 
-    protected function fetchRapidApiTiktokBatch(array $tasks, array $options = array()): array
+    protected function fetchRapidApiTiktokBatch(array $tasks, array $options = []): array
     {
         $this->fallbackBatchCalls++;
+
         foreach (array_keys($tasks) as $key) {
             $this->fallbackBatchTaskKeys[] = $key;
         }
 
-        $results = array();
+        $results = [];
+
         foreach ($tasks as $idx => $task) {
-            $results[$idx] = array(
+            $results[$idx] = [
                 'status' => true,
-                'msg' => '',
-                'data' => array(),
+                'msg'    => '',
+                'data'   => [],
                 // Echoes which url this result was built from, so a mis-keyed merge is visible.
-                'fallback_echo' => substr(strval($task['url']), -7),
-            );
+                'fallback_echo' => substr((string) ($task['url']), -7),
+            ];
         }
 
         return $results;
@@ -197,13 +204,13 @@ final class BatchFallbackProbe extends Template
     {
         $this->thirdLegScrapeCalls++;
 
-        return array();
+        return [];
     }
 
     public function get_social_media($type, $url, $fetch_media_assets = true, $influencer_id = null, $preferRapidApi = false, $known_content_id = null, int $maxProviderRequests = 2)
     {
         $this->getSocialMediaCalls++;
 
-        return array('status' => false, 'msg' => 'should not be called from the batch path', 'data' => array());
+        return ['status' => false, 'msg' => 'should not be called from the batch path', 'data' => []];
     }
 }
