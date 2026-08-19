@@ -38,17 +38,34 @@ configured at 240/min would put **480/min** on one key — and this provider col
 Each side would report itself as perfectly within budget while together breaking it. Nothing in
 the current design detects this.
 
-**Options, best first**
+**Resolved by the provider lease** (`EndorseRefreshWorker::acquireProviderLease`, added
+2026-08-20). Rather than trying to make two independent counters add up, it makes concurrency
+impossible: MySQL user-level locks are per-**server**, not per-schema, and both schemas live in
+one instance, so a single named lock serialises the tenants regardless of schedule drift.
 
-1. **Separate RapidAPI keys.** The scope key is a fingerprint of the API key, so distinct keys
-   give genuinely independent budgets and independent quota. Cleanest, and the only one that
-   scales.
-2. **Split one budget by hand.** e.g. 120/min each. Simple, but every future change has to be
-   made in two places, and nothing enforces the arithmetic.
-3. **Share one rate-limit table.** Point both apps' reservation store at a single database.
-   Correct in principle, but couples the two tenants' availability and is the largest change.
+```
+lock name : endorse-provider:<md5-8 of RAPIDAPI_KEY>
+acquire   : GET_LOCK(name, 0) before claiming — non-blocking
+denied    : log provider_busy, return an empty claim, retry in ~1s. NEVER exit.
+release   : on an empty claim (queue drained) and on shutdown
+```
 
-Do **not** enable sec-forbes without picking one.
+Keying on a **fingerprint of the key** is the load-bearing detail: tenants sharing a key
+exclude each other, tenants given separate keys run in parallel automatically, and a third
+tenant needs no configuration. Enabled per tenant with `ENDORSE_REFRESH_PROVIDER_LOCK=1`; off
+by default so a single-tenant deployment is unchanged.
+
+It must be enabled on **both** workers or it protects nothing.
+
+The alternatives remain valid if the shared key is ever split:
+
+1. **Separate RapidAPI keys.** The scope is a fingerprint of the key, so distinct keys give
+   independent budgets *and* independent quota — and the lease then stops serialising them,
+   automatically. Cleanest, and the only one that scales past two tenants running at once.
+2. **Split one budget by hand**, e.g. 120/min each. Simple, but every future change has to be
+   made in two places and nothing enforces the arithmetic.
+3. **Share one rate-limit table.** Correct in principle, but couples the two tenants'
+   availability and is the largest change.
 
 ## Blocker 2 — `forbes_app_sec` has no `endorse_refresh_rate_tokens` table
 
@@ -59,27 +76,80 @@ single provider request — it would not crash, it would simply do nothing, whic
 harder failure to diagnose. The ledger migration must run there first, and the ten columns must
 be verified exactly as in `WORKER-PRODUCTION.md` §9.
 
-## Blocker 3 — the secondary repository does not contain the worker
+## Blocker 3 — ~~the secondary repository does not contain the worker~~ WITHDRAWN
 
-`secondary-forbes-skin-app` is a **separate repository**, not a branch. It has
-`EndorseRefreshQueueService.php` and `Endorse_sync.php`, but is missing the entire dependency
-chain the worker needs:
+**This blocker was wrong, and it was the expensive one.** It said the worker subsystem had to
+be ported into `secondary-forbes-skin-app` and the two diverged `EndorseRefreshQueueService`
+copies reconciled — weeks of work against a repo with no `composer.json`, no `phpunit.xml` and
+no migration runner. Measurement on 2026-08-20 says no port is needed at all.
+
+**The worker never executes the secondary app's PHP. It only touches tables.** It reads
+`endorse_refresh_queue` and writes `endorse` / `endorse_logs` through `Endorse_sync::apply`.
+Which app's code enqueued a row is irrelevant to draining it.
+
+Three facts make one binary serve both tenants:
+
+1. `application/config/database.php` has a single, entirely env-driven group, and `env()`
+   (`application/helpers/env_helper.php:51-53`) prefers the `.env` at FCPATH over `getenv()`.
+   **A different mounted `.env` is already a tenant selector** — no `DB_GROUP`, no code.
+2. `Endorse_sync::apply` guards every divergent column with `$db->field_exists()`
+   (`Endorse_sync.php:327`, `:340`, `:350`, `applyObservationMetadata:183-197`), so it degrades
+   cleanly against a differently-shaped schema — and it *populates* sec's `tiktok_content_id` /
+   `tiktok_cover` / `tiktok_media_type`, columns forbes' own schema does not even have.
+3. The gap is **schema**, not code, and schema is what migrations are for.
+
+Measured column diff:
 
 ```
-EndorseRefreshRateLimiter.php     (reservation store + scope — absent)
-EndorseRefreshClaimRepository.php (claim SQL — absent)
-EndorseRefreshWorker.php          (entry point — absent)
-EndorseRefreshPipeline.php        (state machine — absent)
-EndorseRefreshFetchKit.php        (provider handles — absent)
-EndorseRefreshLedger.php          (per-request ledger — absent)
-EndorseRefreshLoadTestGuard.php   (boot guard — absent)
+forbes_app_sec.endorse_refresh_queue  MISSING: next_attempt_at, lease_expires_at, claim_owner,
+        active_attempt_id, attempt_sequence, enqueue_run_id, enqueue_source,
+        active_business_slot, provider_job_id, provider_submitted_at
+forbes_app_sec.endorse / endorse_logs MISSING: stats_observation_seq, stats_source,
+        stats_observed_at, stats_fields, stats_completeness
+forbes_app_sec                        MISSING TABLES: endorse_refresh_rate_tokens,
+                                                      endorse_refresh_quarantine
 ```
 
-It also has **no endorse-refresh migrations at all**, which explains blocker 2.
+So the work is **seven migrations, one `.env.worker`, one Swarm service** — and no file in
+`secondary-forbes-skin-app` is touched.
 
-Its `EndorseRefreshQueueService.php` predates this work, so it lacks `applyResults($opts)`,
-`recoveryIsDue()`, `driverOwnsDraining()` and the retry-demotion option. Porting is not a
-file copy; the two copies of the queue service have diverged and need reconciling.
+```
+20260716093000_add_endorse_refresh_contract_v2.php          (order is load-bearing:
+20260727090000_add_threads_scraper_queue_state.php           20260803130000 adds its column
+20260803120000_create_endorse_refresh_rate_tokens.php        AFTER stats_observed_at, which
+20260803130000_add_stats_observation_seq.php                 20260716093000 creates)
+20260818150000_add_endorse_refresh_diagnostics.php
+20260818170000_harden_endorse_refresh_claims.php
+20260820120000_extend_endorse_refresh_rate_tokens_ledger.php
+```
+
+**Then `--baseline`, and the order matters.** `docker-entrypoint.sh:13-19` runs
+`migrations/run.php --pending` on *every* container start, so a worker container holding sec's
+`.env` would otherwise apply all 34 forbes migrations to `forbes_app_sec` — attendance,
+notifications, announcements, device_tokens, permission_meta — silently reshaping sec's
+database. Run the seven explicitly with the entrypoint overridden, then `--baseline` the
+remaining 27, then confirm `--status` reports zero pending.
+
+What remains true from the original blocker: sec's `EndorseRefreshQueueService` **has** diverged
+(908 lines vs 2,376; no `applyResults($opts)`, no `recoveryIsDue()`, no `driverOwnsDraining()`,
+no quarantine awareness). That matters for what sec's own cron can do — see "Two write paths"
+below — but it is not a prerequisite for the worker.
+
+### Two write paths against one set of tables
+
+Once the worker drains sec, two codebases write the same tables: the worker (forbes' code) and
+sec's app (its own older code, for enqueue and the UI). Consequences worth knowing:
+
+- **sec's enqueue path knows nothing about quarantine**, so it re-queues posts already proven
+  gone. This is why the quarantine exclusion belongs in the **claim** SELECT
+  (`EndorseRefreshClaimRepository::buildSelectForUpdateSql`) and not only in `enqueueRows`: the
+  claim is the one gate every row passes through, whoever queued it.
+- **sec's `Endorse_sync` is ahead of forbes' in one place** — it has `ERR_DATA_QUALITY` and
+  `PROVIDER_UNRESOLVABLE_PATTERNS`, which forbes lacks. Copying either file over the other
+  would regress behaviour that has tests asserting it. Leave both in place; they do not meet.
+- **sec's cron driver gate only recognises `'rust'`** (`Api_v2.php:277`), so setting
+  `ENDORSE_REFRESH_DRIVER=php_worker` there would *not* stand its cron down. Comment the cron
+  lines out instead — which is the agreed approach anyway.
 
 ## Blocker 4 — `APP_NAME` is empty on both, so the locks collide
 
@@ -110,17 +180,43 @@ is a correctness risk — they are capacity and packaging risks.
 - **Shutdown** releases unstarted claims without consuming attempts, and abandoned rows are
   recovered by lease expiry. Verified under graceful, double-SIGTERM and SIGKILL.
 
-## Order of work, if sec-forbes adoption goes ahead
+## Order of work
 
-1. Decide the RapidAPI budget question (blocker 1). Separate keys is the recommendation.
-2. Port the endorse-refresh subsystem into `secondary-forbes-skin-app` and reconcile the
-   diverged `EndorseRefreshQueueService`.
-3. Run the endorse-refresh migrations against `forbes_app_sec`; verify the ten ledger columns.
-4. Set distinct `APP_NAME` in both `.env` files.
-5. Deploy the worker at **0 replicas**, run `EndorseRefreshWorker check`, and only then scale.
-6. Start sec-forbes at a low `MAX_IN_FLIGHT` (5) and watch the shared provider's latency, not
-   just its own success rate — degradation caused by one tenant shows up in the other.
+1. Enable `ENDORSE_REFRESH_PROVIDER_LOCK=1` on the **forbes** worker (blocker 1). Do this
+   first: it is the thing that makes a second tenant safe, and it is a no-op while forbes runs
+   alone.
+2. Run the seven migrations against `forbes_app_sec`, then `--baseline`; verify the ten ledger
+   columns and that `--status` reports zero pending (blocker 2 + blocker 3).
+3. Write `/home/forbes/artifact/sec-forbes-skin/.env.worker` — a copy of sec's `.env` plus the
+   worker keys, with `APP_NAME=sec-forbes` (blocker 4). A worker-only file, *not* sec's app
+   `.env`, so sec's running app is untouched.
+4. Create the service at **0 replicas**, run `EndorseRefreshWorker check`, and only then scale.
+5. Start at `MAX_IN_FLIGHT=5` and watch the shared provider's **latency**, not just sec's own
+   success rate — degradation caused by one tenant shows up first in the other.
 
-Note that sec-forbes currently runs its endorse-refresh cron **three times per minute**
-(offsets 18 s / 38 s / 58 s). Those entries must stand down — `ENDORSE_REFRESH_DRIVER=php_worker`
-— or cron and worker will both drain and both spend the shared provider budget.
+Note that sec-forbes runs its endorse-refresh cron **three times per minute** (offsets
+18 s / 38 s / 58 s). Those entries must stand down or cron and worker will both drain. Setting
+`ENDORSE_REFRESH_DRIVER=php_worker` will **not** do it — sec's gate only recognises `'rust'`
+(`Api_v2.php:277`). Comment the crontab lines out.
+
+## Before the worker: sec's cron is throttled, not broken
+
+Measured 2026-08-20, and worth recording because it is the cheapest fix in this document.
+
+```
+sec .env carried exactly ONE endorse-refresh key : ENDORSE_REFRESH_BATCH_SIZE=10
+everything else on code defaults
+measured                                          10-30 attempts/min at ~95% success
+```
+
+At ~22/min a 12,548-post pass takes about **21 hours**. Nothing is failing — the success rate
+is fine and the provider path works. sec is simply claiming ten rows at a time.
+
+sec's own code already permits far more (`Api_v2.php:287-292` caps batch at 50 and concurrency
+at 20), and `ENDORSE_REFRESH_DAILY_CAP` defaults to 0 (off) with `RATE_PER_MIN` defaulting to
+250. So the ceiling was never the code.
+
+Raised to `BATCH_SIZE=30`, `PARALLEL_HTTP=12`, with an explicit `RATE_PER_MIN=150` brake —
+deliberately short of the code's 50/20, because forbes collapsed this provider at 30 concurrent
+and is stable at 5, and everything between 6 and 29 is unmeasured. Edited with `cat >` so the
+bind-mount inode survives; `env()` re-reads the file per request, so no restart is needed.

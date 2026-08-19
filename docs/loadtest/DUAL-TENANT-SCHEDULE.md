@@ -1,12 +1,16 @@
 # Two tenants, one RapidAPI key — risk map and required work
 
-Target schedule:
+Target schedule (**all times WIB** — see RISK 11; the host timezone is being set to
+`Asia/Jakarta` so crontab times and these are the same number):
 
 | Waktu | Tenant | Beban |
 |---|---|---|
-| 00:05 | forbes | all-refresh-sync, 24.551 post |
-| 04:00 | sec-forbes | all sync, 12.530 post |
-| 16:00 | sec-forbes | all sync, 12.530 post |
+| 00:05 | forbes | all-refresh-sync, **16.283** post Tiktok (16.430 total) |
+| 05:00 | sec-forbes | all sync, **12.548** post (semuanya Tiktok) |
+| 16:00 | sec-forbes | all sync, 12.548 post |
+
+Corpus figures corrected 2026-08-20: forbes was quoted as 24.551 (wrong filter, see RISK 1) and
+sec as 12.530. Both are measured against the actual `enqueueAllActive` predicate.
 
 The shared RapidAPI key is deliberate — one company, two market segments — so the mitigation is
 **time separation** rather than separate keys. That is workable, but it only holds if the
@@ -84,22 +88,30 @@ Nobody scheduled this; it is simply what the current configuration does. A time-
 depends on humans not making mistakes will be violated the first time a run overruns — and
 RISK 1 guarantees the first run overruns.
 
-**Required:** a cross-tenant mutual exclusion that does not depend on the clock.
-
-The clean mechanism already exists in the stack: **MySQL `GET_LOCK` is per-server, not
-per-database.** Both tenants share one MySQL instance, so a single named lock held for the
-duration of a run gives real mutual exclusion regardless of schedule drift:
+**Implemented 2026-08-20** as `EndorseRefreshWorker::acquireProviderLease`. MySQL `GET_LOCK` is
+per-**server**, not per-database; both tenants share one MySQL instance, so one named lock gives
+real mutual exclusion regardless of schedule drift.
 
 ```
-worker startup : SELECT GET_LOCK('endorse-refresh:provider:<rapidapi-key-fingerprint>', 0)
-   got it      → run
-   did not     → log "tenant lain sedang jalan", exit 0, let Swarm retry later
-worker exit    : RELEASE_LOCK(...)   (also released automatically when the connection drops)
+lock name : endorse-provider:<md5-8 of RAPIDAPI_KEY>
+acquire   : GET_LOCK(name, 0) before each claim, only when there is work
+denied    : log provider_busy, return an empty claim, retry in ~1s
+release   : on an empty claim (this tenant is drained) and on shutdown
+enable    : ENDORSE_REFRESH_PROVIDER_LOCK=1  — required on BOTH workers
 ```
 
-Keying the lock on the **API key fingerprint** is the important detail: tenants that share a
-key exclude each other, tenants with separate keys run in parallel, and the behaviour stays
-correct if a third tenant appears or if keys are split later.
+Two details that differ from the original sketch here, and both matter:
+
+- **It does not exit on contention.** The sketch said "exit 0, let Swarm retry later". That is
+  wrong for a continuous service: Swarm restarts are not a retry mechanism, and an exited
+  worker would never come back once the other tenant finished. It stays up and polls.
+- **It releases on an empty queue, not at process exit.** Holding until exit would mean
+  whichever tenant started first owned the provider all day. Handing the lease back when there
+  is nothing left is what makes the two take turns with no clock involved.
+
+Keying on the **API key fingerprint** is the load-bearing detail: tenants that share a key
+exclude each other, tenants with separate keys run in parallel automatically, and the behaviour
+stays correct if a third tenant appears or the keys are split later.
 
 ## RISK 3 — the forbes worker runs 24/7, which is incompatible with a scheduled model (HIGH)
 
@@ -185,16 +197,33 @@ sec-forbes starting on top of a backlog.
 **Required:** the breaker should back off and retry, not terminate. Ideally it belongs inside
 the worker, where it can pause and resume rather than kill the process.
 
-## RISK 8 — sec-forbes' cron must stand down (MEDIUM)
+## RISK 8 — sec-forbes' cron must stand down, and the usual switch will not work (MEDIUM)
 
-sec-forbes currently drains via cron **three times per minute** (offsets 18 s / 38 s / 58 s),
-plus an enqueue-all at 11:30. If a worker is added without setting
-`ENDORSE_REFRESH_DRIVER=php_worker` there, cron and worker both drain and both spend the shared
-provider budget — and the cron path spends it *outside* any reservation accounting, so the rate
-limiter cannot even see it.
+sec-forbes drains via cron **three times per minute** (offsets 18 s / 38 s / 58 s), plus an
+enqueue-all at 11:30. If a worker is added while those keep running, cron and worker both drain
+and both spend the shared provider budget — and the cron path spends it *outside* any
+reservation accounting, so the rate limiter cannot even see it.
 
-Note this also means the 11:30 enqueue-all does not match the proposed 04:00 / 16:00 windows and
+**Correction 2026-08-20: setting `ENDORSE_REFRESH_DRIVER=php_worker` there does NOT stand it
+down.** sec's gate is `if ($driver === 'rust' && !$force)` (`Api_v2.php:277`) — the widening to
+`php_worker` landed in forbes' repo only, and sec is a separate repository. A `php_worker` value
+falls straight through the gate and the cron drains as before. **Comment the three crontab lines
+out instead**, which is the agreed approach anyway.
+
+Note this also means the 11:30 enqueue-all does not match the proposed 05:00 / 16:00 windows and
 needs revisiting.
+
+### Interim: sec's cron was throttled, not broken
+
+Until the worker lands, sec's throughput is a `.env` question, not an architecture one. Its
+`.env` carried exactly one endorse-refresh key, `ENDORSE_REFRESH_BATCH_SIZE=10`, giving 10–30
+attempts/min at ~95 % success — about **21 hours** for one 12.548-post pass. sec's own code
+already allows batch 50 / concurrency 20 (`Api_v2.php:287-292`), `DAILY_CAP` defaults to off and
+`RATE_PER_MIN` to 250, so nothing in the code was the ceiling.
+
+Raised to `BATCH_SIZE=30`, `PARALLEL_HTTP=12`, `RATE_PER_MIN=150` — short of the code's maximum
+on purpose, because forbes collapsed this provider at 30 concurrent and everything between 6 and
+29 is unmeasured (RISK 6).
 
 ## RISK 9 — the secondary repository does not contain the worker (HIGH, but purely mechanical)
 
@@ -219,12 +248,33 @@ paths add claim, apply and ledger writes on top of a baseline that already uses 
 node's CPU. Not blocking today — the worker itself measured 3,5 % CPU — but it is the shared
 resource most likely to bite as concurrency rises.
 
-## RISK 11 — timezone ambiguity in scheduling (LOW, but easy to get wrong)
+## RISK 11 — timezone: the host is not UTC, and cron cannot be told a zone (MEDIUM)
 
-The host runs **UTC**; MySQL returns **WIB (UTC+7)**. Every timestamp in this investigation had
-to be reconciled between the two, and one earlier analysis was wrong for exactly this reason.
-"00:05" and "04:00" must be written into crontabs with the zone stated explicitly, and any
-monitoring query comparing `NOW()` to a wall-clock window must be checked against the same zone.
+**Corrected 2026-08-20. The earlier version of this section said the host runs UTC. It does
+not.**
+
+```
+Local time  : Wed 2026-08-19 20:41 CEST
+Time zone   : Europe/Berlin (CEST, +0200)
+MySQL       : WIB (UTC+7)
+cron        : Ubuntu vixie-cron 3.0pl1 — CRON_TZ absent from /usr/sbin/cron (verified)
+```
+
+Three consequences:
+
+1. Cron fires in **Berlin local time**, so "05:00 WIB" would have to be written `0 0 * * *`.
+2. **`CRON_TZ` is not supported by this build**, so the zone cannot be declared per-crontab —
+   the trick that usually solves this is unavailable here.
+3. Berlin observes DST. At the changeover in late October every absolute-time entry silently
+   moves by an hour relative to WIB, and again in March.
+
+**Decision: set the host timezone to `Asia/Jakarta`.** Crontab times then equal WIB directly,
+Jakarta has no DST so the schedule is stable forever, and cron finally agrees with MySQL —
+which removes the reconciliation that has already produced one wrong analysis in this
+investigation. Blast radius is small: only six entries use an absolute hour (crontab lines 97,
+98, 99, 104, 105, 106); everything else is `* * * * *` or `*/N`.
+
+Monitoring queries are unaffected — they compare `NOW()` inside MySQL, which was already WIB.
 
 ---
 
