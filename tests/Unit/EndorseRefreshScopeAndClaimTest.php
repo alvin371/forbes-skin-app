@@ -133,6 +133,79 @@ final class EndorseRefreshScopeAndClaimTest extends TestCase
         $this->assertStringContainsString('(1 * POW(2', $sql); // base clamped to >=1
     }
 
+    // --- quarantine exclusion at claim time -----------------------------------
+
+    /**
+     * The exclusion must be OFF by default. Tenants sit at different migration levels — one
+     * worker binary serves both — and naming `endorse_refresh_quarantine` on a schema that
+     * lacks it turns every claim into a SQL error instead of degrading to the old behaviour.
+     */
+    public function testQuarantineExclusionIsOptInAndDefaultsToUnchangedSql(): void
+    {
+        $this->assertSame(
+            EndorseRefreshClaimRepository::buildSelectForUpdateSql(20, 60, 0),
+            EndorseRefreshClaimRepository::buildSelectForUpdateSql(20, 60, 0, false),
+            'the quarantine flag off must produce byte-identical SQL to the historical claim',
+        );
+
+        $this->assertStringNotContainsString(
+            'endorse_refresh_quarantine',
+            EndorseRefreshClaimRepository::buildSelectForUpdateSql(20, 60),
+        );
+    }
+
+    /**
+     * Matching is (id_endorse, url_snapshot) and only while `cleared_at IS NULL`, so that
+     * re-pointing an endorse at a fresh post re-opens the row with no operator action, and an
+     * operator clearing a quarantine row takes effect on the next claim.
+     */
+    public function testQuarantineExclusionMatchesEndorseAndExactUrl(): void
+    {
+        $sql = EndorseRefreshClaimRepository::buildSelectForUpdateSql(20, 60, 0, true);
+
+        $this->assertStringContainsString('NOT EXISTS', $sql);
+        $this->assertStringContainsString('endorse_refresh_quarantine z', $sql);
+        $this->assertStringContainsString('z.id_endorse = q.id_endorse', $sql);
+        $this->assertStringContainsString('z.cleared_at IS NULL', $sql);
+        $this->assertStringContainsString('z.url_snapshot = q.link_upload', $sql);
+    }
+
+    /**
+     * The exclusion narrows the WHERE; it must never disturb ordering or locking.
+     */
+    public function testQuarantineExclusionComposesWithDemotionAndKeepsClaimShape(): void
+    {
+        $sql = EndorseRefreshClaimRepository::buildSelectForUpdateSql(20, 60, 1, true);
+
+        $this->assertStringContainsString('endorse_refresh_quarantine z', $sql);
+        $this->assertStringContainsString(
+            'ORDER BY (q.priority - q.attempts * 1) DESC, q.attempts ASC, q.created_at ASC, q.id ASC',
+            $sql,
+        );
+        $this->assertStringContainsString('FOR UPDATE SKIP LOCKED', $sql);
+        $this->assertStringContainsString("q.status = 'pending'", $sql);
+
+        // The clause sits inside the WHERE, ahead of ORDER BY — not appended after LIMIT.
+        $this->assertLessThan(
+            strpos($sql, 'ORDER BY'),
+            strpos($sql, 'NOT EXISTS'),
+            'the exclusion must be part of the WHERE predicate',
+        );
+    }
+
+    /**
+     * The single-row isolation re-select deliberately does NOT carry the exclusion: it only
+     * ever re-checks a row the batch already selected, and adding a second predicate there
+     * would let the two paths disagree about eligibility.
+     */
+    public function testSingleRowReselectIsUnaffectedByQuarantine(): void
+    {
+        $this->assertStringNotContainsString(
+            'endorse_refresh_quarantine',
+            EndorseRefreshClaimRepository::buildSelectOneForUpdateSql(42, 60),
+        );
+    }
+
     // --- run logger sanitization ----------------------------------------------
 
     public function testRunLoggerEmitsStructuredJsonWithoutSecrets(): void
