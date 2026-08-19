@@ -1,0 +1,33 @@
+# Overlay that grants the worker internet egress, for STAGED REAL-PROVIDER runs only.
+#
+#   docker compose -p forbes-loadtest \
+#     -f docker-compose.loadtest.yml -f docker-compose.loadtest.real.yml up -d --scale endorse-worker=N
+#
+# The base stack puts everything on an `internal: true` network with no route off the host,
+# which is what makes mock runs isolated by construction rather than by configuration. Real
+# provider traffic obviously needs a route out, so it is granted here — as a separate file
+# that has to be named on the command line, so nobody enables egress by accident.
+#
+# What does NOT change: the worker still reads .env.loadtest, still talks to the disposable
+# database, and EndorseRefreshLoadTestGuard still refuses to start against anything
+# production-shaped. This file widens the network, not the guard.
+#
+# Before using it, re-run tools/loadtest/verify-isolation.sh --expect-egress and confirm the
+# provider rate budget: with egress on, ENDORSE_REFRESH_DIRECT_RATE_PER_MIN and
+# ENDORSE_REFRESH_RAPIDAPI_RATE_PER_MIN are the only thing standing between a load test and
+# the production provider quota.
+
+services:
+  endorse-worker:
+    networks:
+      - loadtest-net
+      - loadtest-egress
+    environment:
+      # Marks the run in the ledger and the report, so a real-provider result can never be
+      # mistaken for a mock one after the fact.
+      ENDORSE_REFRESH_EGRESS: "1"
+
+networks:
+  loadtest-egress:
+    driver: bridge
+    name: forbes-loadtest-egress

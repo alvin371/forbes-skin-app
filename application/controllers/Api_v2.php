@@ -8206,25 +8206,26 @@ class Api_v2 extends CI_Controller
         $this->load->library('EndorseRefreshDiagnostics');
         $diagnosticRunId = $this->endorserefreshdiagnostics->startRun('cron_worker', 0, 0, array('driver' => env('ENDORSE_REFRESH_DRIVER', 'cron'), 'batch_size' => env('ENDORSE_REFRESH_BATCH_SIZE', 20), 'parallel_http' => env('ENDORSE_REFRESH_PARALLEL_HTTP', 10)));
 
-        // Driver gate: when the long-lived Rust consumer owns draining
-        // (ENDORSE_REFRESH_DRIVER=rust) the per-minute cron stands down; only the manual
-        // "Proses Sekarang" button (force=1) still runs inline. Flip the env back to
-        // 'cron' for rollback to the bounded web path. Both paths preserve the same
+        // Driver gate: when a long-lived external consumer owns draining
+        // (ENDORSE_REFRESH_DRIVER=rust or php_worker) the per-minute cron stands down; only
+        // the manual "Proses Sekarang" button (force=1) still runs inline. Flip the env back
+        // to 'cron' for rollback to the bounded web path. Every path preserves the same
         // business-write semantics, while V2 adds pull-worker fencing and request limiting.
         $force = ($this->input->get_post('force') === '1');
         $driver = strtolower(trim((string) env('ENDORSE_REFRESH_DRIVER', 'cron')));
-        if ($driver === 'rust' && !$force) {
+        if (EndorseRefreshQueueService::driverOwnsDraining($driver) && !$force) {
             echo json_encode([
                 'status'    => true,
                 'processed' => 0,
-                'driver'    => 'rust',
-                'msg'       => 'Rust consumer owns draining — cron standing down',
+                'driver'    => $driver,
+                'msg'       => 'External consumer owns draining — cron standing down',
             ]);
             $this->cron_monitor_finish($monitor, array(
                 'status'          => 'ok',
                 'processed_count' => 0,
                 'queue_count'     => 0,
-                'note'            => 'driver_rust_standby',
+                // Unchanged for driver=rust, so existing monitoring greps keep matching.
+                'note'            => 'driver_' . $driver . '_standby',
             ));
             die;
         }

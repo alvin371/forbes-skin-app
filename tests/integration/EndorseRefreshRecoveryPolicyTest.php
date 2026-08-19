@@ -412,6 +412,155 @@ final class EndorseRefreshRecoveryPolicyTest extends TestCase
     }
 
     /**
+     * Seed $count inconsistent rows (processing parent, expired lease, already-completed
+     * attempt) at LOW ids, plus one ordinary recoverable stale row at a HIGH id.
+     *
+     * @return int the high id, which is the row recovery must still reach
+     */
+    private function seedInconsistentBacklogAheadOfHealthyRow(int $count): int
+    {
+        $queue = self::$pdo->prepare(
+            "INSERT INTO endorse_refresh_queue
+             (id, id_endorse, id_campaign, platform, link_upload, status, attempts, attempt_sequence,
+              active_attempt_id, max_attempts, worker_id, claim_owner, started_at, claimed_at, lease_expires_at, created_at)
+             VALUES (?, ?, 100, 'Tiktok', ?, 'processing', 0, 1, ?, 3, 'w1', 'cron',
+              DATE_SUB(NOW(), INTERVAL 10 MINUTE), DATE_SUB(NOW(), INTERVAL 10 MINUTE),
+              DATE_SUB(NOW(6), INTERVAL 60 SECOND), NOW())",
+        );
+        $attempt = self::$pdo->prepare(
+            "INSERT INTO endorse_refresh_queue_attempts (queue_id, attempt_no, worker_id, status, started_at, created_at)
+             VALUES (?, 1, 'w1', ?, NOW(), NOW())",
+        );
+
+        for ($id = 1; $id <= $count; $id++) {
+            // 'completed' is the fail-closed case: proven provider success under a parent
+            // that never left processing. Recovery must never retry it.
+            $attempt->execute([$id, 'completed']);
+            $queue->execute([$id, $id, 'https://www.tiktok.com/@c/video/' . (7500000000000000000 + $id), (int) self::$pdo->lastInsertId()]);
+        }
+
+        $healthyId = $count + 1;
+        $attempt->execute([$healthyId, 'processing']);
+        $queue->execute([$healthyId, $healthyId, 'https://www.tiktok.com/@c/video/' . (7500000000000000000 + $healthyId), (int) self::$pdo->lastInsertId()]);
+
+        return $healthyId;
+    }
+
+    /**
+     * Inconsistent rows are never mutated, so they never leave the recovery window. The
+     * window is `ORDER BY q.id ASC LIMIT 250`, so enough low-id inconsistent rows fill it
+     * permanently and ordinary stale work behind them is never recovered again — a silent
+     *, total failure of stale recovery.
+     */
+    public function testInconsistentBacklogDoesNotStarveHealthyStaleRecovery(): void
+    {
+        $healthyId = $this->seedInconsistentBacklogAheadOfHealthyRow(250);
+        $service   = $this->service($this->conn());
+
+        // Poll a few times, exactly as cron does every minute.
+        for ($poll = 0; $poll < 3; $poll++) {
+            $service->resetStuck(1);
+        }
+
+        $this->assertSame(
+            'pending',
+            $this->col('SELECT status FROM endorse_refresh_queue WHERE id=' . $healthyId),
+            'a recoverable stale row must not be starved by an inconsistent backlog',
+        );
+        // And the inconsistent rows are still fail-closed: untouched, never retried.
+        $this->assertSame(
+            '250',
+            $this->col("SELECT COUNT(*) FROM endorse_refresh_queue WHERE status='processing' AND id <= 250"),
+        );
+    }
+
+    /**
+     * Reporting the same row on every poll forever is not observability, it is noise.
+     * The row must be marked once, stay fail-closed, and stop crowding the window.
+     */
+    public function testInconsistentRowIsMarkedOnceAndStopsBeingReprocessed(): void
+    {
+        $this->seedProcessing('completed', -60);
+        $service = $this->service($this->conn());
+
+        $first = $service->resetStuck(1);
+        $this->assertSame(1, $first['inconsistent_count'], 'first observation must report it');
+        $this->assertStringContainsString(
+            'needs_reconciliation',
+            $this->col('SELECT error_message FROM endorse_refresh_queue WHERE id=1'),
+            'the row must carry a stable diagnostic a human can search for',
+        );
+
+        $second = $service->resetStuck(1);
+        $this->assertSame(0, $second['inconsistent_count'], 'an already-marked row must not be re-reported every poll');
+        $this->assertSame(0, $second['reset_count'], 'and must never be retried');
+
+        // Still fail-closed and still untouched apart from the marker.
+        $this->assertSame('processing', $this->col('SELECT status FROM endorse_refresh_queue WHERE id=1'));
+        $this->assertSame('1', $this->col('SELECT COUNT(*) FROM endorse_refresh_queue_attempts WHERE queue_id=1'));
+        $this->assertSame('0', $this->col('SELECT attempts FROM endorse_refresh_queue WHERE id=1'));
+    }
+
+    /**
+     * The fallback lease and the provider circuit breaker are scheduling state too, and
+     * they were the last two places comparing a zone-less DATETIME in PHP.
+     *
+     * This is the whole bug in one assertion: the SAME stored value, still 60 s in the
+     * future, is "live" to the database and "long expired" to PHP's strtotime() — because
+     * strtotime() parses it in the process zone (Asia/Jakarta), not the zone that wrote
+     * it. Every breaker therefore read as already-expired and never held anything closed.
+     */
+    public function testFutureDeadlinesAreLiveToTheDatabaseEvenWhenPhpWouldCallThemExpired(): void
+    {
+        $conn = $this->conn('+00:00');
+        // Written the way the fixed code writes it: by the database, on its own clock.
+        $conn->query('CREATE TEMPORARY TABLE t (open_until DATETIME(6) NULL)');
+        $conn->query('INSERT INTO t (open_until) VALUES (' . EndorseRefreshQueueService::schedulingDeadlineSql(60) . ')');
+
+        $isFuture = $this->colOn($conn, 'SELECT (open_until > ' . EndorseRefreshQueueService::schedulingNowSql() . ') FROM t');
+        $this->assertSame('1', $isFuture, 'a deadline 60s out must be live on the clock that wrote it');
+
+        // The PHP-side comparison the fix removed, run against that same stored value
+        // while the process clock is Asia/Jakarta, as index.php sets it.
+        $stored   = $this->colOn($conn, 'SELECT open_until FROM t');
+        $previous = date_default_timezone_get();
+        date_default_timezone_set('Asia/Jakarta');
+
+        try {
+            $phpThinksItIsLive = strtotime($stored) > time();
+        } finally {
+            date_default_timezone_set($previous);
+        }
+
+        $this->assertFalse(
+            $phpThinksItIsLive,
+            'this is the defect being locked out: PHP reads a live deadline as expired, '
+            . 'so any comparison done in PHP silently disables the lease or breaker',
+        );
+    }
+
+    /**
+     * A quarantined row still reads as 'processing', so the ordinary status counts hide
+     * it completely. Health has to name it, or nobody ever learns a human is needed.
+     */
+    public function testQuarantinedRowIsVisibleInHealth(): void
+    {
+        $this->seedProcessing('completed', -60);
+        $service = $this->service($this->conn());
+
+        $before = $service->computeHealth();
+        $this->assertSame(0, $before['needs_reconciliation_total']);
+
+        $service->resetStuck(1);
+
+        $after = $service->computeHealth();
+        $this->assertSame(1, $after['needs_reconciliation_total'], 'a quarantined row must be reported to operators');
+        $this->assertSame(0, $after['poison_terminal_total']);
+        // It is still counted as processing, so the two signals must not be confused.
+        $this->assertSame(1, $after['processing_total']);
+    }
+
+    /**
      * A cancelled allocation never started a provider request, so it costs no attempt.
      */
     public function testCancelledAttemptReleasesWithoutCountingProviderConsumption(): void

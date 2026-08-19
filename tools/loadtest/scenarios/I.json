@@ -1,0 +1,10 @@
+{
+  "seed": "scenario-I", "correlation": 0.6, "quota_remaining": 20000,
+  "scrape":   {"success_rate": 0.7, "latency": {"p50_ms": 1500, "p95_ms": 5000, "p99_ms": 20000},
+               "failures": {"http_404": 0.15, "http_403": 0.10, "timeout": 0.15,
+                            "no_script_tag": 0.30, "zero_stats": 0.15, "truncated_html": 0.15}},
+  "rapidapi": {"success_rate": 0.8, "retry_after_sec": 2,
+               "latency": {"p50_ms": 1000, "p95_ms": 3500, "p99_ms": 12000},
+               "failures": {"http_429": 0.30, "http_500": 0.25, "http_503": 0.10,
+                            "timeout": 0.15, "malformed_json": 0.10, "code_nonzero": 0.10}}
+}

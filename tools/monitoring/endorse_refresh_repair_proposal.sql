@@ -108,6 +108,12 @@ ROLLBACK;
 -- MUTATING TEMPLATE — INTENTIONALLY COMMENTED OUT.
 -- Copy one ascending chunk of at most 500 frozen IDs into a separately reviewed
 -- file. Assert every ROW_COUNT() before COMMIT; any mismatch means ROLLBACK.
+--
+-- Every scheduling column below is written with NOW(6), matching
+-- EndorseRefreshQueueService::schedulingNowSql(). Do not substitute
+-- UTC_TIMESTAMP(6): the application reads these columns back against NOW(6), so
+-- on a non-UTC server a UTC-written next_attempt_at is already in the past and a
+-- repaired row becomes instantly eligible.
 -- ---------------------------------------------------------------------------
 /*
 START TRANSACTION;
@@ -139,7 +145,7 @@ JOIN endorse_refresh_queue q ON q.active_attempt_id = a.id AND q.id = a.queue_id
 SET a.status = 'timed_out',
     a.error_class = 'infra_stall',
     a.error_message = 'Incident repair: expired claim lease',
-    a.finished_at = UTC_TIMESTAMP(6)
+    a.finished_at = NOW(6)
 WHERE q.id IN (<EXACT_EXPIRED_PROCESSING_IDS>)
   AND q.status = 'processing'
   AND a.status = 'processing'
@@ -150,7 +156,7 @@ WHERE q.id IN (<EXACT_EXPIRED_PROCESSING_IDS>)
 UPDATE endorse_refresh_queue
 SET status = 'pending', worker_id = NULL, claim_owner = NULL,
     active_attempt_id = NULL, started_at = NULL, lease_expires_at = NULL,
-    claimed_at = UTC_TIMESTAMP(6), next_attempt_at = DATE_ADD(UTC_TIMESTAMP(6), INTERVAL 60 SECOND),
+    claimed_at = NOW(6), next_attempt_at = DATE_ADD(NOW(6), INTERVAL 60 SECOND),
     error_message = 'Incident repair: expired claim scheduled for retry'
 WHERE id IN (<EXACT_RETRYABLE_EXPIRED_IDS>)
   AND status = 'processing';
@@ -158,7 +164,7 @@ WHERE id IN (<EXACT_RETRYABLE_EXPIRED_IDS>)
 UPDATE endorse_refresh_queue
 SET status = 'failed', worker_id = NULL, claim_owner = NULL,
     active_attempt_id = NULL, started_at = NULL, lease_expires_at = NULL,
-    completed_at = UTC_TIMESTAMP(6), next_attempt_at = NULL,
+    completed_at = NOW(6), next_attempt_at = NULL,
     error_message = 'Incident repair: maximum attempts exhausted'
 WHERE id IN (<EXACT_EXHAUSTED_IDS>)
   AND status = 'processing';

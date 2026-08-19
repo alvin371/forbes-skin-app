@@ -838,7 +838,11 @@ class EndorseRefreshV2Coordinator
                         'updated_at' => $this->nowUtc(),
                     ];
                     if ($providerTransition['state'] === 'open' && $providerTransition['open_seconds'] !== null) {
-                        $update['open_until'] = gmdate('Y-m-d H:i:s', time() + intval($providerTransition['open_seconds'])) . '.000000';
+                        $this->db->set(
+                            'open_until',
+                            EndorseRefreshQueueService::schedulingDeadlineSql(intval($providerTransition['open_seconds'])),
+                            false,
+                        );
                     }
                     if ($providerTransition['state'] === 'closed') {
                         $update['open_until'] = null;
@@ -877,8 +881,12 @@ class EndorseRefreshV2Coordinator
         ];
         $this->db->trans_begin();
         try {
+            // Liveness is decided by the database, on the same clock that writes the
+            // lease. Reading the raw DATETIME back into PHP and comparing it there cannot
+            // work: the column carries no offset, so PHP parses it in the process
+            // timezone (Asia/Jakarta) whatever zone it was written in.
             $existing = $this->singleRow("
-                SELECT *
+                SELECT *, (`lease_expires_at` > " . EndorseRefreshQueueService::schedulingNowSql() . ") AS `lease_is_live`
                 FROM `endorse_refresh_fallback_calls`
                 WHERE `queue_id` = " . intval($queue['id']) . "
                   AND `attempt_no` = " . intval($attempt['attempt_no']) . "
@@ -895,7 +903,7 @@ class EndorseRefreshV2Coordinator
                         'response' => ['http_status' => 200, 'body' => $cached],
                     ];
                 }
-                if (strval($existing['status']) === 'in_progress' && !empty($existing['lease_expires_at']) && strtotime($existing['lease_expires_at']) > time()) {
+                if (strval($existing['status']) === 'in_progress' && intval($existing['lease_is_live'] ?? 0) === 1) {
                     $this->db->trans_commit();
 
                     return [
@@ -905,10 +913,10 @@ class EndorseRefreshV2Coordinator
                 }
 
                 $leaseToken = self::generateWorkerUuid();
+                $this->db->set('lease_expires_at', EndorseRefreshQueueService::schedulingDeadlineSql($leaseSeconds), false);
                 $this->db->update('endorse_refresh_fallback_calls', [
                     'status' => 'in_progress',
                     'lease_token' => $leaseToken,
-                    'lease_expires_at' => gmdate('Y-m-d H:i:s', time() + $leaseSeconds) . '.000000',
                     'updated_at' => $this->nowUtc(),
                 ], ['id' => intval($existing['id'])]);
                 $this->db->trans_commit();
@@ -917,10 +925,10 @@ class EndorseRefreshV2Coordinator
             }
 
             $leaseToken = self::generateWorkerUuid();
+            $this->db->set('lease_expires_at', EndorseRefreshQueueService::schedulingDeadlineSql($leaseSeconds), false);
             $this->db->insert('endorse_refresh_fallback_calls', array_merge($identityWhere, [
                 'status' => 'in_progress',
                 'lease_token' => $leaseToken,
-                'lease_expires_at' => gmdate('Y-m-d H:i:s', time() + $leaseSeconds) . '.000000',
                 'created_at' => $this->nowUtc(),
                 'updated_at' => $this->nowUtc(),
             ]));
@@ -1067,7 +1075,11 @@ class EndorseRefreshV2Coordinator
     {
         $circuits = [];
         if ($this->tableExists('endorse_refresh_provider_health')) {
-            $sql = "SELECT `provider_key`, `state`, `reason_code`, `open_until` FROM `endorse_refresh_provider_health` WHERE `state` <> 'closed'";
+            // open_until is a DATETIME with no offset, so whether the window has passed is
+            // a question only the database can answer — see isCircuitActive().
+            $sql = "SELECT `provider_key`, `state`, `reason_code`, `open_until`,
+                       (`open_until` > " . EndorseRefreshQueueService::schedulingNowSql() . ") AS `open_until_is_future`
+                FROM `endorse_refresh_provider_health` WHERE `state` <> 'closed'";
             if ($lock) {
                 $sql .= " FOR UPDATE";
             }
@@ -1082,7 +1094,9 @@ class EndorseRefreshV2Coordinator
             }
         }
         if ($this->tableExists('endorse_refresh_worker_health')) {
-            $sql = "SELECT `owner_key`, `state`, `reason_code`, `open_until` FROM `endorse_refresh_worker_health` WHERE `state` <> 'closed'";
+            $sql = "SELECT `owner_key`, `state`, `reason_code`, `open_until`,
+                       (`open_until` > " . EndorseRefreshQueueService::schedulingNowSql() . ") AS `open_until_is_future`
+                FROM `endorse_refresh_worker_health` WHERE `state` <> 'closed'";
             if ($lock) {
                 $sql .= " FOR UPDATE";
             }
@@ -1112,7 +1126,11 @@ class EndorseRefreshV2Coordinator
             return true;
         }
 
-        return strtotime(strval($row['open_until'])) > time();
+        // Decided by the database, alongside the clock that wrote open_until. Comparing
+        // in PHP re-parsed the zone-less DATETIME in the process timezone, which on a
+        // non-UTC server made every breaker read as already expired — so an open circuit
+        // never actually held the provider closed.
+        return intval($row['open_until_is_future'] ?? 0) === 1;
     }
 
     protected function validateFallbackConfigInvariant(): bool

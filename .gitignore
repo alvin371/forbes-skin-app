@@ -1,5 +1,8 @@
 # Environment files - keep credentials secure
 /.env
+# Load-test env: holds a real RapidAPI key during staged real-provider runs.
+# The .example template IS committed; the filled-in file never is.
+/.env.loadtest
 /application/credentials/client_secret.json
 # Google Sheets service-account key (never commit)
 /application/config/google-sheets-sa.json
@@ -23,8 +26,17 @@ TIKTOK_INTEGRATION*
 docs/**
 !docs/openapi/
 !docs/openapi/hrms.yaml
+# Load-test phase log and issue register are deliverables, not scratch notes.
+!docs/loadtest/
+!docs/loadtest/**
 .claude/settings.local.json
 .php-cs-fixer.cache
+
+# Load-test artifacts: self-signed mock TLS material, run reports, and the URL corpus
+# exported read-only from production (public content identifiers, but not ours to commit).
+/tools/loadtest/certs/
+/tools/loadtest/reports/
+/tests/fixtures/loadtest_urls.txt
 
 # Runtime cache
 /application/cache/sessions/*

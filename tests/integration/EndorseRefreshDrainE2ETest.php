@@ -63,7 +63,12 @@ final class EndorseRefreshDrainE2ETest extends TestCase
         ");
         $pdo       = self::$pdo;
         $direction = 'up';
+        // The rate-token table is built from the REAL migrations, in order, so this suite
+        // exercises the same reservation/ledger schema production runs. Requiring only the
+        // CREATE would leave the ledger columns absent and let reserveToken() silently take
+        // its degraded path — the suite would then pass while testing the wrong thing.
         require __DIR__ . '/../../migrations/20260803120000_create_endorse_refresh_rate_tokens.php';
+        require __DIR__ . '/../../migrations/20260820120000_extend_endorse_refresh_rate_tokens_ledger.php';
     }
 
     protected function setUp(): void

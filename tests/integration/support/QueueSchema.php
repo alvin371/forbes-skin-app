@@ -29,6 +29,7 @@ final class QueueSchema
         '20260803130000_add_stats_observation_seq.php',
         '20260818150000_add_endorse_refresh_diagnostics.php',
         '20260818170000_harden_endorse_refresh_claims.php',
+        '20260820120000_extend_endorse_refresh_rate_tokens_ledger.php',
     ];
 
     /**
@@ -100,6 +101,12 @@ final class QueueSchema
             if (empty($pdo->query('SHOW COLUMNS FROM `endorse_refresh_queue` LIKE ' . $pdo->quote($column))->fetchAll())) {
                 return false;
             }
+        }
+
+        // The ledger columns are part of the canonical shape too: a database built before
+        // 20260820120000 would let a ledger-writing test pass by silently updating nothing.
+        if (empty($pdo->query('SHOW COLUMNS FROM `endorse_refresh_rate_tokens` LIKE ' . $pdo->quote('finished_at'))->fetchAll())) {
+            return false;
         }
 
         return ! empty($pdo->query("SHOW INDEX FROM `endorse_refresh_queue` WHERE Key_name = 'uq_active_endorse_purpose'")->fetchAll())

@@ -90,6 +90,42 @@ final class EndorseRefreshScopeAndClaimTest extends TestCase
         $this->assertStringContainsString('TIMESTAMPDIFF(SECOND, q.claimed_at, NOW(6))', $sql);
     }
 
+    /**
+     * Absolute `ORDER BY priority DESC` has no starvation guard: a deterministically failing
+     * high-priority cohort outranks every fresh row beneath it until it exhausts max_attempts.
+     * Demotion bounds that. Default 0 must leave the cron's SQL untouched.
+     */
+    public function testRetryDemotionIsOptInAndDefaultsToUnchangedSql(): void
+    {
+        $this->assertSame(
+            EndorseRefreshClaimRepository::buildSelectForUpdateSql(20, 60),
+            EndorseRefreshClaimRepository::buildSelectForUpdateSql(20, 60, 0),
+            'demotion 0 must produce byte-identical SQL to the historical claim',
+        );
+
+        $demoted = EndorseRefreshClaimRepository::buildSelectForUpdateSql(20, 60, 1);
+        $this->assertStringContainsString(
+            'ORDER BY (q.priority - q.attempts * 1) DESC, q.attempts ASC, q.created_at ASC, q.id ASC',
+            $demoted,
+        );
+
+        // Still ordered by attempts within a band, so fresh work leads its own priority level.
+        $this->assertStringContainsString('q.attempts ASC', $demoted);
+    }
+
+    public function testRetryDemotionIsClamped(): void
+    {
+        $this->assertStringContainsString(
+            'ORDER BY q.priority DESC',
+            EndorseRefreshClaimRepository::buildSelectForUpdateSql(20, 60, -5),
+            'a negative demotion must not promote retries above fresh work',
+        );
+        $this->assertStringContainsString(
+            '(q.priority - q.attempts * 100)',
+            EndorseRefreshClaimRepository::buildSelectForUpdateSql(20, 60, 9999),
+        );
+    }
+
     public function testClaimSqlClampsLimitAndBase(): void
     {
         $sql = EndorseRefreshClaimRepository::buildSelectForUpdateSql(0, 0);

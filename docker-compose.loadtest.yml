@@ -1,0 +1,154 @@
+# =============================================================================
+# Disposable endorse-refresh load-test stack.
+#
+#   docker compose -p forbes-loadtest -f docker-compose.loadtest.yml up -d
+#
+# Deliberately a SEPARATE file and a SEPARATE project name from docker-compose.yml, so
+# `docker compose down -v` here can never touch the dev stack.
+#
+# Isolation properties this file is responsible for:
+#   * its own bridge network — no route to any production service;
+#   * its own MySQL on a non-default host port, seeded from nothing;
+#   * .env.loadtest mounted at /var/www/html/.env, so the containers cannot read the
+#     production .env even though the repo is bind-mounted. env_helper.php reads that path
+#     and prefers it over getenv(), so this mount is what actually decides configuration;
+#   * no published port for anything except MySQL (host debugging) and the mock.
+#
+# Everything here is disposable. `tools/loadtest/down.sh` removes it including volumes.
+# =============================================================================
+
+name: forbes-loadtest
+
+services:
+  # -- Disposable database ----------------------------------------------------
+  # 8.0 matches production (8.0.46). tmpfs for the data dir: a load test writes a lot of
+  # rows it never needs again, and this keeps the disk and the teardown honest.
+  loadtest-mysql:
+    image: mysql:8.0
+    command:
+      - --max_connections=300
+      - --innodb_buffer_pool_size=1G
+      - --innodb_flush_log_at_trx_commit=2
+      - --performance-schema=ON
+      - --slow_query_log=ON
+      - --long_query_time=1
+    environment:
+      MYSQL_ROOT_PASSWORD: loadtest
+      MYSQL_DATABASE: forbes_loadtest
+    ports:
+      # Non-default host port so it cannot be confused with a real MySQL.
+      - "33071:3306"
+    tmpfs:
+      - /var/lib/mysql:rw,size=4g
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-proot", "-h", "127.0.0.1"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+      start_period: 20s
+    networks:
+      loadtest-net:
+        aliases:
+          - loadtest-mysql
+      # Second network purely so the host can reach the published port: Docker will not set
+      # up port publishing on an `internal` network. MySQL having a route out is harmless —
+      # the WORKER is the process that must be unable to reach production, and it stays on
+      # loadtest-net alone.
+      loadtest-control: {}
+
+  # -- Controllable provider --------------------------------------------------
+  # Serves BOTH legs. The aliases are the seam: RAPIDAPI_HOST resolves to provider-mock.local
+  # and the seeded post URLs point at tiktok-mock.local, so no production code path is edited
+  # to redirect traffic.
+  #
+  # Template::buildRapidApiUrl() hardcodes the https:// scheme and nothing overrides
+  # CURLOPT_SSL_VERIFYPEER, so the mock must terminate TLS with a CA the app image trusts.
+  # tools/loadtest/up.sh generates that CA and cert.
+  provider-mock:
+    build:
+      context: ./services/provider-mock
+      dockerfile: Dockerfile
+    environment:
+      MOCK_HTTP_PORT: "8080"
+      MOCK_HTTPS_PORT: "443"
+      MOCK_TLS_CERT: /certs/mock.crt
+      MOCK_TLS_KEY: /certs/mock.key
+    volumes:
+      - ./tools/loadtest/certs:/certs:ro
+    ports:
+      # Control plane only (POST /_control/profile, GET /_control/stats).
+      - "18080:8080"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/provider-mock", "-healthcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      loadtest-net:
+        aliases:
+          - provider-mock.local
+          - tiktok-mock.local
+      # As above: only so the host can drive /_control/profile and read /_control/stats.
+      loadtest-control: {}
+
+  # -- The worker under test --------------------------------------------------
+  # Same image as production so the measurement means something. Scale with:
+  #   docker compose -p forbes-loadtest -f docker-compose.loadtest.yml up -d --scale endorse-worker=4
+  # No container_name, because that would make --scale fail.
+  endorse-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ci          # includes tests/ and tools/, which the runtime stage strips
+    depends_on:
+      loadtest-mysql:
+        condition: service_healthy
+      provider-mock:
+        condition: service_started
+    volumes:
+      - .:/var/www/html
+      # THE isolation mount. Shadows the bind-mounted production .env.
+      - ./.env.loadtest:/var/www/html/.env:ro
+      - ./tools/loadtest/certs/mock-ca.crt:/usr/local/share/ca-certificates/mock-ca.crt:ro
+      - ./tools/loadtest/reports:/var/www/html/tools/loadtest/reports
+    # Trust the mock CA, then run the worker. Without update-ca-certificates every RapidAPI
+    # leg fails CURLE_SSL_CACERT and is classified infra_tls — indistinguishable from a real
+    # provider outage, which is a very expensive way to lose an afternoon.
+    #
+    # Scaled to 0 by tools/loadtest/up.sh and started only by tools/loadtest/run.sh, so a
+    # scenario never begins against a half-migrated or half-seeded database — which would
+    # silently produce a throughput number that means nothing.
+    command: >
+      bash -lc "update-ca-certificates >/dev/null 2>&1;
+                exec php -d memory_limit=512M index.php EndorseRefreshWorker run"
+    # 'no', not 'unless-stopped': a worker that exits because the guard refused it, or because
+    # it hit max_runtime, must stay down and be visible — not restart-loop and look healthy.
+    restart: "no"
+    # Must exceed ENDORSE_REFRESH_DRAIN_SEC so a graceful drain is never cut short.
+    stop_grace_period: 45s
+    mem_limit: 768m
+    cpus: 1.0
+    networks:
+      - loadtest-net
+
+networks:
+  loadtest-net:
+    driver: bridge
+    name: forbes-loadtest-net
+    # internal: true removes the NAT gateway, so containers on this network have NO route off
+    # the host at all. This is what makes isolation a property of the network rather than a
+    # promise made by configuration: even a worker pointed at a production hostname simply
+    # cannot reach it.
+    #
+    # Mock scenarios need no egress — the provider mock is on this same network. Staged
+    # real-provider runs obviously do, and add it back explicitly and visibly via
+    # docker-compose.loadtest.real.yml. Egress is opt-in, per run.
+    internal: true
+
+  # Host-facing only, so `ports:` publishing works (Docker will not publish ports on an
+  # internal network). loadtest-mysql and provider-mock join it so the host can drive the
+  # mock's control plane and query the database. The WORKER is deliberately NOT on it, so
+  # the process that spends provider quota and claims queue rows stays air-gapped.
+  loadtest-control:
+    driver: bridge
+    name: forbes-loadtest-control
