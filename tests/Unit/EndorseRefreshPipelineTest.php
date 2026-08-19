@@ -365,6 +365,73 @@ final class EndorseRefreshPipelineTest extends TestCase
             ->invoke($pipeline));
     }
 
+    /**
+     * The pipeline must resolve its limiter scopes from injected config, never from a global
+     * env() helper.
+     *
+     * This is not hypothetical tidiness. Calling env() inside startLeg() made the class depend
+     * on whichever env() implementation happened to be autoloaded first: locally an earlier
+     * test defined a plain one and this passed, while in CI the Laravel helper won and blew up
+     * with "Class PhpOption\Option not found" — a green local suite and a red pipeline for the
+     * same commit. It also re-read the environment and re-hashed the key on every leg start.
+     */
+    public function testScopesComeFromConfigAndNeverFromTheEnvironment(): void
+    {
+        // Token-based, so a mention of env() in a comment or docblock cannot trip it and,
+        // more importantly, cannot hide a real call either.
+        $tokens = token_get_all(file_get_contents(APPPATH . 'libraries/EndorseRefreshPipeline.php'));
+        $calls  = 0;
+
+        foreach ($tokens as $i => $token) {
+            if (! is_array($token) || $token[0] !== T_STRING || $token[1] !== 'env') {
+                continue;
+            }
+
+            // Skip method calls / static access such as $x->env(...) or Foo::env(...).
+            $prev = $tokens[$i - 1] ?? null;
+            if (is_array($prev) && in_array($prev[0], [T_OBJECT_OPERATOR, T_DOUBLE_COLON], true)) {
+                continue;
+            }
+
+            for ($j = $i + 1; $j < count($tokens); $j++) {
+                if (is_array($tokens[$j]) && $tokens[$j][0] === T_WHITESPACE) {
+                    continue;
+                }
+                if ($tokens[$j] === '(') {
+                    $calls++;
+                }
+
+                break;
+            }
+        }
+
+        $this->assertSame(
+            0,
+            $calls,
+            'EndorseRefreshPipeline must not call the global env() helper; the worker injects config',
+        );
+    }
+
+    public function testInjectedRapidApiScopeIsUsedForReservations(): void
+    {
+        $collaborators = $this->collaborators([
+            'reserve' => function (string $leg, string $scope, array $ctx) {
+                $this->log['scopes'][] = $scope;
+
+                return null;
+            },
+        ]);
+
+        $pipeline = new EndorseRefreshPipeline($collaborators, $this->config([
+            'rapidapi_scope' => 'rapidapi:deadbeef',
+            'leg_order'      => [EndorseRefreshPipeline::LEG_RAPIDAPI, EndorseRefreshPipeline::LEG_DIRECT],
+        ]));
+        $pipeline->run();
+
+        $this->assertNotEmpty($this->log['scopes'] ?? [], 'the pipeline must have attempted a reservation');
+        $this->assertContains('rapidapi:deadbeef', $this->log['scopes'], 'the injected scope must be the one reserved against');
+    }
+
     public function testMissingCollaboratorIsRejectedAtConstruction(): void
     {
         $collaborators = $this->collaborators();

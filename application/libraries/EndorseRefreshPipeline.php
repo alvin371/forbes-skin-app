@@ -87,6 +87,17 @@ final class EndorseRefreshPipeline
     private float $claimCapacityFactor = 1.0;
 
     /**
+     * Rate-limiter scope keys, resolved once at construction.
+     *
+     * The RapidAPI scope is a fingerprint of the key, never the key itself, so it is safe to
+     * hold and safe to log. Resolving it here rather than per leg start keeps the pipeline
+     * free of any global env() lookup, which is both faster and what makes it testable.
+     */
+    private string $directScope = '';
+
+    private string $rapidApiScope = '';
+
+    /**
      * Per-scope token buckets that PACE request starts.
      *
      * The shared DB limiter counts starts in a rolling 60s window. That bounds the rate
@@ -171,7 +182,15 @@ final class EndorseRefreshPipeline
             'worker_id'          => '',
             'test_run_id'        => '',
             'run_id'             => '',
+            // Fingerprint of the RapidAPI key, NOT the key. The caller resolves it, so the
+            // pipeline never touches the environment.
+            'rapidapi_scope'     => '',
         );
+
+        $this->directScope = EndorseRefreshRateScope::scope(EndorseRefreshRateScope::PROVIDER_DIRECT);
+        $this->rapidApiScope = (string) $this->cfg['rapidapi_scope'] !== ''
+            ? (string) $this->cfg['rapidapi_scope']
+            : EndorseRefreshRateScope::scope(EndorseRefreshRateScope::PROVIDER_RAPIDAPI);
     }
 
     /**
@@ -466,9 +485,11 @@ final class EndorseRefreshPipeline
             return self::UNSUPPORTED;
         }
 
-        $scope = $leg === self::LEG_DIRECT
-            ? EndorseRefreshRateScope::scope(EndorseRefreshRateScope::PROVIDER_DIRECT)
-            : EndorseRefreshRateScope::scope(EndorseRefreshRateScope::PROVIDER_RAPIDAPI, (string) env('RAPIDAPI_KEY', ''));
+        // Both scopes are resolved once at construction. Reading env() here would re-read the
+        // environment and re-hash the key on every single leg start — thousands of times a
+        // minute — and it made the pipeline depend on whichever global env() helper happened
+        // to be loaded first, which is exactly how this failed in CI but not locally.
+        $scope = $leg === self::LEG_DIRECT ? $this->directScope : $this->rapidApiScope;
 
         // Pace first, and locally: a paced-out start costs nothing, whereas asking the shared
         // limiter costs a GET_LOCK + COUNT + RELEASE_LOCK round trip whose only possible

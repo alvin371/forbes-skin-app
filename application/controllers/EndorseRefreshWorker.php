@@ -251,6 +251,13 @@ class EndorseRefreshWorker extends CI_Controller
             'worker_id'   => 'phpw_' . substr(bin2hex(random_bytes(8)), 0, 12),
             'run_id'      => substr(md5(uniqid('run', true)), 0, 32),
             'test_run_id' => (string) env('ENDORSE_REFRESH_TEST_RUN_ID', ''),
+            // Resolve the limiter scope HERE, where reading the environment is this class's
+            // job, so the pipeline stays free of global helpers. The value is a fingerprint
+            // of the key, never the key, so it is safe to hold in config and to log.
+            'rapidapi_scope' => EndorseRefreshRateScope::scope(
+                EndorseRefreshRateScope::PROVIDER_RAPIDAPI,
+                (string) env('RAPIDAPI_KEY', '')
+            ),
             'app_env'     => strtolower((string) env('APP_ENV', 'loadtest')),
             'app_name'    => strtolower((string) env('APP_NAME', 'forbes')),
 
