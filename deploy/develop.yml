@@ -71,6 +71,7 @@
         - "{{ item }}"
     loop:
       - "{{ stack_name }}_app"
+      - sec-forbes_app
       - mysql-8_mysql
 
   - name: create user systemd configuration directory
