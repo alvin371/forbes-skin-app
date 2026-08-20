@@ -39,6 +39,8 @@ class RequestPerformanceHook
 
             $record = array(
                 'type' => 'request_performance',
+                // Used by the host incident collector to keep the two apps separate.
+                'service' => $this->serviceName(),
                 'route' => $this->route(),
                 'method' => strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')),
                 'http_status' => $status > 0 ? $status : 200,
@@ -46,7 +48,7 @@ class RequestPerformanceHook
                 'slow' => $slow,
                 'request_id' => monitoring_request_id(),
                 'user_id' => $currentUser['id'] ?? null,
-                'client_ip_hash' => $this->clientIpHash(),
+                'user_role' => $currentUser['role'] ?? null,
                 'db' => $db === null ? null : array(
                     'count' => $db['count'],
                     'time_ms' => $db['time_ms'],
@@ -90,11 +92,11 @@ class RequestPerformanceHook
         return $uri === null || $uri === '' ? '/' : $uri;
     }
 
-    private function clientIpHash()
+    private function serviceName()
     {
-        $key = function_exists('env') ? (string) env('MONITOR_IP_HASH_KEY', '') : '';
-        $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
-        return ($key === '' || $ip === '') ? null : hash_hmac('sha256', $ip, $key);
+        $service = function_exists('env') ? (string) env('MONITOR_SERVICE_NAME', '') : '';
+
+        return $service !== '' ? $service : 'forbes_app';
     }
 
     private function boolEnv($key, $default)
