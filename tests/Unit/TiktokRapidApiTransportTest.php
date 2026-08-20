@@ -34,6 +34,104 @@ final class TiktokRapidApiTransportTest extends TestCase
         putenv('RAPIDAPI_KEY=test-key');
     }
 
+    /**
+     * The bug this pins: curl reports a CUMULATIVE time of ~0 for a phase it completed
+     * instantly, and a resolver with the answer cached returns in ~0.000 s. The classifier
+     * read `time_namelookup <= 0` as "DNS never finished" and returned infra_dns for read
+     * timeouts that had plainly resolved, connected and negotiated TLS first.
+     *
+     * Measured on production 2026-08-20: DNS from inside the worker container took 1-5 ms, six
+     * for six, while 454 of 631 transport failures in six hours were filed as infra_dns.
+     */
+    public function testCachedDnsTimeoutIsAStallNotADnsFailure(): void
+    {
+        $probe = new TemplateTransportProbe();
+
+        $this->assertSame('infra_stall', $probe->classifyTransport([
+            'curl_errno'         => 28,      // CURLE_OPERATION_TIMEDOUT
+            'time_namelookup'    => 0.0,     // cached resolver answer
+            'time_connect'       => 0.031,
+            'time_appconnect'    => 0.084,
+            'time_starttransfer' => 0.0,     // the response never began
+            'total_time'         => 8.0,
+        ]));
+    }
+
+    public function testTimeoutAfterBytesStartedFlowingIsAStall(): void
+    {
+        $probe = new TemplateTransportProbe();
+
+        $this->assertSame('infra_stall', $probe->classifyTransport([
+            'curl_errno'         => 28,
+            'time_namelookup'    => 0.004,
+            'time_connect'       => 0.031,
+            'time_appconnect'    => 0.084,
+            'time_starttransfer' => 1.2,
+            'total_time'         => 8.0,
+        ]));
+    }
+
+    /**
+     * The reordering must not cost us the classifications that were already correct: an
+     * explicit CURLE_COULDNT_RESOLVE_HOST is direct evidence and still outranks every timing.
+     */
+    public function testGenuineResolveFailureIsStillDns(): void
+    {
+        $probe = new TemplateTransportProbe();
+
+        $this->assertSame('infra_dns', $probe->classifyTransport([
+            'curl_errno'         => 6,       // CURLE_COULDNT_RESOLVE_HOST
+            'time_namelookup'    => 0.0,
+            'time_connect'       => 0.0,
+            'time_appconnect'    => 0.0,
+            'time_starttransfer' => 0.0,
+            'total_time'         => 5.0,
+        ]));
+    }
+
+    public function testExplicitConnectAndTlsErrnosOutrankTimings(): void
+    {
+        $probe = new TemplateTransportProbe();
+
+        $this->assertSame('infra_connect', $probe->classifyTransport([
+            'curl_errno'      => 7, 'time_namelookup' => 0.0, 'time_connect' => 0.0,
+            'time_appconnect' => 0.0, 'time_starttransfer' => 0.0, 'total_time' => 2.0,
+        ]));
+
+        $this->assertSame('infra_tls', $probe->classifyTransport([
+            'curl_errno'      => 35, 'time_namelookup' => 0.004, 'time_connect' => 0.03,
+            'time_appconnect' => 0.0, 'time_starttransfer' => 0.0, 'total_time' => 2.0,
+        ]));
+    }
+
+    /**
+     * A timeout that never opened a socket is genuinely a connect failure, and one that
+     * completed no phase at all remains DNS — the classifier still names the earliest phases
+     * when the evidence actually supports them.
+     */
+    public function testTimeoutIsAttributedToThePhaseAfterTheLastCompletedOne(): void
+    {
+        $probe = new TemplateTransportProbe();
+
+        // Resolved, but the socket never opened.
+        $this->assertSame('infra_connect', $probe->classifyTransport([
+            'curl_errno'      => 28, 'time_namelookup' => 0.004, 'time_connect' => 0.0,
+            'time_appconnect' => 0.0, 'time_starttransfer' => 0.0, 'total_time' => 8.0,
+        ]));
+
+        // Connected, but the TLS handshake never finished.
+        $this->assertSame('infra_tls', $probe->classifyTransport([
+            'curl_errno'      => 28, 'time_namelookup' => 0.004, 'time_connect' => 0.03,
+            'time_appconnect' => 0.0, 'time_starttransfer' => 0.0, 'total_time' => 8.0,
+        ]));
+
+        // Nothing completed at all.
+        $this->assertSame('infra_dns', $probe->classifyTransport([
+            'curl_errno'      => 28, 'time_namelookup' => 0.0, 'time_connect' => 0.0,
+            'time_appconnect' => 0.0, 'time_starttransfer' => 0.0, 'total_time' => 8.0,
+        ]));
+    }
+
     public function testCurlRequestWithRetryStopsOnConfigFailure(): void
     {
         $template                  = new TemplateTransportProbe();
@@ -346,6 +444,14 @@ final class TemplateTransportProbe extends Template
         $this->executeRapidApiGetCalls++;
 
         return array_shift($this->queuedExecuteResponses);
+    }
+
+    /**
+     * Exposes the protected transport classifier so its ordering can be pinned directly.
+     */
+    public function classifyTransport(array $meta): string
+    {
+        return $this->classifyRapidApiTransportFailure($meta);
     }
 
     protected function fetchRapidApiTiktokBatch(array $tasks, array $options = []): array
