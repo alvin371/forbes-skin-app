@@ -649,23 +649,83 @@ class Template
         $total = doubleval($meta['total_time'] ?? 0);
         $threshold = max(0.25, min(1.0, $total * 0.1));
 
-        if ($errno === 6 || $nameLookup <= 0 || ($total > 0 && $nameLookup >= ($total - $threshold))) {
+        // curl's own errno is direct evidence and must be consulted BEFORE the timing
+        // heuristics below. Those heuristics read a phase timing of 0 as "never got this far",
+        // but 0 is also what curl reports for a phase it completed instantly — and DNS, once
+        // the resolver has the answer cached, resolves in ~0.000s. Measured from the worker
+        // container on 2026-08-20: 1-5 ms, six for six. So the old ordering let the
+        // `$nameLookup <= 0` arm swallow every read timeout, and 454 request timeouts in six
+        // hours were filed as `infra_dns` against 167 as `infra_stall`.
+        if ($errno === 6) {
             return 'infra_dns';
         }
 
-        if ($errno === 7 || $connect <= 0 || ($total > 0 && $connect >= ($total - $threshold))) {
+        if ($errno === 7) {
             return 'infra_connect';
         }
 
-        if ($errno === 35 || $appConnect <= 0 || ($total > 0 && $appConnect >= ($total - $threshold))) {
+        if ($errno === 35) {
             return 'infra_tls';
         }
 
-        if ($errno === 28 && $startTransfer <= 0) {
+        if ($errno === 28) {
+            return self::attributeTimeoutToLastCompletedPhase($nameLookup, $connect, $appConnect, $startTransfer);
+        }
+
+        // No conclusive errno. The phase timings are all we have, so read them from the LAST
+        // phase backwards: the latest one that completed is the furthest the request got, and
+        // a zero on an EARLIER phase then carries no information (it just resolved instantly).
+        // Reading them front-to-back is what made a cached lookup look like a DNS failure.
+        if ($startTransfer > 0 && $total > 0 && $startTransfer >= ($total - $threshold)) {
             return 'infra_stall';
         }
 
-        return 'infra';
+        if ($appConnect > 0 && $total > 0 && $appConnect >= ($total - $threshold)) {
+            return 'infra_stall';
+        }
+
+        if ($connect > 0 && $total > 0 && $connect >= ($total - $threshold)) {
+            return 'infra_tls';
+        }
+
+        if ($nameLookup > 0 && $total > 0 && $nameLookup >= ($total - $threshold)) {
+            return 'infra_connect';
+        }
+
+        return self::attributeTimeoutToLastCompletedPhase($nameLookup, $connect, $appConnect, $startTransfer);
+    }
+
+    /**
+     * Name the phase a dead request reached, given curl's cumulative phase timings.
+     *
+     * Every timing is cumulative from request start and is 0 when the phase never completed —
+     * but ALSO effectively 0 when it completed instantly, which a cached DNS answer does. So
+     * the only safe reading is backwards: whichever phase last reported a non-zero time is the
+     * furthest the request actually got, and the failure belongs to the phase after it.
+     */
+    protected static function attributeTimeoutToLastCompletedPhase(
+        float $nameLookup,
+        float $connect,
+        float $appConnect,
+        float $startTransfer
+    ): string {
+        if ($startTransfer > 0.0) {
+            return 'infra_stall';       // bytes were flowing, then the peer went quiet
+        }
+
+        if ($appConnect > 0.0) {
+            return 'infra_stall';       // TLS done; the response never began
+        }
+
+        if ($connect > 0.0) {
+            return 'infra_tls';         // connected; the handshake never finished
+        }
+
+        if ($nameLookup > 0.0) {
+            return 'infra_connect';     // resolved; the socket never opened
+        }
+
+        return 'infra_dns';             // nothing completed at all
     }
 
     protected function executeRapidApiGet(string $url, array $headers = [], int $timeoutSec = 12): array

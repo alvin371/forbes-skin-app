@@ -120,6 +120,25 @@ final class EndorseRefreshPipeline
     private float $lastRollupAt = 0.0;
     private bool $readyReleasedOnStop = false;
 
+    /**
+     * Exponentially-weighted mean seconds a slot stays occupied, or 0.0 before any sample.
+     *
+     * This is the OTHER bound on how fast rows can be started, and the one the buffer used to
+     * ignore. The rate budget says how many starts per second are permitted; Little's Law says
+     * concurrency / service_time is how many are physically possible. Whichever is smaller is
+     * the real start rate, and the buffer must be sized from that — see readyDepthTarget().
+     *
+     * Measured on production 2026-08-20: budget allowed 4.0 starts/s while max_in_flight 5 at a
+     * 5.4 s service time permitted 0.93. The buffer followed the budget, so ~50 rows a minute
+     * were claimed, aged past ready_max_age_sec and released unstarted, continuously.
+     *
+     * Occupancy is deliberately measured rather than the start interval: service time is a
+     * property of the provider, so it cannot feed back on itself. An interval-derived rate
+     * would fall whenever the buffer ran dry, shrinking the buffer, which starves it further
+     * (the deadlock shape of ISSUES.md#issue-15).
+     */
+    private float $serviceTimeEwma = 0.0;
+
     /** @var array<int, bool> campaign ids whose rollup is pending */
     private array $dirtyCampaigns = array();
 
@@ -145,6 +164,9 @@ final class EndorseRefreshPipeline
             'claim_min_batch'    => 1,
             'ready_low_water'    => 5,
             'ready_max_age_sec'  => 2.0,
+            // ~10 samples of memory: fast enough to track a provider slowing down within a
+            // claim cycle, slow enough that one outlier cannot collapse the buffer.
+            'service_time_alpha' => 0.1,
             // Seconds of paced starts to keep buffered ahead of the slots. Only needs to cover
             // one claim round-trip; larger values reintroduce claim/release churn.
             'ready_lead_sec'     => 1.5,
@@ -355,9 +377,20 @@ final class EndorseRefreshPipeline
      * leg-1 handle, never from the buffer — so the buffer drains at the first leg's paced
      * rate and must be sized from that rate alone.
      *
-     * Returns the unpaced default when no budget is configured for the first leg: with no
-     * pacing there is no rate to derive a depth from, and the shared limiter remains
-     * authoritative either way.
+     * TWO bounds apply and the tighter one wins:
+     *
+     *   budget      = rate_per_min / 60 / replicas      — how many starts are ALLOWED
+     *   concurrency = max_in_flight / service_time      — how many are POSSIBLE (Little's Law)
+     *
+     * Only the budget was consulted before, which is correct only while the budget is the
+     * binding constraint. In production it was not: a 240/min budget (4.0 starts/s) against
+     * max_in_flight 5 at a 5.4 s service time (0.93 starts/s) sized the buffer 4x too deep, so
+     * roughly 50 rows a minute were claimed, aged past ready_max_age_sec and released
+     * unstarted — for as long as the worker ran.
+     *
+     * Falls back to the unpaced default only when NEITHER bound is known: with no budget and
+     * no service-time sample there is no rate to derive a depth from, and the shared limiter
+     * remains authoritative either way.
      */
     private function readyDepthTarget(): int
     {
@@ -369,17 +402,46 @@ final class EndorseRefreshPipeline
             ? (int) $this->cfg['direct_rate_per_min']
             : (int) $this->cfg['rapidapi_rate_per_min'];
 
-        if ($limitPerMin <= 0) {
+        $replicas = max(1, (int) $this->cfg['worker_replicas']);
+
+        $budgetPerSecond = $limitPerMin > 0 ? $limitPerMin / 60.0 / $replicas : INF;
+        $concurrencyPerSecond = $this->serviceTimeEwma > 0.0
+            ? max(1, (int) $this->cfg['max_in_flight']) / $this->serviceTimeEwma
+            : INF;
+
+        $perSecond = min($budgetPerSecond, $concurrencyPerSecond);
+        if (!is_finite($perSecond)) {
             return max($minBatch, (int) $this->cfg['ready_low_water']);
         }
 
-        $replicas = max(1, (int) $this->cfg['worker_replicas']);
-        $perSecond = $limitPerMin / 60.0 / $replicas;
         $lead = max(0.1, (float) $this->cfg['ready_lead_sec']);
 
         // Never below claim_min_batch: capacity is compared against min_batch below, so a
         // smaller target would stop claiming permanently (ISSUES.md#issue-15).
         return max($minBatch, (int) ceil($perSecond * $lead));
+    }
+
+    /**
+     * Fold one slot occupancy into the service-time mean.
+     *
+     * Guards against a non-positive sample so a clock that does not advance — the fake clock
+     * in the unit tests, or a coarse monotonic source — can never make the derived start rate
+     * infinite and re-open the over-claiming this measurement exists to close.
+     */
+    private function recordServiceTime(float $seconds): void
+    {
+        if ($seconds <= 0.0) {
+            return;
+        }
+
+        if ($this->serviceTimeEwma <= 0.0) {
+            $this->serviceTimeEwma = $seconds;
+
+            return;
+        }
+
+        $alpha = min(1.0, max(0.01, (float) $this->cfg['service_time_alpha']));
+        $this->serviceTimeEwma = ($alpha * $seconds) + ((1.0 - $alpha) * $this->serviceTimeEwma);
     }
 
     private function fillSlots(): void
@@ -648,6 +710,7 @@ final class EndorseRefreshPipeline
 
         $slot = $this->slots[$id];
         unset($this->slots[$id]);
+        $this->recordServiceTime($this->now() - (float) $slot['started_at']);
 
         $meta = $this->transportMeta($curl, $curlResult);
         curl_multi_remove_handle($this->mh, $curl);
@@ -844,6 +907,11 @@ final class EndorseRefreshPipeline
             }
 
             unset($this->slots[$id]);
+            // A reaped slot held its seat for the full deadline, so it counts towards service
+            // time exactly like a completion. Excluding it would make the buffer size itself
+            // from the healthy requests alone and over-claim during a provider slowdown —
+            // which is precisely when over-claiming hurts most.
+            $this->recordServiceTime($now - (float) $slot['started_at']);
             $meta = $this->transportMeta($slot['ch'], 28);
             curl_multi_remove_handle($this->mh, $slot['ch']);
             curl_close($slot['ch']);

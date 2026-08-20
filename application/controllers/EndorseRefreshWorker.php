@@ -333,6 +333,11 @@ class EndorseRefreshWorker extends CI_Controller
             // Kept comfortably under ready_max_age_sec so a buffered item is started well
             // before it can age out and be released.
             'ready_lead_sec'         => 1.5,
+            // Floor for the ready buffer, used only when neither the rate budget nor a
+            // service-time sample is available. Configurable so a tenant whose provider is
+            // slow can drop it without a deploy — see EndorseRefreshPipeline::readyDepthTarget.
+            'ready_low_water'        => self::clamp(env('ENDORSE_REFRESH_READY_LOW_WATER', 5), 1, 200),
+            'service_time_alpha'     => 0.1,
             'idle_sleep_us'          => self::clamp(env('ENDORSE_REFRESH_IDLE_SLEEP_US', 10000), 1000, 1000000),
             'claim_backoff_sec'      => 0.25,
             'pace_burst'             => self::clamp(env('ENDORSE_REFRESH_PACE_BURST', 20), 1, 200),

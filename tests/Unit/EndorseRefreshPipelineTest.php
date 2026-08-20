@@ -352,6 +352,99 @@ final class EndorseRefreshPipelineTest extends TestCase
             ->invoke($pipeline));
     }
 
+    /**
+     * The production bug (2026-08-20): the buffer was sized from the rate BUDGET alone, which
+     * is only the binding constraint when concurrency is not. On forbes it was not — a 240/min
+     * budget permits 4.0 starts/s, but max_in_flight 5 at a measured 5.4 s service time
+     * permits 0.93. The buffer was filled to 6, ~2 were started inside ready_max_age_sec, and
+     * the rest were claimed, aged out and released every cycle for as long as the worker ran.
+     */
+    public function testReadyBufferFollowsConcurrencyWhenItIsTighterThanTheBudget(): void
+    {
+        $pipeline = new EndorseRefreshPipeline($this->collaborators(), $this->config([
+            'max_in_flight'       => 5,
+            'claim_min_batch'     => 1,
+            'direct_rate_per_min' => 240,   // budget allows 4.0 starts/s
+            'worker_replicas'     => 1,
+            'ready_lead_sec'      => 1.5,
+        ]));
+
+        $record = new ReflectionMethod(EndorseRefreshPipeline::class, 'recordServiceTime');
+        $depth  = new ReflectionMethod(EndorseRefreshPipeline::class, 'readyDepthTarget');
+
+        // Before any sample the budget is the only bound we have — unchanged behaviour.
+        $this->assertSame(6, $depth->invoke($pipeline));
+
+        $record->invoke($pipeline, 5.4);
+
+        // 5 slots / 5.4 s = 0.93 starts/s, which is tighter than the budget's 4.0.
+        // ceil(0.93 * 1.5) = 2.
+        $this->assertSame(2, $depth->invoke($pipeline), 'buffer must follow the tighter bound');
+    }
+
+    public function testReadyBufferStillFollowsTheBudgetWhenConcurrencyIsAmple(): void
+    {
+        $pipeline = new EndorseRefreshPipeline($this->collaborators(), $this->config([
+            'max_in_flight'       => 100,
+            'claim_min_batch'     => 1,
+            'direct_rate_per_min' => 240,   // 4.0 starts/s
+            'worker_replicas'     => 1,
+            'ready_lead_sec'      => 1.5,
+        ]));
+
+        (new ReflectionMethod(EndorseRefreshPipeline::class, 'recordServiceTime'))
+            ->invoke($pipeline, 2.0);   // 100 / 2.0 = 50 starts/s, far above the budget
+
+        $this->assertSame(6, (new ReflectionMethod(EndorseRefreshPipeline::class, 'readyDepthTarget'))
+            ->invoke($pipeline), 'the rate budget must still win when it is the tighter bound');
+    }
+
+    /**
+     * With no budget configured the concurrency bound is the ONLY one available, so it must be
+     * used rather than falling back to the low-water default — that fallback exists for the
+     * case where nothing at all is known.
+     */
+    public function testUnpacedWorkerUsesConcurrencyOnceServiceTimeIsKnown(): void
+    {
+        $pipeline = new EndorseRefreshPipeline($this->collaborators(), $this->config([
+            'claim_min_batch'     => 1,
+            'direct_rate_per_min' => 0,
+            'ready_low_water'     => 5,
+            'max_in_flight'       => 4,
+            'ready_lead_sec'      => 1.0,
+        ]));
+
+        (new ReflectionMethod(EndorseRefreshPipeline::class, 'recordServiceTime'))
+            ->invoke($pipeline, 8.0);   // 4 / 8 = 0.5 starts/s -> ceil(0.5 * 1.0) = 1
+
+        $this->assertSame(1, (new ReflectionMethod(EndorseRefreshPipeline::class, 'readyDepthTarget'))
+            ->invoke($pipeline));
+    }
+
+    /**
+     * A zero or negative sample must be ignored. The fake clock in these tests does not always
+     * advance between a start and its completion, and treating 0 as a real service time would
+     * make the derived start rate infinite — re-opening the exact over-claiming the
+     * measurement exists to close.
+     */
+    public function testNonPositiveServiceTimeSamplesAreIgnored(): void
+    {
+        $pipeline = new EndorseRefreshPipeline($this->collaborators(), $this->config([
+            'max_in_flight'       => 5,
+            'claim_min_batch'     => 1,
+            'direct_rate_per_min' => 240,
+            'worker_replicas'     => 1,
+            'ready_lead_sec'      => 1.5,
+        ]));
+
+        $record = new ReflectionMethod(EndorseRefreshPipeline::class, 'recordServiceTime');
+        $record->invoke($pipeline, 0.0);
+        $record->invoke($pipeline, -3.0);
+
+        $this->assertSame(6, (new ReflectionMethod(EndorseRefreshPipeline::class, 'readyDepthTarget'))
+            ->invoke($pipeline), 'no usable sample means the budget still governs');
+    }
+
     public function testReadyDepthNeverFallsBelowMinBatch(): void
     {
         // A very slow rate would compute a depth of 1; min_batch must still win, or capacity
