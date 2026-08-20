@@ -10,7 +10,9 @@ if (! defined('BASEPATH')) {
 
 require_once __DIR__ . '/../../application/libraries/PerformanceSpikeStateMachine.php';
 
-/** @internal */
+/**
+ * @internal
+ */
 final class PerformanceSpikeStateMachineTest extends TestCase
 {
     public function testItOpensAtSixtyAndClosesAfterTwoRecoverySamples(): void
@@ -34,8 +36,8 @@ final class PerformanceSpikeStateMachineTest extends TestCase
         $state = $opened['state'];
         // The host collector assigns the durable key immediately after open.
         $state['incident_key'] = 'forbes_app-1';
-        $recovering = PerformanceSpikeStateMachine::transition($state, 10.0, 5.0, '2026-08-20T00:00:15Z');
-        $highAgain = PerformanceSpikeStateMachine::transition($recovering['state'], 80.0, 8.0, '2026-08-20T00:00:30Z');
+        $recovering            = PerformanceSpikeStateMachine::transition($state, 10.0, 5.0, '2026-08-20T00:00:15Z');
+        $highAgain             = PerformanceSpikeStateMachine::transition($recovering['state'], 80.0, 8.0, '2026-08-20T00:00:30Z');
         $this->assertSame('sample', $highAgain['event']);
         $this->assertSame(0, $highAgain['state']['recovery_count']);
         $this->assertSame(80.0, $highAgain['state']['peak_cpu_percent']);
