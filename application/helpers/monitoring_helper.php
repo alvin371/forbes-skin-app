@@ -133,9 +133,9 @@ if (!function_exists('monitoring_fail_job')) {
 
 if (!function_exists('monitoring_current_user')) {
     /**
-     * Identify the authenticated user for the current request from the session,
-     * so request logs answer "WHO" (remote_addr is always the reverse proxy).
-     * Returns null for anonymous/CLI.
+     * Identify the authenticated user for the current request from the session.
+     * Only the opaque ID and role are sent to the incident collector; username,
+     * request parameters and IP address are intentionally excluded.
      */
     function monitoring_current_user()
     {
@@ -147,7 +147,6 @@ if (!function_exists('monitoring_current_user')) {
 
         return array(
             'id' => isset($u['id']) ? (int) $u['id'] : null,
-            'username' => isset($u['username']) ? (string) $u['username'] : null,
             'role' => isset($u['role_text']) ? (string) $u['role_text']
                 : (isset($u['role']) ? (string) $u['role'] : null),
         );

@@ -35,6 +35,9 @@ class Endorse extends BaseController
             'queue_diagnostics_data' => 'view',
             'queue_diagnostics_run' => 'view',
             'queue_diagnostics_spike' => 'view',
+            'performance_spikes' => 'view',
+            'performance_spikes_data' => 'view',
+            'performance_spikes_detail' => 'view',
             'queue_count' => 'view',
             'clear_queue' => 'edit',
             'get_tiktok_photo_images' => 'view',
@@ -2421,6 +2424,60 @@ class Endorse extends BaseController
         $id = intval($this->input->get('id'));
         $row = $this->mymodel->selectWithQuery("SELECT id,captured_at,source,severity,summary,evidence_json FROM endorse_refresh_spikes WHERE id='$id' LIMIT 1");
         $this->output->set_content_type('application/json')->set_output(json_encode(array('spike' => $row[0] ?? null)));
+    }
+
+    /** Cross-service CPU incident dashboard. */
+    public function performance_spikes()
+    {
+        $data['template'] = $this->template;
+        $data['title'] = 'Diagnostik Spike Performa - ' . $this->template->title();
+        $data['content'] = $this->load->view('endorse/performance_spikes', $data, true);
+        $this->load->view('TemplateDashboard', $data);
+    }
+
+    public function performance_spikes_data()
+    {
+        if (! $this->db->table_exists('performance_spike_incidents')) {
+            return $this->output->set_content_type('application/json')->set_output(json_encode(array(
+                'ready' => false,
+                'message' => 'Migrasi diagnostik spike belum dijalankan.',
+            )));
+        }
+        $range = strtolower((string) $this->input->get('range'));
+        $hours = $range === '30d' ? 720 : ($range === '7d' ? 168 : 24);
+        $interval = intval($hours) . ' HOUR';
+        $summary = $this->mymodel->selectWithQuery("SELECT COUNT(*) incidents, SUM(status='open') open_incidents, ROUND(MAX(peak_cpu_percent),2) peak_cpu_percent, ROUND(AVG(duration_seconds),1) average_duration_seconds, SUM(request_count) request_count, SUM(active_user_count) active_user_count FROM performance_spike_incidents WHERE started_at >= NOW() - INTERVAL $interval");
+        $incidents = $this->mymodel->selectWithQuery("SELECT id,incident_key,service_name,status,started_at,ended_at,duration_seconds,peak_cpu_percent,peak_memory_percent,sample_count,request_count,active_user_count,anonymous_request_count,endpoint_summary_json FROM performance_spike_incidents WHERE started_at >= NOW() - INTERVAL $interval ORDER BY started_at DESC LIMIT 300");
+        $byService = $this->mymodel->selectWithQuery("SELECT service_name, COUNT(*) incidents, ROUND(MAX(peak_cpu_percent),2) peak_cpu_percent, ROUND(AVG(duration_seconds),1) average_duration_seconds FROM performance_spike_incidents WHERE started_at >= NOW() - INTERVAL $interval GROUP BY service_name ORDER BY incidents DESC");
+
+        return $this->output->set_content_type('application/json')->set_output(json_encode(array(
+            'ready' => true,
+            'range' => $range ?: '24h',
+            'summary' => $summary[0] ?? array(),
+            'incidents' => $incidents,
+            'by_service' => $byService,
+        )));
+    }
+
+    public function performance_spikes_detail()
+    {
+        if (! $this->db->table_exists('performance_spike_incidents')) {
+            return $this->output->set_content_type('application/json')->set_output(json_encode(array('incident' => null)));
+        }
+        $id = intval($this->input->get('id'));
+        $incident = $this->mymodel->selectWithQuery("SELECT * FROM performance_spike_incidents WHERE id='$id' LIMIT 1");
+        if (empty($incident)) {
+            return $this->output->set_content_type('application/json')->set_output(json_encode(array('incident' => null)));
+        }
+        $key = $this->db->escape($incident[0]['incident_key']);
+        $samples = $this->mymodel->selectWithQuery("SELECT captured_at,cpu_percent,memory_percent,pids,host_load_1 FROM performance_spike_samples WHERE incident_key=$key ORDER BY captured_at ASC LIMIT 1000");
+        $evidence = $this->mymodel->selectWithQuery("SELECT captured_at,source,phase,evidence_json FROM performance_spike_evidence WHERE incident_key=$key ORDER BY captured_at ASC");
+
+        return $this->output->set_content_type('application/json')->set_output(json_encode(array(
+            'incident' => $incident[0],
+            'samples' => $samples,
+            'evidence' => $evidence,
+        )));
     }
 
     /**

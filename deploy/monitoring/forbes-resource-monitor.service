@@ -1,5 +1,5 @@
 [Unit]
-Description=Forbes container resource snapshot
+Description=Forbes CPU incident collector
 
 [Service]
 Type=oneshot

@@ -1,9 +1,11 @@
 [Unit]
-Description=Run Forbes resource snapshot every minute
+Description=Run Forbes CPU incident collector every 15 seconds
 
 [Timer]
-OnCalendar=*-*-* *:*:00
-Persistent=true
+OnBootSec=15s
+OnUnitActiveSec=15s
+AccuracySec=1s
+Persistent=false
 Unit=forbes-resource-monitor.service
 
 [Install]
