@@ -567,6 +567,31 @@ if ($view == 'table') {
             font-size: 12px;
             line-height: 1.45;
         }
+        .endorse-fraud-card {
+            border: 2px solid #d4af37;
+            animation: endorse-fraud-pulse 1.8s ease-in-out infinite;
+        }
+        @keyframes endorse-fraud-pulse {
+            0% { box-shadow: 0 0 0 0 rgba(212, 175, 55, 0.55); }
+            70% { box-shadow: 0 0 0 8px rgba(212, 175, 55, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(212, 175, 55, 0); }
+        }
+        .endorse-fraud-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 10px;
+            padding: 7px 12px;
+            border-radius: 999px;
+            background: #d4af37;
+            color: #3a2e00;
+            font-size: 12px;
+            font-weight: 600;
+            border: none;
+        }
+        .endorse-fraud-tag:hover {
+            background: #c19d2e;
+        }
     </style>
     <?php
     foreach ($data as $v) {
@@ -725,8 +750,10 @@ if ($view == 'table') {
             $display_k = $k;
         }
         $has_url_sync_issue = !empty($v['has_url_sync_issue']);
+        $duplicate_count = (int) ($v['duplicate_count'] ?? 0);
+        $has_duplicate_link = $duplicate_count > 1;
     ?>
-    <div class="card mb-3<?= $has_url_sync_issue ? ' endorse-issue-card' : '' ?>" style="padding-bottom:0px">
+    <div class="card mb-3<?= $has_url_sync_issue ? ' endorse-issue-card' : '' ?><?= $has_duplicate_link ? ' endorse-fraud-card' : '' ?>" style="padding-bottom:0px">
         <div class="row">
             <!-- Featured Media Section -->
             <?php if (!empty($v['media_attachment'])): ?>
@@ -803,6 +830,12 @@ if ($view == 'table') {
                     <p class="endorse-issue-note">
                         Stats TikTok tidak ditemukan. Cek ulang URL konten karena kemungkinan link upload tidak valid atau tidak bisa dibaca sistem.
                     </p>
+                <?php endif; ?>
+                <?php if ($has_duplicate_link): ?>
+                    <button type="button" class="endorse-fraud-tag" onclick="showModal('Link Terdeteksi Ganda', '<?= base_url() ?>endorse/duplicate_locations/<?= $v['id'] ?>', true)">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        Terdeteksi di <?= $duplicate_count ?> tempat
+                    </button>
                 <?php endif; ?>
             </div>
             <!-- Stats Section -->

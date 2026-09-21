@@ -1278,7 +1278,8 @@ class Endorse extends BaseController
                      )
                     THEN 1
                     ELSE 0
-                END AS has_url_sync_issue
+                END AS has_url_sync_issue,
+                COALESCE(dup.cnt, 0) AS duplicate_count
             FROM
                 (SELECT DISTINCT * FROM endorse WHERE id_campaign = '$id_campaign' $qry) AS e
             LEFT JOIN ($growth_subquery) AS g ON g.id_endorse = e.id
@@ -1292,6 +1293,13 @@ class Endorse extends BaseController
                     GROUP BY id_endorse
                 ) q2 ON q2.max_id = q1.id
             ) AS ql ON ql.id_endorse = e.id
+            LEFT JOIN (
+                SELECT tiktok_content_id, COUNT(*) AS cnt
+                FROM endorse
+                WHERE platform = 'Tiktok' AND tiktok_content_id IS NOT NULL AND tiktok_content_id != ''
+                GROUP BY tiktok_content_id
+                HAVING COUNT(*) > 1
+            ) AS dup ON dup.tiktok_content_id = e.tiktok_content_id AND e.platform = 'Tiktok'
             ORDER BY $sort_column $sort_order, e.id DESC
             LIMIT $offset, $limit
         ");
@@ -1310,6 +1318,44 @@ class Endorse extends BaseController
         $data['end'] = min($offset + $limit, $total_data);
         
         $this->load->view("endorse/item", $data);
+    }
+
+    /**
+     * Modal content: every endorse row sharing this row's tiktok_content_id
+     * (same campaign or different campaigns), for the fraud-flag "detected elsewhere" popup.
+     */
+    public function duplicate_locations($id)
+    {
+        $current = $this->mymodel->selectWithQuery("
+            SELECT id, tiktok_content_id FROM endorse WHERE id = " . $this->db->escape((int) $id) . "
+        ");
+
+        $content_id = $current[0]['tiktok_content_id'] ?? '';
+
+        $rows = [];
+        if (!empty($content_id)) {
+            $rows = $this->mymodel->selectWithQuery("
+                SELECT
+                    e.id,
+                    e.id_campaign,
+                    c.title AS campaign_title,
+                    e.nama_creator,
+                    e.pic,
+                    e.link_upload,
+                    e.created_at,
+                    e.posting_at,
+                    e.tiktok_fetched_at
+                FROM endorse e
+                INNER JOIN endorse_campaign c ON c.id = e.id_campaign
+                WHERE e.platform = 'Tiktok'
+                  AND e.tiktok_content_id = " . $this->db->escape($content_id) . "
+                ORDER BY e.id_campaign ASC, e.id ASC
+            ");
+        }
+
+        $data['current_id'] = (int) $id;
+        $data['rows'] = $rows;
+        $this->load->view("endorse/duplicate_locations_modal", $data);
     }
 
     /**
