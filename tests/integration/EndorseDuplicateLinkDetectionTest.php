@@ -42,6 +42,7 @@ final class EndorseDuplicateLinkDetectionTest extends TestCase
         );
         $pdo->exec("SET SESSION sql_mode=''");
         $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
+
         foreach (['endorse', 'endorse_logs', 'endorse_campaign', 'endorse_campaign_logs'] as $table) {
             $pdo->exec("DROP TABLE IF EXISTS `{$table}`");
         }
@@ -133,7 +134,9 @@ final class EndorseDuplicateLinkDetectionTest extends TestCase
         $this->assertSame('2025-12-20', $rows[0]['posting_at']);
     }
 
-    /** @return array<string,int> content_id => duplicate count, mirroring Endorse::item()'s dup JOIN */
+    /**
+     * @return array<string,int> content_id => duplicate count, mirroring Endorse::item()'s dup JOIN
+     */
     private function duplicateCounts(): array
     {
         $rows = self::$pdo->query("
@@ -145,6 +148,7 @@ final class EndorseDuplicateLinkDetectionTest extends TestCase
         ")->fetchAll(PDO::FETCH_ASSOC);
 
         $out = [];
+
         foreach ($rows as $row) {
             $out[$row['tiktok_content_id']] = (int) $row['cnt'];
         }
