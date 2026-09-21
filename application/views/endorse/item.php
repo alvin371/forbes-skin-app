@@ -832,7 +832,7 @@ if ($view == 'table') {
                     </p>
                 <?php endif; ?>
                 <?php if ($has_duplicate_link): ?>
-                    <button type="button" class="endorse-fraud-tag" onclick="showModal('Link Terdeteksi Ganda', '<?= base_url() ?>endorse/duplicate_locations/<?= $v['id'] ?>', true)">
+                    <button type="button" class="endorse-fraud-tag" onclick="viewDuplicateLocations(<?= $v['id'] ?>)">
                         <i class="bi bi-exclamation-triangle-fill"></i>
                         Terdeteksi di <?= $duplicate_count ?> tempat
                     </button>

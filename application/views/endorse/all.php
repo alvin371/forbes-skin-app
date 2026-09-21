@@ -185,6 +185,7 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
                         $arr[] = "Ada MOU";
                         $arr[] = "Tidak Ada MOU";
                         $arr[] = "FYP";
+                        $arr[] = "Terdeteksi Bermasalah";
                         foreach ($arr as $k => $val) {
                             $class = "btn-default";
                             $class_2 = "dot";
@@ -2147,6 +2148,10 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
         showModal('Edit Konten', `<?= base_url() ?>/endorse/edit?id=${id}`, true);
     };
 
+    window.viewDuplicateLocations = function(id) {
+        showModal('Link Terdeteksi Ganda', `<?= base_url() ?>/endorse/duplicate_locations?id=${id}`, true);
+    };
+
     function hapus_data(id) {
         showModal('Hapus Data', `<?= base_url() ?>/endorse/action?code=hapus_data&id=${id}`);
     }
@@ -2858,6 +2863,10 @@ if (!empty($detail['start_at']) || !empty($detail['until_at'])) {
 
         window.edit = function(id) {
             showModalFallback('Edit Konten', baseUrl + '/endorse/edit?id=' + id, true);
+        };
+
+        window.viewDuplicateLocations = function(id) {
+            showModalFallback('Link Terdeteksi Ganda', baseUrl + '/endorse/duplicate_locations?id=' + id, true);
         };
 
         window.remove = function(id) {

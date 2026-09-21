@@ -1113,6 +1113,12 @@ class Endorse extends BaseController
                 $qry .= " AND link_mou = '' ";
             } else if ($status == 'FYP') {
                 $qry .= " AND is_fyp = 1 ";
+            } else if ($status == 'Terdeteksi Bermasalah') {
+                $qry .= " AND tiktok_content_id IN (
+                    SELECT tiktok_content_id FROM endorse
+                    WHERE platform = 'Tiktok' AND tiktok_content_id IS NOT NULL AND tiktok_content_id != ''
+                    GROUP BY tiktok_content_id HAVING COUNT(*) > 1
+                ) ";
             }
         }
 
@@ -1324,8 +1330,10 @@ class Endorse extends BaseController
      * Modal content: every endorse row sharing this row's tiktok_content_id
      * (same campaign or different campaigns), for the fraud-flag "detected elsewhere" popup.
      */
-    public function duplicate_locations($id)
+    public function duplicate_locations()
     {
+        $id = $_GET['id'];
+
         $current = $this->mymodel->selectWithQuery("
             SELECT id, tiktok_content_id FROM endorse WHERE id = " . $this->db->escape((int) $id) . "
         ");
