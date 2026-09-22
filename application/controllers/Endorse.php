@@ -868,6 +868,12 @@ class Endorse extends BaseController
                 $qry .= " AND link_mou = '' ";
             } else if ($status == 'FYP') {
                 $qry .= " AND is_fyp = 1 ";
+            } else if ($status == 'Terdeteksi Bermasalah') {
+                $qry .= " AND tiktok_content_id IN (
+                    SELECT tiktok_content_id FROM endorse
+                    WHERE platform = 'Tiktok' AND tiktok_content_id IS NOT NULL AND tiktok_content_id != ''
+                    GROUP BY tiktok_content_id HAVING COUNT(*) > 1
+                ) ";
             }
         }
 
