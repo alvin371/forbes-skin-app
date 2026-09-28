@@ -40,7 +40,7 @@ END_EPOCH="$(date +%s)"
 DURATION_MS=$(( (END_EPOCH - START_EPOCH) * 1000 ))
 BYTES_DOWNLOADED="$(wc -c < "$BODY_FILE" | tr -d ' ')"
 RESPONSE_PREVIEW="$(head -c 200 "$BODY_FILE" | tr '\n' ' ' | tr '\r' ' ')"
-RESPONSE_PREVIEW_JSON="$(printf '%s' "$RESPONSE_PREVIEW" | php -r 'echo json_encode(stream_get_contents(STDIN), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);')"
+RESPONSE_PREVIEW_JSON="$(printf '%s' "$RESPONSE_PREVIEW" | jq -Rs .)"
 
 printf '%s\n' \
   "{\"ts\":\"$START_TS\",\"app\":\"$APP_NAME\",\"job\":\"$JOB_NAME\",\"request_id\":\"$REQUEST_ID\",\"url\":\"$URL\",\"duration_ms\":$DURATION_MS,\"http_status\":$HTTP_CODE,\"curl_exit_code\":$CURL_EXIT,\"bytes_downloaded\":$BYTES_DOWNLOADED,\"timed_out\":$([ "$HTTP_CODE" = "000" ] && printf true || printf false),\"response_preview\":$RESPONSE_PREVIEW_JSON}" \
