@@ -145,7 +145,7 @@ class ThreadsEndorseScraperService
             ], ['id' => (int) ($row['id'])]);
             $this->finalizeAttempt((int) ($row['id']), $attemptNo, $workerId, 'completed', null, null, $now);
             if ($purpose === 'daily') {
-                $this->CI->endorse_sync->update_campaign_parent((int) ($endorse['id_campaign']));
+                $this->CI->endorse_sync->update_campaign_parent((int) ($endorse['id_campaign']), 0);
             }
             $summary['completed']++;
         }
