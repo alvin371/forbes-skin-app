@@ -41,6 +41,19 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Build and push PHP base image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.base
+          push: true
+          tags: |
+            gilangp/forbes-base:latest
+            gilangp/forbes-base:php-8.4.27
+            gilangp/forbes-base:${{ github.sha }}
+          cache-from: type=gha,scope=forbes-base
+          cache-to: type=gha,mode=max,scope=forbes-base
+
       - name: Build runtime image
         uses: docker/build-push-action@v6
         with:
