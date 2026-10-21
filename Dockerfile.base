@@ -1,7 +1,4 @@
-# Prebuilt base image: PHP + Apache + compiled extensions + composer + php.ini/vhost.
-# Built and pushed by .github/workflows/base.yml ONLY when this file changes.
-# The main Dockerfile does `FROM gilangp/forbes-base AS base`, so CI never recompiles
-# extensions in the hot path. Add/remove a PHP extension here -> re-run base.yml.
+# PHP + Apache + extensions + composer + php.ini/vhost; ci.yml publishes this before the app.
 FROM php:8.4.27-apache
 
 WORKDIR /var/www/html

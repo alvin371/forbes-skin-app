@@ -1,18 +1,11 @@
 name: Build Base Image
 
-# Builds the heavy PHP+Apache+extensions base (Dockerfile.base) and pushes it to
-# DockerHub. Runs only when the base definition changes, or manually. The app
-# pipeline (ci.yml / pr.yml) then does `FROM gilangp/forbes-base` and skips apt/pecl.
+# Manual rebuild of the PHP base image. ci.yml builds it before the app on every push.
 
 permissions:
   contents: read
 
 on:
-  push:
-    branches: [develop, main]
-    paths:
-      - Dockerfile.base
-      - .github/workflows/base.yml
   workflow_dispatch:
 
 jobs:
