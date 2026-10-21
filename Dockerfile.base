@@ -2,7 +2,7 @@
 # Built and pushed by .github/workflows/base.yml ONLY when this file changes.
 # The main Dockerfile does `FROM gilangp/forbes-base AS base`, so CI never recompiles
 # extensions in the hot path. Add/remove a PHP extension here -> re-run base.yml.
-FROM php:8.4-apache
+FROM php:8.4.27-apache
 
 WORKDIR /var/www/html
 
@@ -42,6 +42,7 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 RUN echo "upload_max_filesize = 50M" >> /usr/local/etc/php/conf.d/custom.ini \
     && echo "post_max_size = 50M" >> /usr/local/etc/php/conf.d/custom.ini \
     && echo "memory_limit = 256M" >> /usr/local/etc/php/conf.d/custom.ini \
+    && echo "session.upload_progress.enabled = 0" >> /usr/local/etc/php/conf.d/custom.ini \
     && echo "max_execution_time = 300" >> /usr/local/etc/php/conf.d/custom.ini \
     && echo "date.timezone = Asia/Jakarta" >> /usr/local/etc/php/conf.d/custom.ini \
     && echo "zend.exception_ignore_args = Off" >> /usr/local/etc/php/conf.d/custom.ini

@@ -27,9 +27,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Rust format
         run: cargo fmt --manifest-path services/endorse-refresh-worker/Cargo.toml -- --check
 
@@ -45,15 +42,24 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Build base image from this branch
+        uses: docker/build-push-action@v6
+        with:
+          builder: default
+          context: .
+          file: Dockerfile.base
+          load: true
+          tags: local/forbes-base:ci
+
       - name: Build CI image
         uses: docker/build-push-action@v6
         with:
+          builder: default
           context: .
           target: ci
           load: true
           tags: local/forbes-ci:${{ github.sha }}
-          cache-from: type=gha,scope=forbes-docker
-          cache-to: type=gha,mode=max,scope=forbes-docker
+          build-args: BASE_IMAGE=local/forbes-base:ci
 
       - name: Validate composer.json
         run: docker run --rm local/forbes-ci:${{ github.sha }} composer validate

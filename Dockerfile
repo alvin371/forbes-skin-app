@@ -1,7 +1,7 @@
 # Heavy base (apt + compiled PHP extensions + composer + php.ini/vhost) is prebuilt
 # and pushed as gilangp/forbes-base by .github/workflows/base.yml. See Dockerfile.base.
 # Override the tag with --build-arg BASE_IMAGE=... if needed.
-ARG BASE_IMAGE=gilangp/forbes-base:latest
+ARG BASE_IMAGE=gilangp/forbes-base:php-8.4.27
 FROM ${BASE_IMAGE} AS base
 
 WORKDIR /var/www/html

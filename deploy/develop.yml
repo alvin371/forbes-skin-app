@@ -21,6 +21,20 @@
         --image {{ container_image }} \
         --with-registry-auth
 
+  - name: update PHP endorse refresh workers
+    ansible.builtin.command:
+      argv:
+        - docker
+        - service
+        - update
+        - --image
+        - "{{ container_image }}"
+        - --with-registry-auth
+        - "{{ item }}"
+    loop:
+      - forbes_endorse-refresh-php-worker
+      - sec-forbes_endorse-refresh-php-worker
+
   # The worker can intentionally be scaled to zero while DRIVER=cron. Updating its
   # immutable image must preserve that replica count; activation is a separate,
   # explicit rollout step after the server-side claim gate is verified.
